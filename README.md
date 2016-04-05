@@ -95,9 +95,11 @@ There are a few related packages, soon more will be added.
 
 ### About different Weaviate versions
 Weaviate comes in three versions.
-* **Community version**, Open Source
-* **Enterprise hosted version**, a multinode hosted version. [More info on weaviate.com](http://weaviate.com)
-* **Enterprise version**, an SLA based version. [More info on weaviate.com](http://weaviate.com)
+* **Community version**: Open Source
+* **Enterprise hosted version**: a multinode hosted version. [More info on weaviate.com](http://weaviate.com)
+* **Enterprise version**: an SLA based version. [More info on weaviate.com](http://weaviate.com)
+
+For more information, please contact: yourfriends@weaviate.com
 
 ### Contributing and Gitflow
 You can contribute to Weaviate by creating a pull request. Weaviate is build using the [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) method. You can do a pull request to an appropriate branch.
