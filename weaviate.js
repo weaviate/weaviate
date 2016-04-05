@@ -7,13 +7,14 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *                                          
  * Copyright © 2016 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/weaviate/weaviate/LICENSE
  * See www.weaviate.com for details
  * See package.json for auther and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 module.exports = (i) => {
     /**
-     * Check if all input fields are set
+     * Check if all mandatory fields are set
      */
     if (i === undefined) {
         throw "Values aren't set when you call Weaviate, please pass an object with proper values. More info on the website";
@@ -54,23 +55,23 @@ module.exports = (i) => {
     /**
      * Include all deps and set all vars
      */
-    const HTTP = require('http'),
-        HTTPS = require('https'),
-        ACLENTRIES = require('./libs/weave/v1/aclEntries.js'),
-        AUTHORIZEDAPPS = require('./libs/weave/v1/authorizedApps.js'),
-        COMMANDS = require('./libs/weave/v1/commands.js'),
-        DEVICES = require('./libs/weave/v1/devices.js'),
-        EVENTS = require('./libs/weave/v1/events.js'),
-        MODELMANIFESTS = require('./libs/weave/v1/modelManifests.js'),
-        PERSONALIZEDINFOS = require('./libs/weave/v1/personalizedInfos.js'),
-        REGISTRATIONTICKETS = require('./libs/weave/v1/registrationTickets.js'),
-        SUBSCRIPTIONS = require('./libs/weave/v1/subscriptions.js'),
-        HOSTNAME = i.hostname,
-        EXPRESS = require('express'),
-        Q = require('q'),
-        APP = EXPRESS(),
-        PORT = i.port;
-    var MAINDEFERRED = Q.defer();
+    const   HTTP                = require('http'),
+            HTTPS               = require('https'),
+            ACLENTRIES          = require('./libs/weave/v1/aclEntries.js'),
+            AUTHORIZEDAPPS      = require('./libs/weave/v1/authorizedApps.js'),
+            COMMANDS            = require('./libs/weave/v1/commands.js'),
+            DEVICES             = require('./libs/weave/v1/devices.js'),
+            EVENTS              = require('./libs/weave/v1/events.js'),
+            MODELMANIFESTS      = require('./libs/weave/v1/modelManifests.js'),
+            PERSONALIZEDINFOS   = require('./libs/weave/v1/personalizedInfos.js'),
+            REGISTRATIONTICKETS = require('./libs/weave/v1/registrationTickets.js'),
+            SUBSCRIPTIONS       = require('./libs/weave/v1/subscriptions.js'),
+            HOSTNAME            = i.hostname,
+            EXPRESS             = require('express'),
+            Q                   = require('q'),
+            APP                 = EXPRESS(),
+            PORT                = i.port;
+    var     MAINDEFERRED        = Q.defer();
     /**
      * Set response fordevices/{deviceId}/aclEntries/{aclEntryId}
      */
