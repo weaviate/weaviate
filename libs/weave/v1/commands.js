@@ -7,7 +7,7 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *                                          
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/LICENSE
+ * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * See www.weaviate.com for details
  * See package.json for auther and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
