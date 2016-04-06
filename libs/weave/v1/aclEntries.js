@@ -1,11 +1,11 @@
 'use strict';
-/**                         _       _       
- *                         (_)     | |      
- *__      _____  __ ___   ___  __ _| |_ ___ 
+/**                         _       _
+ *                         (_)     | |
+ *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *                                          
+ *
  * Copyright © 2016 Weaviate. All rights reserved.
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * See www.weaviate.com for details
@@ -19,559 +19,559 @@ module.exports = {
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    delete: (i, weaveObject, Q) => {
-        var deferred = Q.defer(); // no repsonse needed
-        try {
+  delete: (i, weaveObject, Q) => {
+    var deferred = Q.defer(); // no repsonse needed
+    try {
             /**
              * Validate if the provide body is correct, if no body is expected, keep the array empty []
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-                switch (result) {
-                    case true:
+        ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+            switch (result) {
+                case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.aclEntries.delete', [], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve({});
-                            }
-                        });
-                        break;
-                    case false:
+                  ACTIONS.process('weave.aclEntries.delete', [], (processResult) => {
+                      switch (processResult) {
+                            case false:
+                              deferred.reject('Something processing this request went wrong');
+                            default:
+                              deferred.resolve({});
+                          }
+                    });
+                  break;
+                case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
-                }
-            })
-        } catch (error) {
-            deferred.reject(error);
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
+          deferred.reject(error);
         }
-        return deferred.promise;
-    },
+    return deferred.promise;
+  },
     /**
      * get
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    get: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  get: (i, weaveObject, Q) => {
+    var deferred = Q.defer();
+    try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-                switch (result) {
-                    case true:
+        ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+            switch (result) {
+                case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.aclEntries.get', [
+                  ACTIONS.process('weave.aclEntries.get', [
                             /**
                              * description  string
                              * type  User who created this entry. At the moment it is populated only when pending == true.
                              */
-                            'creatorEmail',
+                      'creatorEmail',
                             /**
                              * description  string
                              * type  User on behalf of whom the access is granted to the application.
                              */
-                            'delegator',
+                      'delegator',
                             /**
                              * description  string
                              * type  Unique ACL entry ID.
                              */
-                            'id',
+                      'id',
                             /**
                              * description  string
                              * type  Public access key value. Set only when scopeType is PUBLIC.
                              * format  int64
                              */
-                            'key',
+                      'key',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "weave#aclEntry".
                              */
-                            'kind',
+                      'kind',
                             /**
                              * description  boolean
                              * type  Whether this ACL entry is pending for user reply to accept/reject it.
                              */
-                            'pending',
+                      'pending',
                             /**
                              * description  array
                              * type  Set of access privileges granted for this scope.
 
-                            Valid values are:  
-                            - "modifyAcl" 
+                            Valid values are:
+                            - "modifyAcl"
                             - "viewAllEvents"
                              */
-                            'privileges',
+                      'privileges',
                             /**
                              * description  string
                              * type  Access role granted to this scope.
                              * enum  manager, owner, robot, user, viewer
                              * required  weave.aclEntries.insert
                              */
-                            'role',
+                      'role',
                             /**
                              * description  string
                              * type  Email address if scope type is user or group, domain name if scope type is a domain.
                              * required  weave.aclEntries.insert
                              */
-                            'scopeId',
+                      'scopeId',
                             /**
                              * description  string
                              * type  Type of membership the user has in the scope.
                              * enum  delegator, manager, member, none
                              */
-                            'scopeMembership',
+                      'scopeMembership',
                             /**
                              * description  string
                              * type  Displayable scope name.
                              */
-                            'scopeName',
+                      'scopeName',
                             /**
                              * description  string
                              * type  URL of this scope displayable photo.
                              */
-                            'scopePhotoUrl',
+                      'scopePhotoUrl',
                             /**
                              * description  string
                              * type  Type of the access scope.
                              * enum  application, domain, group, public, user
                              */
-                            'scopeType'
-                        ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
-                            }
+                      'scopeType'
+                    ], (processResult) => {
+                          switch (processResult) {
+                            case false:
+                              deferred.reject('Something processing this request went wrong');
+                            default:
+                              deferred.resolve(processResult);
+                          }
                         });
-                        break;
-                    case false:
+                  break;
+                case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
-                }
-            })
-        } catch (error) {
-            deferred.reject(error);
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
+          deferred.reject(error);
         }
-        return deferred.promise;
-    },
+    return deferred.promise;
+  },
     /**
      * patch
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    patch: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  patch: (i, weaveObject, Q) => {
+    var deferred = Q.defer();
+    try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-                switch (result) {
-                    case true:
+        ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+            switch (result) {
+                case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.aclEntries.patch', [
+                  ACTIONS.process('weave.aclEntries.patch', [
                             /**
                              * description  string
                              * type  User who created this entry. At the moment it is populated only when pending == true.
                              */
-                            'creatorEmail',
+                      'creatorEmail',
                             /**
                              * description  string
                              * type  User on behalf of whom the access is granted to the application.
                              */
-                            'delegator',
+                      'delegator',
                             /**
                              * description  string
                              * type  Unique ACL entry ID.
                              */
-                            'id',
+                      'id',
                             /**
                              * description  string
                              * type  Public access key value. Set only when scopeType is PUBLIC.
                              * format  int64
                              */
-                            'key',
+                      'key',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "weave#aclEntry".
                              */
-                            'kind',
+                      'kind',
                             /**
                              * description  boolean
                              * type  Whether this ACL entry is pending for user reply to accept/reject it.
                              */
-                            'pending',
+                      'pending',
                             /**
                              * description  array
                              * type  Set of access privileges granted for this scope.
 
-                            Valid values are:  
-                            - "modifyAcl" 
+                            Valid values are:
+                            - "modifyAcl"
                             - "viewAllEvents"
                              */
-                            'privileges',
+                      'privileges',
                             /**
                              * description  string
                              * type  Access role granted to this scope.
                              * enum  manager, owner, robot, user, viewer
                              * required  weave.aclEntries.insert
                              */
-                            'role',
+                      'role',
                             /**
                              * description  string
                              * type  Email address if scope type is user or group, domain name if scope type is a domain.
                              * required  weave.aclEntries.insert
                              */
-                            'scopeId',
+                      'scopeId',
                             /**
                              * description  string
                              * type  Type of membership the user has in the scope.
                              * enum  delegator, manager, member, none
                              */
-                            'scopeMembership',
+                      'scopeMembership',
                             /**
                              * description  string
                              * type  Displayable scope name.
                              */
-                            'scopeName',
+                      'scopeName',
                             /**
                              * description  string
                              * type  URL of this scope displayable photo.
                              */
-                            'scopePhotoUrl',
+                      'scopePhotoUrl',
                             /**
                              * description  string
                              * type  Type of the access scope.
                              * enum  application, domain, group, public, user
                              */
-                            'scopeType'
-                        ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
-                            }
+                      'scopeType'
+                    ], (processResult) => {
+                          switch (processResult) {
+                            case false:
+                              deferred.reject('Something processing this request went wrong');
+                            default:
+                              deferred.resolve(processResult);
+                          }
                         });
-                        break;
-                    case false:
+                  break;
+                case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
-                }
-            })
-        } catch (error) {
-            deferred.reject(error);
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
+          deferred.reject(error);
         }
-        return deferred.promise;
-    },
+    return deferred.promise;
+  },
     /**
      * update
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    update: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  update: (i, weaveObject, Q) => {
+    var deferred = Q.defer();
+    try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, ['creatorEmail', 'delegator', 'id', 'key', 'kind', 'pending', 'privileges', 'role', 'scopeId', 'scopeMembership', 'scopeName', 'scopePhotoUrl', 'scopeType'], (result) => {
-                switch (result) {
-                    case true:
+        ACTIONS.validateBodyObject(weaveObject, ['creatorEmail', 'delegator', 'id', 'key', 'kind', 'pending', 'privileges', 'role', 'scopeId', 'scopeMembership', 'scopeName', 'scopePhotoUrl', 'scopeType'], (result) => {
+            switch (result) {
+                case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.aclEntries.update', [
+                  ACTIONS.process('weave.aclEntries.update', [
                             /**
                              * description  string
                              * type  User who created this entry. At the moment it is populated only when pending == true.
                              */
-                            'creatorEmail',
+                      'creatorEmail',
                             /**
                              * description  string
                              * type  User on behalf of whom the access is granted to the application.
                              */
-                            'delegator',
+                      'delegator',
                             /**
                              * description  string
                              * type  Unique ACL entry ID.
                              */
-                            'id',
+                      'id',
                             /**
                              * description  string
                              * type  Public access key value. Set only when scopeType is PUBLIC.
                              * format  int64
                              */
-                            'key',
+                      'key',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "weave#aclEntry".
                              */
-                            'kind',
+                      'kind',
                             /**
                              * description  boolean
                              * type  Whether this ACL entry is pending for user reply to accept/reject it.
                              */
-                            'pending',
+                      'pending',
                             /**
                              * description  array
                              * type  Set of access privileges granted for this scope.
 
-                            Valid values are:  
-                            - "modifyAcl" 
+                            Valid values are:
+                            - "modifyAcl"
                             - "viewAllEvents"
                              */
-                            'privileges',
+                      'privileges',
                             /**
                              * description  string
                              * type  Access role granted to this scope.
                              * enum  manager, owner, robot, user, viewer
                              * required  weave.aclEntries.insert
                              */
-                            'role',
+                      'role',
                             /**
                              * description  string
                              * type  Email address if scope type is user or group, domain name if scope type is a domain.
                              * required  weave.aclEntries.insert
                              */
-                            'scopeId',
+                      'scopeId',
                             /**
                              * description  string
                              * type  Type of membership the user has in the scope.
                              * enum  delegator, manager, member, none
                              */
-                            'scopeMembership',
+                      'scopeMembership',
                             /**
                              * description  string
                              * type  Displayable scope name.
                              */
-                            'scopeName',
+                      'scopeName',
                             /**
                              * description  string
                              * type  URL of this scope displayable photo.
                              */
-                            'scopePhotoUrl',
+                      'scopePhotoUrl',
                             /**
                              * description  string
                              * type  Type of the access scope.
                              * enum  application, domain, group, public, user
                              */
-                            'scopeType'
-                        ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
-                            }
+                      'scopeType'
+                    ], (processResult) => {
+                          switch (processResult) {
+                            case false:
+                              deferred.reject('Something processing this request went wrong');
+                            default:
+                              deferred.resolve(processResult);
+                          }
                         });
-                        break;
-                    case false:
+                  break;
+                case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
-                }
-            })
-        } catch (error) {
-            deferred.reject(error);
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
+          deferred.reject(error);
         }
-        return deferred.promise;
-    },
+    return deferred.promise;
+  },
     /**
      * insert
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    insert: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  insert: (i, weaveObject, Q) => {
+    var deferred = Q.defer();
+    try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, ['role', 'scopeId'], (result) => {
-                switch (result) {
-                    case true:
+        ACTIONS.validateBodyObject(weaveObject, ['role', 'scopeId'], (result) => {
+            switch (result) {
+                case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.aclEntries.insert', [
+                  ACTIONS.process('weave.aclEntries.insert', [
                             /**
                              * description  string
                              * type  User who created this entry. At the moment it is populated only when pending == true.
                              */
-                            'creatorEmail',
+                      'creatorEmail',
                             /**
                              * description  string
                              * type  User on behalf of whom the access is granted to the application.
                              */
-                            'delegator',
+                      'delegator',
                             /**
                              * description  string
                              * type  Unique ACL entry ID.
                              */
-                            'id',
+                      'id',
                             /**
                              * description  string
                              * type  Public access key value. Set only when scopeType is PUBLIC.
                              * format  int64
                              */
-                            'key',
+                      'key',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "weave#aclEntry".
                              */
-                            'kind',
+                      'kind',
                             /**
                              * description  boolean
                              * type  Whether this ACL entry is pending for user reply to accept/reject it.
                              */
-                            'pending',
+                      'pending',
                             /**
                              * description  array
                              * type  Set of access privileges granted for this scope.
 
-                            Valid values are:  
-                            - "modifyAcl" 
+                            Valid values are:
+                            - "modifyAcl"
                             - "viewAllEvents"
                              */
-                            'privileges',
+                      'privileges',
                             /**
                              * description  string
                              * type  Access role granted to this scope.
                              * enum  manager, owner, robot, user, viewer
                              * required  weave.aclEntries.insert
                              */
-                            'role',
+                      'role',
                             /**
                              * description  string
                              * type  Email address if scope type is user or group, domain name if scope type is a domain.
                              * required  weave.aclEntries.insert
                              */
-                            'scopeId',
+                      'scopeId',
                             /**
                              * description  string
                              * type  Type of membership the user has in the scope.
                              * enum  delegator, manager, member, none
                              */
-                            'scopeMembership',
+                      'scopeMembership',
                             /**
                              * description  string
                              * type  Displayable scope name.
                              */
-                            'scopeName',
+                      'scopeName',
                             /**
                              * description  string
                              * type  URL of this scope displayable photo.
                              */
-                            'scopePhotoUrl',
+                      'scopePhotoUrl',
                             /**
                              * description  string
                              * type  Type of the access scope.
                              * enum  application, domain, group, public, user
                              */
-                            'scopeType'
-                        ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
-                            }
+                      'scopeType'
+                    ], (processResult) => {
+                          switch (processResult) {
+                            case false:
+                              deferred.reject('Something processing this request went wrong');
+                            default:
+                              deferred.resolve(processResult);
+                          }
                         });
-                        break;
-                    case false:
+                  break;
+                case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
-                }
-            })
-        } catch (error) {
-            deferred.reject(error);
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
+          deferred.reject(error);
         }
-        return deferred.promise;
-    },
+    return deferred.promise;
+  },
     /**
      * list
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    list: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  list: (i, weaveObject, Q) => {
+    var deferred = Q.defer();
+    try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-                switch (result) {
-                    case true:
+        ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+            switch (result) {
+                case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.aclEntries.list', [
+                  ACTIONS.process('weave.aclEntries.list', [
                             /**
                              * description  array
                              * type  The actual list of ACL entries.
                              */
-                            'aclEntries',
+                      'aclEntries',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "weave#aclEntriesListResponse".
                              */
-                            'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Token corresponding to the next page of ACL entries.
                              */
-                            'nextPageToken',
+                      'nextPageToken',
                             /**
                              * description  integer
                              * type  The total number of ACL entries for the query. The number of items in a response may be smaller due to paging.
                              * format  int32
                              */
-                            'totalResults'
-                        ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
-                            }
+                      'totalResults'
+                    ], (processResult) => {
+                          switch (processResult) {
+                            case false:
+                              deferred.reject('Something processing this request went wrong');
+                            default:
+                              deferred.resolve(processResult);
+                          }
                         });
-                        break;
-                    case false:
+                  break;
+                case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
-                }
-            })
-        } catch (error) {
-            deferred.reject(error);
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
+          deferred.reject(error);
         }
-        return deferred.promise;
-    },
-}
+    return deferred.promise;
+  },
+};

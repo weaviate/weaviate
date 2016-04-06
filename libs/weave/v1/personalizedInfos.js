@@ -1,11 +1,11 @@
 'use strict';
-/**                         _       _       
- *                         (_)     | |      
- *__      _____  __ ___   ___  __ _| |_ ___ 
+/**                         _       _
+ *                         (_)     | |
+ *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *                                          
+ *
  * Copyright © 2016 Weaviate. All rights reserved.
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * See www.weaviate.com for details
@@ -19,197 +19,197 @@ module.exports = {
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    get: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  get: (i, weaveObject, Q) => {
+      var deferred = Q.defer();
+      try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-                switch (result) {
-                    case true:
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+              switch (result) {
+                  case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.personalizedInfos.get', [
+                    ACTIONS.process('weave.personalizedInfos.get', [
                             /**
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
                              */
-                            'id',
+                          'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "weave#personalizedInfo".
                              */
-                            'kind',
+                          'kind',
                             /**
                              * description  string
                              * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
                              * format  int64
                              */
-                            'lastUseTimeMs',
+                          'lastUseTimeMs',
                             /**
                              * description  string
                              * type  Personalized device location.
                              */
-                            'location',
+                          'location',
                             /**
                              * description  string
                              * type  Personalized device display name.
                              */
-                            'name'
+                          'name'
                         ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
+                          switch (processResult) {
+                              case false:
+                                deferred.reject('Something processing this request went wrong');
+                              default:
+                                deferred.resolve(processResult);
                             }
                         });
-                        break;
-                    case false:
+                    break;
+                  case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
+                    deferred.reject('Provided body is incorrect');
+                    break;
                 }
-            })
+            });
         } catch (error) {
-            deferred.reject(error);
+          deferred.reject(error);
         }
-        return deferred.promise;
+      return deferred.promise;
     },
     /**
      * patch
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    patch: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  patch: (i, weaveObject, Q) => {
+      var deferred = Q.defer();
+      try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-                switch (result) {
-                    case true:
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+              switch (result) {
+                  case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.personalizedInfos.patch', [
+                    ACTIONS.process('weave.personalizedInfos.patch', [
                             /**
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
                              */
-                            'id',
+                          'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "weave#personalizedInfo".
                              */
-                            'kind',
+                          'kind',
                             /**
                              * description  string
                              * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
                              * format  int64
                              */
-                            'lastUseTimeMs',
+                          'lastUseTimeMs',
                             /**
                              * description  string
                              * type  Personalized device location.
                              */
-                            'location',
+                          'location',
                             /**
                              * description  string
                              * type  Personalized device display name.
                              */
-                            'name'
+                          'name'
                         ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
+                          switch (processResult) {
+                              case false:
+                                deferred.reject('Something processing this request went wrong');
+                              default:
+                                deferred.resolve(processResult);
                             }
                         });
-                        break;
-                    case false:
+                    break;
+                  case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
+                    deferred.reject('Provided body is incorrect');
+                    break;
                 }
-            })
+            });
         } catch (error) {
-            deferred.reject(error);
+          deferred.reject(error);
         }
-        return deferred.promise;
+      return deferred.promise;
     },
     /**
      * update
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    update: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  update: (i, weaveObject, Q) => {
+      var deferred = Q.defer();
+      try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-                switch (result) {
-                    case true:
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+              switch (result) {
+                  case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.personalizedInfos.update', [
+                    ACTIONS.process('weave.personalizedInfos.update', [
                             /**
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
                              */
-                            'id',
+                          'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "weave#personalizedInfo".
                              */
-                            'kind',
+                          'kind',
                             /**
                              * description  string
                              * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
                              * format  int64
                              */
-                            'lastUseTimeMs',
+                          'lastUseTimeMs',
                             /**
                              * description  string
                              * type  Personalized device location.
                              */
-                            'location',
+                          'location',
                             /**
                              * description  string
                              * type  Personalized device display name.
                              */
-                            'name'
+                          'name'
                         ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
+                          switch (processResult) {
+                              case false:
+                                deferred.reject('Something processing this request went wrong');
+                              default:
+                                deferred.resolve(processResult);
                             }
                         });
-                        break;
-                    case false:
+                    break;
+                  case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
+                    deferred.reject('Provided body is incorrect');
+                    break;
                 }
-            })
+            });
         } catch (error) {
-            deferred.reject(error);
+          deferred.reject(error);
         }
-        return deferred.promise;
+      return deferred.promise;
     },
-}
+};
