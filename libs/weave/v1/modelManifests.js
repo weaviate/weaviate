@@ -177,7 +177,7 @@ module.exports = {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+            ACTIONS.validateBodyObject(weaveObject, ['commandDefs'], (result) => {
                 switch (result) {
                     case true:
                         /**
@@ -222,7 +222,7 @@ module.exports = {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+            ACTIONS.validateBodyObject(weaveObject, ['state'], (result) => {
                 switch (result) {
                     case true:
                         /**

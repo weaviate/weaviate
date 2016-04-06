@@ -294,7 +294,7 @@ module.exports = {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+            ACTIONS.validateBodyObject(weaveObject, ['creatorEmail', 'delegator', 'id', 'key', 'kind', 'pending', 'privileges', 'role', 'scopeId', 'scopeMembership', 'scopeName', 'scopePhotoUrl', 'scopeType'], (result) => {
                 switch (result) {
                     case true:
                         /**
@@ -409,7 +409,7 @@ module.exports = {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+            ACTIONS.validateBodyObject(weaveObject, ['role', 'scopeId'], (result) => {
                 switch (result) {
                     case true:
                         /**

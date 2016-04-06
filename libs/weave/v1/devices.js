@@ -836,7 +836,7 @@ module.exports = {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+            ACTIONS.validateBodyObject(weaveObject, ['requestTimeMs', 'patches'], (result) => {
                 switch (result) {
                     case true:
                         /**
