@@ -1,11 +1,11 @@
 'use strict';
-/**                         _       _       
- *                         (_)     | |      
- *__      _____  __ ___   ___  __ _| |_ ___ 
+/**                         _       _
+ *                         (_)     | |
+ *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
- *                                          
+ *
  * Copyright © 2016 Weaviate. All rights reserved.
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * See www.weaviate.com for details
@@ -19,241 +19,241 @@ module.exports = {
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    get: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  get: (i, weaveObject, Q) => {
+      var deferred = Q.defer();
+      try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-                switch (result) {
-                    case true:
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+              switch (result) {
+                  case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.modelManifests.get', [
+                    ACTIONS.process('weave.modelManifests.get', [
                             /**
                              * description  array
                              * type  List of applications recommended to use with a device model.
                              */
-                            'applications',
+                          'applications',
                             /**
                              * description  string
                              * type  URL of image showing a confirmation button.
                              */
-                            'confirmationImageUrl',
+                          'confirmationImageUrl',
                             /**
                              * description  string
                              * type  URL of device image.
                              */
-                            'deviceImageUrl',
+                          'deviceImageUrl',
                             /**
                              * description  string
                              * type  Device kind, see "deviceKind" field of the Device resource.
                              * enum  accessPoint, aggregator, camera, developmentBoard, lock, printer, scanner, speaker, storage, toy, vendor, video
                              */
-                            'deviceKind',
+                          'deviceKind',
                             /**
                              * description  string
                              * type  Unique model manifest ID.
                              */
-                            'id',
+                          'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "weave#modelManifest".
                              */
-                            'kind',
+                          'kind',
                             /**
                              * description  string
                              * type  User readable device model description.
                              */
-                            'modelDescription',
+                          'modelDescription',
                             /**
                              * description  string
                              * type  User readable device model name.
                              */
-                            'modelName',
+                          'modelName',
                             /**
                              * description  string
                              * type  User readable name of device model manufacturer.
                              */
-                            'oemName',
+                          'oemName',
                             /**
                              * description  string
                              * type  URL of device support page.
                              */
-                            'supportPageUrl'
+                          'supportPageUrl'
                         ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
+                          switch (processResult) {
+                              case false:
+                                deferred.reject('Something processing this request went wrong');
+                              default:
+                                deferred.resolve(processResult);
                             }
                         });
-                        break;
-                    case false:
+                    break;
+                  case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
+                    deferred.reject('Provided body is incorrect');
+                    break;
                 }
-            })
+            });
         } catch (error) {
-            deferred.reject(error);
+          deferred.reject(error);
         }
-        return deferred.promise;
+      return deferred.promise;
     },
     /**
      * list
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    list: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  list: (i, weaveObject, Q) => {
+      var deferred = Q.defer();
+      try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-                switch (result) {
-                    case true:
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+              switch (result) {
+                  case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.modelManifests.list', [
+                    ACTIONS.process('weave.modelManifests.list', [
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "weave#modelManifestsListResponse".
                              */
-                            'kind',
+                          'kind',
                             /**
                              * description  array
                              * type  The actual list of model manifests.
                              */
-                            'modelManifests',
+                          'modelManifests',
                             /**
                              * description  string
                              * type  Token corresponding to the next page of model manifests.
                              */
-                            'nextPageToken',
+                          'nextPageToken',
                             /**
                              * description  integer
                              * type  The total number of model manifests for the query. The number of items in a response may be smaller due to paging.
                              * format  int32
                              */
-                            'totalResults'
+                          'totalResults'
                         ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
+                          switch (processResult) {
+                              case false:
+                                deferred.reject('Something processing this request went wrong');
+                              default:
+                                deferred.resolve(processResult);
                             }
                         });
-                        break;
-                    case false:
+                    break;
+                  case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
+                    deferred.reject('Provided body is incorrect');
+                    break;
                 }
-            })
+            });
         } catch (error) {
-            deferred.reject(error);
+          deferred.reject(error);
         }
-        return deferred.promise;
+      return deferred.promise;
     },
     /**
      * validateCommandDefs
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    validateCommandDefs: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  validateCommandDefs: (i, weaveObject, Q) => {
+      var deferred = Q.defer();
+      try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-                switch (result) {
-                    case true:
+          ACTIONS.validateBodyObject(weaveObject, ['commandDefs'], (result) => {
+              switch (result) {
+                  case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.modelManifests.validateCommandDefs', [
+                    ACTIONS.process('weave.modelManifests.validateCommandDefs', [
                             /**
                              * description  array
                              * type  Validation errors in command definitions.
                              */
-                            'validationErrors'
+                          'validationErrors'
                         ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
+                          switch (processResult) {
+                              case false:
+                                deferred.reject('Something processing this request went wrong');
+                              default:
+                                deferred.resolve(processResult);
                             }
                         });
-                        break;
-                    case false:
+                    break;
+                  case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
+                    deferred.reject('Provided body is incorrect');
+                    break;
                 }
-            })
+            });
         } catch (error) {
-            deferred.reject(error);
+          deferred.reject(error);
         }
-        return deferred.promise;
+      return deferred.promise;
     },
     /**
      * validateDeviceState
      *
      * @param i  input URL
      * @param  weaveObject  OBJ Object with the send in body and params*/
-    validateDeviceState: (i, weaveObject, Q) => {
-        var deferred = Q.defer();
-        try {
+  validateDeviceState: (i, weaveObject, Q) => {
+      var deferred = Q.defer();
+      try {
             /**
              * Validate if the provide body is correct
              */
-            ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-                switch (result) {
-                    case true:
+          ACTIONS.validateBodyObject(weaveObject, ['state'], (result) => {
+              switch (result) {
+                  case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                        ACTIONS.process('weave.modelManifests.validateDeviceState', [
+                    ACTIONS.process('weave.modelManifests.validateDeviceState', [
                             /**
                              * description  array
                              * type  Validation errors in device state.
                              */
-                            'validationErrors'
+                          'validationErrors'
                         ], (processResult) => {
-                            switch (processResult) {
-                                case false:
-                                    deferred.reject('Something processing this request went wrong');
-                                default:
-                                    deferred.resolve(processResult);
+                          switch (processResult) {
+                              case false:
+                                deferred.reject('Something processing this request went wrong');
+                              default:
+                                deferred.resolve(processResult);
                             }
                         });
-                        break;
-                    case false:
+                    break;
+                  case false:
                         /**
                          * Provided body is incorrect, send error
                          */
-                        deferred.reject('Provided body is incorrect');
-                        break;
+                    deferred.reject('Provided body is incorrect');
+                    break;
                 }
-            })
+            });
         } catch (error) {
-            deferred.reject(error);
+          deferred.reject(error);
         }
-        return deferred.promise;
+      return deferred.promise;
     },
-}
+};
