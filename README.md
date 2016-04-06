@@ -3,10 +3,10 @@
 
 Weaviate is a REST API based software-as-a-service platform that is able to process the Google Weave protocol. It can be used in combination with all Google's Weave and Brillo libraries ([link to the libs](https://weave.googlesource.com/), [link to Weave](https://developers.google.com/weave), [link to Brillo](https://developers.google.com/brillo)).
 
-You can use Weaviate on simple local machines, or complex distributes networks with Node in combination with a Cassandra database.
+You can use Weaviate on simple local machines, or complex distributed networks with Node in combination with a Cassandra database.
 
 *Note:
-Weaviate is not fully testable / production ready yet. You can follow the progress for the first release candidates [here](https://github.com/weaviate/weaviate/milestones). Follow this repo or signup for the [mailinglist](http://eepurl.com/bRsMir) to stay informed about the progress*
+Weaviate is not fully testable / production ready yet. You can follow the progress for the first release candidates [here](https://github.com/weaviate/weaviate/milestones). Follow this repo or sign up for the [mailing list](http://eepurl.com/bRsMir) to stay informed about the progress.*
 
 ![NPM](https://nodei.co/npm/weaviate.png?downloads=true "NPM")
 
@@ -21,7 +21,7 @@ Weaviate is not fully testable / production ready yet. You can follow the progre
 * [More info](#more-info)
 
 ### How does it work?
-Google provides different libraries for interacting with the Weave protocol ([more info](http://weaviate.com/)). By changing the end-points to your own private cloud running Weaviate. You can use the complete Weave and Brillo software solutions within you own cloud solution.
+Google provides different libraries for interacting with the Weave protocol ([more info](http://weaviate.com/)). By changing the end-points to your own private cloud that runs Weaviate. You can use the complete Weave and Brillo software solutions within you own cloud solution.
 
 ### Installation
 - Install Node version >5.0.0 ([more info](https://nodejs.org/en/download/package-manager))
@@ -35,7 +35,7 @@ weaviate( CONFIGURATION OBJECT )
 ```
 
 ### Using the weaviate() function
-The weaviate function needs an configuration objects and returns an optional promise with a weaveObject.
+The weaviate function needs configuration objects and returns an optional promise with a weaveObject.
 
 **Configuration Object example**:
 ```javascript
@@ -88,7 +88,7 @@ weaviate({
 ```
 
 ### Related packages, products and repos
-There are a few related packages, soon more will be added.
+There are a few related packages. More will be added soon.
 - [Weaviate Cassandra](https://github.com/weaviate/weaviate-cassandra) contains the CQL file for Cassandra.
 - [Weaviate Console](https://github.com/weaviate/weaviate-console) is a front-end console you might want to use to interact with the APIs.
 - [Weaviate Auth](https://github.com/weaviate/weaviate-auth) is the authentication protocol.
@@ -102,10 +102,10 @@ Weaviate comes in three versions.
 For more information, please contact: yourfriends@weaviate.com
 
 ### Contributing and Gitflow
-You can contribute to Weaviate by creating a pull request. Weaviate is build using the [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) method. You can do a pull request to an appropriate branch.
+You can contribute to Weaviate by creating a pull request. Weaviate is built using the [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) method. You can do a pull request to an appropriate branch.
 
 ### About Weaviate
-[Weave](https://developers.google.com/weave) is a high quality, open source end-to-end communications platform for IoT that allows you to connect and manage devices in a generic way. We understand that sometimes you need to be in control over your complete dataset. This may depend on the nature of your business, on analytics and predictions you want to do, or because you want to extend the protocol. Weaviate works as a replicate of Google Weave cloud and runs on your own cloud or datacenter solution.
+[Weave](https://developers.google.com/weave) is a high quality, open source end-to-end communications platform for IoT that allows you to connect and manage devices in a generic way. We understand that sometimes you need to be in control over your complete dataset. This may depend on the nature of your business, on analytics and predictions you want to do, or because you want to extend the protocol. Weaviate works as a replicate of the Google Weave cloud and runs on your own cloud or datacenter solution.
 
 ### Main contributors
 - Bob van Luijt (bob@weaviate.com, @bobvanluijt)
