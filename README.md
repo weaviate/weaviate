@@ -11,21 +11,21 @@ Weaviate is not fully testable / production ready yet. You can follow the progre
 ![NPM](https://nodei.co/npm/weaviate.png?downloads=true "NPM")
 
 ### Table of contents
-* [How does it work?](#)
-* [Installation](#)
-* [Using the weaviate() function](#)
-* [Related packages, products and repos](#)
-* [About different Weaviate versions](#)
-* [Contributing and Gitflow](#)
-* [Main contributors](#)
-* [More info](#)
+* [How does it work?](#how-does-it-work)
+* [Installation](#installation)
+* [Using the weaviate() function](#using-the-weaviate-function)
+* [Related packages, products and repos](#related-packages-products-and-repos)
+* [About different Weaviate versions](#about-different-weaviate-versions)
+* [Contributing and Gitflow](#contributing-and-gitflow)
+* [Main contributors](#main-contributors)
+* [More info](#more-info)
 
 ### How does it work?
 Google provides different libraries for interacting with the Weave protocol ([more info](http://weaviate.com/)). By changing the end-points to your own private cloud running Weaviate. You can use the complete Weave and Brillo software solutions within you own cloud solution.
 
 ### Installation
 - Install Node version >5.0.0 ([more info](https://nodejs.org/en/download/package-manager))
-- Install Weaviate from NPM: `npm install falcor-router --save`
+- Install Weaviate from NPM: `npm install weaviate --save`
 - Install a Cassandra database ([more info](https://www.digitalocean.com/community/tutorials/how-to-install-cassandra-and-run-a-single-node-cluster-on-ubuntu-14-04)) and import the CQL file found in the [Weaviate-Cassandra](https://github.com/weaviate/weaviate-cassandra) repo.
 - In your server Javascript file, add the following:
 ```javascript
