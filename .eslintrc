@@ -19,7 +19,8 @@
     "env": {
         "browser": true,
         "jasmine": true,
-        "node": true
+        "node": true,
+        "es6": true
     },
     "rules": {
         "brace-style": 2,
@@ -58,7 +59,7 @@
         "no-invalid-regexp": 2,
         "no-mixed-spaces-and-tabs": 2,
         "no-redeclare": 2,
-        "quote-props": [2, "consistent-as-needed"],
+        "quote-props": ["error", "consistent"],
         "no-self-compare": 1,
         "no-shadow-restricted-names": 2,
         "no-trailing-spaces": 2,
