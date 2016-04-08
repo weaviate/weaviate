@@ -1,0 +1,6 @@
+version: '2'
+services:
+  weaviate:
+    build:
+      context: ..
+      dockerfile: docker-server/Dockerfile
