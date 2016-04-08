@@ -15,7 +15,7 @@
 /**
  * This is a local Weaviate example
  */ 
-var weaviate = require('./weaviate.js');
+const weaviate = require('./weaviate.js');
 
 weaviate({
 	https		: false,
