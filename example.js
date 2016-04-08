@@ -8,7 +8,7 @@
  *                                          
  * Copyright © 2016 Weaviate. All rights reserved.
  * See www.weaviate.com for details
- * See package.json for auther and maintainer info
+ * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
