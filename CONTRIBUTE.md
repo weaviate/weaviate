@@ -2,7 +2,7 @@
 Contributing works pretty easy. You can do a pull request or you can commit if you are part of a Weaviate team.
 
 ### How we use Gitflow
-How we use Gitflow and how you can contribute following a few steps.
+How we use [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) and how you can contribute following a few steps.
 
 - The master branch is what is released on NPM.
 - You can create a feature-branch that is named: feature/YOUR-FEATURE-NAME.
