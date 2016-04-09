@@ -1,5 +1,5 @@
 'use strict';
-/**                         _       _
+/*                          _       _
  *                         (_)     | |
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
@@ -7,7 +7,6 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * See www.weaviate.com for details
  * See package.json for auther and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -15,10 +14,59 @@
 const ACTIONS = require('./actions.js');
 module.exports = {
     /**
+     * createLocalAuthTokens
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
+  createLocalAuthTokens: (i, weaveObject, Q) => {
+      var deferred = Q.defer();
+      try {
+            /**
+             * Validate if the provide body is correct
+             */
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+              switch (result) {
+                  case true:
+                        /**
+                         * Provided body is correct, handle the request
+                         */
+                    ACTIONS.process('clouddevices.devices.createLocalAuthTokens', [
+                            /**
+                             * description  array
+                             * type  Minted device and client tokens.
+                             */
+                          'mintedLocalAuthTokens'
+                        ], (processResult) => {
+                          switch (processResult) {
+                              case false:
+                                deferred.reject('Something processing this request went wrong');
+                              default:
+                                deferred.resolve(processResult);
+                            }
+                        });
+                    break;
+                  case false:
+                        /**
+                         * Provided body is incorrect, send error
+                         */
+                    deferred.reject('Provided body is incorrect');
+                    break;
+                }
+            });
+        } catch (error) {
+          deferred.reject(error);
+        }
+      return deferred.promise;
+    },
+    /**
      * delete
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   delete: (i, weaveObject, Q) => {
       var deferred = Q.defer(); // no repsonse needed
       try {
@@ -31,7 +79,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.devices.delete', [], (processResult) => {
+                    ACTIONS.process('clouddevices.devices.delete', [], (processResult) => {
                           switch (processResult) {
                               case false:
                                 deferred.reject('Something processing this request went wrong');
@@ -55,9 +103,11 @@ module.exports = {
     },
     /**
      * get
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   get: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -70,19 +120,29 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.devices.get', [
+                    ACTIONS.process('clouddevices.devices.get', [
+                            /**
+                             * description  string
+                             * type  The HTTPS certificate fingerprint used to secure communication with device..
+                             */
+                          'certFingerprint',
                             /**
                              * description  object
                              * type  Device notification channel description.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'channel',
                             /**
                              * description  object
                              * type  Description of commands supported by the device. This field is writable only by devices.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'commandDefs',
+                            /**
+                             * description  undefined
+                             * type  Hierarchical componenet-based modeling of the device.
+                             */
+                          'components',
                             /**
                              * description  string
                              * type  Device connection status.
@@ -107,6 +167,11 @@ module.exports = {
                           'deviceKind',
                             /**
                              * description  string
+                             * type  The ID of the device for use on the local network.
+                             */
+                          'deviceLocalId',
+                            /**
+                             * description  string
                              * type  Unique device ID.
                              */
                           'id',
@@ -116,8 +181,13 @@ module.exports = {
                              */
                           'invitations',
                             /**
+                             * description  boolean
+                             * type  Indicates whether event recording is enabled or disabled for this device.
+                             */
+                          'isEventRecordingDisabled',
+                            /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#device".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#device".
                              */
                           'kind',
                             /**
@@ -171,7 +241,7 @@ module.exports = {
                             /**
                              * description  string
                              * type  Serial number of a device provided by its manufacturer.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'serialNumber',
                             /**
@@ -185,15 +255,15 @@ module.exports = {
                              */
                           'stateDefs',
                             /**
-                             * description  boolean
-                             * type  Whether state validation is enabled for the device.
-                             */
-                          'stateValidationEnabled',
-                            /**
                              * description  array
                              * type  Custom free-form manufacturer tags.
                              */
                           'tags',
+                            /**
+                             * description  undefined
+                             * type  Traits defined for the device.
+                             */
+                          'traits',
                             /**
                              * description  string
                              * type  Device kind from the model manifest used in UI applications.
@@ -223,9 +293,11 @@ module.exports = {
     },
     /**
      * patch
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   patch: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -238,19 +310,29 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.devices.patch', [
+                    ACTIONS.process('clouddevices.devices.patch', [
+                            /**
+                             * description  string
+                             * type  The HTTPS certificate fingerprint used to secure communication with device..
+                             */
+                          'certFingerprint',
                             /**
                              * description  object
                              * type  Device notification channel description.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'channel',
                             /**
                              * description  object
                              * type  Description of commands supported by the device. This field is writable only by devices.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'commandDefs',
+                            /**
+                             * description  undefined
+                             * type  Hierarchical componenet-based modeling of the device.
+                             */
+                          'components',
                             /**
                              * description  string
                              * type  Device connection status.
@@ -275,6 +357,11 @@ module.exports = {
                           'deviceKind',
                             /**
                              * description  string
+                             * type  The ID of the device for use on the local network.
+                             */
+                          'deviceLocalId',
+                            /**
+                             * description  string
                              * type  Unique device ID.
                              */
                           'id',
@@ -284,8 +371,13 @@ module.exports = {
                              */
                           'invitations',
                             /**
+                             * description  boolean
+                             * type  Indicates whether event recording is enabled or disabled for this device.
+                             */
+                          'isEventRecordingDisabled',
+                            /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#device".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#device".
                              */
                           'kind',
                             /**
@@ -339,7 +431,7 @@ module.exports = {
                             /**
                              * description  string
                              * type  Serial number of a device provided by its manufacturer.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'serialNumber',
                             /**
@@ -353,15 +445,15 @@ module.exports = {
                              */
                           'stateDefs',
                             /**
-                             * description  boolean
-                             * type  Whether state validation is enabled for the device.
-                             */
-                          'stateValidationEnabled',
-                            /**
                              * description  array
                              * type  Custom free-form manufacturer tags.
                              */
                           'tags',
+                            /**
+                             * description  undefined
+                             * type  Traits defined for the device.
+                             */
+                          'traits',
                             /**
                              * description  string
                              * type  Device kind from the model manifest used in UI applications.
@@ -391,9 +483,11 @@ module.exports = {
     },
     /**
      * update
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   update: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -406,19 +500,29 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.devices.update', [
+                    ACTIONS.process('clouddevices.devices.update', [
+                            /**
+                             * description  string
+                             * type  The HTTPS certificate fingerprint used to secure communication with device..
+                             */
+                          'certFingerprint',
                             /**
                              * description  object
                              * type  Device notification channel description.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'channel',
                             /**
                              * description  object
                              * type  Description of commands supported by the device. This field is writable only by devices.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'commandDefs',
+                            /**
+                             * description  undefined
+                             * type  Hierarchical componenet-based modeling of the device.
+                             */
+                          'components',
                             /**
                              * description  string
                              * type  Device connection status.
@@ -443,6 +547,11 @@ module.exports = {
                           'deviceKind',
                             /**
                              * description  string
+                             * type  The ID of the device for use on the local network.
+                             */
+                          'deviceLocalId',
+                            /**
+                             * description  string
                              * type  Unique device ID.
                              */
                           'id',
@@ -452,8 +561,13 @@ module.exports = {
                              */
                           'invitations',
                             /**
+                             * description  boolean
+                             * type  Indicates whether event recording is enabled or disabled for this device.
+                             */
+                          'isEventRecordingDisabled',
+                            /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#device".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#device".
                              */
                           'kind',
                             /**
@@ -507,7 +621,7 @@ module.exports = {
                             /**
                              * description  string
                              * type  Serial number of a device provided by its manufacturer.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'serialNumber',
                             /**
@@ -521,15 +635,15 @@ module.exports = {
                              */
                           'stateDefs',
                             /**
-                             * description  boolean
-                             * type  Whether state validation is enabled for the device.
-                             */
-                          'stateValidationEnabled',
-                            /**
                              * description  array
                              * type  Custom free-form manufacturer tags.
                              */
                           'tags',
+                            /**
+                             * description  undefined
+                             * type  Traits defined for the device.
+                             */
+                          'traits',
                             /**
                              * description  string
                              * type  Device kind from the model manifest used in UI applications.
@@ -559,9 +673,11 @@ module.exports = {
     },
     /**
      * handleInvitation
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   handleInvitation: (i, weaveObject, Q) => {
       var deferred = Q.defer(); // no repsonse needed
       try {
@@ -574,7 +690,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.devices.handleInvitation', [], (processResult) => {
+                    ACTIONS.process('clouddevices.devices.handleInvitation', [], (processResult) => {
                           switch (processResult) {
                               case false:
                                 deferred.reject('Something processing this request went wrong');
@@ -598,9 +714,11 @@ module.exports = {
     },
     /**
      * insert
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   insert: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -613,19 +731,29 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.devices.insert', [
+                    ACTIONS.process('clouddevices.devices.insert', [
+                            /**
+                             * description  string
+                             * type  The HTTPS certificate fingerprint used to secure communication with device..
+                             */
+                          'certFingerprint',
                             /**
                              * description  object
                              * type  Device notification channel description.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'channel',
                             /**
                              * description  object
                              * type  Description of commands supported by the device. This field is writable only by devices.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'commandDefs',
+                            /**
+                             * description  undefined
+                             * type  Hierarchical componenet-based modeling of the device.
+                             */
+                          'components',
                             /**
                              * description  string
                              * type  Device connection status.
@@ -650,6 +778,11 @@ module.exports = {
                           'deviceKind',
                             /**
                              * description  string
+                             * type  The ID of the device for use on the local network.
+                             */
+                          'deviceLocalId',
+                            /**
+                             * description  string
                              * type  Unique device ID.
                              */
                           'id',
@@ -659,8 +792,13 @@ module.exports = {
                              */
                           'invitations',
                             /**
+                             * description  boolean
+                             * type  Indicates whether event recording is enabled or disabled for this device.
+                             */
+                          'isEventRecordingDisabled',
+                            /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#device".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#device".
                              */
                           'kind',
                             /**
@@ -714,7 +852,7 @@ module.exports = {
                             /**
                              * description  string
                              * type  Serial number of a device provided by its manufacturer.
-                             * required  weave.devices.insert
+                             * required  clouddevices.devices.insert
                              */
                           'serialNumber',
                             /**
@@ -728,15 +866,15 @@ module.exports = {
                              */
                           'stateDefs',
                             /**
-                             * description  boolean
-                             * type  Whether state validation is enabled for the device.
-                             */
-                          'stateValidationEnabled',
-                            /**
                              * description  array
                              * type  Custom free-form manufacturer tags.
                              */
                           'tags',
+                            /**
+                             * description  undefined
+                             * type  Traits defined for the device.
+                             */
+                          'traits',
                             /**
                              * description  string
                              * type  Device kind from the model manifest used in UI applications.
@@ -766,9 +904,11 @@ module.exports = {
     },
     /**
      * list
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   list: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -781,7 +921,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.devices.list', [
+                    ACTIONS.process('clouddevices.devices.list', [
                             /**
                              * description  array
                              * type  The actual list of devices.
@@ -789,7 +929,7 @@ module.exports = {
                           'devices',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#devicesListResponse".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#devicesListResponse".
                              */
                           'kind',
                             /**
@@ -827,22 +967,24 @@ module.exports = {
     },
     /**
      * patchState
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   patchState: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
             /**
              * Validate if the provide body is correct
              */
-          ACTIONS.validateBodyObject(weaveObject, ['requestTimeMs', 'patches'], (result) => {
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
                   case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.devices.patchState', [
+                    ACTIONS.process('clouddevices.devices.patchState', [
                             /**
                              * description  undefined
                              * type  Updated device state.
@@ -872,9 +1014,11 @@ module.exports = {
     },
     /**
      * updateParent
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   updateParent: (i, weaveObject, Q) => {
       var deferred = Q.defer(); // no repsonse needed
       try {
@@ -887,7 +1031,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.devices.updateParent', [], (processResult) => {
+                    ACTIONS.process('clouddevices.devices.updateParent', [], (processResult) => {
                           switch (processResult) {
                               case false:
                                 deferred.reject('Something processing this request went wrong');
@@ -909,4 +1053,51 @@ module.exports = {
         }
       return deferred.promise;
     },
+    /**
+     * upsertLocalAuthInfo
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
+  upsertLocalAuthInfo: (i, weaveObject, Q) => {
+      var deferred = Q.defer();
+      try {
+            /**
+             * Validate if the provide body is correct
+             */
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+              switch (result) {
+                  case true:
+                        /**
+                         * Provided body is correct, handle the request
+                         */
+                    ACTIONS.process('clouddevices.devices.upsertLocalAuthInfo', [
+                            /**
+                             * description  undefined
+                             * type  The non-secret local auth info.
+                             */
+                          'localAuthInfo'
+                        ], (processResult) => {
+                          switch (processResult) {
+                              case false:
+                                deferred.reject('Something processing this request went wrong');
+                              default:
+                                deferred.resolve(processResult);
+                            }
+                        });
+                    break;
+                  case false:
+                        /**
+                         * Provided body is incorrect, send error
+                         */
+                    deferred.reject('Provided body is incorrect');
+                    break;
+                }
+            });
+        } catch (error) {
+          deferred.reject(error);
+        }
+      return deferred.promise;
+    }
 };

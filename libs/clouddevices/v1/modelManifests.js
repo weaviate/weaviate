@@ -1,5 +1,5 @@
 'use strict';
-/**                         _       _
+/*                          _       _
  *                         (_)     | |
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
@@ -7,7 +7,6 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * See www.weaviate.com for details
  * See package.json for auther and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -16,9 +15,11 @@ const ACTIONS = require('./actions.js');
 module.exports = {
     /**
      * get
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   get: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -31,7 +32,12 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.modelManifests.get', [
+                    ACTIONS.process('clouddevices.modelManifests.get', [
+                            /**
+                             * description  array
+                             * type  For gateways, a list of device ids that are allowed to connect to it.
+                             */
+                          'allowedChildModelManifestIds',
                             /**
                              * description  array
                              * type  List of applications recommended to use with a device model.
@@ -60,7 +66,7 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#modelManifest".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#modelManifest".
                              */
                           'kind',
                             /**
@@ -107,9 +113,11 @@ module.exports = {
     },
     /**
      * list
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   list: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -122,10 +130,10 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.modelManifests.list', [
+                    ACTIONS.process('clouddevices.modelManifests.list', [
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#modelManifestsListResponse".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#modelManifestsListResponse".
                              */
                           'kind',
                             /**
@@ -168,22 +176,24 @@ module.exports = {
     },
     /**
      * validateCommandDefs
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   validateCommandDefs: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
             /**
              * Validate if the provide body is correct
              */
-          ACTIONS.validateBodyObject(weaveObject, ['commandDefs'], (result) => {
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
                   case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.modelManifests.validateCommandDefs', [
+                    ACTIONS.process('clouddevices.modelManifests.validateCommandDefs', [
                             /**
                              * description  array
                              * type  Validation errors in command definitions.
@@ -213,22 +223,24 @@ module.exports = {
     },
     /**
      * validateDeviceState
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   validateDeviceState: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
             /**
              * Validate if the provide body is correct
              */
-          ACTIONS.validateBodyObject(weaveObject, ['state'], (result) => {
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
                   case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.modelManifests.validateDeviceState', [
+                    ACTIONS.process('clouddevices.modelManifests.validateDeviceState', [
                             /**
                              * description  array
                              * type  Validation errors in device state.
@@ -255,5 +267,5 @@ module.exports = {
           deferred.reject(error);
         }
       return deferred.promise;
-    },
+    }
 };

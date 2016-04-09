@@ -1,5 +1,4 @@
-'use strict';
-/**                         _       _
+/*                          _       _
  *                         (_)     | |
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
@@ -7,18 +6,20 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * See www.weaviate.com for details
  * See package.json for auther and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
+'use strict';
 const ACTIONS = require('./actions.js');
 module.exports = {
     /**
      * finalize
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   finalize: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -31,7 +32,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.registrationTickets.finalize', [
+                    ACTIONS.process('clouddevices.registrationTickets.finalize', [
                             /**
                              * description  string
                              * type  Creation timestamp of the registration ticket in milliseconds since epoch UTC.
@@ -50,6 +51,11 @@ module.exports = {
                           'deviceId',
                             /**
                              * description  string
+                             * type  Error code. Set only on device registration failures.
+                             */
+                          'errorCode',
+                            /**
+                             * description  string
                              * type  Expiration timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
@@ -61,7 +67,7 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#registrationTicket".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#registrationTicket".
                              */
                           'kind',
                             /**
@@ -69,6 +75,11 @@ module.exports = {
                              * type  OAuth 2.0 client ID of the device.
                              */
                           'oauthClientId',
+                            /**
+                             * description  string
+                             * type  Parent device ID (aggregator) if it exists.
+                             */
+                          'parentId',
                             /**
                              * description  string
                              * type  Authorization code that can be exchanged to a refresh token.
@@ -108,9 +119,11 @@ module.exports = {
     },
     /**
      * get
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   get: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -123,7 +136,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.registrationTickets.get', [
+                    ACTIONS.process('clouddevices.registrationTickets.get', [
                             /**
                              * description  string
                              * type  Creation timestamp of the registration ticket in milliseconds since epoch UTC.
@@ -142,6 +155,11 @@ module.exports = {
                           'deviceId',
                             /**
                              * description  string
+                             * type  Error code. Set only on device registration failures.
+                             */
+                          'errorCode',
+                            /**
+                             * description  string
                              * type  Expiration timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
@@ -153,7 +171,7 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#registrationTicket".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#registrationTicket".
                              */
                           'kind',
                             /**
@@ -161,6 +179,11 @@ module.exports = {
                              * type  OAuth 2.0 client ID of the device.
                              */
                           'oauthClientId',
+                            /**
+                             * description  string
+                             * type  Parent device ID (aggregator) if it exists.
+                             */
+                          'parentId',
                             /**
                              * description  string
                              * type  Authorization code that can be exchanged to a refresh token.
@@ -200,9 +223,11 @@ module.exports = {
     },
     /**
      * patch
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   patch: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -215,7 +240,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.registrationTickets.patch', [
+                    ACTIONS.process('clouddevices.registrationTickets.patch', [
                             /**
                              * description  string
                              * type  Creation timestamp of the registration ticket in milliseconds since epoch UTC.
@@ -234,6 +259,11 @@ module.exports = {
                           'deviceId',
                             /**
                              * description  string
+                             * type  Error code. Set only on device registration failures.
+                             */
+                          'errorCode',
+                            /**
+                             * description  string
                              * type  Expiration timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
@@ -245,7 +275,7 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#registrationTicket".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#registrationTicket".
                              */
                           'kind',
                             /**
@@ -253,6 +283,11 @@ module.exports = {
                              * type  OAuth 2.0 client ID of the device.
                              */
                           'oauthClientId',
+                            /**
+                             * description  string
+                             * type  Parent device ID (aggregator) if it exists.
+                             */
+                          'parentId',
                             /**
                              * description  string
                              * type  Authorization code that can be exchanged to a refresh token.
@@ -292,9 +327,11 @@ module.exports = {
     },
     /**
      * update
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   update: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -307,7 +344,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.registrationTickets.update', [
+                    ACTIONS.process('clouddevices.registrationTickets.update', [
                             /**
                              * description  string
                              * type  Creation timestamp of the registration ticket in milliseconds since epoch UTC.
@@ -326,6 +363,11 @@ module.exports = {
                           'deviceId',
                             /**
                              * description  string
+                             * type  Error code. Set only on device registration failures.
+                             */
+                          'errorCode',
+                            /**
+                             * description  string
                              * type  Expiration timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
@@ -337,7 +379,7 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#registrationTicket".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#registrationTicket".
                              */
                           'kind',
                             /**
@@ -345,6 +387,11 @@ module.exports = {
                              * type  OAuth 2.0 client ID of the device.
                              */
                           'oauthClientId',
+                            /**
+                             * description  string
+                             * type  Parent device ID (aggregator) if it exists.
+                             */
+                          'parentId',
                             /**
                              * description  string
                              * type  Authorization code that can be exchanged to a refresh token.
@@ -384,9 +431,11 @@ module.exports = {
     },
     /**
      * insert
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   insert: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -399,7 +448,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.registrationTickets.insert', [
+                    ACTIONS.process('clouddevices.registrationTickets.insert', [
                             /**
                              * description  string
                              * type  Creation timestamp of the registration ticket in milliseconds since epoch UTC.
@@ -418,6 +467,11 @@ module.exports = {
                           'deviceId',
                             /**
                              * description  string
+                             * type  Error code. Set only on device registration failures.
+                             */
+                          'errorCode',
+                            /**
+                             * description  string
                              * type  Expiration timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
@@ -429,7 +483,7 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#registrationTicket".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#registrationTicket".
                              */
                           'kind',
                             /**
@@ -437,6 +491,11 @@ module.exports = {
                              * type  OAuth 2.0 client ID of the device.
                              */
                           'oauthClientId',
+                            /**
+                             * description  string
+                             * type  Parent device ID (aggregator) if it exists.
+                             */
+                          'parentId',
                             /**
                              * description  string
                              * type  Authorization code that can be exchanged to a refresh token.
@@ -473,5 +532,5 @@ module.exports = {
           deferred.reject(error);
         }
       return deferred.promise;
-    },
+    }
 };

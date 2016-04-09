@@ -1,5 +1,4 @@
-'use strict';
-/**                         _       _
+/*                          _       _
  *                         (_)     | |
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
@@ -7,19 +6,21 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * See www.weaviate.com for details
  * See package.json for auther and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
+'use strict';
 const ACTIONS = require('./actions.js');
 module.exports = {
     /**
-     * list
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
-  list: (i, weaveObject, Q) => {
+     * subscribe
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
+  subscribe: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
             /**
@@ -31,28 +32,37 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.events.list', [
+                    ACTIONS.process('clouddevices.subscriptions.subscribe', [
+                            /**
+                             * description  string
+                             * type  Timestamp in milliseconds since epoch when the subscription expires and new notifications stop being sent.
+                             * format  int64
+                             */
+                          'expirationTimeMs',
                             /**
                              * description  array
-                             * type  The actual list of events in reverse chronological order.
+                             * type  Subscription event filter.
+
+                            Acceptable values are:
+                            - "myDevices"
+                            - "myCommands"
                              */
-                          'events',
+                          'filters',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#eventsListResponse".
+                             * type  GCM registration ID.
                              */
-                          'kind',
+                          'gcmRegistrationId',
                             /**
                              * description  string
-                             * type  Token for the next page of events.
+                             * type  For Chrome apps must be the same as sender ID during registration, usually API project ID.
                              */
-                          'nextPageToken',
+                          'gcmSenderId',
                             /**
-                             * description  integer
-                             * type  The total number of events for the query. The number of items in a response may be smaller due to paging.
-                             * format  int32
+                             * description  string
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#subscription".
                              */
-                          'totalResults'
+                          'kind'
                         ], (processResult) => {
                           switch (processResult) {
                               case false:
@@ -62,7 +72,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default: /* = FALSE */
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -74,5 +84,5 @@ module.exports = {
           deferred.reject(error);
         }
       return deferred.promise;
-    },
+    }
 };

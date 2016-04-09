@@ -1,6 +1,6 @@
 {
   "name": "weaviate",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Weavite, a private cloud for the Google Weave protocol",
   "main": "weaviate.js",
   "scripts": {

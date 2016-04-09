@@ -31,7 +31,7 @@
             "after": true
         }],
         "comma-style": [2, "last"],
-        "complexity": [1, 8],
+        "complexity": [1, 60],
         "consistent-this": [2, "_this"],
         "curly": 2,
         "default-case": 2,
@@ -39,14 +39,10 @@
         "eol-last": 2,
         "eqeqeq": 2,
         "guard-for-in": 1,
-        "indent": [2, 2, {
-            "SwitchCase": 1
-        }],
         "key-spacing": [2, {
             "beforeColon": false,
             "afterColon": true
         }],
-        "new-cap": 2,
         "new-parens": 2,
         "no-caller": 2,
         "no-debugger": 1,
@@ -70,7 +66,6 @@
         "no-unused-vars": 1,
         "no-use-before-define": 2,
         "no-with": 2,
-        "one-var": [2, "never"],
         "operator-assignment": [2, "always"],
         "quotes": [2, "single"],
         "radix": 2,
@@ -82,7 +77,6 @@
         "sort-vars": [1, {
             "ignoreCase": true
         }],
-        "space-after-keywords": [2, "always"],
         "space-before-function-paren": [2, {
             "anonymous": "always",
             "named": "never"
