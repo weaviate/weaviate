@@ -1,5 +1,5 @@
-# Weaviate
-**A private Weave cloud**
+# Weaviate [![Build Status](https://travis-ci.org/weaviate/weaviate.svg)](https://travis-ci.org/weaviate/weaviate)
+**A private cloud for the Internet of Things [Weave](https://developers.google.com/weave)protocol**
 
 Weaviate is a REST API based software-as-a-service platform that is able to process the Google Weave protocol. It can be used in combination with all Google's Weave and Brillo libraries ([link to the libs](https://weave.googlesource.com/), [link to Weave](https://developers.google.com/weave), [link to Brillo](https://developers.google.com/brillo)).
 
