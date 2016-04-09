@@ -102,7 +102,7 @@ Weaviate comes in three versions.
 For more information, please contact: yourfriends@weaviate.com
 
 ### Contributing and Gitflow
-You can contribute to Weaviate by creating a pull request. Weaviate is built using the [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) method. You can do a pull request to an appropriate branch.
+Read more in the [CONTRIBUTE.md](CONTRIBUTE.md) file.
 
 ### About Weaviate
 [Weave](https://developers.google.com/weave) is a high quality, open source end-to-end communications platform for IoT that allows you to connect and manage devices in a generic way. We understand that sometimes you need to be in control over your complete dataset. This may depend on the nature of your business, on analytics and predictions you want to do, or because you want to extend the protocol. Weaviate works as a replicate of the Google Weave cloud and runs on your own cloud or datacenter solution.
