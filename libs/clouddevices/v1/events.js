@@ -63,7 +63,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -104,7 +104,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */

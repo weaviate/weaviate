@@ -29,6 +29,8 @@ module.exports = {
               switch (val in weaveObject) {
                 case false:
                   callback(false);
+                default:
+                  callback(true);
               }
             });
         /**
