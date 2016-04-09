@@ -50,6 +50,7 @@ The weaviate function needs configuration objects and returns an optional promis
 	dbName 		: 'test',      // Cassandra db name
 	dbPassword 	: 'abc',       // Cassandra password
 	dbContactpoints : ['h1'],      // Cassandra contain points
+	dbKeyspace	: 'someKeySp'  // Cassandra keyspace name
 	hostname 	: 'localhost', // hostname for the service
 	port 	 	: 8080,        // port for the service
 	formatIn 	: 'JSON',      // JSON or CBOR (note: experimental)
