@@ -1,5 +1,5 @@
 'use strict';
-/**                         _       _
+/*                          _       _
  *                         (_)     | |
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
@@ -7,7 +7,6 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * See www.weaviate.com for details
  * See package.json for auther and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -16,9 +15,11 @@ const ACTIONS = require('./actions.js');
 module.exports = {
     /**
      * get
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   get: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -31,7 +32,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.personalizedInfos.get', [
+                    ACTIONS.process('clouddevices.personalizedInfos.get', [
                             /**
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
@@ -39,7 +40,7 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#personalizedInfo".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
                              */
                           'kind',
                             /**
@@ -68,11 +69,11 @@ module.exports = {
                         });
                     break;
                   case false:
-                        /**
-                         * Provided body is incorrect, send error
-                         */
-                    deferred.reject('Provided body is incorrect');
-                    break;
+                  /**
+                   * Provided body is incorrect, send error
+                   */
+                  deferred.reject('Provided body is incorrect');
+                  break;
                 }
             });
         } catch (error) {
@@ -82,9 +83,11 @@ module.exports = {
     },
     /**
      * patch
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   patch: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -97,7 +100,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.personalizedInfos.patch', [
+                    ACTIONS.process('clouddevices.personalizedInfos.patch', [
                             /**
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
@@ -105,7 +108,7 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#personalizedInfo".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
                              */
                           'kind',
                             /**
@@ -148,9 +151,11 @@ module.exports = {
     },
     /**
      * update
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   update: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -163,7 +168,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.personalizedInfos.update', [
+                    ACTIONS.process('clouddevices.personalizedInfos.update', [
                             /**
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
@@ -171,7 +176,7 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#personalizedInfo".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
                              */
                           'kind',
                             /**
@@ -211,5 +216,5 @@ module.exports = {
           deferred.reject(error);
         }
       return deferred.promise;
-    },
+    }
 };

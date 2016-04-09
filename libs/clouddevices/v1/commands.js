@@ -1,5 +1,5 @@
 'use strict';
-/**                         _       _
+/*                          _       _
  *                         (_)     | |
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
@@ -7,7 +7,6 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * See www.weaviate.com for details
  * See package.json for auther and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -16,9 +15,11 @@ const ACTIONS = require('./actions.js');
 module.exports = {
     /**
      * cancel
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   cancel: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -31,7 +32,22 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.commands.cancel', [
+                    ACTIONS.process('clouddevices.commands.cancel', [
+                            /**
+                             * description  undefined
+                             * type  Blob parameters list.
+                             */
+                          'blobParameters',
+                            /**
+                             * description  undefined
+                             * type  Blob results list.
+                             */
+                          'blobResults',
+                            /**
+                             * description  string
+                             * type  Component name paths separated by '/'.
+                             */
+                          'component',
                             /**
                              * description  string
                              * type  Timestamp since epoch of a creation of a command.
@@ -46,7 +62,7 @@ module.exports = {
                             /**
                              * description  string
                              * type  Device ID that this command belongs to.
-                             * required  weave.commands.insert
+                             * required  clouddevices.commands.insert
                              */
                           'deviceId',
                             /**
@@ -73,13 +89,13 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#command".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#command".
                              */
                           'kind',
                             /**
                              * description  string
-                             * type  Full command name, including package.
-                             * required  weave.commands.insert
+                             * type  Full command name, including trait.
+                             * required  clouddevices.commands.insert
                              */
                           'name',
                             /**
@@ -132,9 +148,11 @@ module.exports = {
     },
     /**
      * delete
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   delete: (i, weaveObject, Q) => {
       var deferred = Q.defer(); // no repsonse needed
       try {
@@ -147,7 +165,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.commands.delete', [], (processResult) => {
+                    ACTIONS.process('clouddevices.commands.delete', [], (processResult) => {
                           switch (processResult) {
                               case false:
                                 deferred.reject('Something processing this request went wrong');
@@ -171,9 +189,11 @@ module.exports = {
     },
     /**
      * get
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   get: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -186,7 +206,22 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.commands.get', [
+                    ACTIONS.process('clouddevices.commands.get', [
+                            /**
+                             * description  undefined
+                             * type  Blob parameters list.
+                             */
+                          'blobParameters',
+                            /**
+                             * description  undefined
+                             * type  Blob results list.
+                             */
+                          'blobResults',
+                            /**
+                             * description  string
+                             * type  Component name paths separated by '/'.
+                             */
+                          'component',
                             /**
                              * description  string
                              * type  Timestamp since epoch of a creation of a command.
@@ -201,7 +236,7 @@ module.exports = {
                             /**
                              * description  string
                              * type  Device ID that this command belongs to.
-                             * required  weave.commands.insert
+                             * required  clouddevices.commands.insert
                              */
                           'deviceId',
                             /**
@@ -228,13 +263,13 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#command".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#command".
                              */
                           'kind',
                             /**
                              * description  string
-                             * type  Full command name, including package.
-                             * required  weave.commands.insert
+                             * type  Full command name, including trait.
+                             * required  clouddevices.commands.insert
                              */
                           'name',
                             /**
@@ -287,9 +322,11 @@ module.exports = {
     },
     /**
      * patch
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   patch: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -302,7 +339,22 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.commands.patch', [
+                    ACTIONS.process('clouddevices.commands.patch', [
+                            /**
+                             * description  undefined
+                             * type  Blob parameters list.
+                             */
+                          'blobParameters',
+                            /**
+                             * description  undefined
+                             * type  Blob results list.
+                             */
+                          'blobResults',
+                            /**
+                             * description  string
+                             * type  Component name paths separated by '/'.
+                             */
+                          'component',
                             /**
                              * description  string
                              * type  Timestamp since epoch of a creation of a command.
@@ -317,7 +369,7 @@ module.exports = {
                             /**
                              * description  string
                              * type  Device ID that this command belongs to.
-                             * required  weave.commands.insert
+                             * required  clouddevices.commands.insert
                              */
                           'deviceId',
                             /**
@@ -344,13 +396,13 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#command".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#command".
                              */
                           'kind',
                             /**
                              * description  string
-                             * type  Full command name, including package.
-                             * required  weave.commands.insert
+                             * type  Full command name, including trait.
+                             * required  clouddevices.commands.insert
                              */
                           'name',
                             /**
@@ -403,9 +455,11 @@ module.exports = {
     },
     /**
      * update
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   update: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -418,7 +472,22 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.commands.update', [
+                    ACTIONS.process('clouddevices.commands.update', [
+                            /**
+                             * description  undefined
+                             * type  Blob parameters list.
+                             */
+                          'blobParameters',
+                            /**
+                             * description  undefined
+                             * type  Blob results list.
+                             */
+                          'blobResults',
+                            /**
+                             * description  string
+                             * type  Component name paths separated by '/'.
+                             */
+                          'component',
                             /**
                              * description  string
                              * type  Timestamp since epoch of a creation of a command.
@@ -433,7 +502,7 @@ module.exports = {
                             /**
                              * description  string
                              * type  Device ID that this command belongs to.
-                             * required  weave.commands.insert
+                             * required  clouddevices.commands.insert
                              */
                           'deviceId',
                             /**
@@ -460,13 +529,13 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#command".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#command".
                              */
                           'kind',
                             /**
                              * description  string
-                             * type  Full command name, including package.
-                             * required  weave.commands.insert
+                             * type  Full command name, including trait.
+                             * required  clouddevices.commands.insert
                              */
                           'name',
                             /**
@@ -519,9 +588,11 @@ module.exports = {
     },
     /**
      * getQueue
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   getQueue: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -534,7 +605,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.commands.getQueue', [
+                    ACTIONS.process('clouddevices.commands.getQueue', [
                             /**
                              * description  array
                              * type  Commands to be executed.
@@ -564,22 +635,39 @@ module.exports = {
     },
     /**
      * insert
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   insert: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
             /**
              * Validate if the provide body is correct
              */
-          ACTIONS.validateBodyObject(weaveObject, ['deviceId', 'name'], (result) => {
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
                   case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.commands.insert', [
+                    ACTIONS.process('clouddevices.commands.insert', [
+                            /**
+                             * description  undefined
+                             * type  Blob parameters list.
+                             */
+                          'blobParameters',
+                            /**
+                             * description  undefined
+                             * type  Blob results list.
+                             */
+                          'blobResults',
+                            /**
+                             * description  string
+                             * type  Component name paths separated by '/'.
+                             */
+                          'component',
                             /**
                              * description  string
                              * type  Timestamp since epoch of a creation of a command.
@@ -594,7 +682,7 @@ module.exports = {
                             /**
                              * description  string
                              * type  Device ID that this command belongs to.
-                             * required  weave.commands.insert
+                             * required  clouddevices.commands.insert
                              */
                           'deviceId',
                             /**
@@ -621,13 +709,13 @@ module.exports = {
                           'id',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#command".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#command".
                              */
                           'kind',
                             /**
                              * description  string
-                             * type  Full command name, including package.
-                             * required  weave.commands.insert
+                             * type  Full command name, including trait.
+                             * required  clouddevices.commands.insert
                              */
                           'name',
                             /**
@@ -680,9 +768,11 @@ module.exports = {
     },
     /**
      * list
-     *
-     * @param i  input URL
-     * @param  weaveObject  OBJ Object with the send in body and params*/
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
   list: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
@@ -695,7 +785,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('weave.commands.list', [
+                    ACTIONS.process('clouddevices.commands.list', [
                             /**
                              * description  array
                              * type  The actual list of commands.
@@ -703,7 +793,7 @@ module.exports = {
                           'commands',
                             /**
                              * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "weave#commandsListResponse".
+                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#commandsListResponse".
                              */
                           'kind',
                             /**
@@ -738,5 +828,5 @@ module.exports = {
           deferred.reject(error);
         }
       return deferred.promise;
-    },
+    }
 };

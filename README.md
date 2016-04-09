@@ -45,15 +45,15 @@ The weaviate function needs configuration objects and returns an optional promis
         key: key,
         cert: cert
 	},
-	db_hostname : 'localhost', // Cassandra hostname
-	db_port 	: 1000,        // Cassandra port
-	db_name 	: 'test',      // Cassandra db name
-	db_password : 'abc',       // Cassandra password
+	dbHostname  : 'localhost', // Cassandra hostname
+	dbPort 		: 1000,        // Cassandra port
+	dbName 		: 'test',      // Cassandra db name
+	dbPassword 	: 'abc',       // Cassandra password
 	hostname 	: 'localhost', // hostname for the service
 	port 	 	: 8080,        // port for the service
-	format_in 	: 'JSON',      // JSON or CBOR (note: experimental)
-	format_out 	: 'JSON',      // JSON or CBOR (note: experimental)
-	stdout_log 	: true         // log all usages via stdout
+	formatIn 	: 'JSON',      // JSON or CBOR (note: experimental)
+	formatOut 	: 'JSON',      // JSON or CBOR (note: experimental)
+	stdoutLog 	: true         // log all usages via stdout
 }
 ```
 
@@ -69,15 +69,15 @@ The weaveObject contains information about the request that you can use for cust
 ```javascript
 weaviate({
 	https		: false,
-	db_hostname : 'localhost',
-	db_port 	: 1000,
-	db_name 	: 'test',
-	db_password : 'abc',
+	dbHostname 	: 'localhost',
+	dbPort 		: 1000,
+	dbName 		: 'test',
+	dbPassword 	: 'abc',
 	hostname 	: 'localhost',
 	port 	 	: '8080',
-	format_in 	: 'JSON',
-	format_out 	: 'JSON',
-	stdout_log 	: true
+	formatIn 	: 'JSON',
+	formatOut 	: 'JSON',
+	stdoutLog 	: true
 })
 .done((weaveObject) => {
 	/**
