@@ -11,7 +11,7 @@
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-const ACTIONS = require('./actions.js');
+const ACTIONS = require('../../../controllers/actions.js');
 module.exports = {
     /**
      * delete

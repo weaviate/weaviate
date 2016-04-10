@@ -24,6 +24,8 @@ weaviate({
       dbPort: 1000,
       dbName: 'test',
       dbPassword: 'qqq',
+      dbContactpoints: ['127.0.0.1'],
+      dbKeyspace: 'test001',
       hostname: 'localhost',
       port: '8888',
       formatIn: 'JSON', /* use json or cbor */
@@ -34,5 +36,5 @@ weaviate({
     /**
      * Weaveobject contains stuff like: params, POST body, response send back and request headers and request connection
      */
-      console.log(weaveObject);
+    console.log(weaveObject);
 });

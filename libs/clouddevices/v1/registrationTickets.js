@@ -1,3 +1,4 @@
+'use strict';
 /*                          _       _
  *                         (_)     | |
  *__      _____  __ ___   ___  __ _| |_ ___
@@ -10,8 +11,7 @@
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-'use strict';
-const ACTIONS = require('./actions.js');
+const ACTIONS = require('../../../controllers/actions.js');
 module.exports = {
     /**
      * finalize
