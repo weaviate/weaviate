@@ -1,0 +1,11 @@
+version: '2'
+services:
+  # long-running services
+  weaviate:
+    image: ${project.project(':stackwork:docker-server').stackwork.imageId}
+
+  # executable images, will not start during the runDockerCompose task
+  test-image:
+    image: ${project.project(':stackwork:test-image').stackwork.imageId}
+    links:
+    - weaviate:service
