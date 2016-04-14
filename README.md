@@ -1,5 +1,5 @@
-# Weaviate
-**A private Weave cloud**
+# Weaviate [![Build Status](https://travis-ci.org/weaviate/weaviate.svg)](https://travis-ci.org/weaviate/weaviate)
+**A private cloud for the Internet of Things [Weave](https://developers.google.com/weave) protocol**
 
 Weaviate is a REST API based software-as-a-service platform that is able to process the Google Weave protocol. It can be used in combination with all Google's Weave and Brillo libraries ([link to the libs](https://weave.googlesource.com/), [link to Weave](https://developers.google.com/weave), [link to Brillo](https://developers.google.com/brillo)).
 
@@ -49,6 +49,8 @@ The weaviate function needs configuration objects and returns an optional promis
 	dbPort 		: 1000,        // Cassandra port
 	dbName 		: 'test',      // Cassandra db name
 	dbPassword 	: 'abc',       // Cassandra password
+	dbContactpoints : ['h1'],      // Cassandra contain points
+	dbKeyspace	: 'someKeySp'  // Cassandra keyspace name
 	hostname 	: 'localhost', // hostname for the service
 	port 	 	: 8080,        // port for the service
 	formatIn 	: 'JSON',      // JSON or CBOR (note: experimental)
@@ -102,7 +104,7 @@ Weaviate comes in three versions.
 For more information, please contact: yourfriends@weaviate.com
 
 ### Contributing and Gitflow
-You can contribute to Weaviate by creating a pull request. Weaviate is built using the [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) method. You can do a pull request to an appropriate branch.
+Read more in the [CONTRIBUTE.md](CONTRIBUTE.md) file.
 
 ### About Weaviate
 [Weave](https://developers.google.com/weave) is a high quality, open source end-to-end communications platform for IoT that allows you to connect and manage devices in a generic way. We understand that sometimes you need to be in control over your complete dataset. This may depend on the nature of your business, on analytics and predictions you want to do, or because you want to extend the protocol. Weaviate works as a replicate of the Google Weave cloud and runs on your own cloud or datacenter solution.

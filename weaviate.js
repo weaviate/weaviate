@@ -8,7 +8,7 @@
  * Copyright © 2016 Weaviate. All rights reserved.
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * See www.weaviate.com for details
- * See package.json for auther and maintainer info
+ * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 module.exports = (i) => {
@@ -32,6 +32,11 @@ module.exports = (i) => {
     } else if (i.dbPort === undefined) {
       console.warn('DB port not set, default to 9160');
       i.dbPort = 9160;
+    } else if (i.dbContactpoints === undefined) {
+      console.warn('No Cassandra contactPoints set, default to 127.0.0.1');
+      i.dbContactpoints = ['127.0.0.1'];
+    } else if (i.dbKeyspace === undefined) {
+      throw 'You need to set a keyspace name (dbKeyspace) for Cassandra';
     } else if (i.formatIn === undefined) {
       console.warn('Format is not set, default to JSON');
       i.formatIn = 'JSON';
@@ -53,7 +58,13 @@ module.exports = (i) => {
     }
 
     /**
-     * Include all global consts and set all global consts
+     * Set GLOBAL const
+     */
+    GLOBAL.CASSANDRA  = require('cassandra-driver');
+    GLOBAL.CLIENT     = new GLOBAL.CASSANDRA.Client({ contactPoints: i.dbContactpoints, keyspace: i.dbKeyspace });
+
+    /**
+     * Include all global consts and set all hoisted global consts
      */
 const ACLENTRIES          = require('./libs/clouddevices/v1/aclEntries.js'),
       AUTHORIZEDAPPS      = require('./libs/clouddevices/v1/authorizedApps.js'),

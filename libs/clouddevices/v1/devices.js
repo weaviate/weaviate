@@ -8,10 +8,10 @@
  *
  * Copyright © 2016 Weaviate. All rights reserved.
  * See www.weaviate.com for details
- * See package.json for auther and maintainer info
+ * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-const ACTIONS = require('./actions.js');
+const ACTIONS = require('../../../controllers/actions.js');
 module.exports = {
     /**
      * createLocalAuthTokens
@@ -47,7 +47,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -88,7 +88,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -278,7 +278,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -468,7 +468,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -658,7 +658,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -699,7 +699,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -889,7 +889,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -952,7 +952,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -999,7 +999,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -1040,7 +1040,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */
@@ -1087,7 +1087,7 @@ module.exports = {
                             }
                         });
                     break;
-                  case false:
+                  default:
                         /**
                          * Provided body is incorrect, send error
                          */

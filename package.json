@@ -1,6 +1,6 @@
 {
   "name": "weaviate",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Weavite, a private cloud for the Google Weave protocol",
   "main": "weaviate.js",
   "scripts": {
@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/weaviate/weaviate#readme",
   "dependencies": {
+    "cassandra-driver": "^3.0.2",
     "express": "^4.13.4",
     "gulp": "^3.9.1",
     "gulp-eslint": "^2.0.0",
