@@ -12,6 +12,7 @@ Weaviate is not fully testable / production ready yet. You can follow the progre
 
 ### Table of contents
 * [How does it work?](#how-does-it-work)
+* [Release schedule](#release-schedule)
 * [Installation](#installation)
 * [Using the weaviate() function](#using-the-weaviate-function)
 * [Related packages, products and repos](#related-packages-products-and-repos)
@@ -22,6 +23,14 @@ Weaviate is not fully testable / production ready yet. You can follow the progre
 
 ### How does it work?
 Google provides different libraries for interacting with the Weave protocol ([more info](http://weaviate.com/)). By changing the end-points to your own private cloud that runs Weaviate. You can use the complete Weave and Brillo software solutions within you own cloud solution.
+
+### Release Schedule
+Estimates for our release schedule:<br>
+- 0.1.x [July 2016] First 1.x release candidate with full Weave support through REST APIs for private cloud.
+- 0.2.x [+ 1.5 months] Implementation of authentication.
+- 0.3.x [+ 1 month] Pre configured packages (Docker or platform specific) for major PaaS providers.
+- 0.4.x [+ 1.5 months] Porting of Weave protocol to services like Amazon AWS IoT, IBM Bluemix IoT e.a.
+- 0.5.x or 1.x
 
 ### Installation
 - Install Node version >5.0.0 ([more info](https://nodejs.org/en/download/package-manager))
