@@ -24,4 +24,4 @@ before_script:
 
 script:
   - gulp validate
-  - ./gradlew stackworkCheck --info --stacktrace
+  - TERM=dumb ./gradlew stackworkCheck --info --stacktrace
