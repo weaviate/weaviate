@@ -8,11 +8,12 @@ You can use Weaviate on simple local machines, or complex distributed networks w
 *Note:
 Weaviate is not fully testable / production ready yet. You can follow the progress for the first release candidates [here](https://github.com/weaviate/weaviate/milestones). Follow this repo or sign up for the [mailing list](http://eepurl.com/bRsMir) to stay informed about the progress.*
 
+| Branch   | Build status                                                                                                                    |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| master   | [![Build Status](https://travis-ci.org/weaviate/weaviate.svg?branch=master)](https://travis-ci.org/weaviate/weaviate)           |
+| develop  | [![Build Status](https://travis-ci.org/weaviate/weaviate.svg?branch=develop)](https://travis-ci.org/weaviate/weaviate/branches) |
+
 ![NPM](https://nodei.co/npm/weaviate.png?downloads=true "NPM")
-
-**master**: [![Build Status](https://travis-ci.org/weaviate/weaviate.svg?branch=master)](https://travis-ci.org/weaviate/weaviate)
-
-**develop**: [![Build Status](https://travis-ci.org/weaviate/weaviate.svg?branch=develop)](https://travis-ci.org/weaviate/weaviate/branches)
 
 ### Table of contents
 * [How does it work?](#how-does-it-work)
