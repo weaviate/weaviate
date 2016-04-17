@@ -24,4 +24,4 @@ before_script:
 
 script:
   - gulp validate
-  - ./gradlew --info --stacktrace
+  - ./gradlew stackworkCheck --info --stacktrace
