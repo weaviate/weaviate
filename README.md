@@ -100,6 +100,8 @@ weaviate({
 	 * The request is done
 	 */
 	console.log(weaveObject);
+}, (error) => {
+	console.log(error);
 });
 ```
 

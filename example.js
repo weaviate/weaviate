@@ -18,23 +18,28 @@
 const weaviate = require('./weaviate.js');
 
 weaviate({
-      https: false,
-      httpsOpts: {},
-      dbHostname: 'localhost',
-      dbPort: 1000,
-      dbName: 'test',
-      dbPassword: 'qqq',
-      dbContactpoints: ['127.0.0.1'],
-      dbKeyspace: 'test001',
-      hostname: 'localhost',
-      port: '8888',
-      formatIn: 'JSON', /* use json or cbor */
-      formatOut: 'JSON', /* use json or cbor */
-      stdoutLog: true
+    https: false,
+    httpsOpts: {},
+    dbHostname: 'localhost',
+    dbPort: 1000,
+    dbName: 'test',
+    dbPassword: 'qqq',
+    dbContactpoints: ['127.0.0.1'],
+    dbKeyspace: 'test001',
+    hostname: 'localhost',
+    port: '8888',
+    formatIn: 'JSON', /* use json or cbor */
+    formatOut: 'JSON', /* use json or cbor */
+    stdoutLog: true
 })
 .done((weaveObject) => {
     /**
      * Weaveobject contains stuff like: params, POST body, response send back and request headers and request connection
      */
     console.log(weaveObject);
+}, (error) => {
+    /**
+     * Something went wrong
+     */
+    console.error(error);
 });

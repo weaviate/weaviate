@@ -23,10 +23,10 @@ module.exports = {
      */
     list: (returnValuesArray, callback) => {
 
-            var deviceNames  = [],
+        var deviceNames  = [],
                 query = 'SELECT deviceKind FROM devices';
 
-            GLOBAL.CLIENT.execute(query, [], { prepare: true }, (err, result) => {
+        GLOBAL.CLIENT.execute(query, [], { prepare: true }, (err, result) => {
 
                 /**
                  * Create device name array
@@ -39,10 +39,10 @@ module.exports = {
                  * Send everything back with the callback
                  */
                 callback({
-                  'kind': 'weave#devicesListResponse',
-                  'devices': deviceNames,
-                  'nextPageToken': 'EMPTY',
-                  'totalResults': result.rowLength
+                    'kind': 'weave#devicesListResponse',
+                    'devices': deviceNames,
+                    'nextPageToken': 'EMPTY',
+                    'totalResults': result.rowLength
                 });
             });
     }

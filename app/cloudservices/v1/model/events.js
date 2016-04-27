@@ -11,7 +11,7 @@
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-const ACTIONS = require('../../../controllers/actions.js');
+const ACTIONS = require('../controller/actions.js');
 module.exports = {
     /**
      * list
@@ -20,7 +20,7 @@ module.exports = {
      * @param   {object} Q Defer object
      * @returns {object} deferred.resolve or deferred.reject
      */
-  list: (i, weaveObject, Q) => {
+    list: (i, weaveObject, Q) => {
       var deferred = Q.defer();
       try {
             /**
@@ -28,54 +28,54 @@ module.exports = {
              */
           ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
-                  case true:
+              case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('clouddevices.events.list', [
+                  ACTIONS.process('clouddevices.events.list', [
                             /**
                              * description  array
                              * type  The actual list of events in reverse chronological order.
                              */
-                          'events',
+                        'events',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#eventsListResponse".
                              */
-                          'kind',
+                        'kind',
                             /**
                              * description  string
                              * type  Token for the next page of events.
                              */
-                          'nextPageToken',
+                        'nextPageToken',
                             /**
                              * description  integer
                              * type  The total number of events for the query. The number of items in a response may be smaller due to paging.
                              * format  int32
                              */
-                          'totalResults'
-                        ], (processResult) => {
-                          switch (processResult) {
-                              case false:
-                                deferred.reject('Something processing this request went wrong');
-                              default:
-                                deferred.resolve(processResult);
-                            }
+                        'totalResults'
+                    ], (processResult) => {
+                            switch (processResult) {
+                          case false:
+                              deferred.reject('Something processing this request went wrong');
+                          default:
+                              deferred.resolve(processResult);
+                          }
                         });
-                    break;
-                  default:
+                  break;
+              default:
                         /**
                          * Provided body is incorrect, send error
                          */
-                    deferred.reject('Provided body is incorrect');
-                    break;
-                }
-            });
-        } catch (error) {
-          deferred.reject(error);
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
+            deferred.reject(error);
         }
       return deferred.promise;
-    },
+  },
     /**
      * recordDeviceEvents
      * @param   {string} i input URL
@@ -83,7 +83,7 @@ module.exports = {
      * @param   {object} Q Defer object
      * @returns {object} deferred.resolve or deferred.reject
      */
-  recordDeviceEvents: (i, weaveObject, Q) => {
+    recordDeviceEvents: (i, weaveObject, Q) => {
       var deferred = Q.defer(); // no repsonse needed
       try {
             /**
@@ -91,30 +91,30 @@ module.exports = {
              */
           ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
-                  case true:
+              case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('clouddevices.events.recordDeviceEvents', [], (processResult) => {
-                          switch (processResult) {
-                              case false:
-                                deferred.reject('Something processing this request went wrong');
-                              default:
-                                deferred.resolve({});
-                            }
-                        });
-                    break;
-                  default:
+                  ACTIONS.process('clouddevices.events.recordDeviceEvents', [], (processResult) => {
+                        switch (processResult) {
+                          case false:
+                              deferred.reject('Something processing this request went wrong');
+                          default:
+                              deferred.resolve({});
+                          }
+                    });
+                  break;
+              default:
                         /**
                          * Provided body is incorrect, send error
                          */
-                    deferred.reject('Provided body is incorrect');
-                    break;
-                }
-            });
-        } catch (error) {
-          deferred.reject(error);
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
+            deferred.reject(error);
         }
       return deferred.promise;
-    }
+  }
 };
