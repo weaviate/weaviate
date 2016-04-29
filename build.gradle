@@ -1,0 +1,3 @@
+plugins {
+  id 'org.stackwork' version '0.6.0'
+}

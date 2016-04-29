@@ -1,0 +1,8 @@
+import static org.stackwork.gradle.docker.ModuleType.*
+
+apply plugin: 'stackwork'
+
+stackwork {
+  moduleType = COMPOSE
+  stackIsRunningWhenLogContains = 'Weaviate is listening via HTTP on port 80'
+}
