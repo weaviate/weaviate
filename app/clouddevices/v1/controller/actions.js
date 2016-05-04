@@ -208,7 +208,7 @@ module.exports = {
          * List all the devices
          */
     case 'clouddevices.devices.list':
-        actionsDevices.list(returnValuesArray, (returnObject) => {
+        actionsDevices.list((returnObject) => {
               callback(returnObject);
           });
         break;

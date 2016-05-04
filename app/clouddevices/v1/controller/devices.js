@@ -17,11 +17,10 @@ module.exports = {
     /**
      * List all devices
      * returns devices,kind,totalResults
-     * @param {Array}  returnValuesArray  Array of values that will be returned
      * @param {Object} callback           Callback is the callback, return true if all fields are included, returns false if not
      * @returns {void} nothing
      */
-    list: (returnValuesArray, callback) => {
+    list: (callback) => {
 
         var deviceNames  = [],
                 query = 'SELECT deviceKind FROM devices';
