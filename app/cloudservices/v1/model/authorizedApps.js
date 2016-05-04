@@ -11,7 +11,7 @@
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-const ACTIONS = require('../../../controllers/actions.js');
+const ACTIONS = require('../controller/actions.js');
 module.exports = {
     /**
      * createAppAuthenticationToken
@@ -20,50 +20,50 @@ module.exports = {
      * @param   {object} Q Defer object
      * @returns {object} deferred.resolve or deferred.reject
      */
-  createAppAuthenticationToken: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+    createAppAuthenticationToken: (i, weaveObject, Q) => {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
           ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
-                  case true:
+              case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('clouddevices.authorizedApps.createAppAuthenticationToken', [
+                  ACTIONS.process('clouddevices.authorizedApps.createAppAuthenticationToken', [
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#authorizedAppsCreateAppAuthenticationTokenResponse".
                              */
-                          'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Generated authentication token for an authorized app.
                              */
-                          'token'
-                        ], (processResult) => {
-                          switch (processResult) {
-                              case false:
+                      'token'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
                                 deferred.reject('Something processing this request went wrong');
-                              default:
+                            default:
                                 deferred.resolve(processResult);
                             }
-                        });
-                    break;
-                  default:
+                    });
+                  break;
+              default:
                         /**
                          * Provided body is incorrect, send error
                          */
-                    deferred.reject('Provided body is incorrect');
-                    break;
-                }
-            });
-        } catch (error) {
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
           deferred.reject(error);
-        }
-      return deferred.promise;
+      }
+        return deferred.promise;
     },
     /**
      * list
@@ -72,49 +72,49 @@ module.exports = {
      * @param   {object} Q Defer object
      * @returns {object} deferred.resolve or deferred.reject
      */
-  list: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+    list: (i, weaveObject, Q) => {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
           ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
-                  case true:
+              case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('clouddevices.authorizedApps.list', [
+                  ACTIONS.process('clouddevices.authorizedApps.list', [
                             /**
                              * description  array
                              * type  The list of authorized apps.
                              */
-                          'authorizedApps',
+                      'authorizedApps',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#authorizedAppsListResponse".
                              */
-                          'kind'
-                        ], (processResult) => {
-                          switch (processResult) {
-                              case false:
+                      'kind'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
                                 deferred.reject('Something processing this request went wrong');
-                              default:
+                            default:
                                 deferred.resolve(processResult);
                             }
-                        });
-                    break;
-                  default:
+                    });
+                  break;
+              default:
                         /**
                          * Provided body is incorrect, send error
                          */
-                    deferred.reject('Provided body is incorrect');
-                    break;
-                }
-            });
-        } catch (error) {
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
           deferred.reject(error);
-        }
-      return deferred.promise;
+      }
+        return deferred.promise;
     }
 };

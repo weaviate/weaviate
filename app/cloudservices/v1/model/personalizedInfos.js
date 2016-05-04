@@ -11,7 +11,7 @@
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-const ACTIONS = require('../../../controllers/actions.js');
+const ACTIONS = require('../controller/actions.js');
 module.exports = {
     /**
      * get
@@ -20,66 +20,66 @@ module.exports = {
      * @param   {object} Q Defer object
      * @returns {object} deferred.resolve or deferred.reject
      */
-  get: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+    get: (i, weaveObject, Q) => {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
           ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
-                  case true:
+              case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('clouddevices.personalizedInfos.get', [
+                  ACTIONS.process('clouddevices.personalizedInfos.get', [
                             /**
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
                              */
-                          'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
                              */
-                          'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
                              * format  int64
                              */
-                          'lastUseTimeMs',
+                      'lastUseTimeMs',
                             /**
                              * description  string
                              * type  Personalized device location.
                              */
-                          'location',
+                      'location',
                             /**
                              * description  string
                              * type  Personalized device display name.
                              */
-                          'name'
-                        ], (processResult) => {
-                          switch (processResult) {
-                              case false:
+                      'name'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
                                 deferred.reject('Something processing this request went wrong');
-                              default:
+                            default:
                                 deferred.resolve(processResult);
                             }
-                        });
-                    break;
-                  default:
+                    });
+                  break;
+              default:
                   /**
                    * Provided body is incorrect, send error
                    */
                   deferred.reject('Provided body is incorrect');
                   break;
-                }
-            });
-        } catch (error) {
+              }
+          });
+      } catch (error) {
           deferred.reject(error);
-        }
-      return deferred.promise;
+      }
+        return deferred.promise;
     },
     /**
      * patch
@@ -88,66 +88,66 @@ module.exports = {
      * @param   {object} Q Defer object
      * @returns {object} deferred.resolve or deferred.reject
      */
-  patch: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+    patch: (i, weaveObject, Q) => {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
           ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
-                  case true:
+              case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('clouddevices.personalizedInfos.patch', [
+                  ACTIONS.process('clouddevices.personalizedInfos.patch', [
                             /**
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
                              */
-                          'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
                              */
-                          'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
                              * format  int64
                              */
-                          'lastUseTimeMs',
+                      'lastUseTimeMs',
                             /**
                              * description  string
                              * type  Personalized device location.
                              */
-                          'location',
+                      'location',
                             /**
                              * description  string
                              * type  Personalized device display name.
                              */
-                          'name'
-                        ], (processResult) => {
-                          switch (processResult) {
-                              case false:
+                      'name'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
                                 deferred.reject('Something processing this request went wrong');
-                              default:
+                            default:
                                 deferred.resolve(processResult);
                             }
-                        });
-                    break;
-                  default:
+                    });
+                  break;
+              default:
                         /**
                          * Provided body is incorrect, send error
                          */
-                    deferred.reject('Provided body is incorrect');
-                    break;
-                }
-            });
-        } catch (error) {
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
           deferred.reject(error);
-        }
-      return deferred.promise;
+      }
+        return deferred.promise;
     },
     /**
      * update
@@ -156,65 +156,65 @@ module.exports = {
      * @param   {object} Q Defer object
      * @returns {object} deferred.resolve or deferred.reject
      */
-  update: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+    update: (i, weaveObject, Q) => {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
           ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
-                  case true:
+              case true:
                         /**
                          * Provided body is correct, handle the request
                          */
-                    ACTIONS.process('clouddevices.personalizedInfos.update', [
+                  ACTIONS.process('clouddevices.personalizedInfos.update', [
                             /**
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
                              */
-                          'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
                              */
-                          'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
                              * format  int64
                              */
-                          'lastUseTimeMs',
+                      'lastUseTimeMs',
                             /**
                              * description  string
                              * type  Personalized device location.
                              */
-                          'location',
+                      'location',
                             /**
                              * description  string
                              * type  Personalized device display name.
                              */
-                          'name'
-                        ], (processResult) => {
-                          switch (processResult) {
-                              case false:
+                      'name'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
                                 deferred.reject('Something processing this request went wrong');
-                              default:
+                            default:
                                 deferred.resolve(processResult);
                             }
-                        });
-                    break;
-                  default:
+                    });
+                  break;
+              default:
                         /**
                          * Provided body is incorrect, send error
                          */
-                    deferred.reject('Provided body is incorrect');
-                    break;
-                }
-            });
-        } catch (error) {
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
           deferred.reject(error);
-        }
-      return deferred.promise;
+      }
+        return deferred.promise;
     }
 };
