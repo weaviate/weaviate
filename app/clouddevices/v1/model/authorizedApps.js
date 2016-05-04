@@ -14,13 +14,13 @@
 const ACTIONS = require('../controller/actions.js');
 module.exports = {
     /**
-     * list
+     * createAppAuthenticationToken
      * @param   {string} i input URL
      * @param   {object} weaveObject OBJ Object with the send in body and params
      * @param   {object} Q Defer object
      * @returns {object} deferred.resolve or deferred.reject
      */
-    list: (i, weaveObject, Q) => {
+    createAppAuthenticationToken: (i, weaveObject, Q) => {
         var deferred = Q.defer();
         try {
             /**
@@ -32,29 +32,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                  ACTIONS.process('clouddevices.events.list', [
-                            /**
-                             * description  array
-                             * type  The actual list of events in reverse chronological order.
-                             */
-                      'events',
-                            /**
-                             * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#eventsListResponse".
-                             */
-                      'kind',
-                            /**
-                             * description  string
-                             * type  Token for the next page of events.
-                             */
-                      'nextPageToken',
-                            /**
-                             * description  integer
-                             * type  The total number of events for the query. The number of items in a response may be smaller due to paging.
-                             * format  int32
-                             */
-                      'totalResults'
-                  ], (processResult) => {
+                  ACTIONS.process('clouddevices.authorizedApps.createAppAuthenticationToken', (processResult) => {
                         switch (processResult) {
                             case false:
                                 deferred.reject('Something processing this request went wrong');
@@ -77,17 +55,17 @@ module.exports = {
         return deferred.promise;
     },
     /**
-     * recordDeviceEvents
+     * list
      * @param   {string} i input URL
      * @param   {object} weaveObject OBJ Object with the send in body and params
      * @param   {object} Q Defer object
      * @returns {object} deferred.resolve or deferred.reject
      */
-    recordDeviceEvents: (i, weaveObject, Q) => {
-        var deferred = Q.defer(); // no repsonse needed
+    list: (i, weaveObject, Q) => {
+        var deferred = Q.defer();
         try {
             /**
-             * Validate if the provide body is correct, if no body is expected, keep the array empty []
+             * Validate if the provide body is correct
              */
           ACTIONS.validateBodyObject(weaveObject, [], (result) => {
               switch (result) {
@@ -95,14 +73,14 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                  ACTIONS.process('clouddevices.events.recordDeviceEvents', [], (processResult) => {
-                      switch (processResult) {
-                        case false:
-                            deferred.reject('Something processing this request went wrong');
-                        default:
-                            deferred.resolve({});
-                        }
-                  });
+                  ACTIONS.process('clouddevices.authorizedApps.list', (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**

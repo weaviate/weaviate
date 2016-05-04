@@ -32,34 +32,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                  ACTIONS.process('clouddevices.personalizedInfos.get', [
-                            /**
-                             * description  string
-                             * type  Unique personalizedInfo ID. Value: the fixed string "me".
-                             */
-                      'id',
-                            /**
-                             * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
-                             */
-                      'kind',
-                            /**
-                             * description  string
-                             * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
-                             * format  int64
-                             */
-                      'lastUseTimeMs',
-                            /**
-                             * description  string
-                             * type  Personalized device location.
-                             */
-                      'location',
-                            /**
-                             * description  string
-                             * type  Personalized device display name.
-                             */
-                      'name'
-                  ], (processResult) => {
+                  ACTIONS.process('clouddevices.personalizedInfos.get', (processResult) => {
                         switch (processResult) {
                             case false:
                                 deferred.reject('Something processing this request went wrong');
@@ -100,34 +73,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                  ACTIONS.process('clouddevices.personalizedInfos.patch', [
-                            /**
-                             * description  string
-                             * type  Unique personalizedInfo ID. Value: the fixed string "me".
-                             */
-                      'id',
-                            /**
-                             * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
-                             */
-                      'kind',
-                            /**
-                             * description  string
-                             * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
-                             * format  int64
-                             */
-                      'lastUseTimeMs',
-                            /**
-                             * description  string
-                             * type  Personalized device location.
-                             */
-                      'location',
-                            /**
-                             * description  string
-                             * type  Personalized device display name.
-                             */
-                      'name'
-                  ], (processResult) => {
+                  ACTIONS.process('clouddevices.personalizedInfos.patch', (processResult) => {
                         switch (processResult) {
                             case false:
                                 deferred.reject('Something processing this request went wrong');
@@ -168,34 +114,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                  ACTIONS.process('clouddevices.personalizedInfos.update', [
-                            /**
-                             * description  string
-                             * type  Unique personalizedInfo ID. Value: the fixed string "me".
-                             */
-                      'id',
-                            /**
-                             * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
-                             */
-                      'kind',
-                            /**
-                             * description  string
-                             * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
-                             * format  int64
-                             */
-                      'lastUseTimeMs',
-                            /**
-                             * description  string
-                             * type  Personalized device location.
-                             */
-                      'location',
-                            /**
-                             * description  string
-                             * type  Personalized device display name.
-                             */
-                      'name'
-                  ], (processResult) => {
+                  ACTIONS.process('clouddevices.personalizedInfos.update', (processResult) => {
                         switch (processResult) {
                             case false:
                                 deferred.reject('Something processing this request went wrong');

@@ -44,11 +44,10 @@ module.exports = {
   /**
    * Process returns false if wrong and object if correct
    * @param {string} action             The actions
-   * @param {Array}  returnValuesArray  Values that should be returned
    * @param {Object} callback           Callback function
    * @returns {void} nothing
    */
-    process: (action, returnValuesArray, callback) => {
+    process: (action, callback) => {
 
       switch (action) {
             /**

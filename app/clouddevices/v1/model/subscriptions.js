@@ -32,38 +32,7 @@ module.exports = {
                         /**
                          * Provided body is correct, handle the request
                          */
-                  ACTIONS.process('clouddevices.subscriptions.subscribe', [
-                            /**
-                             * description  string
-                             * type  Timestamp in milliseconds since epoch when the subscription expires and new notifications stop being sent.
-                             * format  int64
-                             */
-                      'expirationTimeMs',
-                            /**
-                             * description  array
-                             * type  Subscription event filter.
-
-                            Acceptable values are:
-                            - "myDevices"
-                            - "myCommands"
-                             */
-                      'filters',
-                            /**
-                             * description  string
-                             * type  GCM registration ID.
-                             */
-                      'gcmRegistrationId',
-                            /**
-                             * description  string
-                             * type  For Chrome apps must be the same as sender ID during registration, usually API project ID.
-                             */
-                      'gcmSenderId',
-                            /**
-                             * description  string
-                             * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#subscription".
-                             */
-                      'kind'
-                  ], (processResult) => {
+                  ACTIONS.process('clouddevices.subscriptions.subscribe', (processResult) => {
                         switch (processResult) {
                             case false:
                                 deferred.reject('Something processing this request went wrong');

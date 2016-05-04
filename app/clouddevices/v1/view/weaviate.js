@@ -17,6 +17,7 @@ module.exports = (i) => {
      */
     GLOBAL.CASSANDRA  = require('cassandra-driver');
     GLOBAL.CLIENT     = new GLOBAL.CASSANDRA.Client({ contactPoints: i.dbContactpoints, keyspace: i.dbKeyspace });
+    GLOBAL.SCHEMA     = require('../schema.js');
 
     /**
      * Include all global consts and set all hoisted global consts

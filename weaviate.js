@@ -68,7 +68,7 @@ module.exports = (i) => {
         globalDeferred.reject(new Error('Set a db_password value'));
     }
 
-    require('./app/cloudservices/v1/view/weaviate.js')(i)
+    require('./app/clouddevices/v1/view/weaviate.js')(i)
         .done((weaveObject) => {
             globalDeferred.resolve(weaveObject);
         });
