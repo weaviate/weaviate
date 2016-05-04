@@ -1,0 +1,3 @@
+node_modules/**
+gulpfile.js
+_local/**

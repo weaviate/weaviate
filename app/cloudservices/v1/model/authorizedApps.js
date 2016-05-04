@@ -21,8 +21,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     createAppAuthenticationToken: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -37,20 +37,20 @@ module.exports = {
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#authorizedAppsCreateAppAuthenticationTokenResponse".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Generated authentication token for an authorized app.
                              */
-                        'token'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'token'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -61,10 +61,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * list
      * @param   {string} i input URL
@@ -73,8 +73,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     list: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -89,20 +89,20 @@ module.exports = {
                              * description  array
                              * type  The list of authorized apps.
                              */
-                        'authorizedApps',
+                      'authorizedApps',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#authorizedAppsListResponse".
                              */
-                        'kind'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'kind'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -113,8 +113,8 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  }
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    }
 };

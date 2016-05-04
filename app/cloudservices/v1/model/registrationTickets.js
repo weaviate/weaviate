@@ -21,8 +21,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     finalize: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -38,71 +38,71 @@ module.exports = {
                              * type  Creation timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'creationTimeMs',
+                      'creationTimeMs',
                             /**
                              * description  undefined
                              * type  Draft of the device being registered.
                              */
-                        'deviceDraft',
+                      'deviceDraft',
                             /**
                              * description  string
                              * type  ID that device will have after registration is successfully finished.
                              */
-                        'deviceId',
+                      'deviceId',
                             /**
                              * description  string
                              * type  Error code. Set only on device registration failures.
                              */
-                        'errorCode',
+                      'errorCode',
                             /**
                              * description  string
                              * type  Expiration timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'expirationTimeMs',
+                      'expirationTimeMs',
                             /**
                              * description  string
                              * type  Registration ticket ID.
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#registrationTicket".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  OAuth 2.0 client ID of the device.
                              */
-                        'oauthClientId',
+                      'oauthClientId',
                             /**
                              * description  string
                              * type  Parent device ID (aggregator) if it exists.
                              */
-                        'parentId',
+                      'parentId',
                             /**
                              * description  string
                              * type  Authorization code that can be exchanged to a refresh token.
                              */
-                        'robotAccountAuthorizationCode',
+                      'robotAccountAuthorizationCode',
                             /**
                              * description  string
                              * type  E-mail address of robot account assigned to the registered device.
                              */
-                        'robotAccountEmail',
+                      'robotAccountEmail',
                             /**
                              * description  string
                              * type  Email address of the owner.
                              */
-                        'userEmail'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'userEmail'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -113,10 +113,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * get
      * @param   {string} i input URL
@@ -125,8 +125,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     get: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -142,71 +142,71 @@ module.exports = {
                              * type  Creation timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'creationTimeMs',
+                      'creationTimeMs',
                             /**
                              * description  undefined
                              * type  Draft of the device being registered.
                              */
-                        'deviceDraft',
+                      'deviceDraft',
                             /**
                              * description  string
                              * type  ID that device will have after registration is successfully finished.
                              */
-                        'deviceId',
+                      'deviceId',
                             /**
                              * description  string
                              * type  Error code. Set only on device registration failures.
                              */
-                        'errorCode',
+                      'errorCode',
                             /**
                              * description  string
                              * type  Expiration timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'expirationTimeMs',
+                      'expirationTimeMs',
                             /**
                              * description  string
                              * type  Registration ticket ID.
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#registrationTicket".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  OAuth 2.0 client ID of the device.
                              */
-                        'oauthClientId',
+                      'oauthClientId',
                             /**
                              * description  string
                              * type  Parent device ID (aggregator) if it exists.
                              */
-                        'parentId',
+                      'parentId',
                             /**
                              * description  string
                              * type  Authorization code that can be exchanged to a refresh token.
                              */
-                        'robotAccountAuthorizationCode',
+                      'robotAccountAuthorizationCode',
                             /**
                              * description  string
                              * type  E-mail address of robot account assigned to the registered device.
                              */
-                        'robotAccountEmail',
+                      'robotAccountEmail',
                             /**
                              * description  string
                              * type  Email address of the owner.
                              */
-                        'userEmail'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'userEmail'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -217,10 +217,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * patch
      * @param   {string} i input URL
@@ -229,8 +229,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     patch: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -246,71 +246,71 @@ module.exports = {
                              * type  Creation timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'creationTimeMs',
+                      'creationTimeMs',
                             /**
                              * description  undefined
                              * type  Draft of the device being registered.
                              */
-                        'deviceDraft',
+                      'deviceDraft',
                             /**
                              * description  string
                              * type  ID that device will have after registration is successfully finished.
                              */
-                        'deviceId',
+                      'deviceId',
                             /**
                              * description  string
                              * type  Error code. Set only on device registration failures.
                              */
-                        'errorCode',
+                      'errorCode',
                             /**
                              * description  string
                              * type  Expiration timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'expirationTimeMs',
+                      'expirationTimeMs',
                             /**
                              * description  string
                              * type  Registration ticket ID.
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#registrationTicket".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  OAuth 2.0 client ID of the device.
                              */
-                        'oauthClientId',
+                      'oauthClientId',
                             /**
                              * description  string
                              * type  Parent device ID (aggregator) if it exists.
                              */
-                        'parentId',
+                      'parentId',
                             /**
                              * description  string
                              * type  Authorization code that can be exchanged to a refresh token.
                              */
-                        'robotAccountAuthorizationCode',
+                      'robotAccountAuthorizationCode',
                             /**
                              * description  string
                              * type  E-mail address of robot account assigned to the registered device.
                              */
-                        'robotAccountEmail',
+                      'robotAccountEmail',
                             /**
                              * description  string
                              * type  Email address of the owner.
                              */
-                        'userEmail'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'userEmail'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -321,10 +321,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * update
      * @param   {string} i input URL
@@ -333,8 +333,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     update: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -350,71 +350,71 @@ module.exports = {
                              * type  Creation timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'creationTimeMs',
+                      'creationTimeMs',
                             /**
                              * description  undefined
                              * type  Draft of the device being registered.
                              */
-                        'deviceDraft',
+                      'deviceDraft',
                             /**
                              * description  string
                              * type  ID that device will have after registration is successfully finished.
                              */
-                        'deviceId',
+                      'deviceId',
                             /**
                              * description  string
                              * type  Error code. Set only on device registration failures.
                              */
-                        'errorCode',
+                      'errorCode',
                             /**
                              * description  string
                              * type  Expiration timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'expirationTimeMs',
+                      'expirationTimeMs',
                             /**
                              * description  string
                              * type  Registration ticket ID.
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#registrationTicket".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  OAuth 2.0 client ID of the device.
                              */
-                        'oauthClientId',
+                      'oauthClientId',
                             /**
                              * description  string
                              * type  Parent device ID (aggregator) if it exists.
                              */
-                        'parentId',
+                      'parentId',
                             /**
                              * description  string
                              * type  Authorization code that can be exchanged to a refresh token.
                              */
-                        'robotAccountAuthorizationCode',
+                      'robotAccountAuthorizationCode',
                             /**
                              * description  string
                              * type  E-mail address of robot account assigned to the registered device.
                              */
-                        'robotAccountEmail',
+                      'robotAccountEmail',
                             /**
                              * description  string
                              * type  Email address of the owner.
                              */
-                        'userEmail'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'userEmail'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -425,10 +425,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * insert
      * @param   {string} i input URL
@@ -437,8 +437,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     insert: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -454,71 +454,71 @@ module.exports = {
                              * type  Creation timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'creationTimeMs',
+                      'creationTimeMs',
                             /**
                              * description  undefined
                              * type  Draft of the device being registered.
                              */
-                        'deviceDraft',
+                      'deviceDraft',
                             /**
                              * description  string
                              * type  ID that device will have after registration is successfully finished.
                              */
-                        'deviceId',
+                      'deviceId',
                             /**
                              * description  string
                              * type  Error code. Set only on device registration failures.
                              */
-                        'errorCode',
+                      'errorCode',
                             /**
                              * description  string
                              * type  Expiration timestamp of the registration ticket in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'expirationTimeMs',
+                      'expirationTimeMs',
                             /**
                              * description  string
                              * type  Registration ticket ID.
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#registrationTicket".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  OAuth 2.0 client ID of the device.
                              */
-                        'oauthClientId',
+                      'oauthClientId',
                             /**
                              * description  string
                              * type  Parent device ID (aggregator) if it exists.
                              */
-                        'parentId',
+                      'parentId',
                             /**
                              * description  string
                              * type  Authorization code that can be exchanged to a refresh token.
                              */
-                        'robotAccountAuthorizationCode',
+                      'robotAccountAuthorizationCode',
                             /**
                              * description  string
                              * type  E-mail address of robot account assigned to the registered device.
                              */
-                        'robotAccountEmail',
+                      'robotAccountEmail',
                             /**
                              * description  string
                              * type  Email address of the owner.
                              */
-                        'userEmail'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'userEmail'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -529,8 +529,8 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  }
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    }
 };

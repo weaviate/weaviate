@@ -21,8 +21,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     cancel: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -37,141 +37,100 @@ module.exports = {
                              * description  undefined
                              * type  Blob parameters list.
                              */
-                        'blobParameters',
+                      'blobParameters',
                             /**
                              * description  undefined
                              * type  Blob results list.
                              */
-                        'blobResults',
+                      'blobResults',
                             /**
                              * description  string
                              * type  Component name paths separated by '/'.
                              */
-                        'component',
+                      'component',
                             /**
                              * description  string
                              * type  Timestamp since epoch of a creation of a command.
                              * format  int64
                              */
-                        'creationTimeMs',
+                      'creationTimeMs',
                             /**
                              * description  string
                              * type  User that created the command (not applicable if the user is deleted).
                              */
-                        'creatorEmail',
+                      'creatorEmail',
                             /**
                              * description  string
                              * type  Device ID that this command belongs to.
                              * required  clouddevices.commands.insert
                              */
-                        'deviceId',
+                      'deviceId',
                             /**
                              * description  object
                              * type  Error descriptor.
                              */
-                        'error',
+                      'error',
                             /**
                              * description  string
                              * type  Timestamp since epoch of command expiration.
                              * format  int64
                              */
-                        'expirationTimeMs',
+                      'expirationTimeMs',
                             /**
                              * description  string
                              * type  Expiration timeout for the command since its creation, 10 seconds min, 30 days max.
                              * format  int64
                              */
-                        'expirationTimeoutMs',
+                      'expirationTimeoutMs',
                             /**
                              * description  string
                              * type  Unique command ID.
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#command".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Full command name, including trait.
                              * required  clouddevices.commands.insert
                              */
-                        'name',
+                      'name',
                             /**
                              * description  undefined
                              * type  Parameters list.
                              */
-                        'parameters',
+                      'parameters',
                             /**
                              * description  undefined
                              * type  Command-specific progress descriptor.
                              */
-                        'progress',
+                      'progress',
                             /**
                              * description  undefined
                              * type  Results list.
                              */
-                        'results',
+                      'results',
                             /**
                              * description  string
                              * type  Current command state.
                              * enum  aborted, cancelled, done, error, expired, inProgress, queued
                              */
-                        'state',
+                      'state',
                             /**
                              * description  string
                              * type  Pending command state that is not acknowledged by the device yet.
                              */
-                        'userAction'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
-                  break;
-              default:
-                        /**
-                         * Provided body is incorrect, send error
-                         */
-                  deferred.reject('Provided body is incorrect');
-                  break;
-              }
-          });
-      } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
-    /**
-     * delete
-     * @param   {string} i input URL
-     * @param   {object} weaveObject OBJ Object with the send in body and params
-     * @param   {object} Q Defer object
-     * @returns {object} deferred.resolve or deferred.reject
-     */
-    delete: (i, weaveObject, Q) => {
-      var deferred = Q.defer(); // no repsonse needed
-      try {
-            /**
-             * Validate if the provide body is correct, if no body is expected, keep the array empty []
-             */
-          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
-              switch (result) {
-              case true:
-                        /**
-                         * Provided body is correct, handle the request
-                         */
-                  ACTIONS.process('clouddevices.commands.delete', [], (processResult) => {
+                      'userAction'
+                  ], (processResult) => {
                         switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve({});
-                          }
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
                     });
                   break;
               default:
@@ -183,10 +142,51 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
+    /**
+     * delete
+     * @param   {string} i input URL
+     * @param   {object} weaveObject OBJ Object with the send in body and params
+     * @param   {object} Q Defer object
+     * @returns {object} deferred.resolve or deferred.reject
+     */
+    delete: (i, weaveObject, Q) => {
+        var deferred = Q.defer(); // no repsonse needed
+        try {
+            /**
+             * Validate if the provide body is correct, if no body is expected, keep the array empty []
+             */
+          ACTIONS.validateBodyObject(weaveObject, [], (result) => {
+              switch (result) {
+              case true:
+                        /**
+                         * Provided body is correct, handle the request
+                         */
+                  ACTIONS.process('clouddevices.commands.delete', [], (processResult) => {
+                      switch (processResult) {
+                        case false:
+                            deferred.reject('Something processing this request went wrong');
+                        default:
+                            deferred.resolve({});
+                        }
+                  });
+                  break;
+              default:
+                        /**
+                         * Provided body is incorrect, send error
+                         */
+                  deferred.reject('Provided body is incorrect');
+                  break;
+              }
+          });
+      } catch (error) {
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * get
      * @param   {string} i input URL
@@ -195,8 +195,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     get: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -211,101 +211,101 @@ module.exports = {
                              * description  undefined
                              * type  Blob parameters list.
                              */
-                        'blobParameters',
+                      'blobParameters',
                             /**
                              * description  undefined
                              * type  Blob results list.
                              */
-                        'blobResults',
+                      'blobResults',
                             /**
                              * description  string
                              * type  Component name paths separated by '/'.
                              */
-                        'component',
+                      'component',
                             /**
                              * description  string
                              * type  Timestamp since epoch of a creation of a command.
                              * format  int64
                              */
-                        'creationTimeMs',
+                      'creationTimeMs',
                             /**
                              * description  string
                              * type  User that created the command (not applicable if the user is deleted).
                              */
-                        'creatorEmail',
+                      'creatorEmail',
                             /**
                              * description  string
                              * type  Device ID that this command belongs to.
                              * required  clouddevices.commands.insert
                              */
-                        'deviceId',
+                      'deviceId',
                             /**
                              * description  object
                              * type  Error descriptor.
                              */
-                        'error',
+                      'error',
                             /**
                              * description  string
                              * type  Timestamp since epoch of command expiration.
                              * format  int64
                              */
-                        'expirationTimeMs',
+                      'expirationTimeMs',
                             /**
                              * description  string
                              * type  Expiration timeout for the command since its creation, 10 seconds min, 30 days max.
                              * format  int64
                              */
-                        'expirationTimeoutMs',
+                      'expirationTimeoutMs',
                             /**
                              * description  string
                              * type  Unique command ID.
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#command".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Full command name, including trait.
                              * required  clouddevices.commands.insert
                              */
-                        'name',
+                      'name',
                             /**
                              * description  undefined
                              * type  Parameters list.
                              */
-                        'parameters',
+                      'parameters',
                             /**
                              * description  undefined
                              * type  Command-specific progress descriptor.
                              */
-                        'progress',
+                      'progress',
                             /**
                              * description  undefined
                              * type  Results list.
                              */
-                        'results',
+                      'results',
                             /**
                              * description  string
                              * type  Current command state.
                              * enum  aborted, cancelled, done, error, expired, inProgress, queued
                              */
-                        'state',
+                      'state',
                             /**
                              * description  string
                              * type  Pending command state that is not acknowledged by the device yet.
                              */
-                        'userAction'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'userAction'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -316,10 +316,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * patch
      * @param   {string} i input URL
@@ -328,8 +328,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     patch: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -344,101 +344,101 @@ module.exports = {
                              * description  undefined
                              * type  Blob parameters list.
                              */
-                        'blobParameters',
+                      'blobParameters',
                             /**
                              * description  undefined
                              * type  Blob results list.
                              */
-                        'blobResults',
+                      'blobResults',
                             /**
                              * description  string
                              * type  Component name paths separated by '/'.
                              */
-                        'component',
+                      'component',
                             /**
                              * description  string
                              * type  Timestamp since epoch of a creation of a command.
                              * format  int64
                              */
-                        'creationTimeMs',
+                      'creationTimeMs',
                             /**
                              * description  string
                              * type  User that created the command (not applicable if the user is deleted).
                              */
-                        'creatorEmail',
+                      'creatorEmail',
                             /**
                              * description  string
                              * type  Device ID that this command belongs to.
                              * required  clouddevices.commands.insert
                              */
-                        'deviceId',
+                      'deviceId',
                             /**
                              * description  object
                              * type  Error descriptor.
                              */
-                        'error',
+                      'error',
                             /**
                              * description  string
                              * type  Timestamp since epoch of command expiration.
                              * format  int64
                              */
-                        'expirationTimeMs',
+                      'expirationTimeMs',
                             /**
                              * description  string
                              * type  Expiration timeout for the command since its creation, 10 seconds min, 30 days max.
                              * format  int64
                              */
-                        'expirationTimeoutMs',
+                      'expirationTimeoutMs',
                             /**
                              * description  string
                              * type  Unique command ID.
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#command".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Full command name, including trait.
                              * required  clouddevices.commands.insert
                              */
-                        'name',
+                      'name',
                             /**
                              * description  undefined
                              * type  Parameters list.
                              */
-                        'parameters',
+                      'parameters',
                             /**
                              * description  undefined
                              * type  Command-specific progress descriptor.
                              */
-                        'progress',
+                      'progress',
                             /**
                              * description  undefined
                              * type  Results list.
                              */
-                        'results',
+                      'results',
                             /**
                              * description  string
                              * type  Current command state.
                              * enum  aborted, cancelled, done, error, expired, inProgress, queued
                              */
-                        'state',
+                      'state',
                             /**
                              * description  string
                              * type  Pending command state that is not acknowledged by the device yet.
                              */
-                        'userAction'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'userAction'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -449,10 +449,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * update
      * @param   {string} i input URL
@@ -461,8 +461,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     update: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -477,101 +477,101 @@ module.exports = {
                              * description  undefined
                              * type  Blob parameters list.
                              */
-                        'blobParameters',
+                      'blobParameters',
                             /**
                              * description  undefined
                              * type  Blob results list.
                              */
-                        'blobResults',
+                      'blobResults',
                             /**
                              * description  string
                              * type  Component name paths separated by '/'.
                              */
-                        'component',
+                      'component',
                             /**
                              * description  string
                              * type  Timestamp since epoch of a creation of a command.
                              * format  int64
                              */
-                        'creationTimeMs',
+                      'creationTimeMs',
                             /**
                              * description  string
                              * type  User that created the command (not applicable if the user is deleted).
                              */
-                        'creatorEmail',
+                      'creatorEmail',
                             /**
                              * description  string
                              * type  Device ID that this command belongs to.
                              * required  clouddevices.commands.insert
                              */
-                        'deviceId',
+                      'deviceId',
                             /**
                              * description  object
                              * type  Error descriptor.
                              */
-                        'error',
+                      'error',
                             /**
                              * description  string
                              * type  Timestamp since epoch of command expiration.
                              * format  int64
                              */
-                        'expirationTimeMs',
+                      'expirationTimeMs',
                             /**
                              * description  string
                              * type  Expiration timeout for the command since its creation, 10 seconds min, 30 days max.
                              * format  int64
                              */
-                        'expirationTimeoutMs',
+                      'expirationTimeoutMs',
                             /**
                              * description  string
                              * type  Unique command ID.
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#command".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Full command name, including trait.
                              * required  clouddevices.commands.insert
                              */
-                        'name',
+                      'name',
                             /**
                              * description  undefined
                              * type  Parameters list.
                              */
-                        'parameters',
+                      'parameters',
                             /**
                              * description  undefined
                              * type  Command-specific progress descriptor.
                              */
-                        'progress',
+                      'progress',
                             /**
                              * description  undefined
                              * type  Results list.
                              */
-                        'results',
+                      'results',
                             /**
                              * description  string
                              * type  Current command state.
                              * enum  aborted, cancelled, done, error, expired, inProgress, queued
                              */
-                        'state',
+                      'state',
                             /**
                              * description  string
                              * type  Pending command state that is not acknowledged by the device yet.
                              */
-                        'userAction'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'userAction'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -582,10 +582,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * getQueue
      * @param   {string} i input URL
@@ -594,8 +594,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     getQueue: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -610,15 +610,15 @@ module.exports = {
                              * description  array
                              * type  Commands to be executed.
                              */
-                        'commands'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'commands'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -629,10 +629,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * insert
      * @param   {string} i input URL
@@ -641,8 +641,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     insert: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -657,101 +657,101 @@ module.exports = {
                              * description  undefined
                              * type  Blob parameters list.
                              */
-                        'blobParameters',
+                      'blobParameters',
                             /**
                              * description  undefined
                              * type  Blob results list.
                              */
-                        'blobResults',
+                      'blobResults',
                             /**
                              * description  string
                              * type  Component name paths separated by '/'.
                              */
-                        'component',
+                      'component',
                             /**
                              * description  string
                              * type  Timestamp since epoch of a creation of a command.
                              * format  int64
                              */
-                        'creationTimeMs',
+                      'creationTimeMs',
                             /**
                              * description  string
                              * type  User that created the command (not applicable if the user is deleted).
                              */
-                        'creatorEmail',
+                      'creatorEmail',
                             /**
                              * description  string
                              * type  Device ID that this command belongs to.
                              * required  clouddevices.commands.insert
                              */
-                        'deviceId',
+                      'deviceId',
                             /**
                              * description  object
                              * type  Error descriptor.
                              */
-                        'error',
+                      'error',
                             /**
                              * description  string
                              * type  Timestamp since epoch of command expiration.
                              * format  int64
                              */
-                        'expirationTimeMs',
+                      'expirationTimeMs',
                             /**
                              * description  string
                              * type  Expiration timeout for the command since its creation, 10 seconds min, 30 days max.
                              * format  int64
                              */
-                        'expirationTimeoutMs',
+                      'expirationTimeoutMs',
                             /**
                              * description  string
                              * type  Unique command ID.
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#command".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Full command name, including trait.
                              * required  clouddevices.commands.insert
                              */
-                        'name',
+                      'name',
                             /**
                              * description  undefined
                              * type  Parameters list.
                              */
-                        'parameters',
+                      'parameters',
                             /**
                              * description  undefined
                              * type  Command-specific progress descriptor.
                              */
-                        'progress',
+                      'progress',
                             /**
                              * description  undefined
                              * type  Results list.
                              */
-                        'results',
+                      'results',
                             /**
                              * description  string
                              * type  Current command state.
                              * enum  aborted, cancelled, done, error, expired, inProgress, queued
                              */
-                        'state',
+                      'state',
                             /**
                              * description  string
                              * type  Pending command state that is not acknowledged by the device yet.
                              */
-                        'userAction'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'userAction'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -762,10 +762,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * list
      * @param   {string} i input URL
@@ -774,8 +774,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     list: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -790,31 +790,31 @@ module.exports = {
                              * description  array
                              * type  The actual list of commands.
                              */
-                        'commands',
+                      'commands',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#commandsListResponse".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Token for the next page of commands.
                              */
-                        'nextPageToken',
+                      'nextPageToken',
                             /**
                              * description  integer
                              * type  The total number of commands for the query. The number of items in a response may be smaller due to paging.
                              * format  int32
                              */
-                        'totalResults'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'totalResults'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -825,8 +825,8 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  }
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    }
 };

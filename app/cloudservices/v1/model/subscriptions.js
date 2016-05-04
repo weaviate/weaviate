@@ -21,8 +21,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     subscribe: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -38,7 +38,7 @@ module.exports = {
                              * type  Timestamp in milliseconds since epoch when the subscription expires and new notifications stop being sent.
                              * format  int64
                              */
-                        'expirationTimeMs',
+                      'expirationTimeMs',
                             /**
                              * description  array
                              * type  Subscription event filter.
@@ -47,30 +47,30 @@ module.exports = {
                             - "myDevices"
                             - "myCommands"
                              */
-                        'filters',
+                      'filters',
                             /**
                              * description  string
                              * type  GCM registration ID.
                              */
-                        'gcmRegistrationId',
+                      'gcmRegistrationId',
                             /**
                              * description  string
                              * type  For Chrome apps must be the same as sender ID during registration, usually API project ID.
                              */
-                        'gcmSenderId',
+                      'gcmSenderId',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#subscription".
                              */
-                        'kind'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'kind'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default: /* = FALSE */
                         /**
@@ -81,8 +81,8 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  }
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    }
 };

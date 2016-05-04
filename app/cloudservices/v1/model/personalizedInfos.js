@@ -21,8 +21,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     get: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -37,36 +37,36 @@ module.exports = {
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'lastUseTimeMs',
+                      'lastUseTimeMs',
                             /**
                              * description  string
                              * type  Personalized device location.
                              */
-                        'location',
+                      'location',
                             /**
                              * description  string
                              * type  Personalized device display name.
                              */
-                        'name'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'name'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                   /**
@@ -77,10 +77,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * patch
      * @param   {string} i input URL
@@ -89,8 +89,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     patch: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -105,36 +105,36 @@ module.exports = {
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'lastUseTimeMs',
+                      'lastUseTimeMs',
                             /**
                              * description  string
                              * type  Personalized device location.
                              */
-                        'location',
+                      'location',
                             /**
                              * description  string
                              * type  Personalized device display name.
                              */
-                        'name'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'name'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -145,10 +145,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * update
      * @param   {string} i input URL
@@ -157,8 +157,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     update: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -173,36 +173,36 @@ module.exports = {
                              * description  string
                              * type  Unique personalizedInfo ID. Value: the fixed string "me".
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#personalizedInfo".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  Timestamp of the last device usage by the user in milliseconds since epoch UTC.
                              * format  int64
                              */
-                        'lastUseTimeMs',
+                      'lastUseTimeMs',
                             /**
                              * description  string
                              * type  Personalized device location.
                              */
-                        'location',
+                      'location',
                             /**
                              * description  string
                              * type  Personalized device display name.
                              */
-                        'name'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'name'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -213,8 +213,8 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  }
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    }
 };

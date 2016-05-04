@@ -21,8 +21,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     get: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -37,66 +37,66 @@ module.exports = {
                              * description  array
                              * type  For gateways, a list of device ids that are allowed to connect to it.
                              */
-                        'allowedChildModelManifestIds',
+                      'allowedChildModelManifestIds',
                             /**
                              * description  array
                              * type  List of applications recommended to use with a device model.
                              */
-                        'applications',
+                      'applications',
                             /**
                              * description  string
                              * type  URL of image showing a confirmation button.
                              */
-                        'confirmationImageUrl',
+                      'confirmationImageUrl',
                             /**
                              * description  string
                              * type  URL of device image.
                              */
-                        'deviceImageUrl',
+                      'deviceImageUrl',
                             /**
                              * description  string
                              * type  Device kind, see "deviceKind" field of the Device resource.
                              * enum  accessPoint, aggregator, camera, developmentBoard, lock, printer, scanner, speaker, storage, toy, vendor, video
                              */
-                        'deviceKind',
+                      'deviceKind',
                             /**
                              * description  string
                              * type  Unique model manifest ID.
                              */
-                        'id',
+                      'id',
                             /**
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#modelManifest".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  string
                              * type  User readable device model description.
                              */
-                        'modelDescription',
+                      'modelDescription',
                             /**
                              * description  string
                              * type  User readable device model name.
                              */
-                        'modelName',
+                      'modelName',
                             /**
                              * description  string
                              * type  User readable name of device model manufacturer.
                              */
-                        'oemName',
+                      'oemName',
                             /**
                              * description  string
                              * type  URL of device support page.
                              */
-                        'supportPageUrl'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'supportPageUrl'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -107,10 +107,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * list
      * @param   {string} i input URL
@@ -119,8 +119,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     list: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -135,31 +135,31 @@ module.exports = {
                              * description  string
                              * type  Identifies what kind of resource this is. Value: the fixed string "clouddevices#modelManifestsListResponse".
                              */
-                        'kind',
+                      'kind',
                             /**
                              * description  array
                              * type  The actual list of model manifests.
                              */
-                        'modelManifests',
+                      'modelManifests',
                             /**
                              * description  string
                              * type  Token corresponding to the next page of model manifests.
                              */
-                        'nextPageToken',
+                      'nextPageToken',
                             /**
                              * description  integer
                              * type  The total number of model manifests for the query. The number of items in a response may be smaller due to paging.
                              * format  int32
                              */
-                        'totalResults'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'totalResults'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -170,10 +170,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * validateCommandDefs
      * @param   {string} i input URL
@@ -182,8 +182,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     validateCommandDefs: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -198,15 +198,15 @@ module.exports = {
                              * description  array
                              * type  Validation errors in command definitions.
                              */
-                        'validationErrors'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'validationErrors'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -217,10 +217,10 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  },
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    },
     /**
      * validateDeviceState
      * @param   {string} i input URL
@@ -229,8 +229,8 @@ module.exports = {
      * @returns {object} deferred.resolve or deferred.reject
      */
     validateDeviceState: (i, weaveObject, Q) => {
-      var deferred = Q.defer();
-      try {
+        var deferred = Q.defer();
+        try {
             /**
              * Validate if the provide body is correct
              */
@@ -245,15 +245,15 @@ module.exports = {
                              * description  array
                              * type  Validation errors in device state.
                              */
-                        'validationErrors'
-                    ], (processResult) => {
-                            switch (processResult) {
-                          case false:
-                              deferred.reject('Something processing this request went wrong');
-                          default:
-                              deferred.resolve(processResult);
-                          }
-                        });
+                      'validationErrors'
+                  ], (processResult) => {
+                        switch (processResult) {
+                            case false:
+                                deferred.reject('Something processing this request went wrong');
+                            default:
+                                deferred.resolve(processResult);
+                            }
+                    });
                   break;
               default:
                         /**
@@ -264,8 +264,8 @@ module.exports = {
               }
           });
       } catch (error) {
-            deferred.reject(error);
-        }
-      return deferred.promise;
-  }
+          deferred.reject(error);
+      }
+        return deferred.promise;
+    }
 };
