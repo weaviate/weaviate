@@ -26,21 +26,21 @@ USE Weaviate001;
  */
 
 CREATE TABLE IF NOT EXISTS AclEntry (
-  cloudAccessRevoked BOOLEAN,
-  creatorEmail TEXT,
-  delegator TEXT,
-  id UUID PRIMARY KEY,
-  key BIGINT,
-  kind TEXT,
-  localAccessInfo TEXT,
-  pending BOOLEAN,
-  privileges TEXT,
-  role TEXT,
-  scopeId TEXT,
-  scopeMembership TEXT,
-  scopeName TEXT,
-  scopePhotoUrl TEXT,
-  scopeType TEXT
+	cloudAccessRevoked BOOLEAN,
+	creatorEmail TEXT,
+	delegator TEXT,
+	id UUID PRIMARY KEY,
+	key BIGINT,
+	kind TEXT,
+	localAccessInfo TEXT,
+	pending BOOLEAN,
+	privileges TEXT,
+	role TEXT,
+	scopeId TEXT,
+	scopeMembership TEXT,
+	scopeName TEXT,
+	scopePhotoUrl TEXT,
+	scopeType TEXT
 );
 
 CREATE TABLE IF NOT EXISTS Application (
