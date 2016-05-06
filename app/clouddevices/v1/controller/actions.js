@@ -12,7 +12,15 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-const actionsDevices = require('./devices.js');
+const   actionsDevices              = require('./actions/aclEntries.js'),
+        actionsAuthorizedApps       = require('./actions/authorizedApps.js'),
+        actionsCommands             = require('./actions/commands.js'),
+        actionsDevices              = require('./actions/devices.js'),
+        actionsEvents               = require('./actions/events.js'),
+        actionsModelManifests       = require('./actions/modelManifests.js'),
+        actionsPersonalizedInfos    = require('./actions/personalizedInfos.js'),
+        actionsRegistrationTickets  = require('./actions/registrationTickets.js'),
+        actionsSubscriptions        = require('./actions/subscriptions.js');
 
 module.exports = {
 
