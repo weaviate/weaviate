@@ -210,7 +210,7 @@ CREATE TABLE IF NOT EXISTS PersonalizedInfo (
 
 CREATE TABLE IF NOT EXISTS RegistrationTicket (
 	creationTimeMs BIGINT,
-	deviceDraft  TEXT,
+	deviceDraft TEXT,
 	deviceId TEXT,
 	errorCode TEXT,
 	expirationTimeMs BIGINT,
