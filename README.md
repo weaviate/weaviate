@@ -18,6 +18,7 @@ You can use Weaviate on simple local machines, or complex distributed networks w
 ### Table of contents
 * [How does it work?](#how-does-it-work)
 * [Release schedule](#release-schedule)
+* [FAQ](#faq)
 * [Installation](#installation)
 * [Using the weaviate() function](#using-the-weaviate-function)
 * [Related packages, products and repos](#related-packages-products-and-repos)
@@ -36,6 +37,32 @@ Estimates for our release schedule:<br>
 - 0.3.x [+ 1 month] Pre configured packages (Docker or platform specific) for major PaaS providers.
 - 0.4.x [+ 1.5 months] Porting of Weave protocol to services like Amazon AWS IoT, IBM Bluemix IoT e.a.
 - 0.5.x or 1.x
+
+### FAQ
+
+- Why Weaviate​?​ ​W​hy a private Weave cloud?
+When we started discussing the potential of Google's Weave and Brillo​ with clients​,​ most​ of them​ were very interested but ​many could not use the Google Cloud​ for ​a​ variety of reasons. ​F​or exampl​e, a​ hospital with custom​-​made connected devices​ can ​only store data in their own datacenters.​ ​Another example ​could be somebody who want​s​ to manipulate the cloud response with machine learning software​,​ or ​to ​analyze the raw data that is sen​t​ from and to the devices.
+
+- Can I extend Weaviate and the Weave API for my project​?​
+Yes!
+
+- Can I integrate Weaviate with my existing software?
+Absolutely​. If, l​et​'​s say​,​ you want to use Tensorflow to create predictions based on device statistics​,​ you can easily integrate this with Weaviate.
+
+- How does it work?
+The Google API listens to three dozen commands​.​ Weaviate mimics the methods, URIs and resources that the Google cloud listens to. Weaviate will respond and listen to your devices in the same way the Google cloud does.
+
+- Do I need to download or clone Brillo, Libweave or uWeave from a different fork to use Weaviate?
+No, you can use the official open source repos from Google.
+
+- What are you planning on releasing?
+​W​e are working hard to get 0.1.x ready​ as soon as possible​.​ We will let you know as soon​ as​ this version is ready​ i​f you follow us on Twitter or if you sign​ ​up for our newsletter .
+
+- How to use Weaviate​?​ Where to start?
+​We will release documentation and videos​ u​pon​ ​the ​release​ of​ version 0.1.x​​. This will only be for Weaviate​.​ You can use the Google documentation ​for ​Weave and Brillo​ ​on their respective website​s​.
+
+- Why Node/Javascript?
+Because we think Node is a language ​that many​ people ​are able to read and write. We want to make the Weave community as large as possible.
 
 ### Installation
 - Install Node version >5.0.0 ([more info](https://nodejs.org/en/download/package-manager))
