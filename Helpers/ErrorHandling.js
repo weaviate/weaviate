@@ -11,16 +11,16 @@
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- 
+
 /**
  * CLASS Commands_AclEntries
  */
 module.exports = class Helpers_ErrorHandling {
-  
+
     createErrorMessage(message) { // Command: Commands_{resources.className.methods.$name}
         return {
             'error': message
-        }
+        };
     }
 
-}
+};
