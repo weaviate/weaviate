@@ -7,6 +7,7 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
+ * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -27,19 +28,11 @@ weaviate({
     dbContactpoints: ['127.0.0.1'],
     dbKeyspace: 'test001',
     hostname: 'localhost',
-    port: '8888',
+    port: 8080,
     formatIn: 'JSON', /* use json or cbor */
     formatOut: 'JSON', /* use json or cbor */
-    stdoutLog: true
-})
-.done((weaveObject) => {
-    /**
-     * Weaveobject contains stuff like: params, POST body, response send back and request headers and request connection
-     */
-    console.log(weaveObject);
-}, (error) => {
-    /**
-     * Something went wrong
-     */
-    console.error(error);
+    stdoutLog: true,
+    onSucces: (weaveObject) => {
+        console.log(weaveObject);
+    }
 });
