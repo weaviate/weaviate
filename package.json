@@ -1,37 +1,37 @@
 {
-  "name": "weaviate",
-  "version": "0.0.9",
-  "description": "Weavite, a private cloud for the Google Weave protocol",
-  "main": "weaviate.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/weaviate/weaviate.git"
-  },
-  "keywords": [
-    "Google",
-    "Weave",
-    "Brillo",
-    "Weaviate"
-  ],
-  "author": "Bob van Luijt <bob@weaviate.com> (http://weaviate.com)",
-  "license": "SEE LICENSE IN LICENSE",
-  "bugs": {
-    "url": "https://github.com/weaviate/weaviate/issues"
-  },
-  "homepage": "https://github.com/weaviate/weaviate#readme",
-  "dependencies": {
-    "cassandra-driver": "^3.0.2",
-    "gulp": "^3.9.1",
-    "gulp-eslint": "^2.0.0",
-    "restify": "^4.0.4"
-  },
-  "devDependencies": {
-    "assert": "^1.4.0",
-    "chai": "^3.5.0",
-    "should": "^8.4.0",
-    "supertest": "^1.2.0"
-  }
+    "name": "weaviate",
+    "version": "0.0.9",
+    "description": "Weavite, a private cloud for the Google Weave protocol",
+    "main": "weaviate.js",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/weaviate/weaviate.git"
+    },
+    "keywords": [
+        "Google",
+        "Weave",
+        "Brillo",
+        "Weaviate"
+    ],
+    "author": "Bob van Luijt <bob@weaviate.com> (http://weaviate.com)",
+    "license": "SEE LICENSE IN LICENSE",
+    "bugs": {
+        "url": "https://github.com/weaviate/weaviate/issues"
+    },
+    "homepage": "https://github.com/weaviate/weaviate#readme",
+    "dependencies": {
+        "cassandra-driver": "^3.0.2",
+        "gulp": "^3.9.1",
+        "gulp-eslint": "^2.0.0",
+        "restify": "^4.0.4"
+    },
+    "devDependencies": {
+        "assert": "^1.4.0",
+        "chai": "^3.5.0",
+        "should": "^8.4.0",
+        "supertest": "^1.2.0"
+    }
 }
