@@ -7,14 +7,15 @@
  *
  * Copyright © 2016 Weaviate. All rights reserved.
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
+ * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- 
+
 /** Class Commands_AclEntries */
 module.exports = class Commands_AclEntries { // Class: Commands_{resources.className}
-  
+
     /**
      * Constructor for this Command
      * @param {object} req  - The request
@@ -29,17 +30,19 @@ module.exports = class Commands_AclEntries { // Class: Commands_{resources.class
 
     /**
      * Deletes an ACL entry.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {null} null
      */
     getDelete(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with an empty body
-            resolve({})
-        })
+            resolve({});
+        });
     }
 
     /**
      * Returns the requested ACL entry.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
     getGet(commandAttributes) {
@@ -72,11 +75,12 @@ module.exports = class Commands_AclEntries { // Class: Commands_{resources.class
                 scopePhotoUrl: 'https://url.to/photo.png',
                 scopeType: 'application'
             });
-        })
+        });
     }
 
     /**
      * Inserts a new ACL entry.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
     getInsert(commandAttributes) {
@@ -109,18 +113,19 @@ module.exports = class Commands_AclEntries { // Class: Commands_{resources.class
                 scopePhotoUrl: 'https://url.to/photo.png',
                 scopeType: 'application'
             });
-        })
+        });
     }
 
     /**
      * Lists ACL entries.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
     getList(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with special schema AND schema id aclEntry
             resolve({
-                kind: "weave#aclEntriesListResponse",
+                kind: 'weave#aclEntriesListResponse',
                 aclEntries: [{
                     cloudAccessRevoked: false,
                     creatorEmail: 'foo@bar.computer',
@@ -150,12 +155,13 @@ module.exports = class Commands_AclEntries { // Class: Commands_{resources.class
                 }],
                 nextPageToken: '12345-qwerty',
                 totalResults: 1
-            })
-        })
+            });
+        });
     }
 
     /**
      * Update an ACL entry. This method supports patch semantics.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
     getPatch(commandAttributes) {
@@ -188,11 +194,12 @@ module.exports = class Commands_AclEntries { // Class: Commands_{resources.class
                 scopePhotoUrl: 'https://url.to/photo.png',
                 scopeType: 'application'
             });
-        })
+        });
     }
 
     /**
      * Update an ACL entry.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
     getUpdate(commandAttributes) {
@@ -225,7 +232,7 @@ module.exports = class Commands_AclEntries { // Class: Commands_{resources.class
                 scopePhotoUrl: 'https://url.to/photo.png',
                 scopeType: 'application'
             });
-        })
+        });
     }
 
-}
+};

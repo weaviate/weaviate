@@ -7,6 +7,7 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
+ * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
