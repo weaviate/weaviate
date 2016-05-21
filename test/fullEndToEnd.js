@@ -100,16 +100,17 @@
  * 39th, delete the device
  * command: clouddevices.devices.delete
  */
-const   assert     = require('assert'),
+const   assert  = require('assert'),
         request = require('supertest'),
-        app     = require('express');
+        app     = require('express'),
+        should  = require('should');
 
-const weaviateUrl = 'http://localhost:8080'; // google cloud 'https://www.googleapis.com/weave/v1';
-      bearer        = 'Bearer ya29.xxx_xxx'; // email and bearer should corrolate
-      refreshToken  = 'xxx';
-      idToken       = 'xxx';
-      client_id     = 'xxx';
-      client_secret = 'xxx';
+const weaviateUrl = 'http://localhost:8080', // google cloud 'https://www.googleapis.com/weave/v1';
+      bearer        = 'Bearer ya29.xxx_xxx', // email and bearer should corrolate
+      refreshToken  = 'xxx',
+      idToken       = 'xxx',
+      client_id     = 'xxx',
+      client_secret = 'xxx',
       APIKey        = 'xxx'; //created: https://console.cloud.google.com/apis/credentials?project=device-test
 
 var userEmail       = 'bob@weaviate.com'; // email and bearer should corrolate
