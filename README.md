@@ -75,7 +75,7 @@ Because we think Node is a language ​that many​ people ​are able to read a
 ### Installation
 - Install Node version >5.0.0 ([more info](https://nodejs.org/en/download/package-manager))
 - Install Weaviate from NPM: `npm install weaviate --save`
-- Install a Cassandra database ([more info](https://www.digitalocean.com/community/tutorials/how-to-install-cassandra-and-run-a-single-node-cluster-on-ubuntu-14-04)) and import the CQL file found in the directory cassandra/clouddevices/v1/skeleton.cql of this repo.
+- Install a Cassandra database ([more info](https://www.digitalocean.com/community/tutorials/how-to-install-cassandra-and-run-a-single-node-cluster-on-ubuntu-14-04)) and import the CQL file found in the repo https://github.com/weaviate/weaviate-cassandra/.
 - In your server Javascript file, add the following:
 ```javascript
 const weaviate = require('weaviate');
