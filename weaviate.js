@@ -15,7 +15,17 @@
 
 const Helpers_ErrorHandling = require('./Helpers/ErrorHandling.js');
 
-const Commands_AclEntries = require('./Commands/AclEntries.js');
+const Commands_AclEntries          = require('./Commands/AclEntries.js'),
+      Commands_AuthorizedApps      = require('./Commands/AuthorizedApps.js'),
+      Commands_Commands            = require('./Commands/Commands.js'),
+      Commands_Devices             = require('./Commands/Devices.js'),
+      Commands_Events              = require('./Commands/Events.js'),
+      Commands_ModelManifests      = require('./Commands/ModelManifests.js'),
+      Commands_PersonalizedInfos   = require('./Commands/PersonalizedInfos.js'),
+      Commands_Places              = require('./Commands/Places.js'),
+      Commands_RegistrationTickets = require('./Commands/RegistrationTickets.js'),
+      Commands_Rooms               = require('./Commands/Rooms.js'),
+      Commands_Subscriptions       = require('./Commands/Subscriptions.js');
 
 const SERVER = require('restify')
                     .createServer({
@@ -108,15 +118,41 @@ module.exports = (i) => {
                     authScopes: ['/auth/weave.app']
                 })
                 .then(result => {
+                    // send the result
                     res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.aclEntries.delete');
+                    }
                     return next();
                 })
                 .catch(error => {
                     res.send(
                         new Helpers_ErrorHandling.createErrorMessage(error)
                     );
-                    next();
-                });
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.delete');
+                    }
+                    return next();
+                })
     });
 
     /**
@@ -137,15 +173,41 @@ module.exports = (i) => {
                     authScopes: ['/auth/weave.app']
                 })
                 .then(result => {
+                    // send the result
                     res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.aclEntries.get');
+                    }
                     return next();
                 })
                 .catch(error => {
                     res.send(
                         new Helpers_ErrorHandling.createErrorMessage(error)
                     );
-                    next();
-                });
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.get');
+                    }
+                    return next();
+                })
     });
 
     /**
@@ -169,15 +231,41 @@ module.exports = (i) => {
                     authScopes: ['/auth/weave.app']
                 })
                 .then(result => {
+                    // send the result
                     res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.aclEntries.insert');
+                    }
                     return next();
                 })
                 .catch(error => {
                     res.send(
                         new Helpers_ErrorHandling.createErrorMessage(error)
                     );
-                    next();
-                });
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.insert');
+                    }
+                    return next();
+                })
     });
 
     /**
@@ -195,15 +283,41 @@ module.exports = (i) => {
                     authScopes: ['/auth/weave.app']
                 })
                 .then(result => {
+                    // send the result
                     res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.aclEntries.list');
+                    }
                     return next();
                 })
                 .catch(error => {
                     res.send(
                         new Helpers_ErrorHandling.createErrorMessage(error)
                     );
-                    next();
-                });
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.list');
+                    }
+                    return next();
+                })
     });
 
     /**
@@ -224,15 +338,41 @@ module.exports = (i) => {
                     authScopes: ['/auth/weave.app']
                 })
                 .then(result => {
+                    // send the result
                     res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.aclEntries.patch');
+                    }
                     return next();
                 })
                 .catch(error => {
                     res.send(
                         new Helpers_ErrorHandling.createErrorMessage(error)
                     );
-                    next();
-                });
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.patch');
+                    }
+                    return next();
+                })
     });
 
     /**
@@ -253,15 +393,41 @@ module.exports = (i) => {
                     authScopes: ['/auth/weave.app']
                 })
                 .then(result => {
+                    // send the result
                     res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.aclEntries.update');
+                    }
                     return next();
                 })
                 .catch(error => {
                     res.send(
                         new Helpers_ErrorHandling.createErrorMessage(error)
                     );
-                    next();
-                });
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.update');
+                    }
+                    return next();
+                })
     });
 
     /*
