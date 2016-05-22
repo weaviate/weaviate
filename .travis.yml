@@ -8,6 +8,10 @@ node_js:
   - "5.1"
   - "6.2"
   - "iojs"
+  
+before_install:
+  - sudo wget https://raw.githubusercontent.com/weaviate/weaviate-cassandra/master/skeleton.cql
+  - sudo cqlsh -f skeleton.cql
 
 before_script:
   - npm install -g gulp
