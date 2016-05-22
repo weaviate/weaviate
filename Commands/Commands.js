@@ -44,9 +44,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                 creatorEmail: 'bob@weaviate.com',
                 deviceId: '12345-qwerty',
                 error: {
-                    arguments: {
-                        ['argument_a', 'argument_b']
-                    },
+                    arguments: ['argument_a', 'argument_b'],
                     code: 123,
                     message: 'message that goes with the code'
                 },
@@ -92,9 +90,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                 creatorEmail: 'bob@weaviate.com',
                 deviceId: '12345-qwerty',
                 error: {
-                    arguments: {
-                        ['argument_a', 'argument_b']
-                    },
+                    arguments: ['argument_a', 'argument_b'],
                     code: 123,
                     message: 'message that goes with the code'
                 },
@@ -108,8 +104,8 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                 results: {},
                 state: 'done',
                 userAction: 'some user action'
-            });
-        });
+            })
+        })
     }
 
     /**
@@ -130,9 +126,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                         creatorEmail: 'bob@weaviate.com',
                         deviceId: '12345-qwerty',
                         error: {
-                            arguments: {
-                                ['argument_a', 'argument_b']
-                            },
+                            arguments: ['argument_a', 'argument_b'],
                             code: 123,
                             message: 'message that goes with the code'
                         },
@@ -148,8 +142,8 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                         userAction: 'some user action'
                     }
                 ]
-            });
-        });
+            })
+        })
     }
 
     /**
@@ -168,9 +162,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                 creatorEmail: 'bob@weaviate.com',
                 deviceId: '12345-qwerty',
                 error: {
-                    arguments: {
-                        ['argument_a', 'argument_b']
-                    },
+                    arguments: ['argument_a', 'argument_b'],
                     code: 123,
                     message: 'message that goes with the code'
                 },
@@ -184,8 +176,8 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                 results: {},
                 state: 'done',
                 userAction: 'some user action'
-            });
-        });
+            })
+        })
     }
 
     /**
@@ -207,9 +199,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                         creatorEmail: 'bob@weaviate.com',
                         deviceId: '12345-qwerty',
                         error: {
-                            arguments: {
-                                ['argument_a', 'argument_b']
-                            },
+                            arguments: ['argument_a', 'argument_b'],
                             code: 123,
                             message: 'message that goes with the code'
                         },
@@ -228,8 +218,8 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                   nextPageToken: '12345-qwerty',
                   totalResults: 1
                 }
-            );
-        });
+            )
+        })
     }
 
     /**
@@ -248,9 +238,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                 creatorEmail: 'bob@weaviate.com',
                 deviceId: '12345-qwerty',
                 error: {
-                    arguments: {
-                        ['argument_a', 'argument_b']
-                    },
+                    arguments: ['argument_a', 'argument_b'],
                     code: 123,
                     message: 'message that goes with the code'
                 },
@@ -264,7 +252,8 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                 results: {},
                 state: 'done',
                 userAction: 'some user action'
-            });
+            })
+        })
     }
 
 };

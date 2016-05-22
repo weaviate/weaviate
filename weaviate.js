@@ -785,6 +785,7 @@ module.exports = (i) => {
                     }
                     return next();
                 })
+        });
 
         /**
          * Id: weave.commands.list
