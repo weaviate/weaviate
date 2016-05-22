@@ -80,8 +80,7 @@ Because we think Node is a language ​that many​ people ​are able to read a
 - In your server Javascript file, add the following:
 ```javascript
 const weaviate = require('weaviate');
-weaviate( CONFIGURATION OBJECT )
-    .done((weaveObject) => { CALLBACK });
+weaviate( CONFIGURATION OBJECT );
 ```
 
 ### Using the weaviate() function
