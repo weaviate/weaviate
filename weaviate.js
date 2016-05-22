@@ -36,10 +36,12 @@ const Commands_AclEntries          = require('./Commands/AclEntries.js'),
 /*****************************
  * Add the server consts
  */
-const SERVER = require('restify')
-                    .createServer({
-                        name: 'Weaviate Server'
-                    });
+const RESTIFY = require('restify'), 
+      SERVER = RESTIFY
+                .createServer({
+                    name: 'Weaviate Server'
+                });
+      SERVER.pre( RESTIFY.pre.sanitizePath() );
 
 module.exports = (i) => {
     /**
