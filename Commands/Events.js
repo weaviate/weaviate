@@ -37,7 +37,7 @@ module.exports = class Commands_Events { // Class: Commands_{resources.className
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({});
-        })
+        });
     }
 
     /**
@@ -69,7 +69,7 @@ module.exports = class Commands_Events { // Class: Commands_{resources.className
               nextPageToken: '12345',
               totalResults: 1
             });
-        })
+        });
     }
 
     /**
@@ -80,8 +80,8 @@ module.exports = class Commands_Events { // Class: Commands_{resources.className
     getRecordDeviceEvents(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
-            resolve({})
-        })
+            resolve({});
+        });
     }
-    
+
 };
