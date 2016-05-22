@@ -13,6 +13,9 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
+/*
+ * In
+ */
 const Helpers_ErrorHandling = require('./Helpers/ErrorHandling.js');
 
 const Commands_AclEntries          = require('./Commands/AclEntries.js'),
@@ -100,7 +103,7 @@ module.exports = (i) => {
      * aclEntries COMMANDS
      */
 
-    /**
+    /*****************************
      * Id: weave.aclEntries.delete
      * Deletes an ACL entry.
      */
@@ -155,7 +158,7 @@ module.exports = (i) => {
                 })
     });
 
-    /**
+    /*****************************
      * Id: weave.aclEntries.get
      * Returns the requested ACL entry.
      */
@@ -210,7 +213,7 @@ module.exports = (i) => {
                 })
     });
 
-    /**
+    /*****************************
      * Id: weave.aclEntries.insert
      * Inserts a new ACL entry.
      */
@@ -268,7 +271,7 @@ module.exports = (i) => {
                 })
     });
 
-    /**
+    /*****************************
      * Id: weave.aclEntries.list
      * Lists ACL entries.
      */
@@ -320,7 +323,7 @@ module.exports = (i) => {
                 })
     });
 
-    /**
+    /*****************************
      * Id: weave.aclEntries.patch
      * Update an ACL entry. This method supports patch semantics.
      */
@@ -375,7 +378,7 @@ module.exports = (i) => {
                 })
     });
 
-    /**
+    /*****************************
      * Id: weave.aclEntries.update
      * Update an ACL entry.
      */
@@ -434,7 +437,7 @@ module.exports = (i) => {
      * AuthorizedApps COMMANDS
      */
 
-    /**
+    /*****************************
      * Id: weave.authorizedApps.createAppAuthenticationToken
      * Generate a token used to authenticate an authorized app.
      */
@@ -483,7 +486,7 @@ module.exports = (i) => {
                 })
     });
 
-    /**
+    /*****************************
      * Id: weave.authorizedApps.list
      * The actual list of authorized apps.
      */
@@ -536,7 +539,7 @@ module.exports = (i) => {
      * Commands COMMANDS
      */
 
-    /**
+    /*****************************
      * Id: weave.commands.cancel
      * Cancels a command.
      */
@@ -585,7 +588,7 @@ module.exports = (i) => {
                 })
     });
 
-    /**
+    /*****************************
      * Id: weave.commands.delete
      * Deletes a command.
      */
@@ -637,7 +640,7 @@ module.exports = (i) => {
                 })
     });
 
-    /**
+    /*****************************
      * Id: weave.commands.get
      * Returns a particular command.
      */
@@ -689,7 +692,7 @@ module.exports = (i) => {
                 })
     });
 
-    /**
+    /*****************************
      * Id: weave.commands.getQueue
      * Returns queued commands that device is supposed to execute. This method may be used only by devices.
      */
@@ -738,7 +741,7 @@ module.exports = (i) => {
                 })
     });
 
-    /**
+    /*****************************
      * Id: weave.commands.insert
      * Creates and sends a new command.
      */
@@ -785,62 +788,62 @@ module.exports = (i) => {
                     }
                     return next();
                 })
-        });
+    });
 
-        /**
-         * Id: weave.commands.list
-         * Lists all commands in reverse order of creation.
-         */
-        SERVER.get('/commands', (req, res, next) => {
-            return new Commands_Commands(req, res, next)
-                    .getList({
-                        requiredParams: [{
-                            name: 'deviceId',
-                            location: 'object'                            
-                        }],
-                        requestObjectName: 'commands',
-                        authScopes: ['/auth/weave.app']
-                    })
-                    .then(result => {
-                        // send the result
-                        res.send(result);
-                        // exec the onSuccess
-                        if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
-                            i.onSuccess({
-                                params:         req.params,
-                                body:           req.body,
-                                response:       result,
-                                requestHeaders: req.headers
-                            })
-                        }
-                        // exec the debug
-                        if(i.debug === true){
-                            console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.commands.list');
-                        }
-                        return next();
-                    })
-                    .catch(error => {
-                        res.send(
-                            new Helpers_ErrorHandling.createErrorMessage(error)
-                        );
-                        // exec the onError
-                        if(i.onError !== undefined && typeof i.onSuccess === 'function'){
-                            i.onError({
-                                params:         req.params,
-                                body:           req.body,
-                                requestHeaders: req.headers
-                            })
-                        }
-                        // exec the debug
-                        if(i.debug === true){
-                            console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.list');
-                        }
-                        return next();
-                    })
+    /*****************************
+     * Id: weave.commands.list
+     * Lists all commands in reverse order of creation.
+     */
+    SERVER.get('/commands', (req, res, next) => {
+        return new Commands_Commands(req, res, next)
+                .getList({
+                    requiredParams: [{
+                        name: 'deviceId',
+                        location: 'object'                            
+                    }],
+                    requestObjectName: 'commands',
+                    authScopes: ['/auth/weave.app']
+                })
+                .then(result => {
+                    // send the result
+                    res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.commands.list');
+                    }
+                    return next();
+                })
+                .catch(error => {
+                    res.send(
+                        new Helpers_ErrorHandling.createErrorMessage(error)
+                    );
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.list');
+                    }
+                    return next();
+                })
 
     });
 
-    /**
+    /*****************************
      * Id: weave.commands.patch
      * Updates a command. This method may be used only by devices. This method supports patch semantics.
      */
