@@ -13,19 +13,16 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-/** Class Commands_RegistrationTickets */
-module.exports = class Commands_RegistrationTickets { // Class: Commands_{resources.className}
+const Helpers_ErrorHandling = require('Helpers/ErrorHandling.js');
+
+/** Class Endpoints_Subscriptions */
+module.exports = class Endpoints_Subscriptions { // Class: Commands_{resources.className}
 
     /**
-     * Constructor for this Command
-     * @param {object} req  - The request
-     * @param {object} res  - The response
-     * @param {object} next - Next() function
+     * Constructor for this Endpoint
+     * @param {object} SERVER   - The restify SERVER object
+     * @param {object} COMMAND  - The COMMAND object
      */
-    constructor(req, res, next) {
-        this.req  = req;
-        this.res  = res;
-        this.next = next;
-    }
+    constructor(SERVER, COMMAND){}
 
 };
