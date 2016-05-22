@@ -105,7 +105,7 @@ module.exports = (i) => {
      * Deletes an ACL entry.
      */
     SERVER.del('/devices/:deviceId/aclEntries/:aclEntryId', (req, res, next) => {
-        new Commands_AclEntries(req, res, next)
+        return new Commands_AclEntries(req, res, next)
                 .getDelete({
                     requiredParams: [{
                         name: 'aclEntryId',
@@ -160,7 +160,7 @@ module.exports = (i) => {
      * Returns the requested ACL entry.
      */
     SERVER.get('/devices/:deviceId/aclEntries/:aclEntryId', (req, res, next) => {
-        new Commands_AclEntries(req, res, next)
+        return new Commands_AclEntries(req, res, next)
                 .getGet({
                     requiredParams: [{
                         name: 'aclEntryId',
@@ -215,7 +215,7 @@ module.exports = (i) => {
      * Inserts a new ACL entry.
      */
     SERVER.post('/devices/:deviceId/aclEntries', (req, res, next) => {
-        new Commands_AclEntries(req, res, next)
+        return new Commands_AclEntries(req, res, next)
                 .getInsert({
                     requiredParams: [{
                         name: 'deviceId',
@@ -273,7 +273,7 @@ module.exports = (i) => {
      * Lists ACL entries.
      */
     SERVER.get('/devices/:deviceId/aclEntries', (req, res, next) => {
-        new Commands_AclEntries(req, res, next)
+        return new Commands_AclEntries(req, res, next)
                 .getList({
                     requiredParams: [{
                         name: 'deviceId',
@@ -325,7 +325,7 @@ module.exports = (i) => {
      * Update an ACL entry. This method supports patch semantics.
      */
     SERVER.patch('/devices/:deviceId/aclEntries/:aclEntryId', (req, res, next) => {
-        new Commands_AclEntries(req, res, next)
+        return new Commands_AclEntries(req, res, next)
                 .getPatch({
                     requiredParams: [{
                         name: 'aclEntryId',
@@ -380,7 +380,7 @@ module.exports = (i) => {
      * Update an ACL entry.
      */
     SERVER.put('/devices/:deviceId/aclEntries/:aclEntryId', (req, res, next) => {
-        new Commands_AclEntries(req, res, next)
+        return new Commands_AclEntries(req, res, next)
                 .getUpdate({
                     requiredParams: [{
                         name: 'aclEntryId',
