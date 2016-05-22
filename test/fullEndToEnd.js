@@ -102,7 +102,6 @@
  */
 const   assert  = require('assert'),
         request = require('supertest'),
-        app     = require('express'),
         should  = require('should');
 
 const weaviateUrl = 'http://localhost:8080', // google cloud 'https://www.googleapis.com/weave/v1';
