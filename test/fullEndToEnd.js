@@ -256,7 +256,7 @@ describe('Trying all weave commands', () => {
                 result.should.have.property('creationTimeMs');
                 global.registrationTicketId = result.id;
                 global.deviceId = result.deviceId;
-                console.log('NOTE:', 'deviceId', result.deviceId, 'registrationTicketId', result.id);
+                //console.log('NOTE:', 'deviceId', result.deviceId, 'registrationTicketId', result.id);
                 done();
             });
     });
