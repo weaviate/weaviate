@@ -13,11 +13,14 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-/*
- * In
+/*****************************
+ * Add the helper classes
  */
 const Helpers_ErrorHandling = require('./Helpers/ErrorHandling.js');
 
+/*****************************
+ * Add the command classes
+ */
 const Commands_AclEntries          = require('./Commands/AclEntries.js'),
       Commands_AuthorizedApps      = require('./Commands/AuthorizedApps.js'),
       Commands_Commands            = require('./Commands/Commands.js'),
@@ -30,6 +33,9 @@ const Commands_AclEntries          = require('./Commands/AclEntries.js'),
       Commands_Rooms               = require('./Commands/Rooms.js'),
       Commands_Subscriptions       = require('./Commands/Subscriptions.js');
 
+/*****************************
+ * Add the server consts
+ */
 const SERVER = require('restify')
                     .createServer({
                         name: 'Weaviate Server'
