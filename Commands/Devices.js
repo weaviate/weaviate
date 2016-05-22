@@ -69,7 +69,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({});
-        })
+        });
     }
 
     /**
@@ -128,7 +128,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
                 traits: {},
                 uiDeviceKind: 'Kind of device'
             });
-        })
+        });
     }
 
     /**
@@ -140,7 +140,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({});
-        })
+        });
     }
 
     /**
@@ -199,7 +199,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
                 traits: {},
                 uiDeviceKind: 'Kind of device'
             });
-        })
+        });
     }
 
     /**
@@ -263,7 +263,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
                 nextPageToken: 'ABC',
                 totalResults: 1
             });
-        })
+        });
     }
 
     /**
@@ -322,7 +322,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
                 traits: {},
                 uiDeviceKind: 'Kind of device'
             });
-        })
+        });
     }
 
     /**
@@ -336,7 +336,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
             resolve({
                 state: 'the state'
             });
-        })
+        });
     }
 
     /**
@@ -395,7 +395,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
                 traits: {},
                 uiDeviceKind: 'Kind of device'
             });
-        })
+        });
     }
 
     /**
@@ -407,7 +407,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({});
-        })
+        });
     }
 
     /**
@@ -431,7 +431,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
                     revocationClientToken: 'some client token'
                 }
             });
-        })
+        });
     }
 
 };
