@@ -805,7 +805,7 @@ module.exports = (i) => {
                 .getList({
                     requiredParams: [{
                         name: 'deviceId',
-                        location: 'object'
+                        location: 'query'
                     }],
                     requestObjectName: 'commands',
                     authScopes: ['/auth/weave.app']
@@ -959,7 +959,7 @@ module.exports = (i) => {
      * Id: weave.devices.delete
      * Deletes a device from the system.
      */
-    SERVER.post('/devices/:deviceId', (req, res, next) => {
+    SERVER.del('/devices/:deviceId', (req, res, next) => {
         return new Commands_Devices(req, res, next)
                 .getDelete({
                     requiredParams: [{
