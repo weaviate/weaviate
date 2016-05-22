@@ -104,8 +104,8 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                 results: {},
                 state: 'done',
                 userAction: 'some user action'
-            })
-        })
+            });
+        });
     }
 
     /**
@@ -142,8 +142,8 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                         userAction: 'some user action'
                     }
                 ]
-            })
-        })
+            });
+        });
     }
 
     /**
@@ -176,8 +176,8 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                 results: {},
                 state: 'done',
                 userAction: 'some user action'
-            })
-        })
+            });
+        });
     }
 
     /**
@@ -218,8 +218,8 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                   nextPageToken: '12345-qwerty',
                   totalResults: 1
                 }
-            )
-        })
+            );
+        });
     }
 
     /**
@@ -252,8 +252,8 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
                 results: {},
                 state: 'done',
                 userAction: 'some user action'
-            })
-        })
+            });
+        });
     }
 
 };
