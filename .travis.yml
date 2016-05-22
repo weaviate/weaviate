@@ -14,8 +14,8 @@ before_install:
   - sudo cqlsh -f skeleton.cql
 
 before_script:
-  - sudo npm install -g gulp
-  - sudo npm install -g forever
+  - npm install -g gulp
+  - npm install -g forever
   - forever start example.js
 
 script:
