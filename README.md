@@ -104,7 +104,9 @@ The weaviate function needs configuration objects and returns an optional promis
 	port 	 	: 8080,        // port for the service
 	formatIn 	: 'JSON',      // JSON or CBOR (note: experimental)
 	formatOut 	: 'JSON',      // JSON or CBOR (note: experimental)
-	stdoutLog 	: true         // log all usages via stdout
+	debug	 	: true         // log all usages via stdout (IP, SUCCESS/ERROR, ACTION)
+	onSuccess	: (weaveObject) => {} // when a request was succesful 
+	onError		: (weaveObject) => {} // when a request generated an error
 }
 ```
 
@@ -128,16 +130,14 @@ weaviate({
 	port 	 	: '8080',
 	formatIn 	: 'JSON',
 	formatOut 	: 'JSON',
-	stdoutLog 	: true
+	debug 		: true,
+	onSuccess	: (weaveObject) => {
+		console.log('SUCCESS', weaveObject);
+	},
+	onError		: (weaveObject) => {
+		console.log('ERROR', weaveObject);
+	}
 })
-.done((weaveObject) => {
-	/**
-	 * The request is done
-	 */
-	console.log(weaveObject);
-}, (error) => {
-	console.log(error);
-});
 ```
 
 ### Related packages, products and repos
