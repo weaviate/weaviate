@@ -132,11 +132,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -151,17 +151,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.delete');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -187,11 +187,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -206,17 +206,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.get');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -245,11 +245,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -264,17 +264,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.insert');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -297,11 +297,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -316,17 +316,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.list');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -352,11 +352,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -371,17 +371,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.patch');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -407,11 +407,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -426,17 +426,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.update');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -460,11 +460,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -479,17 +479,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.authorizedApps.createAppAuthenticationToken');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -509,11 +509,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -528,17 +528,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.authorizedApps.list');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -562,11 +562,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -581,17 +581,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.cancel');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -614,11 +614,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -633,17 +633,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.delete');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -666,11 +666,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -685,17 +685,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.get');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -715,11 +715,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -734,17 +734,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.getQueue');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -764,11 +764,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -783,17 +783,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.insert');
                     }
                     return next();
-                })
+                });
     });
 
     /*****************************
@@ -805,7 +805,7 @@ module.exports = (i) => {
                 .getList({
                     requiredParams: [{
                         name: 'deviceId',
-                        location: 'object'                            
+                        location: 'object'
                     }],
                     requestObjectName: 'commands',
                     authScopes: ['/auth/weave.app']
@@ -816,11 +816,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -835,17 +835,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.list');
                     }
                     return next();
-                })
+                });
 
     });
 
@@ -858,7 +858,7 @@ module.exports = (i) => {
                 .getPatch({
                     requiredParams: [{
                         name: 'commandId',
-                        location: 'path'                            
+                        location: 'path'
                     }],
                     requestObjectName: 'commands',
                     authScopes: ['/auth/weave.app']
@@ -869,11 +869,11 @@ module.exports = (i) => {
                     // exec the onSuccess
                     if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
                         i.onSuccess({
-                            params:         req.params,
-                            body:           req.body,
-                            response:       result,
+                            params: req.params,
+                            body: req.body,
+                            response: result,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
@@ -888,17 +888,17 @@ module.exports = (i) => {
                     // exec the onError
                     if(i.onError !== undefined && typeof i.onSuccess === 'function'){
                         i.onError({
-                            params:         req.params,
-                            body:           req.body,
+                            params: req.params,
+                            body: req.body,
                             requestHeaders: req.headers
-                        })
+                        });
                     }
                     // exec the debug
                     if(i.debug === true){
                         console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.patch');
                     }
                     return next();
-                })
+                });
 
     });
 
