@@ -28,4 +28,243 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
         this.next = next;
     }
 
+    /**
+     * Cancels a command.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getCancel(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                blobParameters: {},
+                blobResults: {},
+                component: 'component_a/component_b',
+                creationTimeMs: 12345,
+                creatorEmail: 'bob@weaviate.com',
+                deviceId: '12345-qwerty',
+                error: {
+                    arguments: {
+                        ['argument_a', 'argument_b']
+                    },
+                    code: 123,
+                    message: 'message that goes with the code'
+                },
+                expirationTimeMs: 12345,
+                expirationTimeoutMs: 12345,
+                id: '12345-qwerty',
+                kind: 'weave#command',
+                name: 'name of the command',
+                parameters: {},
+                progress: {},
+                results: {},
+                state: 'done',
+                userAction: 'some user action'
+            });
+        });
+    }
+
+    /**
+     * Deletes a command.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getDelete(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({});
+        });
+    }
+
+    /**
+     * Returns a particular command.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getGet(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                blobParameters: {},
+                blobResults: {},
+                component: 'component_a/component_b',
+                creationTimeMs: 12345,
+                creatorEmail: 'bob@weaviate.com',
+                deviceId: '12345-qwerty',
+                error: {
+                    arguments: {
+                        ['argument_a', 'argument_b']
+                    },
+                    code: 123,
+                    message: 'message that goes with the code'
+                },
+                expirationTimeMs: 12345,
+                expirationTimeoutMs: 12345,
+                id: '12345-qwerty',
+                kind: 'weave#command',
+                name: 'name of the command',
+                parameters: {},
+                progress: {},
+                results: {},
+                state: 'done',
+                userAction: 'some user action'
+            });
+        });
+    }
+
+    /**
+     * Returns queued commands that device is supposed to execute. This method may be used only by devices.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getQueue(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                commands: [
+                    {
+                        blobParameters: {},
+                        blobResults: {},
+                        component: 'component_a/component_b',
+                        creationTimeMs: 12345,
+                        creatorEmail: 'bob@weaviate.com',
+                        deviceId: '12345-qwerty',
+                        error: {
+                            arguments: {
+                                ['argument_a', 'argument_b']
+                            },
+                            code: 123,
+                            message: 'message that goes with the code'
+                        },
+                        expirationTimeMs: 12345,
+                        expirationTimeoutMs: 12345,
+                        id: '12345-qwerty',
+                        kind: 'weave#command',
+                        name: 'name of the command',
+                        parameters: {},
+                        progress: {},
+                        results: {},
+                        state: 'done',
+                        userAction: 'some user action'
+                    }
+                ]
+            });
+        });
+    }
+
+    /**
+     * Creates and sends a new command.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getInsert(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                blobParameters: {},
+                blobResults: {},
+                component: 'component_a/component_b',
+                creationTimeMs: 12345,
+                creatorEmail: 'bob@weaviate.com',
+                deviceId: '12345-qwerty',
+                error: {
+                    arguments: {
+                        ['argument_a', 'argument_b']
+                    },
+                    code: 123,
+                    message: 'message that goes with the code'
+                },
+                expirationTimeMs: 12345,
+                expirationTimeoutMs: 12345,
+                id: '12345-qwerty',
+                kind: 'weave#command',
+                name: 'name of the command',
+                parameters: {},
+                progress: {},
+                results: {},
+                state: 'done',
+                userAction: 'some user action'
+            });
+        });
+    }
+
+    /**
+     * Lists all commands in reverse order of creation.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getList(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                kind: 'weave#commandsListResponse',
+                commands: [
+                    {
+                        blobParameters: {},
+                        blobResults: {},
+                        component: 'component_a/component_b',
+                        creationTimeMs: 12345,
+                        creatorEmail: 'bob@weaviate.com',
+                        deviceId: '12345-qwerty',
+                        error: {
+                            arguments: {
+                                ['argument_a', 'argument_b']
+                            },
+                            code: 123,
+                            message: 'message that goes with the code'
+                        },
+                        expirationTimeMs: 12345,
+                        expirationTimeoutMs: 12345,
+                        id: '12345-qwerty',
+                        kind: 'weave#command',
+                        name: 'name of the command',
+                        parameters: {},
+                        progress: {},
+                        results: {},
+                        state: 'done',
+                        userAction: 'some user action'
+                    }
+                  ],
+                  nextPageToken: '12345-qwerty',
+                  totalResults: 1
+                }
+            );
+        });
+    }
+
+    /**
+     * Updates a command. This method may be used only by devices. This method supports patch semantics.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getPatch(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                blobParameters: {},
+                blobResults: {},
+                component: 'component_a/component_b',
+                creationTimeMs: 12345,
+                creatorEmail: 'bob@weaviate.com',
+                deviceId: '12345-qwerty',
+                error: {
+                    arguments: {
+                        ['argument_a', 'argument_b']
+                    },
+                    code: 123,
+                    message: 'message that goes with the code'
+                },
+                expirationTimeMs: 12345,
+                expirationTimeoutMs: 12345,
+                id: '12345-qwerty',
+                kind: 'weave#command',
+                name: 'name of the command',
+                parameters: {},
+                progress: {},
+                results: {},
+                state: 'done',
+                userAction: 'some user action'
+            });
+    }
+
 };

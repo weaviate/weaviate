@@ -532,6 +532,366 @@ module.exports = (i) => {
                 })
     });
 
+    /*****************************
+     * Commands COMMANDS
+     */
+
+    /**
+     * Id: weave.commands.cancel
+     * Cancels a command.
+     */
+    SERVER.post('/commands/:commandId/cancel', (req, res, next) => {
+        return new Commands_Commands(req, res, next)
+                .getCancel({
+                    requiredParams: [],
+                    requestObjectName: null,
+                    authScopes: ['/auth/weave.app']
+                })
+                .then(result => {
+                    // send the result
+                    res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.commands.cancel');
+                    }
+                    return next();
+                })
+                .catch(error => {
+                    res.send(
+                        new Helpers_ErrorHandling.createErrorMessage(error)
+                    );
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.cancel');
+                    }
+                    return next();
+                })
+    });
+
+    /**
+     * Id: weave.commands.delete
+     * Deletes a command.
+     */
+    SERVER.del('/commands/:commandId', (req, res, next) => {
+        return new Commands_Commands(req, res, next)
+                .getDelete({
+                    requiredParams: [{
+                        name: 'commandId',
+                        location: 'object'
+                    }],
+                    requestObjectName: null,
+                    authScopes: ['/auth/weave.app']
+                })
+                .then(result => {
+                    // send the result
+                    res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.commands.delete');
+                    }
+                    return next();
+                })
+                .catch(error => {
+                    res.send(
+                        new Helpers_ErrorHandling.createErrorMessage(error)
+                    );
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.delete');
+                    }
+                    return next();
+                })
+    });
+
+    /**
+     * Id: weave.commands.get
+     * Returns a particular command.
+     */
+    SERVER.get('/commands/:commandId', (req, res, next) => {
+        return new Commands_Commands(req, res, next)
+                .getGet({
+                    requiredParams: [{
+                        name: 'commandId',
+                        location: 'object'
+                    }],
+                    requestObjectName: null,
+                    authScopes: ['/auth/weave.app']
+                })
+                .then(result => {
+                    // send the result
+                    res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.commands.get');
+                    }
+                    return next();
+                })
+                .catch(error => {
+                    res.send(
+                        new Helpers_ErrorHandling.createErrorMessage(error)
+                    );
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.get');
+                    }
+                    return next();
+                })
+    });
+
+    /**
+     * Id: weave.commands.getQueue
+     * Returns queued commands that device is supposed to execute. This method may be used only by devices.
+     */
+    SERVER.get('/commands/queue', (req, res, next) => {
+        return new Commands_Commands(req, res, next)
+                .getQueue({
+                    requiredParams: ['commandId'],
+                    requestObjectName: null,
+                    authScopes: ['/auth/weave.app']
+                })
+                .then(result => {
+                    // send the result
+                    res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.commands.getQueue');
+                    }
+                    return next();
+                })
+                .catch(error => {
+                    res.send(
+                        new Helpers_ErrorHandling.createErrorMessage(error)
+                    );
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.getQueue');
+                    }
+                    return next();
+                })
+    });
+
+    /**
+     * Id: weave.commands.insert
+     * Creates and sends a new command.
+     */
+    SERVER.post('/commands', (req, res, next) => {
+        return new Commands_Commands(req, res, next)
+                .getInsert({
+                    requiredParams: [],
+                    requestObjectName: 'commands',
+                    authScopes: ['/auth/weave.app']
+                })
+                .then(result => {
+                    // send the result
+                    res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.commands.insert');
+                    }
+                    return next();
+                })
+                .catch(error => {
+                    res.send(
+                        new Helpers_ErrorHandling.createErrorMessage(error)
+                    );
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.insert');
+                    }
+                    return next();
+                })
+
+        /**
+         * Id: weave.commands.list
+         * Lists all commands in reverse order of creation.
+         */
+        SERVER.get('/commands', (req, res, next) => {
+            return new Commands_Commands(req, res, next)
+                    .getList({
+                        requiredParams: [{
+                            name: 'deviceId',
+                            location: 'object'                            
+                        }],
+                        requestObjectName: 'commands',
+                        authScopes: ['/auth/weave.app']
+                    })
+                    .then(result => {
+                        // send the result
+                        res.send(result);
+                        // exec the onSuccess
+                        if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                            i.onSuccess({
+                                params:         req.params,
+                                body:           req.body,
+                                response:       result,
+                                requestHeaders: req.headers
+                            })
+                        }
+                        // exec the debug
+                        if(i.debug === true){
+                            console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.commands.list');
+                        }
+                        return next();
+                    })
+                    .catch(error => {
+                        res.send(
+                            new Helpers_ErrorHandling.createErrorMessage(error)
+                        );
+                        // exec the onError
+                        if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                            i.onError({
+                                params:         req.params,
+                                body:           req.body,
+                                requestHeaders: req.headers
+                            })
+                        }
+                        // exec the debug
+                        if(i.debug === true){
+                            console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.list');
+                        }
+                        return next();
+                    })
+
+    });
+
+    /**
+     * Id: weave.commands.patch
+     * Updates a command. This method may be used only by devices. This method supports patch semantics.
+     */
+    SERVER.patch('/commands/:commandId', (req, res, next) => {
+        return new Commands_Commands(req, res, next)
+                .getPatch({
+                    requiredParams: [{
+                        name: 'commandId',
+                        location: 'path'                            
+                    }],
+                    requestObjectName: 'commands',
+                    authScopes: ['/auth/weave.app']
+                })
+                .then(result => {
+                    // send the result
+                    res.send(result);
+                    // exec the onSuccess
+                    if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+                        i.onSuccess({
+                            params:         req.params,
+                            body:           req.body,
+                            response:       result,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.commands.patch');
+                    }
+                    return next();
+                })
+                .catch(error => {
+                    res.send(
+                        new Helpers_ErrorHandling.createErrorMessage(error)
+                    );
+                    // exec the onError
+                    if(i.onError !== undefined && typeof i.onSuccess === 'function'){
+                        i.onError({
+                            params:         req.params,
+                            body:           req.body,
+                            requestHeaders: req.headers
+                        })
+                    }
+                    // exec the debug
+                    if(i.debug === true){
+                        console.log(req.connection.remoteAddress, 'ERROR', 'weave.commands.patch');
+                    }
+                    return next();
+                })
+
+    });
+
     /*
      * START THE SERVER
      */
