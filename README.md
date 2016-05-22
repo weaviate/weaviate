@@ -8,9 +8,9 @@ Weaviate is a REST API based software-as-a-service platform that is able to proc
 
 You can use Weaviate on simple local machines, or complex distributed networks with Node in combination with a Cassandra database.
 
-| Branch   | Build status                                                                                                                    |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| master   | [![Build Status](https://travis-ci.org/weaviate/weaviate.svg?branch=master)](https://travis-ci.org/weaviate/weaviate)           |
+| Branch   | Build status                                                                                                                    | Dependency status                                                                                                                   | Dev dependency status                                                                                                                   |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| master   | [![Build Status](https://travis-ci.org/weaviate/weaviate.svg?branch=master)](https://travis-ci.org/weaviate/weaviate)           | [![Dep Status](https://david-dm.org/weaviate/weaviate/status.svg)](https://david-dm.org/weaviate/weaviate)                          | [![Dep Status](https://david-dm.org/weaviate/weaviate/dev-status.svg)](https://david-dm.org/weaviate/weaviate#info=devDependencies)                         |
 | develop  | [![Build Status](https://travis-ci.org/weaviate/weaviate.svg?branch=develop)](https://travis-ci.org/weaviate/weaviate/branches) |
 
 ![NPM](https://nodei.co/npm/weaviate.png?downloads=true "NPM")
