@@ -13,7 +13,7 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-/** Class Commands_AclEntries */
+/** Class Commands_Places */
 module.exports = class Commands_Places { // Class: Commands_{resources.className}
 
     /**
