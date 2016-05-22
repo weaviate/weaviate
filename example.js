@@ -32,7 +32,11 @@ weaviate({
     formatIn: 'JSON', /* use json or cbor */
     formatOut: 'JSON', /* use json or cbor */
     stdoutLog: true,
+    debug: true,
     onSucces: (weaveObject) => {
         console.log(weaveObject);
+    },
+    onError: (weaveObject) => {
+        console.error(weaveObject);
     }
 });
