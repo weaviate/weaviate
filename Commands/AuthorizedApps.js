@@ -28,4 +28,47 @@ module.exports = class Commands_AuthorizedApps { // Class: Commands_{resources.c
         this.next = next;
     }
 
+    /**
+     * Generate a token used to authenticate an authorized app.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getCreateAppAuthenticationToken(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+              kind: 'weave#authorizedAppsCreateAppAuthenticationTokenResponse',
+              token: '12345-qwerty'
+            });
+        });
+    }
+
+    /**
+     * The actual list of authorized apps.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getList(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+              kind: 'weave#authorizedAppsListResponse',
+              authorizedApps: [
+                {
+                  kind: 'weave#authorizedApp',
+                  projectId: '12345-qwerty',
+                  displayName: 'Some Display Name',
+                  iconUrl: 'https://my.url/photo.png',
+                  androidApps: [
+                    {
+                      package_name: 'some package name',
+                      certificate_hash: 'some certificate hash'
+                    }
+                  ]
+                }
+              ]
+            });
+        });
+    }
+
 };
