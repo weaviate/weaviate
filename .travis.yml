@@ -15,6 +15,7 @@ before_install:
 
 before_script:
   - npm install -g gulp
+  - npm install -g mocha
   - npm install -g forever
   - forever start example.js
 
