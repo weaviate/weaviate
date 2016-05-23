@@ -28,4 +28,58 @@ module.exports = class Commands_PersonalizedInfos { // Class: Commands_{resource
         this.next = next;
     }
 
+    /**
+     * Returns the personalized info for device.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getGet(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                id: 'me',
+                kind: 'weave#personalizedInfo',
+                lastUseTimeMs: 12345,
+                location: 'Study',
+                name: 'This is my name'
+            });
+        });
+    }
+
+    /**
+     * Update the personalized info for device. This method supports patch semantics.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getPatch(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                id: 'me',
+                kind: 'weave#personalizedInfo',
+                lastUseTimeMs: 12345,
+                location: 'Study',
+                name: 'This is my name'
+            });
+        });
+    }
+
+    /**
+     * Update the personalized info for device.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getUpdate(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                id: 'me',
+                kind: 'weave#personalizedInfo',
+                lastUseTimeMs: 12345,
+                location: 'Study',
+                name: 'This is my name'
+            });
+        });
+    }
+
 };

@@ -13,7 +13,7 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-const Helpers_ErrorHandling = require('Helpers/ErrorHandling.js');
+const Helpers_ErrorHandling = require('../Helpers/ErrorHandling.js');
 
 /** Class Endpoints_Events */
 module.exports = class Endpoints_Events { // Class: Commands_{resources.className}
@@ -25,7 +25,7 @@ module.exports = class Endpoints_Events { // Class: Commands_{resources.classNam
      */
     constructor(SERVER, COMMAND){
 
-         /*****************************
+        /*****************************
          * Id: weave.events.deleteAll
          * Deletes all events associated with a particular device. Leaves an event to indicate deletion happened.
          */
