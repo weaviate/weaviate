@@ -28,4 +28,99 @@ module.exports = class Commands_ModelManifeststs { // Class: Commands_{resources
         this.next = next;
     }
 
+    /**
+     * Returns a particular model manifest.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getGet(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                'allowedChildModelManifestIds': ['aaa', 'bbb'],
+                'applications': [],
+                'confirmationImageUrl': 'http://image.foo/bar.jpg',
+                'deviceImageUrl': 'http://image.foo/bar.jpg',
+                'deviceKind': 'camera',
+                'id': 'qwerty-12345',
+                'kind': 'weave#modelManifest',
+                'modelDescription': 'desc of the model',
+                'modelName': 'name of the model',
+                'oemName': 'AAAAAA',
+                'supportPageUrl': 'http://www.test.com/'
+            });
+        });
+    }
+
+    /**
+     * Lists all model manifests.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getList(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                kind: 'weave#modelManifestsListResponse',
+                modelManifests: [{
+                    'allowedChildModelManifestIds': ['aaa', 'bbb'],
+                    'applications': [],
+                    'confirmationImageUrl': 'http://image.foo/bar.jpg',
+                    'deviceImageUrl': 'http://image.foo/bar.jpg',
+                    'deviceKind': 'camera',
+                    'id': 'qwerty-12345',
+                    'kind': 'weave#modelManifest',
+                    'modelDescription': 'desc of the model',
+                    'modelName': 'name of the model',
+                    'oemName': 'AAAAAA',
+                    'supportPageUrl': 'http://www.test.com/'
+                }],
+                nextPageToken: 'abc-123',
+                totalResults: 1
+            });
+        });
+    }
+
+    /**
+     * Validates given command definitions and returns errors.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getValidateCommandDefs(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                validationErrors: []
+            });
+        });
+    }
+
+    /**
+     * Validates given components definitions and returns errors.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getValidateComponents(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                validationErrors: []
+            });
+        });
+    }
+
+    /**
+     * Validates given device state object and returns errors.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getValidateDeviceState(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                state: {}
+            });
+        });
+    }
+
 };

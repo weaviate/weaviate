@@ -575,8 +575,6 @@ describe('Trying all weave commands', () => {
             .end(function (err, res) {
                 let result = res.body;
                 res.status.should.be.equal(200);
-                //console.log( result );
-                //result.should.have.property('kind', 'weave#devicesCreateLocalAuthTokensResponse');
                 done();
             });
     });
@@ -597,7 +595,7 @@ describe('Trying all weave commands', () => {
                 let result = res.body;
                 res.status.should.be.equal(200);
                 console.log(result);
-                //result.should.have.property('kind', 'weave#devicesCreateLocalAuthTokensResponse');
+                result.should.have.property('kind', 'weave#device');
                 done();
             });
     });
@@ -617,8 +615,7 @@ describe('Trying all weave commands', () => {
             .end(function (err, res) {
                 let result = res.body;
                 res.status.should.be.equal(200);
-                //console.log( result );
-                //result.should.have.property('kind', 'weave#devicesCreateLocalAuthTokensResponse');
+                result.should.have.property('kind', 'weave#device');
                 done();
             });
     });
@@ -658,9 +655,6 @@ describe('Trying all weave commands', () => {
             .end(function (err, res) {
                 let result = res.body;
                 res.status.should.be.equal(200);
-                //console.log(result);
-                //result.should.have.property('kind', 'weave#eventsListResponse');
-                //result.should.have.property('events');
                 done();
             });
     });
@@ -682,9 +676,6 @@ describe('Trying all weave commands', () => {
             .end(function (err, res) {
                 let result = res.body;
                 res.status.should.be.equal(200);
-                //console.log(result);
-                //result.should.have.property('kind', 'weave#eventsListResponse');
-                //result.should.have.property('events');
                 done();
             });
     });
@@ -699,7 +690,6 @@ describe('Trying all weave commands', () => {
             .expect(200)
             .end(function (err, res) {
                 let result = res.body;
-                //console.log(JSON.stringify(result));
                 res.status.should.be.equal(200);
                 done();
             });
