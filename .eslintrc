@@ -45,6 +45,7 @@
         }],
         "new-parens": 2,
         "no-caller": 2,
+        "no-console": 0,
         "no-debugger": 1,
         "no-dupe-args": 2,
         "no-dupe-keys": 2,
