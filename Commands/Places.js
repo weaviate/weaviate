@@ -28,4 +28,103 @@ module.exports = class Commands_Places { // Class: Commands_{resources.className
         this.next = next;
     }
 
+    /**
+     * Deletes a place.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getDelete(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({});
+        });
+    }
+
+    /**
+     * Returns a particular place data.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getGet(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                id: '12345-qwerty',
+                name: 'place name'
+            });
+        });
+    }
+
+    /**
+     * Registers a new place.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getInsert(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                id: '12345-qwerty',
+                name: 'place name'
+            });
+        });
+    }
+
+    /**
+     * Lists user's places (homes).
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getList(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                kind: 'weave#placesListResponse',
+                pageInfo: {
+                    totalResults: 1,
+                    resultPerPage: 1,
+                    startIndex: 1
+                },
+                tokenPagination: {
+                    nextPageToken: '12345-qwerty',
+                    previousPageToken: 'qwerty-12345'
+                },
+                places: [{
+                    id: '12345-qwerty',
+                    name: 'place name'
+                }]
+            });
+        });
+    }
+
+    /**
+     * Updates a place. This method supports patch semantics.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getPatch(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                id: '12345-qwerty',
+                name: 'place name'
+            });
+        });
+    }
+
+    /**
+     * Updates a place.
+     * @param {object} commandAttributes  - All attributes needed to exec the command
+     * @return {promise} Returns a promise with the correct object
+     */
+    getUpdate(commandAttributes) {
+        return new Promise((resolve, reject) => {
+            // resolve with kind and token
+            resolve({
+                id: '12345-qwerty',
+                name: 'place name'
+            });
+        });
+    }
+
 };

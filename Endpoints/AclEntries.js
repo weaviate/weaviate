@@ -13,7 +13,7 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-const Helpers_ErrorHandling = require('Helpers/ErrorHandling.js');
+const Helpers_ErrorHandling = require('../Helpers/ErrorHandling.js');
 
 /** Class Endpoints_AclEntries */
 module.exports = class Endpoints_AclEntries { // Class: Commands_{resources.className}
