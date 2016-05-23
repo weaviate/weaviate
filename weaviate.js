@@ -134,47 +134,47 @@ module.exports = (i) => {
         /*****************************
          * Commands Endpoints -> Commands
          */
-         new Endpoints_Commands(SERVER, Commands_Commands);
+        new Endpoints_Commands(SERVER, Commands_Commands);
 
         /*****************************
          * Devices Endpoints -> Commands
          */
-         new Endpoints_Devices(SERVER, Commands_Devices);
+        new Endpoints_Devices(SERVER, Commands_Devices);
 
         /*****************************
          * Events Endpoints -> Commands
          */
-         new Endpoints_Events(SERVER, Commands_Events);
+        new Endpoints_Events(SERVER, Commands_Events);
 
         /*****************************
          * ModelManifests Endpoints -> Commands
          */
-         new Endpoints_ModelManifests(SERVER, Commands_ModelManifests);
+        new Endpoints_ModelManifests(SERVER, Commands_ModelManifests);
 
         /*****************************
          * PersonalizedInfos Endpoints -> Commands
          */
-         new Endpoints_PersonalizedInfos(SERVER, Commands_PersonalizedInfos);
+        new Endpoints_PersonalizedInfos(SERVER, Commands_PersonalizedInfos);
 
         /*****************************
          * Places Endpoints -> Commands
          */
-         new Endpoints_Places(SERVER, Commands_Places);
+        new Endpoints_Places(SERVER, Commands_Places);
 
         /*****************************
          * RegistrationTickets Endpoints -> Commands
          */
-         new Endpoints_RegistrationTickets(SERVER, Commands_RegistrationTickets);
+        new Endpoints_RegistrationTickets(SERVER, Commands_RegistrationTickets);
 
         /*****************************
          * Rooms Endpoints -> Commands
          */
-         new Endpoints_Rooms(SERVER, Commands_Rooms);
+        new Endpoints_Rooms(SERVER, Commands_Rooms);
 
         /*****************************
          * Subscriptions Endpoints -> Commands
          */
-         new Endpoints_Subscriptions(SERVER, Commands_Subscriptions);
+        new Endpoints_Subscriptions(SERVER, Commands_Subscriptions);
 
     /*****************************
      * DONE LISTENING TO ENDPOINT REQUESTS
