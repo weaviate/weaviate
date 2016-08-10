@@ -6,7 +6,14 @@ Weaviate is not fully testable / production ready yet. You can follow the progre
 
 Weaviate is a REST API based software-as-a-service platform that is able to process the Google Weave protocol. It can be used in combination with all Google's Weave and Brillo libraries ([link to the libs](https://weave.googlesource.com/), [link to Weave](https://developers.google.com/weave), [link to Brillo](https://developers.google.com/brillo)).
 
-You can use Weaviate on simple local machines, or complex distributed networks with Node in combination with a Cassandra database.
+You can use Weaviate on simple local machines, or complex distributed networks.
+
+| Protocol     | Content-types supported      | Databases supported            | Connection-types supported | Server |
+|--------------|------------------------------|--------------------------------|----------------------------|--------|
+| Google Weave | JSON                         | BigTable                       | HTTPS                      | NodeJS |
+|              | Protobuf                     | Cassandra                      | gRPC                       |        |
+|              | CBOR                         | MongoDB                        | MQTT                       |        |
+|              | XML                          |                                |                            |        |
 
 | Branch   | Build status                                                                                                                    | Dependency status                                                                                                                   | Dev dependency status                                                                                                                   | Bithound                                                                                                                                         | Chat on Gitter                                                                                 |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
@@ -33,14 +40,6 @@ You can use Weaviate on simple local machines, or complex distributed networks w
 ### How does it work?
 Google provides different libraries for interacting with the Weave protocol ([more info](http://weaviate.com/)). By changing the end-points to your own private cloud that runs Weaviate. You can use the complete Weave and Brillo software solutions within you own cloud solution.
 Weaviate supports multiple database adapters, goto the directory 'Commands' to see the adapters
-
-#### Software Architecture Overview
-| Protocol     | Content-types                | Databases supported            | Connection-types     | Server |
-|--------------|------------------------------|--------------------------------|----------------------|--------|
-| Google Weave | JSON                         | BigTable                       | HTTPS                | NodeJS |
-|              | Protobuf                     | Cassandra                      | gRPC                 |        |
-|              | CBOR                         | MongoDB                        | MQTT                 |        |
-|              | XML                          |                                |                      |        |
 
 ### Release Schedule
 Estimates for our release schedule:<br>
