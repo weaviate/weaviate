@@ -33,8 +33,8 @@ weaviate({
     mqtt: {
         port: 1883,
         backend: {
-            host: 'localhost'
-            port: 6379,
+            host: 'localhost',
+            port: 6379
         }
     },
     onSucces: (weaveObject) => {

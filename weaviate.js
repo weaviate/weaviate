@@ -100,7 +100,7 @@ module.exports = (i) => {
      * If MQTT is set, start MQTT server
      */
     if(global.i.mqtt !== undefined){
-        
+
         /**
          * Include Mosca
          */
@@ -109,11 +109,11 @@ module.exports = (i) => {
         /**
          * Set Redis settings
          */
-        global.i.mqtt['persistence']            = { 'factory': Mqtt_Mosca.persistence.Redis };
-        global.i.mqtt.backend['type']           = 'redis';
-        global.i.mqtt.backend['redis']          = require('redis');
-        global.i.mqtt.backend['return_buffers'] = true;
-        global.i.mqtt.backend['db']             = 12;
+        global.i.mqtt.persistence            = { 'factory': Mqtt_Mosca.persistence.Redis };
+        global.i.mqtt.backend.type           = 'redis';
+        global.i.mqtt.backend.redis          = require('redis');
+        global.i.mqtt.backend.return_buffers = true;
+        global.i.mqtt.backend.db             = 12;
 
         /**
          * Load MQTT-server
@@ -123,7 +123,7 @@ module.exports = (i) => {
         /**
          * On mqtt client connect
          */
-        Mqtt_Server.on('clientConnected', function(client) {
+        Mqtt_Server.on('clientConnected', (client) => {
             if(global.i.debug === true){
                 console.log('WEAVIATE-MQTT', client.id, 'CONNECTED');
             }
@@ -132,7 +132,7 @@ module.exports = (i) => {
         /**
          * On mqtt publish
          */
-        Mqtt_Server.on('published', function(packet, client) {
+        Mqtt_Server.on('published', (packet, client) => {
             if(global.i.debug === true){
                 console.log('WEAVIATE-MQTT', 'PAYLOAD', 'SUCCESS');
             }
