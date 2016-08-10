@@ -20,7 +20,7 @@
  */
 module.exports = (i) => {
 
-	/*****************************
+    /*****************************
      * Check and validate if all mandatory fields are set
      */
     if (i === undefined) {
@@ -67,44 +67,44 @@ module.exports = (i) => {
         console.error('You want to use HTTPS, make sure to add https_opts');
     }
 
-	/*****************************
-	 * Add the Classes
-	 */
-	const Commands_AclEntries           = require('./Commands/' + global.i.db.dbAdapter + '/AclEntries.js'),
-	      Commands_Adapters             = require('./Commands/' + global.i.db.dbAdapter + '/Adapters.js'),
-	      Commands_AuthorizedApps       = require('./Commands/' + global.i.db.dbAdapter + '/AuthorizedApps.js'),
-	      Commands_Commands             = require('./Commands/' + global.i.db.dbAdapter + '/Commands.js'),
-	      Commands_Devices              = require('./Commands/' + global.i.db.dbAdapter + '/Devices.js'),
-	      Commands_Events               = require('./Commands/' + global.i.db.dbAdapter + '/Events.js'),
-	      Commands_ModelManifests       = require('./Commands/' + global.i.db.dbAdapter + '/ModelManifests.js'),
-	      Commands_PersonalizedInfos    = require('./Commands/' + global.i.db.dbAdapter + '/PersonalizedInfos.js'),
-	      Commands_Places               = require('./Commands/' + global.i.db.dbAdapter + '/Places.js'),
-	      Commands_RegistrationTickets  = require('./Commands/' + global.i.db.dbAdapter + '/RegistrationTickets.js'),
-	      Commands_Rooms                = require('./Commands/' + global.i.db.dbAdapter + '/Rooms.js'),
-	      Commands_Subscriptions        = require('./Commands/' + global.i.db.dbAdapter + '/Subscriptions.js'),
-	      Endpoints_AclEntries          = require('./Endpoints/AclEntries.js'),
-	      Endpoints_Adapters            = require('./Endpoints/Adapters.js'),
-	      Endpoints_AuthorizedApps      = require('./Endpoints/AuthorizedApps.js'),
-	      Endpoints_Commands            = require('./Endpoints/Commands.js'),
-	      Endpoints_Devices             = require('./Endpoints/Devices.js'),
-	      Endpoints_Events              = require('./Endpoints/Events.js'),
-	      Endpoints_ModelManifests      = require('./Endpoints/ModelManifests.js'),
-	      Endpoints_PersonalizedInfos   = require('./Endpoints/PersonalizedInfos.js'),
-	      Endpoints_Places              = require('./Endpoints/Places.js'),
-	      Endpoints_RegistrationTickets = require('./Endpoints/RegistrationTickets.js'),
-	      Endpoints_Rooms               = require('./Endpoints/Rooms.js'),
-	      Endpoints_Subscriptions       = require('./Endpoints/Subscriptions.js'),
-	      Helpers_ErrorHandling         = require('./Helpers/ErrorHandling.js');
+    /*****************************
+     * Add the Classes
+     */
+    const Commands_AclEntries           = require('./Commands/' + global.i.db.dbAdapter + '/AclEntries.js'),
+          Commands_Adapters             = require('./Commands/' + global.i.db.dbAdapter + '/Adapters.js'),
+          Commands_AuthorizedApps       = require('./Commands/' + global.i.db.dbAdapter + '/AuthorizedApps.js'),
+          Commands_Commands             = require('./Commands/' + global.i.db.dbAdapter + '/Commands.js'),
+          Commands_Devices              = require('./Commands/' + global.i.db.dbAdapter + '/Devices.js'),
+          Commands_Events               = require('./Commands/' + global.i.db.dbAdapter + '/Events.js'),
+          Commands_ModelManifests       = require('./Commands/' + global.i.db.dbAdapter + '/ModelManifests.js'),
+          Commands_PersonalizedInfos    = require('./Commands/' + global.i.db.dbAdapter + '/PersonalizedInfos.js'),
+          Commands_Places               = require('./Commands/' + global.i.db.dbAdapter + '/Places.js'),
+          Commands_RegistrationTickets  = require('./Commands/' + global.i.db.dbAdapter + '/RegistrationTickets.js'),
+          Commands_Rooms                = require('./Commands/' + global.i.db.dbAdapter + '/Rooms.js'),
+          Commands_Subscriptions        = require('./Commands/' + global.i.db.dbAdapter + '/Subscriptions.js'),
+          Endpoints_AclEntries          = require('./Endpoints/AclEntries.js'),
+          Endpoints_Adapters            = require('./Endpoints/Adapters.js'),
+          Endpoints_AuthorizedApps      = require('./Endpoints/AuthorizedApps.js'),
+          Endpoints_Commands            = require('./Endpoints/Commands.js'),
+          Endpoints_Devices             = require('./Endpoints/Devices.js'),
+          Endpoints_Events              = require('./Endpoints/Events.js'),
+          Endpoints_ModelManifests      = require('./Endpoints/ModelManifests.js'),
+          Endpoints_PersonalizedInfos   = require('./Endpoints/PersonalizedInfos.js'),
+          Endpoints_Places              = require('./Endpoints/Places.js'),
+          Endpoints_RegistrationTickets = require('./Endpoints/RegistrationTickets.js'),
+          Endpoints_Rooms               = require('./Endpoints/Rooms.js'),
+          Endpoints_Subscriptions       = require('./Endpoints/Subscriptions.js'),
+          Helpers_ErrorHandling         = require('./Helpers/ErrorHandling.js');
 
-	/*****************************
-	 * Add the server consts
-	 */
-	const RESTIFY = require('restify'),
-	      SERVER  = RESTIFY
-	                    .createServer({
-	                        name: 'Weaviate Server'
-	                    })
-	                    .pre(RESTIFY.pre.sanitizePath());
+    /*****************************
+     * Add the server consts
+     */
+    const RESTIFY = require('restify'),
+          SERVER  = RESTIFY
+                        .createServer({
+                            name: 'Weaviate Server'
+                        })
+                        .pre(RESTIFY.pre.sanitizePath());
 
     /*****************************
      * START LISTENING TO ENDPOINT REQUESTS
@@ -113,62 +113,62 @@ module.exports = (i) => {
     /*****************************
      * aclEntries Endpoints -> Commands
      */
-    new Endpoints_AclEntries(SERVER, Commands_AclEntries)
+    new Endpoints_AclEntries(SERVER, Commands_AclEntries);
 
     /*****************************
      * AuthorizedApps Endpoints -> Commands
      */
-    new Endpoints_Adapters(SERVER, Commands_AuthorizedApps)
+    new Endpoints_Adapters(SERVER, Commands_AuthorizedApps);
 
     /*****************************
      * AuthorizedApps Endpoints -> Commands
      */
-    new Endpoints_AuthorizedApps(SERVER, Commands_AuthorizedApps)
+    new Endpoints_AuthorizedApps(SERVER, Commands_AuthorizedApps);
 
     /*****************************
      * Commands Endpoints -> Commands
      */
-    new Endpoints_Commands(SERVER, Commands_Commands)
+    new Endpoints_Commands(SERVER, Commands_Commands);
 
     /*****************************
      * Devices Endpoints -> Commands
      */
-    new Endpoints_Devices(SERVER, Commands_Devices)
+    new Endpoints_Devices(SERVER, Commands_Devices);
 
     /*****************************
      * Events Endpoints -> Commands
      */
-    new Endpoints_Events(SERVER, Commands_Events)
+    new Endpoints_Events(SERVER, Commands_Events);
 
     /*****************************
      * ModelManifests Endpoints -> Commands
      */
-    new Endpoints_ModelManifests(SERVER, Commands_ModelManifests)
+    new Endpoints_ModelManifests(SERVER, Commands_ModelManifests);
 
     /*****************************
      * PersonalizedInfos Endpoints -> Commands
      */
-    new Endpoints_PersonalizedInfos(SERVER, Commands_PersonalizedInfos)
+    new Endpoints_PersonalizedInfos(SERVER, Commands_PersonalizedInfos);
 
     /*****************************
      * Places Endpoints -> Commands
      */
-    new Endpoints_Places(SERVER, Commands_Places)
+    new Endpoints_Places(SERVER, Commands_Places);
 
     /*****************************
      * RegistrationTickets Endpoints -> Commands
      */
-    new Endpoints_RegistrationTickets(SERVER, Commands_RegistrationTickets)
+    new Endpoints_RegistrationTickets(SERVER, Commands_RegistrationTickets);
 
     /*****************************
      * Rooms Endpoints -> Commands
      */
-    new Endpoints_Rooms(SERVER, Commands_Rooms)
+    new Endpoints_Rooms(SERVER, Commands_Rooms);
 
     /*****************************
      * Subscriptions Endpoints -> Commands
      */
-    new Endpoints_Subscriptions(SERVER, Commands_Subscriptions)
+    new Endpoints_Subscriptions(SERVER, Commands_Subscriptions);
 
     /*****************************
      * DONE LISTENING TO ENDPOINT REQUESTS
