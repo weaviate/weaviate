@@ -110,13 +110,19 @@ The weaviate function needs configuration objects and returns an optional promis
 		dbPort 		: 1000,        // Cassandra port
 		dbName 		: 'test',      // Cassandra db name
 		dbPassword 	: 'abc',       // Cassandra password
-		dbContactpoints : ['h1'],      // Cassandra contain points
+		dbContactpoints : ['h1'],  // Cassandra contain points
 		dbKeyspace	: 'someKeySp'  // Cassandra keyspace name
 	},
-	hostname 	: 'localhost', // hostname for the service
-	port 	 	: 8080,        // port for the service
-	mqtt 		: true,
-	debug	 	: true,        // log all usages via stdout (IP, SUCCESS/ERROR, ACTION)
+	hostname 	: 'localhost',     // hostname for the service
+	port 	 	: 8080,        	   // port for the service
+	mqtt: {						   // Only add if you want to enable MQTT
+        port: 1883,				   // Mqtt port
+        backend: {
+            host: 'localhost'      // Redis host
+            port: 6379             // Redis port
+        }
+    },
+	debug	 	: true,            // log all usages via stdout (IP, SUCCESS/ERROR, ACTION)
 	onSuccess	: (weaveObject) => {}, // when a request was succesful 
 	onError		: (weaveObject) => {} // when a request generated an error
 }
@@ -145,7 +151,13 @@ weaviate({
 	},
 	hostname 	: 'localhost',
 	port 	 	: '8080',
-	mqtt 		: true,
+	mqtt: {
+        port: 1883,
+        backend: {
+            host: 'localhost'
+            port: 6379,
+        }
+    },
 	debug 		: true,
 	onSuccess	: (weaveObject) => {
 		console.log('SUCCESS', weaveObject);
@@ -154,6 +166,22 @@ weaviate({
 		console.log('ERROR', weaveObject);
 	}
 })
+```
+
+### Install MQTT
+By setting the `mqtt` key in the Weaviate object MQTT (Weaviate pub/sub) will be available.
+
+_IMPORTANT: YOU NEED A REDIS INSTANCE THAT IS AVAILABLE TO ALL NODES._
+
+Example:<br>
+```json
+mqtt: {
+    port: 1883,
+    backend: {
+        host: 'localhost'
+        port: 6379,
+    }
+}
 ```
 
 ### Using MQTT

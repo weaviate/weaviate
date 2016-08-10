@@ -33,12 +33,8 @@ weaviate({
     mqtt: {
         port: 1883,
         backend: {
-            type: 'redis',
-            redis: require('redis'),
-            db: 12,
-            port: 6379,
-            return_buffers: true, // to handle binary payloads
             host: 'localhost'
+            port: 6379,
         }
     },
     onSucces: (weaveObject) => {

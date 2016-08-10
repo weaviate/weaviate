@@ -109,7 +109,11 @@ module.exports = (i) => {
         /**
          * Set Redis settings
          */
-        global.i.mqtt['persistence'] = { 'factory': Mqtt_Mosca.persistence.Redis };
+        global.i.mqtt['persistence']            = { 'factory': Mqtt_Mosca.persistence.Redis };
+        global.i.mqtt.backend['type']           = 'redis';
+        global.i.mqtt.backend['redis']          = require('redis');
+        global.i.mqtt.backend['return_buffers'] = true;
+        global.i.mqtt.backend['db']             = 12;
 
         /**
          * Load MQTT-server
