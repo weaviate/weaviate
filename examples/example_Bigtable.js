@@ -30,6 +30,17 @@ weaviate({
     formatOut: 'JSON', /* use json or cbor */
     stdoutLog: true,
     debug: true,
+    mqtt: {
+        port: 1883,
+        backend: {
+            type: 'redis',
+            redis: require('redis'),
+            db: 12,
+            port: 6379,
+            return_buffers: true, // to handle binary payloads
+            host: 'localhost'
+        }
+    },
     onSucces: (weaveObject) => {
         console.log(weaveObject);
     },

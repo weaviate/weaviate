@@ -25,6 +25,9 @@
   "dependencies": {
     "cassandra-driver": "^3.1.1",
     "gcloud": "^0.37.0",
+    "mosca": "^2.0.2",
+    "mqtt": "^1.13.0",
+    "redis": "^2.6.2",
     "restify": "^4.1.1"
   },
   "devDependencies": {
