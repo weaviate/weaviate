@@ -22,6 +22,7 @@ You can use Weaviate on simple local machines, or complex distributed networks w
 * [FAQ](#faq)
 * [Installation](#installation)
 * [Using the weaviate() function](#using-the-weaviate-function)
+* [Using MQTT](#using-mqtt)
 * [Related packages, products and repos](#related-packages-products-and-repos)
 * [About different Weaviate versions](#about-different-weaviate-versions)
 * [Contributing and Gitflow](#contributing-and-gitflow)
@@ -31,6 +32,14 @@ You can use Weaviate on simple local machines, or complex distributed networks w
 ### How does it work?
 Google provides different libraries for interacting with the Weave protocol ([more info](http://weaviate.com/)). By changing the end-points to your own private cloud that runs Weaviate. You can use the complete Weave and Brillo software solutions within you own cloud solution.
 Weaviate supports multiple database adapters, goto the directory 'Commands' to see the adapters
+
+#### Software Architecture Overview
+| Protocol     | Content-types                | Databases supported            | Connection-types     | Server |
+|--------------|------------------------------|--------------------------------|----------------------|--------|
+| Google Weave | JSON                         | BigTable                       | HTTPS                | NodeJS |
+|              | Protobuf                     | Cassandra                      | gRPC                 |        |
+|              | CBOR                         | MongoDB                        | MQTT                 |        |
+|              | XML                          |                                |                      |        |
 
 ### Release Schedule
 Estimates for our release schedule:<br>
@@ -106,8 +115,7 @@ The weaviate function needs configuration objects and returns an optional promis
 	},
 	hostname 	: 'localhost', // hostname for the service
 	port 	 	: 8080,        // port for the service
-	formatIn 	: 'JSON',      // JSON or CBOR (note: experimental)
-	formatOut 	: 'JSON',      // JSON or CBOR (note: experimental)
+	mqtt 		: true,
 	debug	 	: true,        // log all usages via stdout (IP, SUCCESS/ERROR, ACTION)
 	onSuccess	: (weaveObject) => {}, // when a request was succesful 
 	onError		: (weaveObject) => {} // when a request generated an error
@@ -137,8 +145,7 @@ weaviate({
 	},
 	hostname 	: 'localhost',
 	port 	 	: '8080',
-	formatIn 	: 'JSON',
-	formatOut 	: 'JSON',
+	mqtt 		: true,
 	debug 		: true,
 	onSuccess	: (weaveObject) => {
 		console.log('SUCCESS', weaveObject);
@@ -147,6 +154,100 @@ weaviate({
 		console.log('ERROR', weaveObject);
 	}
 })
+```
+
+### Using MQTT
+MQTT uses the same architecture as the RestAPI. You can subscribe to all end-points via the topics and post 
+
+The topics contain an object in JSON, Protobuf, CBOR or XML.
+
+JSON example of a message:
+```json
+{
+	"action": string,
+	"body":   object
+}
+```
+
+The action is based on the actions described in the Weave Discovery document ([LINK]) and the body is a resource representation (https://developers.google.com/weave/v1/reference/cloud-api/).
+
+#### Authentication
+Every account has a bearer (same as REST API authentication) and a pub-sub token. Authentication for the MQTT message bus should be as followed:<br>
+- Username: Weaviate
+- Password: Bearer
+- pubSubId: pub-sub token
+
+#### Topics
+Topics are created per resource representation.
+
+```
+{pubSubId}/#
+{pubSubId}/devices/{deviceId}/aclEntries/#
+{pubSubId}/devices/{deviceId}/aclEntries/{aclEntryId}
+{pubSubId}/adapters/#
+{pubSubId}/adapters/{adapterId}
+{pubSubId}/authorizedApps
+{pubSubId}/commands/#
+{pubSubId}/commands/{commandId}
+{pubSubId}/devices/#
+{pubSubId}/devices/{deviceId}
+{pubSubId}/events
+{pubSubId}/modelManifests/#
+{pubSubId}/modelManifests/{modelManifestId}
+{pubSubId}/places/#
+{pubSubId}/places/{placeId}
+{pubSubId}/registrationTickets/#
+{pubSubId}/registrationTickets/{registrationTicketId}
+{pubSubId}/places/#
+{pubSubId}/places/{placeId}
+{pubSubId}/subscriptions/#
+{pubSubId}/subscriptions/{subscriptionId}
+```
+
+#### Example<br>
+
+Topic: `/commands`
+
+Message:<br>
+```json
+{
+	"action": "weave.command.get",
+	"body": {
+		"kind": "weave#command",
+		"id": string,
+		"deviceId": string,
+		"creatorEmail": string,
+		"component": string,
+		"name": string,
+		"parameters": {
+			(key): (value)
+		},
+		"blobParameters": {
+			(key): (value)
+		},
+		"results": {
+			(key): (value)
+		},
+		"blobResults": {
+			(key): (value)
+		},
+		"state": string,
+		"userAction": string,
+		"progress": {
+			(key): (value)
+		},
+		"error": {
+		"code": string,
+		"arguments": [
+		  string
+		],
+		"message": string
+		},
+		"creationTimeMs": long,
+		"expirationTimeMs": long,
+		"expirationTimeoutMs": long
+	}
+}
 ```
 
 ### Related packages, products and repos
