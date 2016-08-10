@@ -97,6 +97,53 @@ module.exports = (i) => {
           Helpers_ErrorHandling         = require('./Helpers/ErrorHandling.js');
 
     /*****************************
+     * If MQTT is set, start MQTT server
+     */
+    if(global.i.mqtt !== undefined){
+        
+        /**
+         * Include Mosca
+         */
+        const Mqtt_Mosca = require('mosca');
+
+        /**
+         * Set Redis settings
+         */
+        global.i.mqtt['persistence'] = { 'factory': Mqtt_Mosca.persistence.Redis };
+
+        /**
+         * Load MQTT-server
+         */
+        var Mqtt_Server = new Mqtt_Mosca.Server(global.i.mqtt.settings);
+
+        /**
+         * On mqtt client connect
+         */
+        Mqtt_Server.on('clientConnected', function(client) {
+            if(global.i.debug === true){
+                console.log('WEAVIATE-MQTT', client.id, 'CONNECTED');
+            }
+        });
+
+        /**
+         * On mqtt publish
+         */
+        Mqtt_Server.on('published', function(packet, client) {
+            if(global.i.debug === true){
+                console.log('WEAVIATE-MQTT', 'PAYLOAD', 'SUCCESS');
+            }
+        });
+
+        /**
+         * Start MQTT-server
+         */
+        Mqtt_Server.on('ready', () => {
+            console.log('WEAVIATE-MQTT PUB-SUB IS LISTENING ON PORT:', global.i.mqtt.port);
+        });
+
+    }
+
+    /*****************************
      * Add the server consts
      */
     const RESTIFY = require('restify'),
