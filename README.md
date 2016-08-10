@@ -246,7 +246,7 @@ Sending a POST, PATCH, PUT or DELETE via MQTT will work in the same way as the R
 Topic: `/commands`
 
 Message:<br>
-```json
+```js
 {
 	"action": "weave.command.get",
 	"method": "GET"
