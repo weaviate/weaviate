@@ -210,7 +210,7 @@ Every account has a bearer (same as REST API authentication) and a pub-sub token
 - Password: Bearer
 - pubSubId: pub-sub token
 
-#### Topics
+#### Subscribing and Topics
 Topics are created per resource representation.
 
 ```
@@ -237,6 +237,10 @@ Topics are created per resource representation.
 {pubSubId}/subscriptions/{subscriptionId}
 ```
 
+#### Publishing
+By publishing to a topic following the REST principle (see §Using MQTT) will allow you to interact with the devices.
+Sending a POST, PATCH, PUT or DELETE via MQTT will work in the same way as the REST API via HTTPS.
+
 #### Example<br>
 
 Topic: `/commands`
@@ -245,6 +249,7 @@ Message:<br>
 ```json
 {
 	"action": "weave.command.get",
+	"method": "GET"
 	"body": {
 		"kind": "weave#command",
 		"id": string,
