@@ -22,17 +22,21 @@ module.exports = class Helpers_Db {
     }
 
     createQueryInsert(table, i) {
-    	var keys  	= [],
-    		values	= [];
+        var keys      = [],
+            values    = [];
 
-    	for (var key in i) {
-		    if (!i.hasOwnProperty(key)) continue;
-		    keys.push(key);
-		    if (i[key] !== '?') i[key] = "'" + i[key] + "'"; 
-		    values.push(i[key]);
-		}
+        for (var key in i) {
+            if (!i.hasOwnProperty(key)) {
+                continue;
+            };
+            keys.push(key);
+            if (i[key] !== '?') {
+                i[key] = '\'' + i[key] + '\'';
+            };
+            values.push(i[key]);
+        }
 
-		return 'INSERT INTO ' + table + ' (' + keys.join() + ') VALUES (' + values.join() + ');';
+        return 'INSERT INTO ' + table + ' (' + keys.join() + ') VALUES (' + values.join() + ');';
     }
 
 };
