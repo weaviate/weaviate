@@ -17,6 +17,7 @@
  * Add the Classes
  */
 const Commands_AclEntries           = require('./Commands/AclEntries.js'),
+      Commands_Adapters             = require('./Commands/Adapters.js'),
       Commands_AuthorizedApps       = require('./Commands/AuthorizedApps.js'),
       Commands_Commands             = require('./Commands/Commands.js'),
       Commands_Devices              = require('./Commands/Devices.js'),
@@ -28,6 +29,7 @@ const Commands_AclEntries           = require('./Commands/AclEntries.js'),
       Commands_Rooms                = require('./Commands/Rooms.js'),
       Commands_Subscriptions        = require('./Commands/Subscriptions.js'),
       Endpoints_AclEntries          = require('./Endpoints/AclEntries.js'),
+      Endpoints_Adapters            = require('./Endpoints/Adapters.js'),
       Endpoints_AuthorizedApps      = require('./Endpoints/AuthorizedApps.js'),
       Endpoints_Commands            = require('./Endpoints/Commands.js'),
       Endpoints_Devices             = require('./Endpoints/Devices.js'),
@@ -121,60 +123,65 @@ module.exports = (i) => {
      * START LISTENING TO ENDPOINT REQUESTS
      */
 
-        /*****************************
-         * aclEntries Endpoints -> Commands
-         */
-        new Endpoints_AclEntries(SERVER, Commands_AclEntries);
+    /*****************************
+     * aclEntries Endpoints -> Commands
+     */
+    new Endpoints_AclEntries(SERVER, Commands_AclEntries);
 
-        /*****************************
-         * AuthorizedApps Endpoints -> Commands
-         */
-        new Endpoints_AuthorizedApps(SERVER, Commands_AuthorizedApps);
+    /*****************************
+     * AuthorizedApps Endpoints -> Commands
+     */
+    new Endpoints_Adapters(SERVER, Commands_AuthorizedApps);
 
-        /*****************************
-         * Commands Endpoints -> Commands
-         */
-        new Endpoints_Commands(SERVER, Commands_Commands);
+    /*****************************
+     * AuthorizedApps Endpoints -> Commands
+     */
+    new Endpoints_AuthorizedApps(SERVER, Commands_AuthorizedApps);
 
-        /*****************************
-         * Devices Endpoints -> Commands
-         */
-        new Endpoints_Devices(SERVER, Commands_Devices);
+    /*****************************
+     * Commands Endpoints -> Commands
+     */
+    new Endpoints_Commands(SERVER, Commands_Commands);
 
-        /*****************************
-         * Events Endpoints -> Commands
-         */
-        new Endpoints_Events(SERVER, Commands_Events);
+    /*****************************
+     * Devices Endpoints -> Commands
+     */
+    new Endpoints_Devices(SERVER, Commands_Devices);
 
-        /*****************************
-         * ModelManifests Endpoints -> Commands
-         */
-        new Endpoints_ModelManifests(SERVER, Commands_ModelManifests);
+    /*****************************
+     * Events Endpoints -> Commands
+     */
+    new Endpoints_Events(SERVER, Commands_Events);
 
-        /*****************************
-         * PersonalizedInfos Endpoints -> Commands
-         */
-        new Endpoints_PersonalizedInfos(SERVER, Commands_PersonalizedInfos);
+    /*****************************
+     * ModelManifests Endpoints -> Commands
+     */
+    new Endpoints_ModelManifests(SERVER, Commands_ModelManifests);
 
-        /*****************************
-         * Places Endpoints -> Commands
-         */
-        new Endpoints_Places(SERVER, Commands_Places);
+    /*****************************
+     * PersonalizedInfos Endpoints -> Commands
+     */
+    new Endpoints_PersonalizedInfos(SERVER, Commands_PersonalizedInfos);
 
-        /*****************************
-         * RegistrationTickets Endpoints -> Commands
-         */
-        new Endpoints_RegistrationTickets(SERVER, Commands_RegistrationTickets);
+    /*****************************
+     * Places Endpoints -> Commands
+     */
+    new Endpoints_Places(SERVER, Commands_Places);
 
-        /*****************************
-         * Rooms Endpoints -> Commands
-         */
-        new Endpoints_Rooms(SERVER, Commands_Rooms);
+    /*****************************
+     * RegistrationTickets Endpoints -> Commands
+     */
+    new Endpoints_RegistrationTickets(SERVER, Commands_RegistrationTickets);
 
-        /*****************************
-         * Subscriptions Endpoints -> Commands
-         */
-        new Endpoints_Subscriptions(SERVER, Commands_Subscriptions);
+    /*****************************
+     * Rooms Endpoints -> Commands
+     */
+    new Endpoints_Rooms(SERVER, Commands_Rooms);
+
+    /*****************************
+     * Subscriptions Endpoints -> Commands
+     */
+    new Endpoints_Subscriptions(SERVER, Commands_Subscriptions);
 
     /*****************************
      * DONE LISTENING TO ENDPOINT REQUESTS
