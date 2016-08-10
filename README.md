@@ -21,6 +21,7 @@ You can use Weaviate on simple local machines, or complex distributed networks w
 * [Release schedule](#release-schedule)
 * [FAQ](#faq)
 * [Installation](#installation)
+* [Authentication](#authentication)
 * [Using the weaviate() function](#using-the-weaviate-function)
 * [Using MQTT](#using-mqtt)
 * [Related packages, products and repos](#related-packages-products-and-repos)
@@ -174,15 +175,18 @@ By setting the `mqtt` key in the Weaviate object MQTT (Weaviate pub/sub) will be
 _IMPORTANT: YOU NEED A REDIS INSTANCE THAT IS AVAILABLE TO ALL NODES._
 
 Example:<br>
-```json
+```js
 mqtt: {
-    port: 1883,
+    port: 1883, // MQTT port
     backend: {
-        host: 'localhost'
-        port: 6379,
+        host: 'localhost' // Redis host
+        port: 6379,       // Redis port
     }
 }
 ```
+
+### Authentication
+[SOON MORE]
 
 ### Using MQTT
 MQTT uses the same architecture as the RestAPI. You can subscribe to all end-points via the topics and post 
@@ -190,14 +194,15 @@ MQTT uses the same architecture as the RestAPI. You can subscribe to all end-poi
 The topics contain an object in JSON, Protobuf, CBOR or XML.
 
 JSON example of a message:
-```json
+```js
 {
-	"action": string,
-	"body":   object
+	"action": string, // Action as defined in Google Weave Discovery Document
+	"method": string, // RestFUL Method
+	"body":   object  // Body as defined in the resource representation.
 }
 ```
 
-The action is based on the actions described in the Weave Discovery document ([LINK]) and the body is a resource representation (https://developers.google.com/weave/v1/reference/cloud-api/).
+The action is based on the actions described in the [Weave Discovery document](https://weave.googlesource.com/weave/instaweave/+/master/weave/v1/weave-api.json) and the body is a [resource representation](https://developers.google.com/weave/v1/reference/cloud-api/).
 
 #### Authentication
 Every account has a bearer (same as REST API authentication) and a pub-sub token. Authentication for the MQTT message bus should be as followed:<br>
