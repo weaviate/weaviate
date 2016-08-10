@@ -30,13 +30,14 @@ You can use Weaviate on simple local machines, or complex distributed networks w
 
 ### How does it work?
 Google provides different libraries for interacting with the Weave protocol ([more info](http://weaviate.com/)). By changing the end-points to your own private cloud that runs Weaviate. You can use the complete Weave and Brillo software solutions within you own cloud solution.
+Weaviate supports multiple database adapters, goto the directory 'Commands' to see the adapters
 
 ### Release Schedule
 Estimates for our release schedule:<br>
-- 0.1.x [July 2016] First 1.x release candidate with full Weave support through REST APIs for private cloud.
-- 0.2.x [+ 1.5 months] Implementation of authentication.
-- 0.3.x [+ 1 month] Pre configured packages (Docker or platform specific) for major PaaS providers.
-- 0.4.x [+ 1.5 months] Porting of Weave protocol to services like Amazon AWS IoT, IBM Bluemix IoT e.a.
+- 0.1.x First 1.x release candidate with full Weave support through REST APIs for private cloud.
+- 0.2.x Implementation of authentication.
+- 0.3.x Pre configured packages (Docker or platform specific) for major PaaS providers.
+- 0.4.x Porting of Weave protocol to services like Amazon AWS IoT, IBM Bluemix IoT e.a.
 - 0.5.x or 1.x
 
 ### FAQ
@@ -73,7 +74,7 @@ No, you can use the official open source repos from Google.
 
 Because we think Node is a language ​that many​ people ​are able to read and write. We want to make the Weave community as large as possible.
 
-### Installation
+### Installation with Cassandra
 - Install Node version >5.0.0 ([more info](https://nodejs.org/en/download/package-manager))
 - Install Weaviate from NPM: `npm install weaviate --save`
 - Install a Cassandra database ([more info](https://www.digitalocean.com/community/tutorials/how-to-install-cassandra-and-run-a-single-node-cluster-on-ubuntu-14-04)) and import the CQL file found in the repo https://github.com/weaviate/weaviate-cassandra/.
@@ -94,12 +95,15 @@ The weaviate function needs configuration objects and returns an optional promis
         key: key,
         cert: cert
 	},
-	dbHostname  : 'localhost', // Cassandra hostname
-	dbPort 		: 1000,        // Cassandra port
-	dbName 		: 'test',      // Cassandra db name
-	dbPassword 	: 'abc',       // Cassandra password
-	dbContactpoints : ['h1'],      // Cassandra contain points
-	dbKeyspace	: 'someKeySp'  // Cassandra keyspace name
+	db: {
+		dbAdapter	: 'Cassandra'  // Select the adapter. Adapter = directory in Commands directory.
+		dbHostname  : 'localhost', // Cassandra hostname
+		dbPort 		: 1000,        // Cassandra port
+		dbName 		: 'test',      // Cassandra db name
+		dbPassword 	: 'abc',       // Cassandra password
+		dbContactpoints : ['h1'],      // Cassandra contain points
+		dbKeyspace	: 'someKeySp'  // Cassandra keyspace name
+	},
 	hostname 	: 'localhost', // hostname for the service
 	port 	 	: 8080,        // port for the service
 	formatIn 	: 'JSON',      // JSON or CBOR (note: experimental)
@@ -122,10 +126,15 @@ The weaveObject contains information about the request that you can use for cust
 ```javascript
 weaviate({
 	https		: false,
-	dbHostname 	: 'localhost',
-	dbPort 		: 1000,
-	dbName 		: 'test',
-	dbPassword 	: 'abc',
+	db: {
+		dbAdapter	: 'Cassandra'  // Select the adapter. Adapter = directory in Commands directory.
+		dbHostname  : 'localhost', // Cassandra hostname
+		dbPort 		: 1000,        // Cassandra port
+		dbName 		: 'test',      // Cassandra db name
+		dbPassword 	: 'abc',       // Cassandra password
+		dbContactpoints : ['h1'],      // Cassandra contain points
+		dbKeyspace	: 'someKeySp'  // Cassandra keyspace name
+	},
 	hostname 	: 'localhost',
 	port 	 	: '8080',
 	formatIn 	: 'JSON',
