@@ -29,7 +29,7 @@ before_script:
   - npm install -g gulp
   - npm install -g mocha
   - npm install -g forever
-  - forever start ./exmaples/example_Bigtable.js
+  - forever start ./examples/example_Bigtable.js
 
 script:
   - gulp validate
