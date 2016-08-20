@@ -19,9 +19,6 @@
     "url": "https://github.com/weaviate/weaviate/issues"
   },
   "homepage": "https://github.com/weaviate/weaviate#readme",
-  "eslintConfig": {
-    "extends": "google"
-  },
   "dependencies": {
     "cassandra-driver": "^3.1.1",
     "gcloud": "^0.37.0",
