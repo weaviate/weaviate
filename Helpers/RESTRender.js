@@ -56,7 +56,7 @@ module.exports = class Helpers_RESTRender {
 			/**
 			 * Load Restify
 			 */
-			const 	RESTIFY = require('restify'),
+			var 	RESTIFY = require('restify'),
           			SERVER  = RESTIFY
                         .createServer({
                             name: 'Weaviate Server'
@@ -64,9 +64,17 @@ module.exports = class Helpers_RESTRender {
                         .pre(RESTIFY.pre.sanitizePath());
 
             /**
+             * Set commands
+             */
+            var commands = this.commands;
+
+            /**
              * Generate all endpoints by looping through discovery document
              */
             for (var commandKey in this.discovery.resources) {
+
+            	var commandGroup = commandKey.charAt(0).toUpperCase() + commandKey.slice(1); // create group name
+            	
             	for (var methodKey in this.discovery.resources[commandKey].methods) {
             		let actionObject = this.discovery.resources[commandKey].methods[methodKey];
             		let path = '/' + actionObject.path.replace(/{/g, ':').replace(/}/g, '');
@@ -93,13 +101,78 @@ module.exports = class Helpers_RESTRender {
 					    	break;
 					    default:
 					    	throw new Error('WEAVIATE ERROR, THIS REST METHOD IS NOT FOUND: ' + actionObject.httpMethod);
+					    	break;
 					}
+
+
 
 					/**
 					 * Add function to the server request
 					 */
 					SERVER[restifyFunctionName](path, (req, res, next) => {
-						return next();
+
+						/****
+						 *
+						 * GET THE CORRECT actionObject and commandGroup!
+						 *
+						 * This can be done be creating an array OUTSIDE server, save in this path + method. This can be retrieved from req.route.path and req.route.method
+						 *
+						 */
+						console.log(req);
+
+						/**
+						 * Set variables needed to run command
+						 */
+						var subCommand = actionObject.id.split('.');
+
+						return new commands[commandGroup](req, res, next)
+		                    ['$' + subCommand[subCommand.length-1]]({
+		                        requiredParams: [{
+		                            name: 'aclEntryId',
+		                            location: 'path'
+		                        }, {
+		                            name: 'deviceId',
+		                            location: 'path'
+		                        }],
+		                        requestObjectName: null,
+		                        authScopes: ['/auth/weave.app']
+		                    })
+		                    .then(result => {
+		                        // send the result
+		                        res.send(result);
+		                        // exec the onSuccess
+		                        if(i.onSuccess !== undefined && typeof i.onSuccess === 'function'){
+		                            i.onSuccess({
+		                                params: req.params,
+		                                body: req.body,
+		                                response: result,
+		                                requestHeaders: req.headers
+		                            });
+		                        }
+		                        // exec the debug
+		                        if(i.debug === true){
+		                            console.log(req.connection.remoteAddress, 'SUCCESS', 'weave.aclEntries.delete');
+		                        }
+		                        return next();
+		                    })
+		                    .catch(error => {
+		                        res.send(
+		                            new Helpers_ErrorHandling.createErrorMessage(error)
+		                        );
+		                        // exec the onError
+		                        if(i.onError !== undefined && typeof i.onError === 'function'){
+		                            i.onError({
+		                                params: req.params,
+		                                body: req.body,
+		                                requestHeaders: req.headers
+		                            });
+		                        }
+		                        // exec the debug
+		                        if(i.debug === true){
+		                            console.log(req.connection.remoteAddress, 'ERROR', 'weave.aclEntries.delete');
+		                        }
+		                        return next();
+		                    });
 					});
 
 					/**

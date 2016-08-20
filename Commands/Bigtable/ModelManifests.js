@@ -33,7 +33,7 @@ module.exports = class Commands_ModelManifeststs { // Class: Commands_{resources
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getGet(commandAttributes) {
+    $Get(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -57,7 +57,7 @@ module.exports = class Commands_ModelManifeststs { // Class: Commands_{resources
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getList(commandAttributes) {
+    $List(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -86,7 +86,7 @@ module.exports = class Commands_ModelManifeststs { // Class: Commands_{resources
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getValidateCommandDefs(commandAttributes) {
+    $ValidateCommandDefs(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -100,7 +100,7 @@ module.exports = class Commands_ModelManifeststs { // Class: Commands_{resources
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getValidateComponents(commandAttributes) {
+    $ValidateComponents(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -114,7 +114,7 @@ module.exports = class Commands_ModelManifeststs { // Class: Commands_{resources
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getValidateDeviceState(commandAttributes) {
+    $ValidateDeviceState(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({

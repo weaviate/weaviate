@@ -33,7 +33,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getCreateLocalAuthTokens(commandAttributes) {
+    $CreateLocalAuthTokens(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -65,7 +65,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getDelete(commandAttributes) {
+    $Delete(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({});
@@ -77,7 +77,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getGet(commandAttributes) {
+    $Get(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -136,7 +136,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getHandleInvitation(commandAttributes) {
+    $HandleInvitation(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({});
@@ -148,7 +148,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getInsert(commandAttributes) {
+    $Insert(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -207,7 +207,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getList(commandAttributes) {
+    $List(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -271,7 +271,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getPatch(commandAttributes) {
+    $Patch(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -330,7 +330,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getPatchState(commandAttributes) {
+    $PatchState(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -344,7 +344,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getUpdate(commandAttributes) {
+    $Update(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -403,7 +403,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getUpdateParent(commandAttributes) {
+    $UpdateParent(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({});
@@ -415,7 +415,7 @@ module.exports = class Commands_Devices { // Class: Commands_{resources.classNam
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getUpsertLocalAuthInfo(commandAttributes) {
+    $UpsertLocalAuthInfo(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
