@@ -3,9 +3,6 @@
   "version": "0.0.11",
   "description": "Weavite, a private cloud for the Google Weave protocol",
   "main": "weaviate.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/weaviate/weaviate.git"
@@ -22,6 +19,9 @@
     "url": "https://github.com/weaviate/weaviate/issues"
   },
   "homepage": "https://github.com/weaviate/weaviate#readme",
+  "eslintConfig": {
+    "extends": "google"
+  },
   "dependencies": {
     "cassandra-driver": "^3.1.1",
     "gcloud": "^0.37.0",
@@ -33,6 +33,7 @@
   "devDependencies": {
     "assert": "^1.4.0",
     "chai": "^3.5.0",
+    "eslint": "^3.3.1",
     "gulp": "^3.9.1",
     "gulp-eslint": "^2.0.0",
     "should": "^8.4.0",
