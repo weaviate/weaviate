@@ -14,50 +14,14 @@
  */
 
 /*****************************
- * Add the Classes
- */
-const Commands_AclEntries           = require('./Commands/AclEntries.js'),
-      Commands_AuthorizedApps       = require('./Commands/AuthorizedApps.js'),
-      Commands_Commands             = require('./Commands/Commands.js'),
-      Commands_Devices              = require('./Commands/Devices.js'),
-      Commands_Events               = require('./Commands/Events.js'),
-      Commands_ModelManifests       = require('./Commands/ModelManifests.js'),
-      Commands_PersonalizedInfos    = require('./Commands/PersonalizedInfos.js'),
-      Commands_Places               = require('./Commands/Places.js'),
-      Commands_RegistrationTickets  = require('./Commands/RegistrationTickets.js'),
-      Commands_Rooms                = require('./Commands/Rooms.js'),
-      Commands_Subscriptions        = require('./Commands/Subscriptions.js'),
-      Endpoints_AclEntries          = require('./Endpoints/AclEntries.js'),
-      Endpoints_AuthorizedApps      = require('./Endpoints/AuthorizedApps.js'),
-      Endpoints_Commands            = require('./Endpoints/Commands.js'),
-      Endpoints_Devices             = require('./Endpoints/Devices.js'),
-      Endpoints_Events              = require('./Endpoints/Events.js'),
-      Endpoints_ModelManifests      = require('./Endpoints/ModelManifests.js'),
-      Endpoints_PersonalizedInfos   = require('./Endpoints/PersonalizedInfos.js'),
-      Endpoints_Places              = require('./Endpoints/Places.js'),
-      Endpoints_RegistrationTickets = require('./Endpoints/RegistrationTickets.js'),
-      Endpoints_Rooms               = require('./Endpoints/Rooms.js'),
-      Endpoints_Subscriptions       = require('./Endpoints/Subscriptions.js'),
-      Helpers_ErrorHandling         = require('./Helpers/ErrorHandling.js');
-
-/*****************************
- * Add the server consts
- */
-const RESTIFY = require('restify'),
-      SERVER  = RESTIFY
-                    .createServer({
-                        name: 'Weaviate Server'
-                    })
-                    .pre(RESTIFY.pre.sanitizePath());
-
-/*****************************
  * Export the Weaviate module
  * @param  {object} i  - Object that contains all info to start a Weaviate server
  * @return {export} Returns the Weaviate Object
  */
 module.exports = (i) => {
+
     /*****************************
-     * Check if all mandatory fields are set
+     * Check and validate if all mandatory fields are set
      */
     if (i === undefined) {
         console.error('Values aren\'t set when you call Weaviate, please pass an object with proper values. More info on the website');
@@ -76,20 +40,12 @@ module.exports = (i) => {
         console.error('Format not set, default to JSON');
         global.i.formatIn = 'JSON';
     }
-    if (global.i.dbHostname === undefined) {
-        console.error('DB hostname not set, default to localhost');
+    if (global.i.db === undefined) {
+        console.error('Set the Database object');
         global.i.dbHostname = 'localhost';
     }
-    if (global.i.dbPort === undefined) {
-        console.error('DB port not set, default to 9160');
-        global.i.dbPort = 9160;
-    }
-    if (global.i.dbContactpoints === undefined) {
-        console.error('No Cassandra contactPoints set, default to 127.0.0.1');
-        global.i.dbContactpoints = ['127.0.0.1'];
-    }
-    if (global.i.dbKeyspace === undefined) {
-        console.error('You need to set a keyspace name (dbKeyspace) for Cassandra');
+    if (global.i.db.dbAdapter === undefined) {
+        console.error('Set a dbAdapter value');
     }
     if (global.i.formatIn === undefined) {
         console.error('Format is not set, default to JSON');
@@ -110,71 +66,160 @@ module.exports = (i) => {
     if (global.i.httpsOpts === undefined && i.https === true) {
         console.error('You want to use HTTPS, make sure to add https_opts');
     }
-    if (global.i.dbName === undefined) {
-        console.error('Set a db_name value');
+
+    /*****************************
+     * Add the Classes
+     */
+    const Commands_AclEntries           = require('./Commands/' + global.i.db.dbAdapter + '/AclEntries.js'),
+          Commands_Adapters             = require('./Commands/' + global.i.db.dbAdapter + '/Adapters.js'),
+          Commands_AuthorizedApps       = require('./Commands/' + global.i.db.dbAdapter + '/AuthorizedApps.js'),
+          Commands_Commands             = require('./Commands/' + global.i.db.dbAdapter + '/Commands.js'),
+          Commands_Devices              = require('./Commands/' + global.i.db.dbAdapter + '/Devices.js'),
+          Commands_Events               = require('./Commands/' + global.i.db.dbAdapter + '/Events.js'),
+          Commands_ModelManifests       = require('./Commands/' + global.i.db.dbAdapter + '/ModelManifests.js'),
+          Commands_PersonalizedInfos    = require('./Commands/' + global.i.db.dbAdapter + '/PersonalizedInfos.js'),
+          Commands_Places               = require('./Commands/' + global.i.db.dbAdapter + '/Places.js'),
+          Commands_RegistrationTickets  = require('./Commands/' + global.i.db.dbAdapter + '/RegistrationTickets.js'),
+          Commands_Rooms                = require('./Commands/' + global.i.db.dbAdapter + '/Rooms.js'),
+          Commands_Subscriptions        = require('./Commands/' + global.i.db.dbAdapter + '/Subscriptions.js'),
+          Endpoints_AclEntries          = require('./Endpoints/AclEntries.js'),
+          Endpoints_Adapters            = require('./Endpoints/Adapters.js'),
+          Endpoints_AuthorizedApps      = require('./Endpoints/AuthorizedApps.js'),
+          Endpoints_Commands            = require('./Endpoints/Commands.js'),
+          Endpoints_Devices             = require('./Endpoints/Devices.js'),
+          Endpoints_Events              = require('./Endpoints/Events.js'),
+          Endpoints_ModelManifests      = require('./Endpoints/ModelManifests.js'),
+          Endpoints_PersonalizedInfos   = require('./Endpoints/PersonalizedInfos.js'),
+          Endpoints_Places              = require('./Endpoints/Places.js'),
+          Endpoints_RegistrationTickets = require('./Endpoints/RegistrationTickets.js'),
+          Endpoints_Rooms               = require('./Endpoints/Rooms.js'),
+          Endpoints_Subscriptions       = require('./Endpoints/Subscriptions.js'),
+          Helpers_ErrorHandling         = require('./Helpers/ErrorHandling.js');
+
+    /*****************************
+     * If MQTT is set, start MQTT server
+     */
+    if(global.i.mqtt !== undefined){
+
+        /**
+         * Include Mosca
+         */
+        const Mqtt_Mosca = require('mosca');
+
+        /**
+         * Set Redis settings
+         */
+        global.i.mqtt.persistence            = { 'factory': Mqtt_Mosca.persistence.Redis };
+        global.i.mqtt.backend.type           = 'redis';
+        global.i.mqtt.backend.redis          = require('redis');
+        global.i.mqtt.backend.return_buffers = true;
+        global.i.mqtt.backend.db             = 12;
+
+        /**
+         * Load MQTT-server
+         */
+        var Mqtt_Server = new Mqtt_Mosca.Server(global.i.mqtt.settings);
+
+        /**
+         * On mqtt client connect
+         */
+        Mqtt_Server.on('clientConnected', (client) => {
+            if(global.i.debug === true){
+                console.log('WEAVIATE-MQTT', client.id, 'CONNECTED');
+            }
+        });
+
+        /**
+         * On mqtt publish
+         */
+        Mqtt_Server.on('published', (packet, client) => {
+            if(global.i.debug === true){
+                console.log('WEAVIATE-MQTT', 'PAYLOAD', 'SUCCESS');
+            }
+        });
+
+        /**
+         * Start MQTT-server
+         */
+        Mqtt_Server.on('ready', () => {
+            console.log('WEAVIATE-MQTT PUB-SUB IS LISTENING ON PORT:', global.i.mqtt.port);
+        });
+
     }
-    if (global.i.dbPassword === undefined) {
-        console.error('Set a db_password value');
-    }
+
+    /*****************************
+     * Add the server consts
+     */
+    const RESTIFY = require('restify'),
+          SERVER  = RESTIFY
+                        .createServer({
+                            name: 'Weaviate Server'
+                        })
+                        .pre(RESTIFY.pre.sanitizePath());
 
     /*****************************
      * START LISTENING TO ENDPOINT REQUESTS
      */
 
-        /*****************************
-         * aclEntries Endpoints -> Commands
-         */
-        new Endpoints_AclEntries(SERVER, Commands_AclEntries);
+    /*****************************
+     * aclEntries Endpoints -> Commands
+     */
+    new Endpoints_AclEntries(SERVER, Commands_AclEntries);
 
-        /*****************************
-         * AuthorizedApps Endpoints -> Commands
-         */
-        new Endpoints_AuthorizedApps(SERVER, Commands_AuthorizedApps);
+    /*****************************
+     * AuthorizedApps Endpoints -> Commands
+     */
+    new Endpoints_Adapters(SERVER, Commands_AuthorizedApps);
 
-        /*****************************
-         * Commands Endpoints -> Commands
-         */
-        new Endpoints_Commands(SERVER, Commands_Commands);
+    /*****************************
+     * AuthorizedApps Endpoints -> Commands
+     */
+    new Endpoints_AuthorizedApps(SERVER, Commands_AuthorizedApps);
 
-        /*****************************
-         * Devices Endpoints -> Commands
-         */
-        new Endpoints_Devices(SERVER, Commands_Devices);
+    /*****************************
+     * Commands Endpoints -> Commands
+     */
+    new Endpoints_Commands(SERVER, Commands_Commands);
 
-        /*****************************
-         * Events Endpoints -> Commands
-         */
-        new Endpoints_Events(SERVER, Commands_Events);
+    /*****************************
+     * Devices Endpoints -> Commands
+     */
+    new Endpoints_Devices(SERVER, Commands_Devices);
 
-        /*****************************
-         * ModelManifests Endpoints -> Commands
-         */
-        new Endpoints_ModelManifests(SERVER, Commands_ModelManifests);
+    /*****************************
+     * Events Endpoints -> Commands
+     */
+    new Endpoints_Events(SERVER, Commands_Events);
 
-        /*****************************
-         * PersonalizedInfos Endpoints -> Commands
-         */
-        new Endpoints_PersonalizedInfos(SERVER, Commands_PersonalizedInfos);
+    /*****************************
+     * ModelManifests Endpoints -> Commands
+     */
+    new Endpoints_ModelManifests(SERVER, Commands_ModelManifests);
 
-        /*****************************
-         * Places Endpoints -> Commands
-         */
-        new Endpoints_Places(SERVER, Commands_Places);
+    /*****************************
+     * PersonalizedInfos Endpoints -> Commands
+     */
+    new Endpoints_PersonalizedInfos(SERVER, Commands_PersonalizedInfos);
 
-        /*****************************
-         * RegistrationTickets Endpoints -> Commands
-         */
-        new Endpoints_RegistrationTickets(SERVER, Commands_RegistrationTickets);
+    /*****************************
+     * Places Endpoints -> Commands
+     */
+    new Endpoints_Places(SERVER, Commands_Places);
 
-        /*****************************
-         * Rooms Endpoints -> Commands
-         */
-        new Endpoints_Rooms(SERVER, Commands_Rooms);
+    /*****************************
+     * RegistrationTickets Endpoints -> Commands
+     */
+    new Endpoints_RegistrationTickets(SERVER, Commands_RegistrationTickets);
 
-        /*****************************
-         * Subscriptions Endpoints -> Commands
-         */
-        new Endpoints_Subscriptions(SERVER, Commands_Subscriptions);
+    /*****************************
+     * Rooms Endpoints -> Commands
+     */
+    new Endpoints_Rooms(SERVER, Commands_Rooms);
+
+    /*****************************
+     * Subscriptions Endpoints -> Commands
+     */
+    new Endpoints_Subscriptions(SERVER, Commands_Subscriptions);
 
     /*****************************
      * DONE LISTENING TO ENDPOINT REQUESTS

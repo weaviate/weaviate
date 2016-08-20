@@ -16,23 +16,27 @@
 /**
  * This is a local Weaviate example
  */
-const weaviate = require('./weaviate.js');
+const weaviate = require('../weaviate.js');
 
 weaviate({
     https: false,
     httpsOpts: {},
-    dbHostname: 'localhost',
-    dbPort: 1000,
-    dbName: 'test',
-    dbPassword: 'qqq',
-    dbContactpoints: ['127.0.0.1'],
-    dbKeyspace: 'test001',
+    db: {
+        dbAdapter: 'Bigtable'
+    },
     hostname: 'localhost',
     port: 8080,
     formatIn: 'JSON', /* use json or cbor */
     formatOut: 'JSON', /* use json or cbor */
     stdoutLog: true,
     debug: true,
+    mqtt: {
+        port: 1883,
+        backend: {
+            host: 'localhost',
+            port: 6379
+        }
+    },
     onSucces: (weaveObject) => {
         console.log(weaveObject);
     },

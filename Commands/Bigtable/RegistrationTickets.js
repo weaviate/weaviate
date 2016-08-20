@@ -56,7 +56,7 @@ module.exports = class Commands_RegistrationTickets { // Class: Commands_{resour
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getFinalize(commandAttributes) {
+    getGet(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
