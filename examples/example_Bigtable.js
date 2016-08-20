@@ -19,17 +19,17 @@
 const weaviate = require('../weaviate.js');
 
 weaviate({
-    https: false,
-    httpsOpts: {},
     db: {
         dbAdapter: 'Bigtable'
     },
     hostname: 'localhost',
-    port: 8080,
     formatIn: 'JSON', /* use json or cbor */
     formatOut: 'JSON', /* use json or cbor */
     stdoutLog: true,
     debug: true,
+    https: {
+        port: 8080,
+    },
     mqtt: {
         port: 1883,
         backend: {
