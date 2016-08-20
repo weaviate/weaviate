@@ -18,216 +18,86 @@
  * @param  {object} i  - Object that contains all info to start a Weaviate server
  * @return {export} Returns the Weaviate Object
  */
-module.exports = (i) => {
+module.exports = (weaviate) => {
 
     /*****************************
      * Check and validate if all mandatory fields are set
      */
-    if (i === undefined) {
+    if (weaviate === undefined) {
         console.error('Values aren\'t set when you call Weaviate, please pass an object with proper values. More info on the website');
     } else {
-        global.i = i; // make i available globally
+        weaviate = weaviate; // make i available globally
     }
-    if (global.i.hostname === undefined) {
+    if (weaviate.hostname === undefined) {
         console.error('Hostname not set, default to localhost');
-        global.i.hostname = 'localhost';
+        weaviate.hostname = 'localhost';
     }
-    if (global.i.port === undefined) {
+    if (weaviate.https.port === undefined) {
         console.error('Hostname not set, default to 9000');
-        global.i.port = 9000;
+        weaviate.port = 9000;
     }
-    if (global.i.formatIn === undefined) {
+    if (weaviate.formatIn === undefined) {
         console.error('Format not set, default to JSON');
-        global.i.formatIn = 'JSON';
+        weaviate.formatIn = 'JSON';
     }
-    if (global.i.db === undefined) {
+    if (weaviate.db === undefined) {
         console.error('Set the Database object');
-        global.i.dbHostname = 'localhost';
+        weaviate.dbHostname = 'localhost';
     }
-    if (global.i.db.dbAdapter === undefined) {
+    if (weaviate.db.dbAdapter === undefined) {
         console.error('Set a dbAdapter value');
+        throw new Error();
     }
-    if (global.i.formatIn === undefined) {
+    if (weaviate.formatIn === undefined) {
         console.error('Format is not set, default to JSON');
-        global.i.formatIn = 'JSON';
+        weaviate.formatIn = 'JSON';
     }
-    if (global.i.formatOut === undefined) {
+    if (weaviate.formatOut === undefined) {
         console.error('Format is not set, default to JSON');
-        global.i.formatOut = 'JSON';
+        weaviate.formatOut = 'JSON';
     }
-    if (global.i.stdoutLog === undefined) {
+    if (weaviate.stdoutLog === undefined) {
         console.error('stdout_log is not set, default to false');
-        global.i.stdoutLog = false;
+        weaviate.stdoutLog = false;
     }
-    if (global.i.https === undefined) {
-        console.error('https is not set, default to false');
-        global.i.https = false;
+    if (weaviate.mqtt === undefined) {
+        console.warn('mqtt is not set, default to false, no mqtt REST API');
+        weaviate.mqtt = false;
     }
-    if (global.i.httpsOpts === undefined && i.https === true) {
-        console.error('You want to use HTTPS, make sure to add https_opts');
+    if (weaviate.https === undefined) {
+        console.warn('https is not set, default to false, no https REST API');
+        weaviate.https = false;
+    }
+    if (weaviate.weaveDiscovery === undefined) {
+        console.warn('No discovery document set, default to latest Weave Discovery Document');
+        weaviate.weaveDiscovery = './weave.json';
     }
 
     /*****************************
      * Add the Classes
      */
-    const Commands_AclEntries           = require('./Commands/' + global.i.db.dbAdapter + '/AclEntries.js'),
-          Commands_Adapters             = require('./Commands/' + global.i.db.dbAdapter + '/Adapters.js'),
-          Commands_AuthorizedApps       = require('./Commands/' + global.i.db.dbAdapter + '/AuthorizedApps.js'),
-          Commands_Commands             = require('./Commands/' + global.i.db.dbAdapter + '/Commands.js'),
-          Commands_Devices              = require('./Commands/' + global.i.db.dbAdapter + '/Devices.js'),
-          Commands_Events               = require('./Commands/' + global.i.db.dbAdapter + '/Events.js'),
-          Commands_ModelManifests       = require('./Commands/' + global.i.db.dbAdapter + '/ModelManifests.js'),
-          Commands_PersonalizedInfos    = require('./Commands/' + global.i.db.dbAdapter + '/PersonalizedInfos.js'),
-          Commands_Places               = require('./Commands/' + global.i.db.dbAdapter + '/Places.js'),
-          Commands_RegistrationTickets  = require('./Commands/' + global.i.db.dbAdapter + '/RegistrationTickets.js'),
-          Commands_Rooms                = require('./Commands/' + global.i.db.dbAdapter + '/Rooms.js'),
-          Commands_Subscriptions        = require('./Commands/' + global.i.db.dbAdapter + '/Subscriptions.js'),
-          Endpoints_AclEntries          = require('./Endpoints/AclEntries.js'),
-          Endpoints_Adapters            = require('./Endpoints/Adapters.js'),
-          Endpoints_AuthorizedApps      = require('./Endpoints/AuthorizedApps.js'),
-          Endpoints_Commands            = require('./Endpoints/Commands.js'),
-          Endpoints_Devices             = require('./Endpoints/Devices.js'),
-          Endpoints_Events              = require('./Endpoints/Events.js'),
-          Endpoints_ModelManifests      = require('./Endpoints/ModelManifests.js'),
-          Endpoints_PersonalizedInfos   = require('./Endpoints/PersonalizedInfos.js'),
-          Endpoints_Places              = require('./Endpoints/Places.js'),
-          Endpoints_RegistrationTickets = require('./Endpoints/RegistrationTickets.js'),
-          Endpoints_Rooms               = require('./Endpoints/Rooms.js'),
-          Endpoints_Subscriptions       = require('./Endpoints/Subscriptions.js'),
+    const Commands_AclEntries           = require('./Commands/' + weaviate.db.dbAdapter + '/AclEntries.js'),
+          Commands_Adapters             = require('./Commands/' + weaviate.db.dbAdapter + '/Adapters.js'),
+          Commands_AuthorizedApps       = require('./Commands/' + weaviate.db.dbAdapter + '/AuthorizedApps.js'),
+          Commands_Commands             = require('./Commands/' + weaviate.db.dbAdapter + '/Commands.js'),
+          Commands_Devices              = require('./Commands/' + weaviate.db.dbAdapter + '/Devices.js'),
+          Commands_Events               = require('./Commands/' + weaviate.db.dbAdapter + '/Events.js'),
+          Commands_ModelManifests       = require('./Commands/' + weaviate.db.dbAdapter + '/ModelManifests.js'),
+          Commands_PersonalizedInfos    = require('./Commands/' + weaviate.db.dbAdapter + '/PersonalizedInfos.js'),
+          Commands_Places               = require('./Commands/' + weaviate.db.dbAdapter + '/Places.js'),
+          Commands_RegistrationTickets  = require('./Commands/' + weaviate.db.dbAdapter + '/RegistrationTickets.js'),
+          Commands_Rooms                = require('./Commands/' + weaviate.db.dbAdapter + '/Rooms.js'),
+          Commands_Subscriptions        = require('./Commands/' + weaviate.db.dbAdapter + '/Subscriptions.js'),
+          Helpers_RESTRender            = require('./Helpers/RESTRender.js'),
           Helpers_ErrorHandling         = require('./Helpers/ErrorHandling.js');
 
     /*****************************
-     * If MQTT is set, start MQTT server
+     * Create the REST API for HTTPS and/or MQTT
      */
-    if(global.i.mqtt !== undefined){
+    new Helpers_RESTRender(require(weaviate.weaveDiscovery))
+            .loadCommands(weaviate.db.dbAdapter, weaviate.debug) // Loads command classes from the /Commands dir and validates them
+            .createHttps(weaviate) // Creates the Https REST API if weaviate.https !== false
+            .createMqtt(weaviate); // Creates the Mqtt REST API if weaviate.mqtt !== false
 
-        /**
-         * Include Mosca
-         */
-        const Mqtt_Mosca = require('mosca');
 
-        /**
-         * Set Redis settings
-         */
-        global.i.mqtt.persistence            = { 'factory': Mqtt_Mosca.persistence.Redis };
-        global.i.mqtt.backend.type           = 'redis';
-        global.i.mqtt.backend.redis          = require('redis');
-        global.i.mqtt.backend.return_buffers = true;
-        global.i.mqtt.backend.db             = 12;
-
-        /**
-         * Load MQTT-server
-         */
-        var Mqtt_Server = new Mqtt_Mosca.Server(global.i.mqtt.settings);
-
-        /**
-         * On mqtt client connect
-         */
-        Mqtt_Server.on('clientConnected', (client) => {
-            if(global.i.debug === true){
-                console.log('WEAVIATE-MQTT', client.id, 'CONNECTED');
-            }
-        });
-
-        /**
-         * On mqtt publish
-         */
-        Mqtt_Server.on('published', (packet, client) => {
-            if(global.i.debug === true){
-                console.log('WEAVIATE-MQTT', 'PAYLOAD', 'SUCCESS');
-            }
-        });
-
-        /**
-         * Start MQTT-server
-         */
-        Mqtt_Server.on('ready', () => {
-            console.log('WEAVIATE-MQTT PUB-SUB IS LISTENING ON PORT:', global.i.mqtt.port);
-        });
-
-    }
-
-    /*****************************
-     * Add the server consts
-     */
-    const RESTIFY = require('restify'),
-          SERVER  = RESTIFY
-                        .createServer({
-                            name: 'Weaviate Server'
-                        })
-                        .pre(RESTIFY.pre.sanitizePath());
-
-    /*****************************
-     * START LISTENING TO ENDPOINT REQUESTS
-     */
-
-    /*****************************
-     * aclEntries Endpoints -> Commands
-     */
-    new Endpoints_AclEntries(SERVER, Commands_AclEntries);
-
-    /*****************************
-     * AuthorizedApps Endpoints -> Commands
-     */
-    new Endpoints_Adapters(SERVER, Commands_AuthorizedApps);
-
-    /*****************************
-     * AuthorizedApps Endpoints -> Commands
-     */
-    new Endpoints_AuthorizedApps(SERVER, Commands_AuthorizedApps);
-
-    /*****************************
-     * Commands Endpoints -> Commands
-     */
-    new Endpoints_Commands(SERVER, Commands_Commands);
-
-    /*****************************
-     * Devices Endpoints -> Commands
-     */
-    new Endpoints_Devices(SERVER, Commands_Devices);
-
-    /*****************************
-     * Events Endpoints -> Commands
-     */
-    new Endpoints_Events(SERVER, Commands_Events);
-
-    /*****************************
-     * ModelManifests Endpoints -> Commands
-     */
-    new Endpoints_ModelManifests(SERVER, Commands_ModelManifests);
-
-    /*****************************
-     * PersonalizedInfos Endpoints -> Commands
-     */
-    new Endpoints_PersonalizedInfos(SERVER, Commands_PersonalizedInfos);
-
-    /*****************************
-     * Places Endpoints -> Commands
-     */
-    new Endpoints_Places(SERVER, Commands_Places);
-
-    /*****************************
-     * RegistrationTickets Endpoints -> Commands
-     */
-    new Endpoints_RegistrationTickets(SERVER, Commands_RegistrationTickets);
-
-    /*****************************
-     * Rooms Endpoints -> Commands
-     */
-    new Endpoints_Rooms(SERVER, Commands_Rooms);
-
-    /*****************************
-     * Subscriptions Endpoints -> Commands
-     */
-    new Endpoints_Subscriptions(SERVER, Commands_Subscriptions);
-
-    /*****************************
-     * DONE LISTENING TO ENDPOINT REQUESTS
-     */
-
-    /*****************************
-     * START THE SERVER
-     */
-    SERVER.listen(global.i.port);
-    console.log('WEAVIATE IS LISTENING ON PORT: ' + global.i.port);
 };
