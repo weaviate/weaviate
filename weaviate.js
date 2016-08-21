@@ -15,7 +15,7 @@
 
 /*****************************
  * Export the Weaviate module
- * @param  {object} i  - Object that contains all info to start a Weaviate server
+ * @param  {object} weaviate - Object that contains all info to start a Weaviate server
  * @return {export} Returns the Weaviate Object
  */
 module.exports = (weaviate) => {
@@ -76,20 +76,8 @@ module.exports = (weaviate) => {
     /*****************************
      * Add the Classes
      */
-    const Commands_AclEntries           = require('./Commands/' + weaviate.db.dbAdapter + '/AclEntries.js'),
-          Commands_Adapters             = require('./Commands/' + weaviate.db.dbAdapter + '/Adapters.js'),
-          Commands_AuthorizedApps       = require('./Commands/' + weaviate.db.dbAdapter + '/AuthorizedApps.js'),
-          Commands_Commands             = require('./Commands/' + weaviate.db.dbAdapter + '/Commands.js'),
-          Commands_Devices              = require('./Commands/' + weaviate.db.dbAdapter + '/Devices.js'),
-          Commands_Events               = require('./Commands/' + weaviate.db.dbAdapter + '/Events.js'),
-          Commands_ModelManifests       = require('./Commands/' + weaviate.db.dbAdapter + '/ModelManifests.js'),
-          Commands_PersonalizedInfos    = require('./Commands/' + weaviate.db.dbAdapter + '/PersonalizedInfos.js'),
-          Commands_Places               = require('./Commands/' + weaviate.db.dbAdapter + '/Places.js'),
-          Commands_RegistrationTickets  = require('./Commands/' + weaviate.db.dbAdapter + '/RegistrationTickets.js'),
-          Commands_Rooms                = require('./Commands/' + weaviate.db.dbAdapter + '/Rooms.js'),
-          Commands_Subscriptions        = require('./Commands/' + weaviate.db.dbAdapter + '/Subscriptions.js'),
-          Helpers_RESTRender            = require('./Helpers/RESTRender.js'),
-          Helpers_ErrorHandling         = require('./Helpers/ErrorHandling.js');
+    const Helpers_ErrorHandling = require('./Helpers/ErrorHandling.js'),
+          Helpers_RESTRender    = require('./Helpers/RESTRender.js');
 
     /*****************************
      * Create the REST API for HTTPS and/or MQTT
@@ -98,6 +86,4 @@ module.exports = (weaviate) => {
             .loadCommands(weaviate.db.dbAdapter, weaviate.debug) // Loads command classes from the /Commands dir and validates them
             .createHttps(weaviate) // Creates the Https REST API if weaviate.https !== false
             .createMqtt(weaviate); // Creates the Mqtt REST API if weaviate.mqtt !== false
-
-
 };
