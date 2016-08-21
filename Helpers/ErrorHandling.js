@@ -13,7 +13,7 @@
  */
 
 /**
- * CLASS Commands_AclEntries
+ * CLASS Helpers_ErrorHandling
  */
 module.exports = class Helpers_ErrorHandling {
 

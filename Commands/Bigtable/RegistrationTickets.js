@@ -33,7 +33,7 @@ module.exports = class Commands_RegistrationTickets { // Class: Commands_{resour
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getFinalize(commandAttributes) {
+    $Finalize(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -56,7 +56,7 @@ module.exports = class Commands_RegistrationTickets { // Class: Commands_{resour
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getGet(commandAttributes) {
+    $Get(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -79,7 +79,7 @@ module.exports = class Commands_RegistrationTickets { // Class: Commands_{resour
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getInsert(commandAttributes) {
+    $Insert(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -102,7 +102,7 @@ module.exports = class Commands_RegistrationTickets { // Class: Commands_{resour
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getPatch(commandAttributes) {
+    $Patch(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -125,7 +125,7 @@ module.exports = class Commands_RegistrationTickets { // Class: Commands_{resour
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getUpdate(commandAttributes) {
+    $Update(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({

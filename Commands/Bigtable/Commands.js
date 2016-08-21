@@ -33,7 +33,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getCancel(commandAttributes) {
+    $Cancel(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -67,7 +67,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getDelete(commandAttributes) {
+    $Delete(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({});
@@ -79,7 +79,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getGet(commandAttributes) {
+    $Get(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -113,7 +113,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getQueue(commandAttributes) {
+    $Queue(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -151,7 +151,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getInsert(commandAttributes) {
+    $Insert(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -185,7 +185,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getList(commandAttributes) {
+    $List(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -227,7 +227,7 @@ module.exports = class Commands_Commands { // Class: Commands_{resources.classNa
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getPatch(commandAttributes) {
+    $Patch(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({

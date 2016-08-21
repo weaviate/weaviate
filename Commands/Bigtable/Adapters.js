@@ -33,7 +33,7 @@ module.exports = class Commands_AclEntries { // Class: Commands_{resources.class
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {null} null
      */
-    getAccept(commandAttributes) {
+    $Accept(commandAttributes) {
         return new Promise((resolve, reject) => {
             resolve({
               kind: 'weave#adaptersAcceptResponse'
@@ -46,7 +46,7 @@ module.exports = class Commands_AclEntries { // Class: Commands_{resources.class
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {null} null
      */
-    getActivate(commandAttributes) {
+    $Activate(commandAttributes) {
         return new Promise((resolve, reject) => {
             resolve({
               kind: 'weave#adaptersActivateResponse',
@@ -61,7 +61,7 @@ module.exports = class Commands_AclEntries { // Class: Commands_{resources.class
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {null} null
      */
-    getDeactivate(commandAttributes) {
+    $Deactivate(commandAttributes) {
         return new Promise((resolve, reject) => {
             resolve({
               kind: 'weave#adaptersDeactivateResponse',
@@ -75,7 +75,7 @@ module.exports = class Commands_AclEntries { // Class: Commands_{resources.class
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {null} null
      */
-    getGet(commandAttributes) {
+    $Get(commandAttributes) {
         return new Promise((resolve, reject) => {
             resolve({
               id: 123,
@@ -94,7 +94,7 @@ module.exports = class Commands_AclEntries { // Class: Commands_{resources.class
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {null} null
      */
-    getList(commandAttributes) {
+    $List(commandAttributes) {
         return new Promise((resolve, reject) => {
             resolve({
               kind: 'weave#adaptersListResponse',
