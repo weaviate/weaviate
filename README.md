@@ -4,7 +4,14 @@
 *Important Note:
 Weaviate is not fully testable / production ready yet. You can follow the progress for the first release candidates [here](https://github.com/weaviate/weaviate/milestones). Follow this repo or sign up for the [mailing list](http://eepurl.com/bRsMir) to stay informed about the progress.*
 
-Weaviate is a REST API based software-as-a-service platform that is able to process the Google Weave protocol. It can be used in combination with all Google's Weave and Brillo libraries ([link to the libs](https://weave.googlesource.com/), [link to Weave](https://developers.google.com/weave), [link to Brillo](https://developers.google.com/brillo)).
+Weaviate is a REST API based software-as-a-service platform that is able to process the Google Weave protocol.
+**Use cases**
+1) It can be used in combination with all Google's Weave and Brillo libraries ([link to the libs](https://weave.googlesource.com/), [link to Weave](https://developers.google.com/weave), [link to Brillo](https://developers.google.com/brillo)).
+2) It can be used for custom Internet of Things applications, based on the Weave protocol. This is often seen in a B2B situation.
+3) The Weave protocol can be updated and changed for a specific use case.
+4) Etcetera...
+
+You can use this open source software or you can use Weaviate's PaaS solution. Questions? Please get in touch: yourfriends[at]weaviate.com
 
 You can use Weaviate on simple local machines, or complex distributed networks.
 
@@ -57,7 +64,11 @@ When we started discussing the potential of Google's Weave and Brillo​ with cl
 
 - Can I extend Weaviate and the Weave API for my project​?​
 
-Yes!
+Yes! You can change the Weave protocol to suit your needs.
+
+- Where can I get some background about Google Weave.
+1) [https://cloud.google.com/solutions/iot-overview](https://cloud.google.com/solutions/iot-overview)
+2) [https://developers.google.com/weave](https://developers.google.com/weave)
 
 - Can I integrate Weaviate with my existing software?
 
