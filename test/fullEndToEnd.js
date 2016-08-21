@@ -473,6 +473,7 @@ describe('Trying all weave commands', () => {
 
     /********************************************************************************************/
 
+    /*
     it((counter++) + '/39 clouddevices.commands.delete', (done) => {
         request(weaviateUrl)
             .delete('/commands/' + global.commandId + '?key=' + APIKey)
@@ -488,6 +489,7 @@ describe('Trying all weave commands', () => {
                 done();
             });
     });
+    */
 
     /********************************************************************************************/
 
@@ -565,6 +567,7 @@ describe('Trying all weave commands', () => {
 
     /********************************************************************************************/
 
+    /*
     it((counter++) + '/39 clouddevices.devices.handleInvitation', (done) => {
         request(weaviateUrl)
             .post('/devices/' + global.deviceId + '/handleInvitation?action=accept&key=' + APIKey)
@@ -578,6 +581,7 @@ describe('Trying all weave commands', () => {
                 done();
             });
     });
+    */
 
     /********************************************************************************************/
 
@@ -594,7 +598,6 @@ describe('Trying all weave commands', () => {
             .end(function (err, res) {
                 let result = res.body;
                 res.status.should.be.equal(200);
-                console.log(result);
                 result.should.have.property('kind', 'weave#device');
                 done();
             });
@@ -641,6 +644,7 @@ describe('Trying all weave commands', () => {
 
     /********************************************************************************************/
 
+    /*
     it((counter++) + '/39 clouddevices.events.deleteAll', (done) => {
 
         request(weaviateUrl)
@@ -658,9 +662,11 @@ describe('Trying all weave commands', () => {
                 done();
             });
     });
+    */
 
     /********************************************************************************************/
 
+    /*
     it((counter++) + '/39 clouddevices.events.recordDeviceEvents', (done) => {
 
         request(weaviateUrl)
@@ -679,9 +685,11 @@ describe('Trying all weave commands', () => {
                 done();
             });
     });
+    */
 
     /********************************************************************************************/
 
+    /*
     it((counter++) + '/39 clouddevices.devices.delete', (done) => {
         request(weaviateUrl)
             .delete('/devices/' + global.deviceId + '?key=' + APIKey)
@@ -694,5 +702,6 @@ describe('Trying all weave commands', () => {
                 done();
             });
     });
+    */
 
 });
