@@ -21,7 +21,7 @@
   "homepage": "https://github.com/weaviate/weaviate#readme",
   "dependencies": {
     "cassandra-driver": "^3.1.1",
-    "gcloud": "^0.37.0",
+    "google-cloud": "^0.38.3",
     "mosca": "^2.0.2",
     "mqtt": "^1.13.0",
     "redis": "^2.6.2",
