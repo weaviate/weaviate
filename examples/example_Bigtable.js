@@ -28,7 +28,7 @@ weaviate({
     stdoutLog: true,
     debug: true,
     https: {
-        port: 8080,
+        port: 8080
     },
     mqtt: {
         port: 1883,
