@@ -33,7 +33,7 @@ module.exports = class Commands_AuthorizedApps { // Class: Commands_{resources.c
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getCreateAppAuthenticationToken(commandAttributes) {
+    $CreateAppAuthenticationToken(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
@@ -48,7 +48,7 @@ module.exports = class Commands_AuthorizedApps { // Class: Commands_{resources.c
      * @param {object} commandAttributes  - All attributes needed to exec the command
      * @return {promise} Returns a promise with the correct object
      */
-    getList(commandAttributes) {
+    $List(commandAttributes) {
         return new Promise((resolve, reject) => {
             // resolve with kind and token
             resolve({
