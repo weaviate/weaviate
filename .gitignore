@@ -40,3 +40,6 @@ node_modules
 
 # Local files
 _local
+
+# Remove weave files
+weave-current.json
