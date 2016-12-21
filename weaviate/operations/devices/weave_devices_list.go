@@ -1,0 +1,63 @@
+package devices
+
+
+// Editing this file might prove futile when you re-run the generate command
+
+import (
+	"net/http"
+
+	middleware "github.com/go-openapi/runtime/middleware"
+)
+
+// WeaveDevicesListHandlerFunc turns a function with the right signature into a weave devices list handler
+type WeaveDevicesListHandlerFunc func(WeaveDevicesListParams, interface{}) middleware.Responder
+
+// Handle executing the request and returning a response
+func (fn WeaveDevicesListHandlerFunc) Handle(params WeaveDevicesListParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
+}
+
+// WeaveDevicesListHandler interface for that can handle valid weave devices list params
+type WeaveDevicesListHandler interface {
+	Handle(WeaveDevicesListParams, interface{}) middleware.Responder
+}
+
+// NewWeaveDevicesList creates a new http.Handler for the weave devices list operation
+func NewWeaveDevicesList(ctx *middleware.Context, handler WeaveDevicesListHandler) *WeaveDevicesList {
+	return &WeaveDevicesList{Context: ctx, Handler: handler}
+}
+
+/*WeaveDevicesList swagger:route GET /devices devices weaveDevicesList
+
+Lists devices user has access to.
+
+*/
+type WeaveDevicesList struct {
+	Context *middleware.Context
+	Handler WeaveDevicesListHandler
+}
+
+func (o *WeaveDevicesList) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+	route, _ := o.Context.RouteInfo(r)
+	var Params = NewWeaveDevicesListParams()
+
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
+	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+
+	res := o.Handler.Handle(Params, principal) // actually handle the request
+
+	o.Context.Respond(rw, r, route.Produces, route, res)
+
+}
