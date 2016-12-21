@@ -26,10 +26,11 @@ Google offers a great cloud service for Weave. There might be situations, though
 Weaviate comes with a set of adapters for databases, so you can use your DB of choice. Want to contribute an adapter? Feel free to [contribute](#contributing-and-gitflow)!
 
 **Use cases**
-1) It can be used in combination with all Google's Weave and Android Things libraries ([link to the libs](https://weave.googlesource.com/), [link to Weave](https://developers.google.com/weave), [link to Android Things](https://developer.android.com)).
-2) It can be used for custom Internet of Things applications, based on the Weave protocol. This is often seen in a B2B situation.
-3) The Weave protocol can be updated and changed for a specific use case.
-4) Etcetera...
+
+1. It can be used in combination with all Google's Weave and Android Things libraries ([link to the libs](https://weave.googlesource.com/), [link to Weave](https://developers.google.com/weave), [link to Android Things](https://developer.android.com)).
+2. It can be used for custom Internet of Things applications, based on the Weave protocol. This is often seen in a B2B situation.
+3. The Weave protocol can be updated and changed for a specific use case.
+4. Etcetera...
 
 ### FAQ
 
