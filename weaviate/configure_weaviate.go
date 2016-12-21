@@ -36,23 +36,14 @@ import (
 	"github.com/weaviate/weaviate/weaviate/operations/subscriptions"
 )
 
-// This file is safe to edit. Once it exists it will not be overwritten
-
-//go:generate swagger generate server --target .. --name Weaviate --spec ../weave-current.json --default-scheme https
-
 func configureFlags(api *operations.WeaviateAPI) {
 	// api.CommandLineOptionsGroups = []swag.CommandLineOptionsGroup{ ... }
 }
 
+// API Configuration
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	// configure the api here
-	api.ServeError = errors.ServeError
 
-	// Set your custom logger if needed. Default one is log.Printf
-	// Expected interface func(string, ...interface{})
-	//
-	// Example:
-	// s.api.Logger = log.Printf
+	api.ServeError = errors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
 

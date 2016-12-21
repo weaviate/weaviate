@@ -3,7 +3,7 @@ package models
 import "github.com/go-openapi/strfmt"
 
 
-// Editing this file might prove futile when you re-run the swagger generate command
+
 
 // JSONObject JSON object value.
 // swagger:model JsonObject
