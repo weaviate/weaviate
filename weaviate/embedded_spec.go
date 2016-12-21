@@ -11,14 +11,11 @@
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
+
 package restapi
-
-
-// Editing this file might prove futile when you re-run the swagger generate command
 
 import "encoding/json"
 
-// SwaggerJSON embedded version of the swagger document used at generation time
 var SwaggerJSON json.RawMessage
 
 func init() {
