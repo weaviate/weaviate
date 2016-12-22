@@ -44,3 +44,4 @@ _local
 
 # Remove weave files
 weave-current.json
+weave-current-discovery.json
