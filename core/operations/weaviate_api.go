@@ -590,8 +590,10 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 	for name, scheme := range schemes {
 		switch name {
 
-		case "Oauth2":
-
+		/**
+		 * Disabled for now
+		 */
+		case "Oauth2-NOWNOTUSER":
 			result[name] = security.BearerAuth(scheme.Name, o.Oauth2Auth)
 
 		}
