@@ -34,6 +34,7 @@ node_modules
 
 # MAC stuff
 .DS_Store
+.!
 
 # IDE files
 .idea
