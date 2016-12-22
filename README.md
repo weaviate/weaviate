@@ -11,9 +11,9 @@ Weaviate is not fully testable / production ready yet. Follow this repo or sign 
 
 ### Table of contents
 * [How does it work and what is it?](#how-does-it-work)
-* [FAQ](#faq)
-* [Installation](#installation)
+* [Installation and Usage](#installation)
 * [Authentication](#authentication)
+* [FAQ](#faq)
 * [Contributing and Gitflow](#contributing-and-gitflow)
 * [Main contributors](#main-contributors)
 * [More info](#more-info)
@@ -31,6 +31,31 @@ Weaviate comes with a set of adapters for databases, so you can use your DB of c
 2. It can be used for custom Internet of Things applications, based on the Weave protocol. This is often seen in a B2B situation.
 3. The Weave protocol can be updated and changed for a specific use case.
 4. Etcetera...
+
+### Installation
+
+You can run: `go run weaviate.go` of build Weaviate by running: `go build weaviate.go`.
+
+For testing you can run over http: `./weaviate --scheme=http`. Note: to run the service in production you always need https.
+
+*Application options:*
+
+```
+Application Options:
+      --scheme=          the listeners to enable, this can be repeated and defaults to the schemes in the swagger spec
+      --socket-path=     the unix socket to listen on (default: /var/run/weaviate.sock)
+      --host=            the IP to listen on (default: localhost) [$HOST]
+      --port=            the port to listen on for insecure connections, defaults to a random value [$PORT]
+      --tls-host=        the IP to listen on for tls, when not specified it's the same as --host [$TLS_HOST]
+      --tls-port=        the port to listen on for secure connections, defaults to a random value [$TLS_PORT]
+      --tls-certificate= the certificate to use for secure connections [$TLS_CERTIFICATE]
+      --tls-key=         the private key to use for secure conections [$TLS_PRIVATE_KEY]
+```
+
+The service will be available from this basepath: `//domain/weave/v1/**`
+
+### Authentication
+[SOON MORE]
 
 ### FAQ
 
@@ -69,12 +94,6 @@ No, you can use the official open source repos from Google.
 - Why Node/Javascript?
 
 Because we think Node is a language ​that many​ people ​are able to read and write. We want to make the Weave community as large as possible.
-
-### Installation
-[SOON MORE]
-
-### Authentication
-[SOON MORE]
 
 ### Contributing and Gitflow
 Read more in the [CONTRIBUTE.md](CONTRIBUTE.md) file.
