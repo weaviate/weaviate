@@ -11,10 +11,8 @@
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package devices
 
-
-
+package devices
 
 import (
 	"net/http"
