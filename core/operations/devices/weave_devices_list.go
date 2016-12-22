@@ -11,8 +11,7 @@
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package devices
-
+package devices
 
 // Editing this file might prove futile when you re-run the generate command
 
