@@ -20,8 +20,8 @@ import (
 	loads "github.com/go-openapi/loads"
 	flags "github.com/jessevdk/go-flags"
 
-	"github.com/weaviate/weaviate/weaviate"
-	"github.com/weaviate/weaviate/weaviate/operations"
+	"github.com/weaviate/weaviate/core"
+	"github.com/weaviate/weaviate/core/operations"
 )
 
 func main() {
