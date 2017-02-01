@@ -54,6 +54,10 @@ Application Options:
 
 The service will be available from this basepath: `//domain/weave/v1/**`
 
+### Google App Engine
+
+[This](https://github.com/weaviate/weaviate-app-engine) repo has all the information to use Weaviate with Google App Engine.
+
 ### Authentication
 [SOON MORE]
 
