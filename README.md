@@ -13,6 +13,7 @@ Weaviate is not fully testable / production ready yet. Follow this repo or sign 
 * [How does it work and what is it?](#how-does-it-work)
 * [Installation and Usage](#installation)
 * [Authentication](#authentication)
+* [Database support](#database-support)
 * [FAQ](#faq)
 * [Contributing and Gitflow](#contributing-and-gitflow)
 * [Main contributors](#main-contributors)
@@ -34,9 +35,9 @@ Weaviate comes with a set of adapters for databases, so you can use your DB of c
 
 ### Installation
 
-You can run: `go run weaviate.go` of build Weaviate by running: `go build weaviate.go`.
+You can run: `go run ./cmd/weaviate-server/main.go` of build Weaviate by running: `go build ./cmd/weaviate-server/main.go`.
 
-For testing you can run over http: `./weaviate --scheme=http`. Note: to run the service in production you always need https.
+For testing you can run over http: `go run ./cmd/weaviate-server/main.go --scheme=http`. Note: to run the service in production you always need https.
 
 *Application options:*
 
@@ -60,6 +61,29 @@ The service will be available from this basepath: `//domain/weave/v1/**`
 
 ### Authentication
 [SOON MORE]
+
+### Database support
+
+Weavaite aims to support many databases, the database currently supported is Google Datastore.
+
+All available connectors can be found in the directory: ./connectors
+
+Note: you can run a [Datastore emulator](https://cloud.google.com/datastore/docs/tools/datastore-emulator).
+
+#### Google Cloud Datastore Connector
+
+When running weaviate, add a file called config.json to the root directory. This file should contain:
+
+```
+{
+      "database": "datastore",
+      "config": {
+            "project": "projectName"
+      }
+}
+```
+
+You can add other 
 
 ### FAQ
 
