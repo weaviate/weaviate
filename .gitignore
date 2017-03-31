@@ -1,3 +1,7 @@
+# TEMP: remove testing
+test
+
+# Remove tools dir
 tools
 
 # Logs
