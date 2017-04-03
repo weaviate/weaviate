@@ -6,4 +6,4 @@ env:
 before_install:
   - go get ./...
 script:
-  - go run weaviate.go --help
+  - go run ./cmd/weaviate-server/main.go --help
