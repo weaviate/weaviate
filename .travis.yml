@@ -1,6 +1,6 @@
 language: go
 go:
-  - 1.7
+  - 1.8
 env:
   - "PATH=/home/travis/gopath/bin:$PATH"
 before_install:
