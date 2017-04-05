@@ -4,7 +4,7 @@ Contributing works pretty easy. You can do a pull request or you can commit if y
 ### How we use Gitflow
 How we use [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) and how you can contribute following a few steps.
 
-- The master branch is what is released on NPM.
+- The master branch is what is released.
 - You can create a feature-branch that is named: feature/YOUR-FEATURE-NAME.
 - Your feature branch always has the develop branch as a starting point.
 - When you are done you can merge your feature into the develop branch _or_ you can request a merge.
