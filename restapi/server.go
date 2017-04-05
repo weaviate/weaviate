@@ -11,7 +11,7 @@
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package restapi
+package restapi
 
 import (
 	"crypto/tls"
@@ -54,7 +54,7 @@ func NewServer(api *operations.WeaviateAPI) *Server {
 // ConfigureAPI configures the API and handlers. Needs to be called before Serve
 func (s *Server) ConfigureAPI() {
 	if s.api != nil {
-		s.handler = configureAPI(s.api)
+		s.handler = configureAPI(s.api, s.Connector)
 	}
 }
 
@@ -71,6 +71,8 @@ type Server struct {
 
 	SocketPath    flags.Filename `long:"socket-path" description:"the unix socket to listen on" default:"/var/run/weaviate.sock"`
 	domainSocketL net.Listener
+
+	Connector string `long:"connector" description:"The database adapter as available in ./adapters/***"`
 
 	Host        string `long:"host" description:"the IP to listen on" default:"localhost" env:"HOST"`
 	Port        int    `long:"port" description:"the port to listen on for insecure connections, defaults to a random value" env:"PORT"`
@@ -117,7 +119,7 @@ func (s *Server) SetAPI(api *operations.WeaviateAPI) {
 
 	s.api = api
 	s.api.Logger = log.Printf
-	s.handler = configureAPI(api)
+	s.handler = configureAPI(api, s.Connector)
 }
 
 func (s *Server) hasScheme(scheme string) bool {
