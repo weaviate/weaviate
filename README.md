@@ -11,14 +11,17 @@ Weaviate is not fully testable / production ready yet. Follow this repo or sign 
 | develop  | [![Build Status](https://travis-ci.org/weaviate/weaviate.svg?branch=develop)](https://travis-ci.org/weaviate/weaviate/branches) | |
 
 ### Table of contents
-* [How does it work and what is it?](#how-does-it-work)
-* [Installation and Usage](#installation)
-* [Authentication](#authentication)
-* [Database support](#database-support)
-* [FAQ](#faq)
-* [Contributing and Gitflow](#contributing-and-gitflow)
-* [Main contributors](#main-contributors)
-* [More info](#more-info)
+- [What is it?](#what-is-it)
+- [Installation](#installation)
+- [API docs](#api-docs)
+- [App Engine](#google-app-engine)
+- [Authentication](#authentication)
+- [DB support](#database-support)
+- [GCP Datastore](#google-cloud-datastore-connector)
+- [FAQ](#faq)
+- [Contributing](#contributing-and-gitflow)
+- [About](#about-weaviate)
+- [More info](#more-info)
 
 ### What is it?
 
@@ -244,9 +247,6 @@ Read more in the [CONTRIBUTE.md](CONTRIBUTE.md) file.
 ### About Weaviate
 
 [Weave](https://developers.google.com/weave) is a high quality, open source end-to-end communications platform for IoT that allows you to connect and manage devices in a generic way. We understand that sometimes you need to be in control over your complete dataset. This may depend on the nature of your business, on analytics and predictions you want to do, or because you want to extend the protocol. Weaviate works as a replicate of the Google Weave cloud and runs on your own cloud or datacenter solution.
-
-### Main contributors
-- Bob van Luijt (bob@weaviate.com, @bobvanluijt)
 
 ### More info
 Please keep checking back this repo or the website, we will start publishing software soon.
