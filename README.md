@@ -57,6 +57,109 @@ Application Options:
 
 The service will be available from this basepath: `//domain/weave/v1/**`
 
+### API Docs
+
+General API docs
+
+#### Documentation for API Endpoints
+
+All URIs are relative to *https://localhost/weaviate/v1-alpha*
+
+Class | Method | HTTP request | Description
+------------ | ------------- | ------------- | -------------
+*AclEntriesApi* | [**weave_acl_entries_delete**](docs/AclEntriesApi.md#weave_acl_entries_delete) | **DELETE** /devices/{deviceId}/aclEntries/{aclEntryId} | 
+*AclEntriesApi* | [**weave_acl_entries_get**](docs/AclEntriesApi.md#weave_acl_entries_get) | **GET** /devices/{deviceId}/aclEntries/{aclEntryId} | 
+*AclEntriesApi* | [**weave_acl_entries_insert**](docs/AclEntriesApi.md#weave_acl_entries_insert) | **POST** /devices/{deviceId}/aclEntries | 
+*AclEntriesApi* | [**weave_acl_entries_list**](docs/AclEntriesApi.md#weave_acl_entries_list) | **GET** /devices/{deviceId}/aclEntries | 
+*AclEntriesApi* | [**weave_acl_entries_patch**](docs/AclEntriesApi.md#weave_acl_entries_patch) | **PATCH** /devices/{deviceId}/aclEntries/{aclEntryId} | 
+*AclEntriesApi* | [**weave_acl_entries_update**](docs/AclEntriesApi.md#weave_acl_entries_update) | **PUT** /devices/{deviceId}/aclEntries/{aclEntryId} | 
+*AdaptersApi* | [**weave_adapters_accept**](docs/AdaptersApi.md#weave_adapters_accept) | **POST** /adapters/accept | 
+*AdaptersApi* | [**weave_adapters_activate**](docs/AdaptersApi.md#weave_adapters_activate) | **POST** /adapters/{adapterId}/activate | 
+*AdaptersApi* | [**weave_adapters_deactivate**](docs/AdaptersApi.md#weave_adapters_deactivate) | **POST** /adapters/{adapterId}/deactivate | 
+*AdaptersApi* | [**weave_adapters_get**](docs/AdaptersApi.md#weave_adapters_get) | **GET** /adapters/{adapterId} | 
+*AdaptersApi* | [**weave_adapters_list**](docs/AdaptersApi.md#weave_adapters_list) | **GET** /adapters | 
+*CommandsApi* | [**weave_commands_cancel**](docs/CommandsApi.md#weave_commands_cancel) | **POST** /commands/{commandId}/cancel | 
+*CommandsApi* | [**weave_commands_delete**](docs/CommandsApi.md#weave_commands_delete) | **DELETE** /commands/{commandId} | 
+*CommandsApi* | [**weave_commands_get**](docs/CommandsApi.md#weave_commands_get) | **GET** /commands/{commandId} | 
+*CommandsApi* | [**weave_commands_get_queue**](docs/CommandsApi.md#weave_commands_get_queue) | **GET** /commands/queue | 
+*CommandsApi* | [**weave_commands_insert**](docs/CommandsApi.md#weave_commands_insert) | **POST** /commands | 
+*CommandsApi* | [**weave_commands_list**](docs/CommandsApi.md#weave_commands_list) | **GET** /commands | 
+*CommandsApi* | [**weave_commands_patch**](docs/CommandsApi.md#weave_commands_patch) | **PATCH** /commands/{commandId} | 
+*CommandsApi* | [**weave_commands_update**](docs/CommandsApi.md#weave_commands_update) | **PUT** /commands/{commandId} | 
+*DevicesApi* | [**weave_devices_add_label**](docs/DevicesApi.md#weave_devices_add_label) | **POST** /devices/{deviceId}/addLabel | 
+*DevicesApi* | [**weave_devices_add_nickname**](docs/DevicesApi.md#weave_devices_add_nickname) | **POST** /devices/{deviceId}/addNickname | 
+*DevicesApi* | [**weave_devices_delete**](docs/DevicesApi.md#weave_devices_delete) | **DELETE** /devices/{deviceId} | 
+*DevicesApi* | [**weave_devices_get**](docs/DevicesApi.md#weave_devices_get) | **GET** /devices/{deviceId} | 
+*DevicesApi* | [**weave_devices_insert**](docs/DevicesApi.md#weave_devices_insert) | **POST** /devices | 
+*DevicesApi* | [**weave_devices_list**](docs/DevicesApi.md#weave_devices_list) | **GET** /devices | 
+*DevicesApi* | [**weave_devices_patch**](docs/DevicesApi.md#weave_devices_patch) | **PATCH** /devices/{deviceId} | 
+*DevicesApi* | [**weave_devices_patch_state**](docs/DevicesApi.md#weave_devices_patch_state) | **POST** /devices/{deviceId}/patchState | 
+*DevicesApi* | [**weave_devices_remove_label**](docs/DevicesApi.md#weave_devices_remove_label) | **POST** /devices/{deviceId}/removeLabel | 
+*DevicesApi* | [**weave_devices_remove_nickname**](docs/DevicesApi.md#weave_devices_remove_nickname) | **POST** /devices/{deviceId}/removeNickname | 
+*DevicesApi* | [**weave_devices_update**](docs/DevicesApi.md#weave_devices_update) | **PUT** /devices/{deviceId} | 
+*DevicesApi* | [**weave_devices_update_parent**](docs/DevicesApi.md#weave_devices_update_parent) | **POST** /devices/{deviceId}/updateParent | 
+*EventsApi* | [**weave_events_delete_all**](docs/EventsApi.md#weave_events_delete_all) | **POST** /events/deleteAll | 
+*EventsApi* | [**weave_events_list**](docs/EventsApi.md#weave_events_list) | **GET** /events | 
+*EventsApi* | [**weave_events_record_device_events**](docs/EventsApi.md#weave_events_record_device_events) | **POST** /events/recordDeviceEvents | 
+*ModelManifestsApi* | [**weave_model_manifests_get**](docs/ModelManifestsApi.md#weave_model_manifests_get) | **GET** /modelManifests/{modelManifestId} | 
+*ModelManifestsApi* | [**weave_model_manifests_list**](docs/ModelManifestsApi.md#weave_model_manifests_list) | **GET** /modelManifests | 
+*ModelManifestsApi* | [**weave_model_manifests_validate_command_defs**](docs/ModelManifestsApi.md#weave_model_manifests_validate_command_defs) | **POST** /modelManifests/validateCommandDefs | 
+*ModelManifestsApi* | [**weave_model_manifests_validate_components**](docs/ModelManifestsApi.md#weave_model_manifests_validate_components) | **POST** /modelManifests/validateComponents | 
+*ModelManifestsApi* | [**weave_model_manifests_validate_device_state**](docs/ModelManifestsApi.md#weave_model_manifests_validate_device_state) | **POST** /modelManifests/validateDeviceState | 
+
+#### Documentation For Models
+
+ - [AclEntriesListResponse](docs/AclEntriesListResponse.md)
+ - [AclEntry](docs/AclEntry.md)
+ - [Adapter](docs/Adapter.md)
+ - [AdaptersAcceptResponse](docs/AdaptersAcceptResponse.md)
+ - [AdaptersActivateResponse](docs/AdaptersActivateResponse.md)
+ - [AdaptersDeactivateResponse](docs/AdaptersDeactivateResponse.md)
+ - [AdaptersListResponse](docs/AdaptersListResponse.md)
+ - [Application](docs/Application.md)
+ - [AssociatedLabel](docs/AssociatedLabel.md)
+ - [Command](docs/Command.md)
+ - [CommandError](docs/CommandError.md)
+ - [CommandsListResponse](docs/CommandsListResponse.md)
+ - [CommandsQueueResponse](docs/CommandsQueueResponse.md)
+ - [Device](docs/Device.md)
+ - [DeviceChannel](docs/DeviceChannel.md)
+ - [DeviceChannelPubsub](docs/DeviceChannelPubsub.md)
+ - [DeviceModelManifest](docs/DeviceModelManifest.md)
+ - [DevicePersonalizedInfo](docs/DevicePersonalizedInfo.md)
+ - [DeviceStatePatchesStatePatch](docs/DeviceStatePatchesStatePatch.md)
+ - [DevicesAddLabelRequest](docs/DevicesAddLabelRequest.md)
+ - [DevicesAddNicknameRequest](docs/DevicesAddNicknameRequest.md)
+ - [DevicesAddNicknameResponse](docs/DevicesAddNicknameResponse.md)
+ - [DevicesListResponse](docs/DevicesListResponse.md)
+ - [DevicesPatchStateRequest](docs/DevicesPatchStateRequest.md)
+ - [DevicesPatchStateResponse](docs/DevicesPatchStateResponse.md)
+ - [DevicesRemoveLabelRequest](docs/DevicesRemoveLabelRequest.md)
+ - [DevicesRemoveNicknameRequest](docs/DevicesRemoveNicknameRequest.md)
+ - [DevicesRemoveNicknameResponse](docs/DevicesRemoveNicknameResponse.md)
+ - [Event](docs/Event.md)
+ - [EventCommandPatch](docs/EventCommandPatch.md)
+ - [EventsDeleteAllRequest](docs/EventsDeleteAllRequest.md)
+ - [EventsListResponse](docs/EventsListResponse.md)
+ - [EventsRecordDeviceEventsRequest](docs/EventsRecordDeviceEventsRequest.md)
+ - [Invitation](docs/Invitation.md)
+ - [JsonObject](docs/JsonObject.md)
+ - [JsonValue](docs/JsonValue.md)
+ - [LocalAccessEntry](docs/LocalAccessEntry.md)
+ - [LocalAccessInfo](docs/LocalAccessInfo.md)
+ - [ModelManifest](docs/ModelManifest.md)
+ - [ModelManifestsListResponse](docs/ModelManifestsListResponse.md)
+ - [ModelManifestsValidateCommandDefsRequest](docs/ModelManifestsValidateCommandDefsRequest.md)
+ - [ModelManifestsValidateCommandDefsResponse](docs/ModelManifestsValidateCommandDefsResponse.md)
+ - [ModelManifestsValidateComponentsRequest](docs/ModelManifestsValidateComponentsRequest.md)
+ - [ModelManifestsValidateComponentsResponse](docs/ModelManifestsValidateComponentsResponse.md)
+ - [ModelManifestsValidateDeviceStateRequest](docs/ModelManifestsValidateDeviceStateRequest.md)
+ - [ModelManifestsValidateDeviceStateResponse](docs/ModelManifestsValidateDeviceStateResponse.md)
+ - [PackageDef](docs/PackageDef.md)
+ - [PlacesHints](docs/PlacesHints.md)
+ - [Room](docs/Room.md)
+ - [StateDef](docs/StateDef.md)
+
 ### Google App Engine
 
 [This](https://github.com/weaviate/weaviate-app-engine) repo has all the information to use Weaviate with Google App Engine.
