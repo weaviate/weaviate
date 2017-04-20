@@ -1,6 +1,6 @@
 # Weaviate
 
-**A private cloud for the Internet of Things [Weave](https://developers.google.com/weave) protocol**
+**A private cloud for the Internet of Things inspired by Google [Weave](https://developers.google.com/weave)**
 
 *Important Note:
 Weaviate is not fully testable / production ready yet. Follow this repo or sign up for the [mailing list](http://eepurl.com/bRsMir) to stay informed about the progress.*
@@ -25,11 +25,11 @@ Weaviate is not fully testable / production ready yet. Follow this repo or sign 
 
 ### What is it?
 
-Weaviate is an Internet of Things aggregator platform based on Google Weave.
+Weaviate is an Internet of Things aggregator platform inspired by Google Weave.
 
 It is ideal if you want to collect data about many different devices or things in a generic way. For example: smart buildings, cities, etc.
 
-Google offers a great cloud service for Weave. There might be situations, though, where you prefer to store the data in your own solution. This is where Weaviate comes in. You can use Weaviate to create your own private Weave cloud.
+Google offers a great cloud service for Weave. There might be situations, though, where you prefer to store the data in your own solution. This is where Weaviate comes in. You can use Weaviate to create your own private Weave inspired cloud.
 
 Weaviate comes with a set of adapters for databases, so you can use your DB of choice. Want to contribute an adapter? Feel free to [contribute](#contributing-and-gitflow)!
 
