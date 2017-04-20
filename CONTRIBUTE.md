@@ -9,3 +9,11 @@ How we use [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows
 - Your feature branch always has the develop branch as a starting point.
 - When you are done you can merge your feature into the develop branch _or_ you can request a merge.
 - The master branch is protected.
+
+### Tagging your commit
+
+Always add a refference to your issue to your git commit.
+
+For example: `gh-100: This is the commit message`
+
+AKA: smart commits
