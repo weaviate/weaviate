@@ -13,11 +13,11 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-const   assert  = require('assert'),
-        request = require('supertest'),
-        should  = require('should');
+var   assert  = require('assert'),
+      request = require('supertest'),
+      should  = require('should');
 
-const   weaviateUrl   = 'http://127.0.0.1:8080/weaviate/v1-alpha/';
+var   weaviateUrl   = 'http://127.0.0.1:8080/weaviate/v1-alpha/';
 
 /**
  * General tests
