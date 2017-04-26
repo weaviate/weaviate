@@ -354,7 +354,8 @@ func init() {
           },
           {
             "maximum": 25000,
-            "type": "string",
+            "type": "integer",
+            "format": "int64",
             "description": "Number of milliseconds to wait for device response before returning.",
             "name": "responseAwaitMs",
             "in": "query"

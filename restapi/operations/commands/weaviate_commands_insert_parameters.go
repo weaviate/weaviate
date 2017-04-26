@@ -95,7 +95,7 @@ type WeaviateCommandsInsertParams struct {
 	  Maximum: 25000
 	  In: query
 	*/
-	ResponseAwaitMs *string
+	ResponseAwaitMs *int64
 	/*IP address of the site where the request originates. Use this if you want to enforce per-user limits.
 	  In: query
 	*/
@@ -325,7 +325,11 @@ func (o *WeaviateCommandsInsertParams) bindResponseAwaitMs(rawData []string, has
 		return nil
 	}
 
-	o.ResponseAwaitMs = &raw
+	value, err := swag.ConvertInt64(raw)
+	if err != nil {
+		return errors.InvalidType("responseAwaitMs", "query", "int64", raw)
+	}
+	o.ResponseAwaitMs = &value
 
 	if err := o.validateResponseAwaitMs(formats); err != nil {
 		return err
@@ -336,7 +340,7 @@ func (o *WeaviateCommandsInsertParams) bindResponseAwaitMs(rawData []string, has
 
 func (o *WeaviateCommandsInsertParams) validateResponseAwaitMs(formats strfmt.Registry) error {
 
-	if err := validate.Maximum("responseAwaitMs", "query", float64(*o.ResponseAwaitMs), 25000, false); err != nil {
+	if err := validate.MaximumInt("responseAwaitMs", "query", int64(*o.ResponseAwaitMs), 25000, false); err != nil {
 		return err
 	}
 

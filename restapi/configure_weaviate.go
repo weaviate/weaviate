@@ -11,7 +11,7 @@
  * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package restapi
+package restapi
 
 import (
 	"crypto/tls"
