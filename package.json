@@ -1,0 +1,30 @@
+{
+  "name": "weaviate-test",
+  "version": "0.0.1",
+  "description": "Tests the Weaviate server",
+  "main": "test/fullEndToEnd.js",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "mocha test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://bobvanluijt@github.com/weaviate/weaviate.git"
+  },
+  "keywords": [
+    "Weaviate"
+  ],
+  "author": "Bob van Luijt",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/weaviate/weaviate/issues"
+  },
+  "homepage": "https://github.com/weaviate/weaviate#readme",
+  "dependencies": {
+    "should": "^11.2.1",
+    "supertest": "^3.0.0"
+  }
+}
