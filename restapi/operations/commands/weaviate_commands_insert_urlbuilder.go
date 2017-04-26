@@ -34,7 +34,7 @@ type WeaviateCommandsInsertURL struct {
 	OauthToken      *string
 	PrettyPrint     *bool
 	QuotaUser       *string
-	ResponseAwaitMs *string
+	ResponseAwaitMs *int64
 	UserIP          *string
 
 	_basePath string
@@ -137,7 +137,7 @@ func (o *WeaviateCommandsInsertURL) Build() (*url.URL, error) {
 
 	var responseAwaitMs string
 	if o.ResponseAwaitMs != nil {
-		responseAwaitMs = *o.ResponseAwaitMs
+		responseAwaitMs = swag.FormatInt64(*o.ResponseAwaitMs)
 	}
 	if responseAwaitMs != "" {
 		qs.Set("responseAwaitMs", responseAwaitMs)
