@@ -6,4 +6,7 @@ env:
 before_install:
   - go get ./...
 script:
-  - go run ./cmd/weaviate-server/main.go --help
+  - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8080
+  - npm install mocha -g
+  - npm install
+  - mocha
