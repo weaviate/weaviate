@@ -1,5 +1,6 @@
 language: go
 go:
+  - 1.7.x
   - 1.8
 env:
   - "PATH=/home/travis/gopath/bin:$PATH"
