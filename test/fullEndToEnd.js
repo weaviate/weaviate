@@ -24,7 +24,7 @@ var   weaviateUrl   = 'http://127.0.0.1:8080/weaviate/v1-alpha/';
  */
 var counter = 0;
 
-describe('Testing all weaviate commands', () => {
+describe('Testing all weaviate commands', function(){
 
     /********************************************************************************************
      * Test weaviate.adapters.list
@@ -33,7 +33,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test JSON
      */
-    it((counter++) + '/84 weaviate.adapters.list (JSON)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.list (JSON)', function(done){
         request(weaviateUrl)
             .get('/adapters')
             .set('Accept', 'application/json')
@@ -48,7 +48,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test XML
      */
-    it((counter++) + '/84 weaviate.adapters.list (XML)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.list (XML)', function(done){
         request(weaviateUrl)
             .get('/adapters')
             .set('Accept', 'application/xml')
@@ -67,7 +67,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test JSON
      */
-    it((counter++) + '/84 weaviate.adapters.insert (JSON)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.insert (JSON)', function(done){
         request(weaviateUrl)
             .post('/adapters')
             .set('Accept', 'application/json')
@@ -83,7 +83,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test XML
      */
-    it((counter++) + '/84 weaviate.adapters.insert (XML)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.insert (XML)', function(done){
         request(weaviateUrl)
             .post('/adapters')
             .set('Accept', 'application/xml')
@@ -103,7 +103,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test JSON
      */
-    it((counter++) + '/84 weaviate.adapters.delete (JSON)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.delete (JSON)', function(done){
         request(weaviateUrl)
             .delete('/adapters/1')
             .set('Accept', 'application/json')
@@ -118,7 +118,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test XML
      */
-    it((counter++) + '/84 weaviate.adapters.delete (XML)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.delete (XML)', function(done){
         request(weaviateUrl)
             .delete('/adapters/1')
             .set('Accept', 'application/xml')
@@ -137,7 +137,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test JSON
      */
-    it((counter++) + '/84 weaviate.adapters.get (JSON)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.get (JSON)', function(done){
         request(weaviateUrl)
             .get('/adapters/1')
             .set('Accept', 'application/json')
@@ -152,7 +152,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test XML
      */
-    it((counter++) + '/84 weaviate.adapters.get (XML)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.get (XML)', function(done){
         request(weaviateUrl)
             .get('/adapters/1')
             .set('Accept', 'application/xml')
@@ -171,7 +171,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test JSON
      */
-    it((counter++) + '/84 weaviate.adapters.update (JSON)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.update (JSON)', function(done){
         request(weaviateUrl)
             .put('/adapters/1')
             .set('Accept', 'application/json')
@@ -187,7 +187,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test XML
      */
-    it((counter++) + '/84 weaviate.adapters.update (XML)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.update (XML)', function(done){
         request(weaviateUrl)
             .put('/adapters/1')
             .set('Accept', 'application/xml')
@@ -207,7 +207,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test JSON
      */
-    it((counter++) + '/84 weaviate.adapters.patch (JSON)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.patch (JSON)', function(done){
         request(weaviateUrl)
             .patch('/adapters/1')
             .set('Accept', 'application/json')
@@ -223,7 +223,7 @@ describe('Testing all weaviate commands', () => {
     /**
      * Test XML
      */
-    it((counter++) + '/84 weaviate.adapters.patch (XML)', (done) => {
+    it((counter++) + '/84 weaviate.adapters.patch (XML)', function(done){
         request(weaviateUrl)
             .patch('/adapters/1')
             .set('Accept', 'application/xml')
