@@ -8,6 +8,6 @@ before_install:
 before_script:
   - npm install mocha -g
   - npm install
-  - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8080
+  - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8080 &
 script:
   - mocha
