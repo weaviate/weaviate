@@ -5,9 +5,8 @@ env:
   - "PATH=/home/travis/gopath/bin:$PATH"
 before_install:
   - go get ./...
-before_script:
+script:
   - npm install mocha -g
   - npm install
   - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8080 &
-script:
   - mocha
