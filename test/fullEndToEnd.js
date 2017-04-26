@@ -17,7 +17,7 @@ var   assert  = require('assert'),
       request = require('supertest'),
       should  = require('should');
 
-var   weaviateUrl   = 'http://127.0.0.1:8080/weaviate/v1-alpha/';
+var   weaviateUrl   = 'http://localhost:8080/weaviate/v1-alpha/';
 
 /**
  * General tests
