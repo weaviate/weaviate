@@ -9,4 +9,5 @@ script:
   - npm install mocha -g
   - npm install
   - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8080 --host=127.0.0.1 &
+  - sleep 12
   - mocha
