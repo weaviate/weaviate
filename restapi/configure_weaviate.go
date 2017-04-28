@@ -14,7 +14,6 @@ package restapi
 
 import (
 	"crypto/tls"
-	"io"
 	"net/http"
 
 	errors "github.com/go-openapi/errors"
@@ -52,16 +51,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
-	api.ProtobufConsumer = runtime.ConsumerFunc(func(r io.Reader, target interface{}) error {
-		return errors.NotImplemented("protobuf consumer has not yet been implemented")
-	})
 	api.XMLConsumer = runtime.XMLConsumer()
 
 	api.JSONProducer = runtime.JSONProducer()
 
-	api.ProtobufProducer = runtime.ProducerFunc(func(w io.Writer, data interface{}) error {
-		return errors.NotImplemented("protobuf producer has not yet been implemented")
-	})
 	api.XMLProducer = runtime.XMLProducer()
 
 	api.ACLEntriesWeaviateACLEntriesDeleteHandler = acl_entries.WeaviateACLEntriesDeleteHandlerFunc(func(params acl_entries.WeaviateACLEntriesDeleteParams) middleware.Responder {
