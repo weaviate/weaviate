@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package commands
@@ -56,11 +55,6 @@ type WeaviateCommandsGetQueueParams struct {
 	  Default: "json"
 	*/
 	Alt *string
-	/*Device ID.
-	  Required: true
-	  In: query
-	*/
-	DeviceID string
 	/*Selector specifying which fields to include in a partial response.
 	  In: query
 	*/
@@ -114,11 +108,6 @@ func (o *WeaviateCommandsGetQueueParams) BindRequest(r *http.Request, route *mid
 
 	qAlt, qhkAlt, _ := qs.GetOK("alt")
 	if err := o.bindAlt(qAlt, qhkAlt, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
-	qDeviceID, qhkDeviceID, _ := qs.GetOK("deviceId")
-	if err := o.bindDeviceID(qDeviceID, qhkDeviceID, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -203,23 +192,6 @@ func (o *WeaviateCommandsGetQueueParams) validateAlt(formats strfmt.Registry) er
 	if err := validate.Enum("alt", "query", *o.Alt, []interface{}{"json"}); err != nil {
 		return err
 	}
-
-	return nil
-}
-
-func (o *WeaviateCommandsGetQueueParams) bindDeviceID(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	if !hasKey {
-		return errors.Required("deviceId", "query")
-	}
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-	if err := validate.RequiredString("deviceId", "query", raw); err != nil {
-		return err
-	}
-
-	o.DeviceID = raw
 
 	return nil
 }

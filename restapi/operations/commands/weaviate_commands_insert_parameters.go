@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package commands
@@ -61,7 +60,7 @@ type WeaviateCommandsInsertParams struct {
 	/*
 	  In: body
 	*/
-	Body *models.Command
+	Body *models.CommandInsertUpdate
 	/*ID of the command that was sent before this command. Use this to ensure the order of commands.
 	  In: query
 	*/
@@ -117,7 +116,7 @@ func (o *WeaviateCommandsInsertParams) BindRequest(r *http.Request, route *middl
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.Command
+		var body models.CommandInsertUpdate
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			res = append(res, errors.NewParseError("body", "body", "", err))
 		} else {

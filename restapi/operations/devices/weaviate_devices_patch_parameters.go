@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package devices
@@ -61,7 +60,7 @@ type WeaviateDevicesPatchParams struct {
 	/*
 	  In: body
 	*/
-	Body *models.Device
+	Body *models.DeviceInsertUpdate
 	/*Unique ID of the device.
 	  Required: true
 	  In: path
@@ -117,7 +116,7 @@ func (o *WeaviateDevicesPatchParams) BindRequest(r *http.Request, route *middlew
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.Device
+		var body models.DeviceInsertUpdate
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			res = append(res, errors.NewParseError("body", "body", "", err))
 		} else {

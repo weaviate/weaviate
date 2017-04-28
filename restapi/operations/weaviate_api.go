@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package operations
@@ -18,7 +17,6 @@
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -50,15 +48,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		spec:            spec,
 		ServeError:      errors.ServeError,
 		JSONConsumer:    runtime.JSONConsumer(),
-		ProtobufConsumer: runtime.ConsumerFunc(func(r io.Reader, target interface{}) error {
-			return errors.NotImplemented("protobuf consumer has not yet been implemented")
-		}),
-		XMLConsumer:  runtime.XMLConsumer(),
-		JSONProducer: runtime.JSONProducer(),
-		ProtobufProducer: runtime.ProducerFunc(func(w io.Writer, data interface{}) error {
-			return errors.NotImplemented("protobuf producer has not yet been implemented")
-		}),
-		XMLProducer: runtime.XMLProducer(),
+		XMLConsumer:     runtime.XMLConsumer(),
+		JSONProducer:    runtime.JSONProducer(),
+		XMLProducer:     runtime.XMLProducer(),
 		ACLEntriesWeaviateACLEntriesDeleteHandler: acl_entries.WeaviateACLEntriesDeleteHandlerFunc(func(params acl_entries.WeaviateACLEntriesDeleteParams) middleware.Responder {
 			return middleware.NotImplemented("operation ACLEntriesWeaviateACLEntriesDelete has not yet been implemented")
 		}),
@@ -202,15 +194,11 @@ type WeaviateAPI struct {
 	Middleware      func(middleware.Builder) http.Handler
 	// JSONConsumer registers a consumer for a "application/json" mime type
 	JSONConsumer runtime.Consumer
-	// ProtobufConsumer registers a consumer for a "application/protobuf" mime type
-	ProtobufConsumer runtime.Consumer
 	// XMLConsumer registers a consumer for a "application/xml" mime type
 	XMLConsumer runtime.Consumer
 
 	// JSONProducer registers a producer for a "application/json" mime type
 	JSONProducer runtime.Producer
-	// ProtobufProducer registers a producer for a "application/protobuf" mime type
-	ProtobufProducer runtime.Producer
 	// XMLProducer registers a producer for a "application/xml" mime type
 	XMLProducer runtime.Producer
 
@@ -359,20 +347,12 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "JSONConsumer")
 	}
 
-	if o.ProtobufConsumer == nil {
-		unregistered = append(unregistered, "ProtobufConsumer")
-	}
-
 	if o.XMLConsumer == nil {
 		unregistered = append(unregistered, "XMLConsumer")
 	}
 
 	if o.JSONProducer == nil {
 		unregistered = append(unregistered, "JSONProducer")
-	}
-
-	if o.ProtobufProducer == nil {
-		unregistered = append(unregistered, "ProtobufProducer")
 	}
 
 	if o.XMLProducer == nil {
@@ -580,9 +560,6 @@ func (o *WeaviateAPI) ConsumersFor(mediaTypes []string) map[string]runtime.Consu
 		case "application/json":
 			result["application/json"] = o.JSONConsumer
 
-		case "application/protobuf":
-			result["application/protobuf"] = o.ProtobufConsumer
-
 		case "application/xml":
 			result["application/xml"] = o.XMLConsumer
 
@@ -601,9 +578,6 @@ func (o *WeaviateAPI) ProducersFor(mediaTypes []string) map[string]runtime.Produ
 
 		case "application/json":
 			result["application/json"] = o.JSONProducer
-
-		case "application/protobuf":
-			result["application/protobuf"] = o.ProtobufProducer
 
 		case "application/xml":
 			result["application/xml"] = o.XMLProducer

@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package locations
@@ -61,7 +60,7 @@ type WeaviateLocationsInsertParams struct {
 	/*
 	  In: body
 	*/
-	Body *models.Location
+	Body *models.LocationInsertUpdate
 	/*Selector specifying which fields to include in a partial response.
 	  In: query
 	*/
@@ -104,7 +103,7 @@ func (o *WeaviateLocationsInsertParams) BindRequest(r *http.Request, route *midd
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.Location
+		var body models.LocationInsertUpdate
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			res = append(res, errors.NewParseError("body", "body", "", err))
 		} else {

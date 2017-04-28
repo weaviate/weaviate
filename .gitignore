@@ -1,3 +1,6 @@
+# Ignore OLD files
+*.OLD
+
 # Remove tools dir
 tools
 

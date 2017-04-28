@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package devices
@@ -36,7 +35,7 @@ type WeaviateDevicesUpdateOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.Device `json:"body,omitempty"`
+	Payload *models.DeviceInsertUpdate `json:"body,omitempty"`
 }
 
 // NewWeaviateDevicesUpdateOK creates WeaviateDevicesUpdateOK with default headers values
@@ -45,13 +44,13 @@ func NewWeaviateDevicesUpdateOK() *WeaviateDevicesUpdateOK {
 }
 
 // WithPayload adds the payload to the weaviate devices update o k response
-func (o *WeaviateDevicesUpdateOK) WithPayload(payload *models.Device) *WeaviateDevicesUpdateOK {
+func (o *WeaviateDevicesUpdateOK) WithPayload(payload *models.DeviceInsertUpdate) *WeaviateDevicesUpdateOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate devices update o k response
-func (o *WeaviateDevicesUpdateOK) SetPayload(payload *models.Device) {
+func (o *WeaviateDevicesUpdateOK) SetPayload(payload *models.DeviceInsertUpdate) {
 	o.Payload = payload
 }
 
