@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package model_manifests
@@ -61,7 +60,7 @@ type WeaviateModelManifestsCreateParams struct {
 	/*
 	  In: body
 	*/
-	Body *models.ModelManifest
+	Body *models.ModelManifestInsertUpdate
 	/*Selector specifying which fields to include in a partial response.
 	  In: query
 	*/
@@ -104,7 +103,7 @@ func (o *WeaviateModelManifestsCreateParams) BindRequest(r *http.Request, route 
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.ModelManifest
+		var body models.ModelManifestInsertUpdate
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			res = append(res, errors.NewParseError("body", "body", "", err))
 		} else {

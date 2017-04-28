@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  /*Package restapi Weaviate API
@@ -26,15 +25,11 @@ Lets you register, view and manage cloud ready devices.
     Consumes:
     - application/json
 
-    - application/protobuf
-
     - application/xml
 
 
     Produces:
     - application/json
-
-    - application/protobuf
 
     - application/xml
 

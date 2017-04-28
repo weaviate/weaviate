@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package acl_entries
@@ -66,7 +65,7 @@ type WeaviateACLEntriesPatchParams struct {
 	/*
 	  In: body
 	*/
-	Body *models.ACLEntry
+	Body *models.ACLEntryInsertUpdate
 	/*ID of the device to use.
 	  Required: true
 	  In: path
@@ -123,7 +122,7 @@ func (o *WeaviateACLEntriesPatchParams) BindRequest(r *http.Request, route *midd
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.ACLEntry
+		var body models.ACLEntryInsertUpdate
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			res = append(res, errors.NewParseError("body", "body", "", err))
 		} else {

@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package devices
@@ -65,7 +64,7 @@ type WeaviateDevicesInsertParams struct {
 	/*
 	  In: body
 	*/
-	Body *models.Device
+	Body *models.DeviceInsertUpdate
 	/*Selector specifying which fields to include in a partial response.
 	  In: query
 	*/
@@ -117,7 +116,7 @@ func (o *WeaviateDevicesInsertParams) BindRequest(r *http.Request, route *middle
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.Device
+		var body models.DeviceInsertUpdate
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			res = append(res, errors.NewParseError("body", "body", "", err))
 		} else {

@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package restapi
@@ -27,12 +26,10 @@ func init() {
 	SwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
     "application/json",
-    "application/protobuf",
     "application/xml"
   ],
   "produces": [
     "application/json",
-    "application/protobuf",
     "application/xml"
   ],
   "schemes": [
@@ -80,7 +77,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Adapter"
+              "$ref": "#/definitions/AdapterInsertUpdate"
             }
           }
         ],
@@ -159,7 +156,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Adapter"
+              "$ref": "#/definitions/AdapterInsertUpdate"
             }
           },
           {
@@ -216,7 +213,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Adapter"
+              "$ref": "#/definitions/AdapterInsertUpdate"
             }
           },
           {
@@ -271,13 +268,6 @@ func init() {
         ],
         "operationId": "weaviate.commands.list",
         "parameters": [
-          {
-            "type": "string",
-            "description": "Device ID.",
-            "name": "deviceId",
-            "in": "query",
-            "required": true
-          },
           {
             "type": "string",
             "description": "List all the commands issued by the user. Special value 'me' can be used to list by the current user.",
@@ -364,7 +354,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Command"
+              "$ref": "#/definitions/CommandInsertUpdate"
             }
           }
         ],
@@ -412,13 +402,6 @@ func init() {
         ],
         "operationId": "weaviate.commands.getQueue",
         "parameters": [
-          {
-            "type": "string",
-            "description": "Device ID.",
-            "name": "deviceId",
-            "in": "query",
-            "required": true
-          },
           {
             "type": "string",
             "description": "Specifies the language code that should be used for text values in the API response.",
@@ -541,7 +524,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Command"
+              "$ref": "#/definitions/CommandInsertUpdate"
             }
           }
         ],
@@ -611,7 +594,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Command"
+              "$ref": "#/definitions/CommandInsertUpdate"
             }
           }
         ],
@@ -793,7 +776,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Device"
+              "$ref": "#/definitions/DeviceInsertUpdate"
             }
           }
         ],
@@ -915,7 +898,7 @@ func init() {
           "200": {
             "description": "Successful update.",
             "schema": {
-              "$ref": "#/definitions/Device"
+              "$ref": "#/definitions/DeviceInsertUpdate"
             }
           },
           "501": {
@@ -983,7 +966,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Device"
+              "$ref": "#/definitions/DeviceInsertUpdate"
             }
           }
         ],
@@ -1096,7 +1079,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/AclEntry"
+              "$ref": "#/definitions/AclEntryInsertUpdate"
             }
           }
         ],
@@ -1208,7 +1191,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/AclEntry"
+              "$ref": "#/definitions/AclEntryInsertUpdate"
             }
           }
         ],
@@ -1286,7 +1269,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/AclEntry"
+              "$ref": "#/definitions/AclEntryInsertUpdate"
             }
           }
         ],
@@ -1600,7 +1583,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Location"
+              "$ref": "#/definitions/LocationInsertUpdate"
             }
           }
         ],
@@ -1679,7 +1662,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Location"
+              "$ref": "#/definitions/LocationInsertUpdate"
             }
           },
           {
@@ -1736,7 +1719,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/Location"
+              "$ref": "#/definitions/LocationInsertUpdate"
             }
           },
           {
@@ -1847,7 +1830,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/ModelManifest"
+              "$ref": "#/definitions/ModelManifestInsertUpdate"
             }
           }
         ],
@@ -2113,7 +2096,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/ModelManifest"
+              "$ref": "#/definitions/ModelManifestInsertUpdate"
             }
           }
         ],
@@ -2171,7 +2154,7 @@ func init() {
             "name": "body",
             "in": "body",
             "schema": {
-              "$ref": "#/definitions/ModelManifest"
+              "$ref": "#/definitions/ModelManifestInsertUpdate"
             }
           }
         ],
@@ -2338,6 +2321,100 @@ func init() {
         }
       }
     },
+    "AclEntryInsertUpdate": {
+      "type": "object",
+      "properties": {
+        "cloudAccessRevoked": {
+          "description": "Indicates whether the AclEntry has been revoked from the cloud and the user has no cloud access, but they still might have local auth tokens that are valid and can access the device and execute commands locally. See localAccessInfo for local auth details.",
+          "type": "boolean"
+        },
+        "creatorEmail": {
+          "description": "User who created this entry. At the moment it is populated only when pending == true.",
+          "type": "string"
+        },
+        "delegator": {
+          "description": "User on behalf of whom the access is granted to the application.",
+          "type": "string"
+        },
+        "key": {
+          "description": "Public access key value. Set only when scopeType is PUBLIC.",
+          "type": "string",
+          "format": "int64"
+        },
+        "kind": {
+          "description": "Identifies what kind of resource this is. Value: the fixed string \"weave#aclEntry\".",
+          "type": "string",
+          "default": "weave#aclEntry"
+        },
+        "localAccessInfo": {
+          "$ref": "#/definitions/LocalAccessInfo"
+        },
+        "pending": {
+          "description": "Whether this ACL entry is pending for user reply to accept/reject it.",
+          "type": "boolean"
+        },
+        "privileges": {
+          "description": "Set of access privileges granted for this scope.\n\nValid values are:  \n- \"modifyAcl\" \n- \"viewAllEvents\"",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "modifyAcl",
+              "viewAllEvents"
+            ]
+          }
+        },
+        "revocationTimeMs": {
+          "description": "Time in milliseconds since Unix Epoch indicating when the AclEntry was revoked.",
+          "type": "string",
+          "format": "int64"
+        },
+        "role": {
+          "description": "Access role granted to this scope.",
+          "type": "string",
+          "enum": [
+            "manager",
+            "owner",
+            "robot",
+            "user",
+            "viewer"
+          ]
+        },
+        "scopeId": {
+          "description": "Email address if scope type is user or group, domain name if scope type is a domain.",
+          "type": "string"
+        },
+        "scopeMembership": {
+          "description": "Type of membership the user has in the scope.",
+          "type": "string",
+          "enum": [
+            "delegator",
+            "manager",
+            "member",
+            "none"
+          ]
+        },
+        "scopeName": {
+          "description": "Displayable scope name.",
+          "type": "string"
+        },
+        "scopePhotoUrl": {
+          "description": "URL of this scope displayable photo.",
+          "type": "string"
+        },
+        "scopeType": {
+          "description": "Type of the access scope.",
+          "type": "string",
+          "enum": [
+            "application",
+            "domain",
+            "group",
+            "public",
+            "user"
+          ]
+        }
+      }
+    },
     "Adapter": {
       "type": "object",
       "properties": {
@@ -2363,6 +2440,35 @@ func init() {
         },
         "id": {
           "description": "ID of the adapter.",
+          "type": "string"
+        },
+        "manageUrl": {
+          "description": "URL to adapter web flow to connect new devices. Only used for adapters that cannot automatically detect new devices. This field is returned only if the user has already activated the adapter.",
+          "type": "string"
+        }
+      }
+    },
+    "AdapterInsertUpdate": {
+      "type": "object",
+      "properties": {
+        "activateUrl": {
+          "description": "URL to adapter web flow to activate the adapter. Deprecated, use the activationUrl returned in the response of the Adapters.activate API.",
+          "type": "string"
+        },
+        "activated": {
+          "description": "Whether this adapter has been activated for the current user.",
+          "type": "boolean"
+        },
+        "deactivateUrl": {
+          "description": "URL to adapter web flow to disconnect the adapter. Deprecated, the adapter will be notified via pubsub.",
+          "type": "string"
+        },
+        "displayName": {
+          "description": "Display name of the adapter.",
+          "type": "string"
+        },
+        "iconUrl": {
+          "description": "URL to an icon that represents the adapter.",
           "type": "string"
         },
         "manageUrl": {
@@ -2547,6 +2653,105 @@ func init() {
         }
       }
     },
+    "CommandInsertUpdate": {
+      "type": "object",
+      "properties": {
+        "blobParameters": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "blobResults": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "component": {
+          "description": "Component name paths separated by '/'.",
+          "type": "string"
+        },
+        "creationTimeMs": {
+          "description": "Timestamp since epoch of a creation of a command.",
+          "type": "string",
+          "format": "int64"
+        },
+        "creatorEmail": {
+          "description": "User that created the command (not applicable if the user is deleted).",
+          "type": "string"
+        },
+        "deviceId": {
+          "description": "Device ID that this command belongs to.",
+          "type": "string"
+        },
+        "error": {
+          "description": "Error descriptor.",
+          "type": "object",
+          "properties": {
+            "arguments": {
+              "description": "Positional error arguments used for error message formatting.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "code": {
+              "description": "Error code.",
+              "type": "string"
+            },
+            "message": {
+              "description": "User-visible error message populated by the cloud based on command name and error code.",
+              "type": "string"
+            }
+          }
+        },
+        "expirationTimeMs": {
+          "description": "Timestamp since epoch of command expiration.",
+          "type": "string",
+          "format": "int64"
+        },
+        "expirationTimeoutMs": {
+          "description": "Expiration timeout for the command since its creation, 10 seconds min, 30 days max.",
+          "type": "string",
+          "format": "int64"
+        },
+        "kind": {
+          "description": "Identifies what kind of resource this is. Value: the fixed string \"weave#command\".",
+          "type": "string",
+          "default": "weave#command"
+        },
+        "lastUpdateTimeMs": {
+          "description": "Timestamp since epoch of last update made to the command.",
+          "type": "string",
+          "format": "int64"
+        },
+        "name": {
+          "description": "Full command name, including trait.",
+          "type": "string"
+        },
+        "parameters": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "progress": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "results": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "state": {
+          "description": "Current command state.",
+          "type": "string",
+          "enum": [
+            "aborted",
+            "cancelled",
+            "done",
+            "error",
+            "expired",
+            "inProgress",
+            "queued"
+          ]
+        },
+        "userAction": {
+          "description": "Pending command state that is not acknowledged by the device yet.",
+          "type": "string"
+        }
+      }
+    },
     "CommandsListResponse": {
       "description": "List of commands.",
       "type": "object",
@@ -2680,6 +2885,227 @@ func init() {
         },
         "id": {
           "description": "Unique device ID.",
+          "type": "string"
+        },
+        "invitations": {
+          "description": "List of pending invitations for the currently logged-in user.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Invitation"
+          }
+        },
+        "isEventRecordingDisabled": {
+          "description": "Indicates whether event recording is enabled or disabled for this device.",
+          "type": "boolean"
+        },
+        "kind": {
+          "description": "Identifies what kind of resource this is. Value: the fixed string \"weave#device\".",
+          "type": "string",
+          "default": "weave#device"
+        },
+        "labels": {
+          "description": "Any labels attached to the device. Use the addLabel and removeLabel APIs to modify this list.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AssociatedLabel"
+          }
+        },
+        "lastSeenTimeMs": {
+          "description": "Timestamp of the last request from this device in milliseconds since epoch UTC. Supported only for devices with XMPP channel type.",
+          "type": "string",
+          "format": "int64"
+        },
+        "lastUpdateTimeMs": {
+          "description": "Timestamp of the last device update in milliseconds since epoch UTC.",
+          "type": "string",
+          "format": "int64"
+        },
+        "lastUseTimeMs": {
+          "description": "Timestamp of the last device usage in milliseconds since epoch UTC.",
+          "type": "string",
+          "format": "int64"
+        },
+        "locationId": {
+          "description": "ID of the location of this device.",
+          "type": "string",
+          "format": "int64"
+        },
+        "modelManifest": {
+          "description": "Device model information provided by the model manifest of this device.",
+          "type": "object",
+          "properties": {
+            "modelName": {
+              "description": "Device model name.",
+              "type": "string"
+            },
+            "oemName": {
+              "description": "Name of device model manufacturer.",
+              "type": "string"
+            }
+          }
+        },
+        "modelManifestId": {
+          "description": "Model manifest ID of this device.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name of this device provided by the manufacturer.",
+          "type": "string"
+        },
+        "nicknames": {
+          "description": "Nicknames of the device. Use the addNickname and removeNickname APIs to modify this list.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "owner": {
+          "description": "E-mail address of the device owner.",
+          "type": "string"
+        },
+        "personalizedInfo": {
+          "description": "Personalized device information for currently logged-in user.",
+          "type": "object",
+          "properties": {
+            "lastUseTimeMs": {
+              "description": "Timestamp of the last device usage by the user in milliseconds since epoch UTC.",
+              "type": "string",
+              "format": "int64"
+            },
+            "location": {
+              "description": "Personalized device location.",
+              "type": "string"
+            },
+            "maxRole": {
+              "description": "The maximum role on the device.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Personalized device display name.",
+              "type": "string"
+            }
+          }
+        },
+        "serialNumber": {
+          "description": "Serial number of a device provided by its manufacturer.",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "stateDefs": {
+          "description": "Deprecated, do not use. Description of the device state. This field is writable only by devices.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/StateDef"
+          }
+        },
+        "tags": {
+          "description": "Custom free-form manufacturer tags.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "traits": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "uiDeviceKind": {
+          "description": "Device kind from the model manifest used in UI applications. See list of device kinds values.",
+          "type": "string"
+        }
+      }
+    },
+    "DeviceInsertUpdate": {
+      "type": "object",
+      "properties": {
+        "adapterId": {
+          "description": "ID of the adapter that created this device.",
+          "type": "string"
+        },
+        "certFingerprint": {
+          "description": "Deprecated, do not use. The HTTPS certificate fingerprint used to secure communication with device..",
+          "type": "string"
+        },
+        "channel": {
+          "description": "Device notification channel description.",
+          "type": "object",
+          "properties": {
+            "connectionStatusHint": {
+              "description": "Connection status hint, set by parent device.",
+              "type": "string",
+              "enum": [
+                "offline",
+                "online",
+                "unknown"
+              ]
+            },
+            "gcmRegistrationId": {
+              "description": "GCM registration ID. Required if device supports GCM delivery channel.",
+              "type": "string"
+            },
+            "gcmSenderId": {
+              "description": "GCM sender ID. For Chrome apps must be the same as sender ID during registration, usually API project ID.",
+              "type": "string"
+            },
+            "parentId": {
+              "description": "Parent device ID (aggregator) if it exists.",
+              "type": "string"
+            },
+            "pubsub": {
+              "description": "Pubsub channel details.",
+              "type": "object",
+              "properties": {
+                "connectionStatusHint": {
+                  "description": "Device's connection status, as set by the pubsub subscriber.",
+                  "type": "string",
+                  "enum": [
+                    "offline",
+                    "online",
+                    "unknown"
+                  ]
+                },
+                "topic": {
+                  "description": "Pubsub topic to publish to with device notifications.",
+                  "type": "string"
+                }
+              }
+            },
+            "supportedType": {
+              "description": "Channel type supported by device. Allowed types are: \"gcm\", \"xmpp\", \"pubsub\", and \"parent\".",
+              "type": "string"
+            }
+          }
+        },
+        "commandDefs": {
+          "description": "Deprecated, use \"traits\" instead. Description of commands supported by the device. This field is writable only by devices.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/PackageDef"
+          }
+        },
+        "components": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "connectionStatus": {
+          "description": "Device connection status.",
+          "type": "string"
+        },
+        "creationTimeMs": {
+          "description": "Timestamp of creation of this device in milliseconds since epoch UTC.",
+          "type": "string",
+          "format": "int64"
+        },
+        "description": {
+          "description": "User readable description of this device.",
+          "type": "string"
+        },
+        "deviceKind": {
+          "description": "Device kind. Deprecated, provide \"modelManifestId\" instead. See list of device kinds values.",
+          "type": "string"
+        },
+        "deviceLocalId": {
+          "description": "Deprecated, do not use. The ID of the device for use on the local network.",
           "type": "string"
         },
         "invitations": {
@@ -3145,6 +3571,120 @@ func init() {
         }
       }
     },
+    "LocationInsertUpdate": {
+      "description": "Location on the world (inspired by Google Maps).",
+      "type": "object",
+      "properties": {
+        "address_components": {
+          "description": "Address descriptor",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "long_name": {
+                "description": "Location address long name",
+                "type": "string"
+              },
+              "short_name": {
+                "description": "Location address short name",
+                "type": "string"
+              },
+              "types": {
+                "description": "Address type from list.",
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/LocationsAddressTypes"
+                }
+              }
+            }
+          }
+        },
+        "formatted_address": {
+          "description": "Natural representation of the address.",
+          "type": "string"
+        },
+        "geometry": {
+          "type": "object",
+          "properties": {
+            "location": {
+              "description": "Location coordinates.",
+              "type": "object",
+              "properties": {
+                "elevation": {
+                  "description": "Elevation in meters (inspired by Elevation API).",
+                  "type": "number",
+                  "format": "float"
+                },
+                "lat": {
+                  "description": "Location's latitude.",
+                  "type": "number",
+                  "format": "float"
+                },
+                "lng": {
+                  "description": "Location's longitude.",
+                  "type": "number",
+                  "format": "float"
+                },
+                "resolution": {
+                  "description": "The maximum distance between data points from which the elevation was interpolated, in meters (inspired by Elevation API).",
+                  "type": "number",
+                  "format": "float"
+                }
+              }
+            },
+            "location_type": {
+              "description": "Location's type",
+              "type": "string"
+            },
+            "viewport": {
+              "description": "Viewport corners",
+              "type": "object",
+              "properties": {
+                "northeast": {
+                  "description": "Northeast corner coordinates.",
+                  "type": "object",
+                  "properties": {
+                    "lat": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "lng": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                },
+                "southwest": {
+                  "description": "Southwest corner coordinates.",
+                  "type": "object",
+                  "properties": {
+                    "lat": {
+                      "type": "number",
+                      "format": "float"
+                    },
+                    "lng": {
+                      "type": "number",
+                      "format": "float"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "place_id": {
+          "description": "The ID of the place corresponding the location.",
+          "type": "string"
+        },
+        "types": {
+          "description": "Location type from list.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/LocationsAddressTypes"
+          }
+        }
+      }
+    },
     "LocationsAddressTypes": {
       "type": "string",
       "enum": [
@@ -3324,6 +3864,59 @@ func init() {
         },
         "id": {
           "description": "Unique model manifest ID.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Identifies what kind of resource this is. Value: the fixed string \"weave#modelManifest\".",
+          "type": "string",
+          "default": "weave#modelManifest"
+        },
+        "modelDescription": {
+          "description": "User readable device model description.",
+          "type": "string"
+        },
+        "modelName": {
+          "description": "User readable device model name.",
+          "type": "string"
+        },
+        "oemName": {
+          "description": "User readable name of device model manufacturer.",
+          "type": "string"
+        },
+        "supportPageUrl": {
+          "description": "URL of device support page.",
+          "type": "string"
+        }
+      }
+    },
+    "ModelManifestInsertUpdate": {
+      "description": "Model manifest info.",
+      "type": "object",
+      "properties": {
+        "allowedChildModelManifestIds": {
+          "description": "For gateways, a list of device ids that are allowed to connect to it.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "applications": {
+          "description": "List of applications recommended to use with a device model.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Application"
+          }
+        },
+        "confirmationImageUrl": {
+          "description": "URL of image showing a confirmation button.",
+          "type": "string"
+        },
+        "deviceImageUrl": {
+          "description": "URL of device image.",
+          "type": "string"
+        },
+        "deviceKind": {
+          "description": "Device kind, see \"deviceKind\" field of the Device resource. See list of device kinds values.",
           "type": "string"
         },
         "kind": {

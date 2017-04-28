@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package commands
@@ -27,7 +26,6 @@ import (
 // WeaviateCommandsGetQueueURL generates an URL for the weaviate commands get queue operation
 type WeaviateCommandsGetQueueURL struct {
 	Alt         *string
-	DeviceID    string
 	Fields      *string
 	Hl          *string
 	Key         *string
@@ -79,11 +77,6 @@ func (o *WeaviateCommandsGetQueueURL) Build() (*url.URL, error) {
 	}
 	if alt != "" {
 		qs.Set("alt", alt)
-	}
-
-	deviceID := o.DeviceID
-	if deviceID != "" {
-		qs.Set("deviceId", deviceID)
 	}
 
 	var fields string

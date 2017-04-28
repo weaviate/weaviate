@@ -8,7 +8,6 @@
  * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * See package.json for author and maintainer info
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
  package commands
@@ -28,7 +27,6 @@ import (
 type WeaviateCommandsListURL struct {
 	Alt         *string
 	ByUser      *string
-	DeviceID    string
 	Fields      *string
 	Hl          *string
 	Key         *string
@@ -89,11 +87,6 @@ func (o *WeaviateCommandsListURL) Build() (*url.URL, error) {
 	}
 	if byUser != "" {
 		qs.Set("byUser", byUser)
-	}
-
-	deviceID := o.DeviceID
-	if deviceID != "" {
-		qs.Set("deviceId", deviceID)
 	}
 
 	var fields string
