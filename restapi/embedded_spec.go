@@ -26,11 +26,21 @@ func init() {
 	SwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
     "application/json",
-    "application/xml"
+    "application/xml",
+    "application/x-yaml",
+    "text/plain",
+    "application/octet-stream",
+    "multipart/form-data",
+    "application/x-www-form-urlencoded"
   ],
   "produces": [
     "application/json",
-    "application/xml"
+    "application/xml",
+    "application/x-yaml",
+    "text/plain",
+    "application/octet-stream",
+    "multipart/form-data",
+    "application/x-www-form-urlencoded"
   ],
   "schemes": [
     "https"

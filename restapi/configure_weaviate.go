@@ -10,7 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-package restapi
+ package restapi
 
 import (
 	"crypto/tls"
@@ -19,6 +19,7 @@ import (
 	errors "github.com/go-openapi/errors"
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/runtime/yamlpc"
 	graceful "github.com/tylerb/graceful"
 
 	"github.com/weaviate/weaviate/restapi/operations"
@@ -33,7 +34,7 @@ import (
 
 // This file is safe to edit. Once it exists it will not be overwritten
 
-//go:generate swagger generate server --target .. --name weaviate --spec ../weaviate.json --default-scheme https
+//go:generate swagger generate server --target .. --name weaviate --spec ../swagger.json --default-scheme https
 
 func configureFlags(api *operations.WeaviateAPI) {
 	// api.CommandLineOptionsGroups = []swag.CommandLineOptionsGroup{ ... }
@@ -51,11 +52,31 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
+	api.BinConsumer = runtime.ByteStreamConsumer()
+
+	api.UrlformConsumer = runtime.DiscardConsumer
+
+	api.YamlConsumer = yamlpc.YAMLConsumer()
+
 	api.XMLConsumer = runtime.XMLConsumer()
+
+	api.MultipartformConsumer = runtime.DiscardConsumer
+
+	api.TxtConsumer = runtime.TextConsumer()
 
 	api.JSONProducer = runtime.JSONProducer()
 
+	api.BinProducer = runtime.ByteStreamProducer()
+
+	api.UrlformProducer = runtime.DiscardProducer
+
+	api.YamlProducer = yamlpc.YAMLProducer()
+
 	api.XMLProducer = runtime.XMLProducer()
+
+	api.MultipartformProducer = runtime.DiscardProducer
+
+	api.TxtProducer = runtime.TextProducer()
 
 	api.ACLEntriesWeaviateACLEntriesDeleteHandler = acl_entries.WeaviateACLEntriesDeleteHandlerFunc(func(params acl_entries.WeaviateACLEntriesDeleteParams) middleware.Responder {
 		return middleware.NotImplemented("operation acl_entries.WeaviateACLEntriesDelete has not yet been implemented")
