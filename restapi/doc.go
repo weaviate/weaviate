@@ -25,13 +25,33 @@ Lets you register, view and manage cloud ready devices.
     Consumes:
     - application/json
 
+    - application/octet-stream
+
+    - application/x-www-form-urlencoded
+
+    - application/x-yaml
+
     - application/xml
+
+    - multipart/form-data
+
+    - text/plain
 
 
     Produces:
     - application/json
 
+    - application/octet-stream
+
+    - application/x-www-form-urlencoded
+
+    - application/x-yaml
+
     - application/xml
+
+    - multipart/form-data
+
+    - text/plain
 
 
 swagger:meta
