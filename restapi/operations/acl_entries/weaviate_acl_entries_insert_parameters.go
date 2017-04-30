@@ -16,6 +16,7 @@
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
@@ -58,6 +59,7 @@ type WeaviateACLEntriesInsertParams struct {
 	*/
 	Alt *string
 	/*
+	  Required: true
 	  In: body
 	*/
 	Body *models.ACLEntryInsertUpdate
@@ -114,7 +116,12 @@ func (o *WeaviateACLEntriesInsertParams) BindRequest(r *http.Request, route *mid
 		defer r.Body.Close()
 		var body models.ACLEntryInsertUpdate
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
-			res = append(res, errors.NewParseError("body", "body", "", err))
+			if err == io.EOF {
+				res = append(res, errors.Required("body", "body"))
+			} else {
+				res = append(res, errors.NewParseError("body", "body", "", err))
+			}
+
 		} else {
 			if err := body.Validate(route.Formats); err != nil {
 				res = append(res, err)
@@ -125,6 +132,8 @@ func (o *WeaviateACLEntriesInsertParams) BindRequest(r *http.Request, route *mid
 			}
 		}
 
+	} else {
+		res = append(res, errors.Required("body", "body"))
 	}
 
 	rDeviceID, rhkDeviceID, _ := route.Params.GetOK("deviceId")

@@ -16,6 +16,7 @@
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
@@ -58,6 +59,7 @@ type WeaviateEventsRecordDeviceEventsParams struct {
 	*/
 	Alt *string
 	/*
+	  Required: true
 	  In: body
 	*/
 	Body *models.EventsRecordDeviceEventsRequest
@@ -109,7 +111,12 @@ func (o *WeaviateEventsRecordDeviceEventsParams) BindRequest(r *http.Request, ro
 		defer r.Body.Close()
 		var body models.EventsRecordDeviceEventsRequest
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
-			res = append(res, errors.NewParseError("body", "body", "", err))
+			if err == io.EOF {
+				res = append(res, errors.Required("body", "body"))
+			} else {
+				res = append(res, errors.NewParseError("body", "body", "", err))
+			}
+
 		} else {
 			if err := body.Validate(route.Formats); err != nil {
 				res = append(res, err)
@@ -120,6 +127,8 @@ func (o *WeaviateEventsRecordDeviceEventsParams) BindRequest(r *http.Request, ro
 			}
 		}
 
+	} else {
+		res = append(res, errors.Required("body", "body"))
 	}
 
 	qFields, qhkFields, _ := qs.GetOK("fields")

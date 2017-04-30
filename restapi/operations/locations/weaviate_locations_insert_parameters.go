@@ -16,6 +16,7 @@
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
@@ -58,6 +59,7 @@ type WeaviateLocationsInsertParams struct {
 	*/
 	Alt *string
 	/*
+	  Required: true
 	  In: body
 	*/
 	Body *models.LocationInsertUpdate
@@ -105,7 +107,12 @@ func (o *WeaviateLocationsInsertParams) BindRequest(r *http.Request, route *midd
 		defer r.Body.Close()
 		var body models.LocationInsertUpdate
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
-			res = append(res, errors.NewParseError("body", "body", "", err))
+			if err == io.EOF {
+				res = append(res, errors.Required("body", "body"))
+			} else {
+				res = append(res, errors.NewParseError("body", "body", "", err))
+			}
+
 		} else {
 			if err := body.Validate(route.Formats); err != nil {
 				res = append(res, err)
@@ -116,6 +123,8 @@ func (o *WeaviateLocationsInsertParams) BindRequest(r *http.Request, route *midd
 			}
 		}
 
+	} else {
+		res = append(res, errors.Required("body", "body"))
 	}
 
 	qFields, qhkFields, _ := qs.GetOK("fields")

@@ -86,6 +86,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/AdapterInsertUpdate"
             }
@@ -165,6 +166,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/AdapterInsertUpdate"
             }
@@ -222,6 +224,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/AdapterInsertUpdate"
             }
@@ -363,6 +366,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/CommandInsertUpdate"
             }
@@ -533,6 +537,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/CommandInsertUpdate"
             }
@@ -603,6 +608,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/CommandInsertUpdate"
             }
@@ -785,6 +791,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/DeviceInsertUpdate"
             }
@@ -899,6 +906,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/Device"
             }
@@ -975,6 +983,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/DeviceInsertUpdate"
             }
@@ -1088,6 +1097,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/AclEntryInsertUpdate"
             }
@@ -1200,6 +1210,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/AclEntryInsertUpdate"
             }
@@ -1278,6 +1289,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/AclEntryInsertUpdate"
             }
@@ -1467,6 +1479,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/EventsRecordDeviceEventsRequest"
             }
@@ -1569,7 +1582,7 @@ func init() {
         "tags": [
           "locations"
         ],
-        "operationId": "weaviate.locatinos.list",
+        "operationId": "weaviate.locations.list",
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -1592,6 +1605,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/LocationInsertUpdate"
             }
@@ -1671,6 +1685,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/LocationInsertUpdate"
             }
@@ -1723,11 +1738,12 @@ func init() {
         "tags": [
           "locations"
         ],
-        "operationId": "weaviate.location.patch",
+        "operationId": "weaviate.locations.patch",
         "parameters": [
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/LocationInsertUpdate"
             }
@@ -1839,6 +1855,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/ModelManifestInsertUpdate"
             }
@@ -1897,6 +1914,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/ModelManifestsValidateCommandDefsRequest"
             }
@@ -1955,6 +1973,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/ModelManifestsValidateComponentsRequest"
             }
@@ -2013,6 +2032,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/ModelManifestsValidateDeviceStateRequest"
             }
@@ -2105,6 +2125,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/ModelManifestInsertUpdate"
             }
@@ -2163,6 +2184,7 @@ func init() {
           {
             "name": "body",
             "in": "body",
+            "required": true,
             "schema": {
               "$ref": "#/definitions/ModelManifestInsertUpdate"
             }
