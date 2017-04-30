@@ -34,7 +34,8 @@ type Object struct {
 	Deleted      bool   // if true, it does not exsist anymore
 }
 
-func (f Datastore) Add(owner string, refType string, object string) {
+// Add item to DB
+func (f Datastore) Add(owner string, refType string, object string) string {
 
 	// Setx your Google Cloud Platform project ID.
 	ctx := context.Background()
@@ -71,6 +72,7 @@ func (f Datastore) Add(owner string, refType string, object string) {
 		log.Fatalf("Failed to save task: %v", err)
 	}
 
-	log.Printf("Saved %v", uuid)
+	// return the ID that is used to create.
+	return uuid
 
 }
