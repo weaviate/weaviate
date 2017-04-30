@@ -16,6 +16,8 @@ import "log"
 
 type Mysql struct{}
 
-func (f Mysql) Add(owner string, refType string, object string) {
+func (f Mysql) Add(owner string, refType string, object string) string {
 	log.Fatalf("Connecting to Mysql DB - NOTE ONLY FOR DEMO PURPOSE")
+
+	return "IM NOT USED"
 }

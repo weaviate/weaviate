@@ -14,5 +14,5 @@ package dbinit
 
 // The interface that all connectors should have
 type Intfc interface {
-	Add(string, string, string)
+	Add(string, string, string) string
 }
