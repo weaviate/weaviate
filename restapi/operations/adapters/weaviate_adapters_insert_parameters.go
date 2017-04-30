@@ -62,7 +62,7 @@ type WeaviateAdaptersInsertParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.AdapterInsertUpdate
+	Body *models.Adapter
 	/*Selector specifying which fields to include in a partial response.
 	  In: query
 	*/
@@ -105,7 +105,7 @@ func (o *WeaviateAdaptersInsertParams) BindRequest(r *http.Request, route *middl
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.AdapterInsertUpdate
+		var body models.Adapter
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))

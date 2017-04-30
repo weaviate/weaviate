@@ -62,7 +62,7 @@ type WeaviateModelManifestsCreateParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.ModelManifestInsertUpdate
+	Body *models.ModelManifest
 	/*Selector specifying which fields to include in a partial response.
 	  In: query
 	*/
@@ -105,7 +105,7 @@ func (o *WeaviateModelManifestsCreateParams) BindRequest(r *http.Request, route 
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.ModelManifestInsertUpdate
+		var body models.ModelManifest
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))

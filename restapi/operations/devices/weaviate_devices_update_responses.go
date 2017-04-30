@@ -35,7 +35,7 @@ type WeaviateDevicesUpdateOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.DeviceInsertUpdate `json:"body,omitempty"`
+	Payload *models.Device `json:"body,omitempty"`
 }
 
 // NewWeaviateDevicesUpdateOK creates WeaviateDevicesUpdateOK with default headers values
@@ -44,13 +44,13 @@ func NewWeaviateDevicesUpdateOK() *WeaviateDevicesUpdateOK {
 }
 
 // WithPayload adds the payload to the weaviate devices update o k response
-func (o *WeaviateDevicesUpdateOK) WithPayload(payload *models.DeviceInsertUpdate) *WeaviateDevicesUpdateOK {
+func (o *WeaviateDevicesUpdateOK) WithPayload(payload *models.Device) *WeaviateDevicesUpdateOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate devices update o k response
-func (o *WeaviateDevicesUpdateOK) SetPayload(payload *models.DeviceInsertUpdate) {
+func (o *WeaviateDevicesUpdateOK) SetPayload(payload *models.Device) {
 	o.Payload = payload
 }
 
