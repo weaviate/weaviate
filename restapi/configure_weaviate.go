@@ -10,18 +10,24 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package restapi
+package restapi
 
 import (
 	"crypto/tls"
+	"encoding/json"
+	"fmt"
 	"net/http"
 
 	errors "github.com/go-openapi/errors"
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/runtime/yamlpc"
+	uuid "github.com/satori/go.uuid"
 	graceful "github.com/tylerb/graceful"
 
+	"github.com/weaviate/weaviate/adapters"
+	"github.com/weaviate/weaviate/adapters/datastore"
+	"github.com/weaviate/weaviate/adapters/mysql"
 	"github.com/weaviate/weaviate/restapi/operations"
 	"github.com/weaviate/weaviate/restapi/operations/acl_entries"
 	"github.com/weaviate/weaviate/restapi/operations/adapters"
@@ -41,14 +47,20 @@ func configureFlags(api *operations.WeaviateAPI) {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
+
+	// configure database connection
+	var selectedDb dbinit.Intfc
+
+	commandLineInput := "datastore"
+
+	if commandLineInput == "datastore" {
+		selectedDb = datastore.Datastore{}
+	} else {
+		selectedDb = mysql.Mysql{}
+	}
+
 	// configure the api here
 	api.ServeError = errors.ServeError
-
-	// Set your custom logger if needed. Default one is log.Printf
-	// Expected interface func(string, ...interface{})
-	//
-	// Example:
-	// s.api.Logger = log.Printf
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
@@ -78,6 +90,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.TxtProducer = runtime.TextProducer()
 
+	/*
+	 * HANDLE ACL
+	 */
 	api.ACLEntriesWeaviateACLEntriesDeleteHandler = acl_entries.WeaviateACLEntriesDeleteHandlerFunc(func(params acl_entries.WeaviateACLEntriesDeleteParams) middleware.Responder {
 		return middleware.NotImplemented("operation acl_entries.WeaviateACLEntriesDelete has not yet been implemented")
 	})
@@ -96,6 +111,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.ACLEntriesWeaviateACLEntriesUpdateHandler = acl_entries.WeaviateACLEntriesUpdateHandlerFunc(func(params acl_entries.WeaviateACLEntriesUpdateParams) middleware.Responder {
 		return middleware.NotImplemented("operation acl_entries.WeaviateACLEntriesUpdate has not yet been implemented")
 	})
+
+	/*
+	 * HANDLE ADAPTERS
+	 */
 	api.AdaptersWeaviateAdaptersDeleteHandler = adapters.WeaviateAdaptersDeleteHandlerFunc(func(params adapters.WeaviateAdaptersDeleteParams) middleware.Responder {
 		return middleware.NotImplemented("operation adapters.WeaviateAdaptersDelete has not yet been implemented")
 	})
@@ -114,6 +133,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.AdaptersWeaviateAdaptersUpdateHandler = adapters.WeaviateAdaptersUpdateHandlerFunc(func(params adapters.WeaviateAdaptersUpdateParams) middleware.Responder {
 		return middleware.NotImplemented("operation adapters.WeaviateAdaptersUpdate has not yet been implemented")
 	})
+
+	/*
+	 * HANDLE COMMANDS
+	 */
 	api.CommandsWeaviateCommandsDeleteHandler = commands.WeaviateCommandsDeleteHandlerFunc(func(params commands.WeaviateCommandsDeleteParams) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsDelete has not yet been implemented")
 	})
@@ -135,6 +158,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.CommandsWeaviateCommandsUpdateHandler = commands.WeaviateCommandsUpdateHandlerFunc(func(params commands.WeaviateCommandsUpdateParams) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsUpdate has not yet been implemented")
 	})
+
+	/*
+	 * HANDLE DEVICES
+	 */
 	api.DevicesWeaviateDevicesDeleteHandler = devices.WeaviateDevicesDeleteHandlerFunc(func(params devices.WeaviateDevicesDeleteParams) middleware.Responder {
 		return middleware.NotImplemented("operation devices.WeaviateDevicesDelete has not yet been implemented")
 	})
@@ -153,6 +180,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.DevicesWeaviateDevicesUpdateHandler = devices.WeaviateDevicesUpdateHandlerFunc(func(params devices.WeaviateDevicesUpdateParams) middleware.Responder {
 		return middleware.NotImplemented("operation devices.WeaviateDevicesUpdate has not yet been implemented")
 	})
+
+	/*
+	 * HANDLE EVENTS
+	 */
 	api.EventsWeaviateEventsGetHandler = events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams) middleware.Responder {
 		return middleware.NotImplemented("operation events.WeaviateEventsGet has not yet been implemented")
 	})
@@ -162,12 +193,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.EventsWeaviateEventsRecordDeviceEventsHandler = events.WeaviateEventsRecordDeviceEventsHandlerFunc(func(params events.WeaviateEventsRecordDeviceEventsParams) middleware.Responder {
 		return middleware.NotImplemented("operation events.WeaviateEventsRecordDeviceEvents has not yet been implemented")
 	})
-	api.LocationsWeaviateLocatinosListHandler = locations.WeaviateLocatinosListHandlerFunc(func(params locations.WeaviateLocatinosListParams) middleware.Responder {
-		return middleware.NotImplemented("operation locations.WeaviateLocatinosList has not yet been implemented")
-	})
-	api.LocationsWeaviateLocationPatchHandler = locations.WeaviateLocationPatchHandlerFunc(func(params locations.WeaviateLocationPatchParams) middleware.Responder {
-		return middleware.NotImplemented("operation locations.WeaviateLocationPatch has not yet been implemented")
-	})
+
+	/*
+	 * HANDLE LOCATIONS
+	 */
 	api.LocationsWeaviateLocationsDeleteHandler = locations.WeaviateLocationsDeleteHandlerFunc(func(params locations.WeaviateLocationsDeleteParams) middleware.Responder {
 		return middleware.NotImplemented("operation locations.WeaviateLocationsDelete has not yet been implemented")
 	})
@@ -175,11 +204,46 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation locations.WeaviateLocationsGet has not yet been implemented")
 	})
 	api.LocationsWeaviateLocationsInsertHandler = locations.WeaviateLocationsInsertHandlerFunc(func(params locations.WeaviateLocationsInsertParams) middleware.Responder {
-		return middleware.NotImplemented("operation locations.WeaviateLocationsInsert has not yet been implemented")
+
+		/*
+		 * TODO VALIDATE IF THE OBJECT IS OKAY
+		 */
+		validated := true
+
+		// Create UUID
+		params.Body.ID = fmt.Sprintf("%v", uuid.NewV4())
+
+		// Set the body to save to the database
+		databaseBody, _ := json.Marshal(params.Body)
+
+		// save to DB
+		selectedDb.Add("FOOBAR USER UUID", "#/paths/locations", string(databaseBody))
+
+		// return error
+		if validated == false {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(422)
+				rw.Write([]byte("{ \"ERROR\": \"There is something wrong with your original POSTed body\" }"))
+			})
+		}
+
+		// return SUCCESS
+		return locations.NewWeaviateLocationsInsertCreated().WithPayload(params.Body)
+
+	})
+	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams) middleware.Responder {
+		return middleware.NotImplemented("operation locations.WeaviateLocationsList has not yet been implemented")
+	})
+	api.LocationsWeaviateLocationsPatchHandler = locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams) middleware.Responder {
+		return middleware.NotImplemented("operation locations.WeaviateLocationsPatch has not yet been implemented")
 	})
 	api.LocationsWeaviateLocationsUpdateHandler = locations.WeaviateLocationsUpdateHandlerFunc(func(params locations.WeaviateLocationsUpdateParams) middleware.Responder {
 		return middleware.NotImplemented("operation locations.WeaviateLocationsUpdate has not yet been implemented")
 	})
+
+	/*
+	 * HANDLE MODEL MANIFESTS
+	 */
 	api.ModelManifestsWeaviateModelManifestsCreateHandler = model_manifests.WeaviateModelManifestsCreateHandlerFunc(func(params model_manifests.WeaviateModelManifestsCreateParams) middleware.Responder {
 		return middleware.NotImplemented("operation model_manifests.WeaviateModelManifestsCreate has not yet been implemented")
 	})
