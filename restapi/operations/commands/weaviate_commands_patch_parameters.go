@@ -62,7 +62,7 @@ type WeaviateCommandsPatchParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.CommandInsertUpdate
+	Body *models.Command
 	/*Unique command ID.
 	  Required: true
 	  In: path
@@ -114,7 +114,7 @@ func (o *WeaviateCommandsPatchParams) BindRequest(r *http.Request, route *middle
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.CommandInsertUpdate
+		var body models.Command
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))

@@ -62,7 +62,7 @@ type WeaviateACLEntriesInsertParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.ACLEntryInsertUpdate
+	Body *models.ACLEntry
 	/*ID of the device to use.
 	  Required: true
 	  In: path
@@ -114,7 +114,7 @@ func (o *WeaviateACLEntriesInsertParams) BindRequest(r *http.Request, route *mid
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.ACLEntryInsertUpdate
+		var body models.ACLEntry
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))

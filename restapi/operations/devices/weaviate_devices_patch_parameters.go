@@ -62,7 +62,7 @@ type WeaviateDevicesPatchParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.DeviceInsertUpdate
+	Body *models.Device
 	/*Unique ID of the device.
 	  Required: true
 	  In: path
@@ -118,7 +118,7 @@ func (o *WeaviateDevicesPatchParams) BindRequest(r *http.Request, route *middlew
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.DeviceInsertUpdate
+		var body models.Device
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))

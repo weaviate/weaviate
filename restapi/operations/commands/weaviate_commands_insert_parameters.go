@@ -62,7 +62,7 @@ type WeaviateCommandsInsertParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.CommandInsertUpdate
+	Body *models.Command
 	/*ID of the command that was sent before this command. Use this to ensure the order of commands.
 	  In: query
 	*/
@@ -118,7 +118,7 @@ func (o *WeaviateCommandsInsertParams) BindRequest(r *http.Request, route *middl
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.CommandInsertUpdate
+		var body models.Command
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))

@@ -62,7 +62,7 @@ type WeaviateLocationsPatchParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.LocationInsertUpdate
+	Body *models.Location
 	/*Selector specifying which fields to include in a partial response.
 	  In: query
 	*/
@@ -110,7 +110,7 @@ func (o *WeaviateLocationsPatchParams) BindRequest(r *http.Request, route *middl
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.LocationInsertUpdate
+		var body models.Location
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))
