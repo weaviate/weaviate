@@ -16,6 +16,7 @@
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
@@ -58,6 +59,7 @@ type WeaviateModelManifestsValidateCommandDefsParams struct {
 	*/
 	Alt *string
 	/*
+	  Required: true
 	  In: body
 	*/
 	Body *models.ModelManifestsValidateCommandDefsRequest
@@ -109,7 +111,12 @@ func (o *WeaviateModelManifestsValidateCommandDefsParams) BindRequest(r *http.Re
 		defer r.Body.Close()
 		var body models.ModelManifestsValidateCommandDefsRequest
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
-			res = append(res, errors.NewParseError("body", "body", "", err))
+			if err == io.EOF {
+				res = append(res, errors.Required("body", "body"))
+			} else {
+				res = append(res, errors.NewParseError("body", "body", "", err))
+			}
+
 		} else {
 			if err := body.Validate(route.Formats); err != nil {
 				res = append(res, err)
@@ -120,6 +127,8 @@ func (o *WeaviateModelManifestsValidateCommandDefsParams) BindRequest(r *http.Re
 			}
 		}
 
+	} else {
+		res = append(res, errors.Required("body", "body"))
 	}
 
 	qFields, qhkFields, _ := qs.GetOK("fields")

@@ -1,5 +1,16 @@
+<<<<<<< Updated upstream
 # Ignore OLD files
 *.OLD
+=======
+<<<<<<< Updated upstream
+# TEMP: remove testing
+test
+=======
+# Ignore OLD files
+*.OLD
+*.OLD.go
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
 
 # Remove tools dir
 tools
