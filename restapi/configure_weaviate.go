@@ -25,9 +25,9 @@ import (
 	uuid "github.com/satori/go.uuid"
 	graceful "github.com/tylerb/graceful"
 
-	"github.com/weaviate/weaviate/adapters"
-	"github.com/weaviate/weaviate/adapters/datastore"
-	"github.com/weaviate/weaviate/adapters/mysql"
+	"github.com/weaviate/weaviate/connectors"
+	"github.com/weaviate/weaviate/connectors/datastore"
+	"github.com/weaviate/weaviate/connectors/mysql"
 	"github.com/weaviate/weaviate/restapi/operations"
 	"github.com/weaviate/weaviate/restapi/operations/acl_entries"
 	"github.com/weaviate/weaviate/restapi/operations/adapters"
