@@ -23,14 +23,14 @@ import (
 	"github.com/weaviate/weaviate/models"
 )
 
-// WeaviateAdaptersInsertCreatedCode is the HTTP code returned for type WeaviateAdaptersInsertCreated
-const WeaviateAdaptersInsertCreatedCode int = 201
+// WeaviateAdaptersInsertAcceptedCode is the HTTP code returned for type WeaviateAdaptersInsertAccepted
+const WeaviateAdaptersInsertAcceptedCode int = 202
 
-/*WeaviateAdaptersInsertCreated Successful created.
+/*WeaviateAdaptersInsertAccepted Successfully received.
 
-swagger:response weaviateAdaptersInsertCreated
+swagger:response weaviateAdaptersInsertAccepted
 */
-type WeaviateAdaptersInsertCreated struct {
+type WeaviateAdaptersInsertAccepted struct {
 
 	/*
 	  In: Body
@@ -38,26 +38,26 @@ type WeaviateAdaptersInsertCreated struct {
 	Payload *models.Adapter `json:"body,omitempty"`
 }
 
-// NewWeaviateAdaptersInsertCreated creates WeaviateAdaptersInsertCreated with default headers values
-func NewWeaviateAdaptersInsertCreated() *WeaviateAdaptersInsertCreated {
-	return &WeaviateAdaptersInsertCreated{}
+// NewWeaviateAdaptersInsertAccepted creates WeaviateAdaptersInsertAccepted with default headers values
+func NewWeaviateAdaptersInsertAccepted() *WeaviateAdaptersInsertAccepted {
+	return &WeaviateAdaptersInsertAccepted{}
 }
 
-// WithPayload adds the payload to the weaviate adapters insert created response
-func (o *WeaviateAdaptersInsertCreated) WithPayload(payload *models.Adapter) *WeaviateAdaptersInsertCreated {
+// WithPayload adds the payload to the weaviate adapters insert accepted response
+func (o *WeaviateAdaptersInsertAccepted) WithPayload(payload *models.Adapter) *WeaviateAdaptersInsertAccepted {
 	o.Payload = payload
 	return o
 }
 
-// SetPayload sets the payload to the weaviate adapters insert created response
-func (o *WeaviateAdaptersInsertCreated) SetPayload(payload *models.Adapter) {
+// SetPayload sets the payload to the weaviate adapters insert accepted response
+func (o *WeaviateAdaptersInsertAccepted) SetPayload(payload *models.Adapter) {
 	o.Payload = payload
 }
 
 // WriteResponse to the client
-func (o *WeaviateAdaptersInsertCreated) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateAdaptersInsertAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(201)
+	rw.WriteHeader(202)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

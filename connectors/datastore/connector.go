@@ -10,6 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
+
 package datastore
 
 import (
@@ -17,6 +18,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"google.golang.org/api/iterator"
 
 	uuid "github.com/satori/go.uuid"
 
@@ -97,25 +100,23 @@ func (f Datastore) Get(Uuid string) string {
 	query := datastore.NewQuery("weaviate").Filter("Uuid =", Uuid).Order("-CreateTimeMs").Limit(1)
 	it := client.Run(ctx, query)
 
-	/*
-		count := 0
+	count := 0
 
-		for {
-			var object Object
-			_, err := it.Next(&object)
-			if err == iterator.Done {
-				break
-			}
-			if err != nil {
-				log.Fatalf("Error fetching next object: %v", err)
-			}
-
-			count++
-			fmt.Printf("Uid %q, Time %d, Object %d\n", object.Uuid, object.CreateTimeMs, object.Object)
+	for {
+		var object Object
+		_, err := it.Next(&object)
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			log.Fatalf("Error fetching next object: %v", err)
 		}
 
-		println(count)
-	*/
+		count++
+		fmt.Printf("Uid %q, Time %d, Object %d\n", object.Uuid, object.CreateTimeMs, object.Object)
+	}
+
+	println(count)
 
 	return Uuid
 }
