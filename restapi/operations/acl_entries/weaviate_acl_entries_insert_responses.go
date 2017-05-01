@@ -23,14 +23,14 @@ import (
 	"github.com/weaviate/weaviate/models"
 )
 
-// WeaviateACLEntriesInsertCreatedCode is the HTTP code returned for type WeaviateACLEntriesInsertCreated
-const WeaviateACLEntriesInsertCreatedCode int = 201
+// WeaviateACLEntriesInsertAcceptedCode is the HTTP code returned for type WeaviateACLEntriesInsertAccepted
+const WeaviateACLEntriesInsertAcceptedCode int = 202
 
-/*WeaviateACLEntriesInsertCreated Successful created.
+/*WeaviateACLEntriesInsertAccepted Successfully received.
 
-swagger:response weaviateAclEntriesInsertCreated
+swagger:response weaviateAclEntriesInsertAccepted
 */
-type WeaviateACLEntriesInsertCreated struct {
+type WeaviateACLEntriesInsertAccepted struct {
 
 	/*
 	  In: Body
@@ -38,26 +38,26 @@ type WeaviateACLEntriesInsertCreated struct {
 	Payload *models.ACLEntry `json:"body,omitempty"`
 }
 
-// NewWeaviateACLEntriesInsertCreated creates WeaviateACLEntriesInsertCreated with default headers values
-func NewWeaviateACLEntriesInsertCreated() *WeaviateACLEntriesInsertCreated {
-	return &WeaviateACLEntriesInsertCreated{}
+// NewWeaviateACLEntriesInsertAccepted creates WeaviateACLEntriesInsertAccepted with default headers values
+func NewWeaviateACLEntriesInsertAccepted() *WeaviateACLEntriesInsertAccepted {
+	return &WeaviateACLEntriesInsertAccepted{}
 }
 
-// WithPayload adds the payload to the weaviate Acl entries insert created response
-func (o *WeaviateACLEntriesInsertCreated) WithPayload(payload *models.ACLEntry) *WeaviateACLEntriesInsertCreated {
+// WithPayload adds the payload to the weaviate Acl entries insert accepted response
+func (o *WeaviateACLEntriesInsertAccepted) WithPayload(payload *models.ACLEntry) *WeaviateACLEntriesInsertAccepted {
 	o.Payload = payload
 	return o
 }
 
-// SetPayload sets the payload to the weaviate Acl entries insert created response
-func (o *WeaviateACLEntriesInsertCreated) SetPayload(payload *models.ACLEntry) {
+// SetPayload sets the payload to the weaviate Acl entries insert accepted response
+func (o *WeaviateACLEntriesInsertAccepted) SetPayload(payload *models.ACLEntry) {
 	o.Payload = payload
 }
 
 // WriteResponse to the client
-func (o *WeaviateACLEntriesInsertCreated) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateACLEntriesInsertAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(201)
+	rw.WriteHeader(202)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

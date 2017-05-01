@@ -93,8 +93,8 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Successful created.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/Adapter"
             }
@@ -373,8 +373,8 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Successful created.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/Command"
             }
@@ -798,8 +798,8 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Successful created.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/Device"
             }
@@ -1104,8 +1104,8 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Successful created.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/AclEntry"
             }
@@ -1486,8 +1486,8 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Successful created."
+          "202": {
+            "description": "Successfully received."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1612,8 +1612,8 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Successful created.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/Location"
             }
@@ -1862,8 +1862,8 @@ func init() {
           }
         ],
         "responses": {
-          "201": {
-            "description": "Successful created.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ModelManifest"
             }

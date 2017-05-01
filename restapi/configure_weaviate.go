@@ -218,8 +218,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Set the body to save to the database
 		databaseBody, _ := json.Marshal(params.Body)
 
-		// save to DB
-		selectedDb.Add("FOOBAR USER UUID", "#/paths/locations", string(databaseBody))
+		// save to DB, this needs to be a Go routine because we will return an accepted
+		go selectedDb.Add("FOOBAR USER UUID", "#/paths/locations", string(databaseBody))
 
 		// return error
 		if validated == false {
@@ -229,8 +229,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			})
 		}
 
-		// return SUCCESS
-		return locations.NewWeaviateLocationsInsertCreated().WithPayload(params.Body)
+		// return SUCCESS (NOTE: this is ACCEPTED, so the selectedDb.Add should have a go routine)
+		return locations.NewWeaviateLocationsInsertAccepted().WithPayload(params.Body)
 
 	})
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams) middleware.Responder {
