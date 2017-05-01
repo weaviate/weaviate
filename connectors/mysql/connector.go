@@ -16,8 +16,16 @@ import "log"
 
 type Mysql struct{}
 
+func (f Mysql) Connect() bool {
+	return true
+}
+
 func (f Mysql) Add(owner string, refType string, object string) string {
 	log.Fatalf("Connecting to Mysql DB - NOTE ONLY FOR DEMO PURPOSE")
 
+	return "IM NOT USED"
+}
+
+func (f Mysql) Get(Uuid string) string {
 	return "IM NOT USED"
 }

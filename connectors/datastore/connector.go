@@ -34,6 +34,11 @@ type Object struct {
 	Deleted      bool   // if true, it does not exsist anymore
 }
 
+// Connect to datastore
+func (f Datastore) Connect() bool {
+	return true
+}
+
 // Add item to DB
 func (f Datastore) Add(owner string, refType string, object string) string {
 
@@ -75,4 +80,42 @@ func (f Datastore) Add(owner string, refType string, object string) string {
 	// return the ID that is used to create.
 	return uuid
 
+}
+
+func (f Datastore) Get(Uuid string) string {
+
+	// Setx your Google Cloud Platform project ID.
+	ctx := context.Background()
+	projectID := "weaviate-dev-001"
+
+	// Creates a client.
+	client, err := datastore.NewClient(ctx, projectID)
+	if err != nil {
+		log.Fatalf("Failed to create client: %v", err)
+	}
+
+	query := datastore.NewQuery("weaviate").Filter("Uuid =", Uuid).Order("-CreateTimeMs").Limit(1)
+	it := client.Run(ctx, query)
+
+	/*
+		count := 0
+
+		for {
+			var object Object
+			_, err := it.Next(&object)
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				log.Fatalf("Error fetching next object: %v", err)
+			}
+
+			count++
+			fmt.Printf("Uid %q, Time %d, Object %d\n", object.Uuid, object.CreateTimeMs, object.Object)
+		}
+
+		println(count)
+	*/
+
+	return Uuid
 }
