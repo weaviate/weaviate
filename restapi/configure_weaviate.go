@@ -38,10 +38,6 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/model_manifests"
 )
 
-// This file is safe to edit. Once it exists it will not be overwritten
-
-//go:generate swagger generate server --target .. --name weaviate --spec ../swagger.json --default-scheme https
-
 func configureFlags(api *operations.WeaviateAPI) {
 	// api.CommandLineOptionsGroups = []swag.CommandLineOptionsGroup{ ... }
 }
@@ -201,7 +197,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation locations.WeaviateLocationsDelete has not yet been implemented")
 	})
 	api.LocationsWeaviateLocationsGetHandler = locations.WeaviateLocationsGetHandlerFunc(func(params locations.WeaviateLocationsGetParams) middleware.Responder {
-		return middleware.NotImplemented("operation locations.WeaviateLocationsGet has not yet been implemented")
+
+		result := selectedDb.Get(params.LocationID)
+
+		println(result)
+
+		// return SUCCESS
+		return middleware.NotImplemented("operation NOT HERE")
 	})
 	api.LocationsWeaviateLocationsInsertHandler = locations.WeaviateLocationsInsertHandlerFunc(func(params locations.WeaviateLocationsInsertParams) middleware.Responder {
 
