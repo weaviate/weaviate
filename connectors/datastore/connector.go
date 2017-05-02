@@ -19,21 +19,14 @@ import (
 	"log"
 	"time"
 
+	"github.com/weaviate/weaviate/connectors"
+
 	uuid "github.com/satori/go.uuid"
 
 	"cloud.google.com/go/datastore"
 )
 
 type Datastore struct{}
-
-type Object struct {
-	Uuid         string // uuid, also used in Object's id
-	Owner        string // uuid of the owner
-	RefType      string // type, as defined
-	CreateTimeMs int64  // creation time in ms
-	Object       string // the JSON object, id will be collected from current uuid
-	Deleted      bool   // if true, it does not exsist anymore
-}
 
 // Connect to datastore
 func (f Datastore) Connect() bool {
@@ -64,7 +57,7 @@ func (f Datastore) Add(owner string, refType string, object string) string {
 	taskKey := datastore.NameKey(kind, uuid, nil)
 
 	// Creates a Task instance.
-	task := Object{
+	task := dbinit.Object{
 		Uuid:         uuid,
 		Owner:        owner,
 		RefType:      refType,
@@ -83,7 +76,7 @@ func (f Datastore) Add(owner string, refType string, object string) string {
 
 }
 
-func (f Datastore) Get(Uuid string) string {
+func (f Datastore) Get(Uuid string) dbinit.Object {
 
 	// Setx your Google Cloud Platform project ID.
 	ctx := context.Background()
@@ -97,11 +90,15 @@ func (f Datastore) Get(Uuid string) string {
 
 	query := datastore.NewQuery("weaviate").Filter("Uuid =", Uuid).Order("-CreateTimeMs").Limit(1)
 
-	var object []Object
+	object := []dbinit.Object{}
 
-	client.GetAll(ctx, query, &object)
+	keys, err := client.GetAll(ctx, query, &object)
 
-	//this should be returned: object[0]
-
-	return "THIS SHOULD BE object[0] NOT AS STRING BUT AS OBJECT"
+	if len(keys) == 0 {
+		return dbinit.Object{
+			Uuid: "0",
+		}
+	} else {
+		return object[0]
+	}
 }
