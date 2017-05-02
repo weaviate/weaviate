@@ -66,25 +66,25 @@ func (o *WeaviateACLEntriesGetOK) WriteResponse(rw http.ResponseWriter, producer
 	}
 }
 
-// WeaviateACLEntriesGetNoContentCode is the HTTP code returned for type WeaviateACLEntriesGetNoContent
-const WeaviateACLEntriesGetNoContentCode int = 204
+// WeaviateACLEntriesGetNotFoundCode is the HTTP code returned for type WeaviateACLEntriesGetNotFound
+const WeaviateACLEntriesGetNotFoundCode int = 404
 
-/*WeaviateACLEntriesGetNoContent Successful query result but no content
+/*WeaviateACLEntriesGetNotFound Successful query result but no resource was found
 
-swagger:response weaviateAclEntriesGetNoContent
+swagger:response weaviateAclEntriesGetNotFound
 */
-type WeaviateACLEntriesGetNoContent struct {
+type WeaviateACLEntriesGetNotFound struct {
 }
 
-// NewWeaviateACLEntriesGetNoContent creates WeaviateACLEntriesGetNoContent with default headers values
-func NewWeaviateACLEntriesGetNoContent() *WeaviateACLEntriesGetNoContent {
-	return &WeaviateACLEntriesGetNoContent{}
+// NewWeaviateACLEntriesGetNotFound creates WeaviateACLEntriesGetNotFound with default headers values
+func NewWeaviateACLEntriesGetNotFound() *WeaviateACLEntriesGetNotFound {
+	return &WeaviateACLEntriesGetNotFound{}
 }
 
 // WriteResponse to the client
-func (o *WeaviateACLEntriesGetNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateACLEntriesGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(404)
 }
 
 // WeaviateACLEntriesGetNotImplementedCode is the HTTP code returned for type WeaviateACLEntriesGetNotImplemented

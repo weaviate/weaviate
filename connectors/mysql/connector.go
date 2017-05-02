@@ -40,7 +40,7 @@ func (f Mysql) Add(owner string, refType string, object string) string {
 	return "IM NOT USED"
 }
 
-func (f Mysql) Get(Uuid string) dbinit.Object {
+func (f Mysql) Get(Uuid string) (dbinit.Object, bool) {
 
 	task := dbinit.Object{
 		Uuid:         "temp",
@@ -51,5 +51,5 @@ func (f Mysql) Get(Uuid string) dbinit.Object {
 		Deleted:      false,
 	}
 
-	return task
+	return task, true
 }
