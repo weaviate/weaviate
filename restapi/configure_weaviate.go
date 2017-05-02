@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 
 	errors "github.com/go-openapi/errors"
 	runtime "github.com/go-openapi/runtime"
@@ -29,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/connectors"
 	"github.com/weaviate/weaviate/connectors/datastore"
 	"github.com/weaviate/weaviate/connectors/mysql"
+	"github.com/weaviate/weaviate/models"
 	"github.com/weaviate/weaviate/restapi/operations"
 	"github.com/weaviate/weaviate/restapi/operations/acl_entries"
 	"github.com/weaviate/weaviate/restapi/operations/adapters"
@@ -199,12 +199,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.LocationsWeaviateLocationsGetHandler = locations.WeaviateLocationsGetHandlerFunc(func(params locations.WeaviateLocationsGetParams) middleware.Responder {
 
+		// select from database
 		result := selectedDb.Get(params.LocationID)
 
-		fmt.Println(reflect.TypeOf(result))
+		// create object to return
+		object := &models.Location{}
+		json.Unmarshal([]byte(result.Object), &object)
+
+		if object.ID == "0" {
+			return locations.NewWeaviateLocationsGetOK()
+		}
 
 		// return SUCCESS
-		return locations.NewWeaviateLocationsGetOK()
+		return locations.NewWeaviateLocationsGetOK().WithPayload(object)
 	})
 	api.LocationsWeaviateLocationsInsertHandler = locations.WeaviateLocationsInsertHandlerFunc(func(params locations.WeaviateLocationsInsertParams) middleware.Responder {
 

@@ -12,7 +12,12 @@
  */
 package mysql
 
-import "log"
+import (
+	"log"
+	"time"
+
+	"github.com/weaviate/weaviate/connectors"
+)
 
 type Mysql struct{}
 
@@ -35,6 +40,16 @@ func (f Mysql) Add(owner string, refType string, object string) string {
 	return "IM NOT USED"
 }
 
-func (f Mysql) Get(Uuid string) string {
-	return "IM NOT USED"
+func (f Mysql) Get(Uuid string) dbinit.Object {
+
+	task := dbinit.Object{
+		Uuid:         "temp",
+		Owner:        "temp",
+		RefType:      "temp",
+		CreateTimeMs: time.Now().UnixNano() / int64(time.Millisecond),
+		Object:       "temp",
+		Deleted:      false,
+	}
+
+	return task
 }
