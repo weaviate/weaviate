@@ -83,7 +83,7 @@ func (f Datastore) Add(owner string, refType string, object string) string {
 
 }
 
-func (f Datastore) Get(Uuid string) Object {
+func (f Datastore) Get(Uuid string) string {
 
 	// Setx your Google Cloud Platform project ID.
 	ctx := context.Background()
@@ -101,5 +101,7 @@ func (f Datastore) Get(Uuid string) Object {
 
 	client.GetAll(ctx, query, &object)
 
-	return object[0]
+	//this should be returned: object[0]
+
+	return "THIS SHOULD BE object[0] NOT AS STRING BUT AS OBJECT"
 }

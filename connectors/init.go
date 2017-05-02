@@ -12,6 +12,15 @@
  */
 package dbinit
 
+type Object struct {
+	Uuid         string // uuid, also used in Object's id
+	Owner        string // uuid of the owner
+	RefType      string // type, as defined
+	CreateTimeMs int64  // creation time in ms
+	Object       string // the JSON object, id will be collected from current uuid
+	Deleted      bool   // if true, it does not exsist anymore
+}
+
 // The interface that all connectors should have
 type Intfc interface {
 	Connect() bool
