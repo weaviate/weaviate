@@ -66,25 +66,25 @@ func (o *WeaviateModelManifestsGetOK) WriteResponse(rw http.ResponseWriter, prod
 	}
 }
 
-// WeaviateModelManifestsGetNoContentCode is the HTTP code returned for type WeaviateModelManifestsGetNoContent
-const WeaviateModelManifestsGetNoContentCode int = 204
+// WeaviateModelManifestsGetNotFoundCode is the HTTP code returned for type WeaviateModelManifestsGetNotFound
+const WeaviateModelManifestsGetNotFoundCode int = 404
 
-/*WeaviateModelManifestsGetNoContent Successful query result but no content
+/*WeaviateModelManifestsGetNotFound Successful query result but no resource was found
 
-swagger:response weaviateModelManifestsGetNoContent
+swagger:response weaviateModelManifestsGetNotFound
 */
-type WeaviateModelManifestsGetNoContent struct {
+type WeaviateModelManifestsGetNotFound struct {
 }
 
-// NewWeaviateModelManifestsGetNoContent creates WeaviateModelManifestsGetNoContent with default headers values
-func NewWeaviateModelManifestsGetNoContent() *WeaviateModelManifestsGetNoContent {
-	return &WeaviateModelManifestsGetNoContent{}
+// NewWeaviateModelManifestsGetNotFound creates WeaviateModelManifestsGetNotFound with default headers values
+func NewWeaviateModelManifestsGetNotFound() *WeaviateModelManifestsGetNotFound {
+	return &WeaviateModelManifestsGetNotFound{}
 }
 
 // WriteResponse to the client
-func (o *WeaviateModelManifestsGetNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateModelManifestsGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(404)
 }
 
 // WeaviateModelManifestsGetNotImplementedCode is the HTTP code returned for type WeaviateModelManifestsGetNotImplemented

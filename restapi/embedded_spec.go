@@ -71,8 +71,8 @@ func init() {
               "$ref": "#/definitions/AdaptersListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -154,8 +154,8 @@ func init() {
               "$ref": "#/definitions/Adapter"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -337,8 +337,8 @@ func init() {
               "$ref": "#/definitions/CommandsListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -454,8 +454,8 @@ func init() {
               "$ref": "#/definitions/CommandsQueueResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -521,8 +521,8 @@ func init() {
               "$ref": "#/definitions/Command"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -779,8 +779,8 @@ func init() {
               "$ref": "#/definitions/DevicesListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -890,8 +890,8 @@ func init() {
               "$ref": "#/definitions/Device"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1090,8 +1090,8 @@ func init() {
               "$ref": "#/definitions/AclEntriesListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1199,8 +1199,8 @@ func init() {
               "$ref": "#/definitions/AclEntry"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1460,8 +1460,8 @@ func init() {
               "$ref": "#/definitions/EventsListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1577,8 +1577,8 @@ func init() {
               "$ref": "#/definitions/Event"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1623,8 +1623,8 @@ func init() {
               "$ref": "#/definitions/LocationsListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1706,8 +1706,8 @@ func init() {
               "$ref": "#/definitions/Location"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1879,8 +1879,8 @@ func init() {
               "$ref": "#/definitions/ModelManifestsListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2145,8 +2145,8 @@ func init() {
               "$ref": "#/definitions/ModelManifest"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found"
           },
           "501": {
             "description": "Not (yet) implemented."

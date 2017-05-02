@@ -66,25 +66,25 @@ func (o *WeaviateEventsGetOK) WriteResponse(rw http.ResponseWriter, producer run
 	}
 }
 
-// WeaviateEventsGetNoContentCode is the HTTP code returned for type WeaviateEventsGetNoContent
-const WeaviateEventsGetNoContentCode int = 204
+// WeaviateEventsGetNotFoundCode is the HTTP code returned for type WeaviateEventsGetNotFound
+const WeaviateEventsGetNotFoundCode int = 404
 
-/*WeaviateEventsGetNoContent Successful query result but no content
+/*WeaviateEventsGetNotFound Successful query result but no resource was found
 
-swagger:response weaviateEventsGetNoContent
+swagger:response weaviateEventsGetNotFound
 */
-type WeaviateEventsGetNoContent struct {
+type WeaviateEventsGetNotFound struct {
 }
 
-// NewWeaviateEventsGetNoContent creates WeaviateEventsGetNoContent with default headers values
-func NewWeaviateEventsGetNoContent() *WeaviateEventsGetNoContent {
-	return &WeaviateEventsGetNoContent{}
+// NewWeaviateEventsGetNotFound creates WeaviateEventsGetNotFound with default headers values
+func NewWeaviateEventsGetNotFound() *WeaviateEventsGetNotFound {
+	return &WeaviateEventsGetNotFound{}
 }
 
 // WriteResponse to the client
-func (o *WeaviateEventsGetNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateEventsGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(404)
 }
 
 // WeaviateEventsGetNotImplementedCode is the HTTP code returned for type WeaviateEventsGetNotImplemented

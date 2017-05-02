@@ -25,5 +25,5 @@ type Object struct {
 type Intfc interface {
 	Connect() bool
 	Add(string, string, string) string
-	Get(string) Object
+	Get(string) (Object, bool)
 }

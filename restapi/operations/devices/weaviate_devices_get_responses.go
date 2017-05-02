@@ -66,25 +66,25 @@ func (o *WeaviateDevicesGetOK) WriteResponse(rw http.ResponseWriter, producer ru
 	}
 }
 
-// WeaviateDevicesGetNoContentCode is the HTTP code returned for type WeaviateDevicesGetNoContent
-const WeaviateDevicesGetNoContentCode int = 204
+// WeaviateDevicesGetNotFoundCode is the HTTP code returned for type WeaviateDevicesGetNotFound
+const WeaviateDevicesGetNotFoundCode int = 404
 
-/*WeaviateDevicesGetNoContent Successful query result but no content
+/*WeaviateDevicesGetNotFound Successful query result but no resource was found
 
-swagger:response weaviateDevicesGetNoContent
+swagger:response weaviateDevicesGetNotFound
 */
-type WeaviateDevicesGetNoContent struct {
+type WeaviateDevicesGetNotFound struct {
 }
 
-// NewWeaviateDevicesGetNoContent creates WeaviateDevicesGetNoContent with default headers values
-func NewWeaviateDevicesGetNoContent() *WeaviateDevicesGetNoContent {
-	return &WeaviateDevicesGetNoContent{}
+// NewWeaviateDevicesGetNotFound creates WeaviateDevicesGetNotFound with default headers values
+func NewWeaviateDevicesGetNotFound() *WeaviateDevicesGetNotFound {
+	return &WeaviateDevicesGetNotFound{}
 }
 
 // WriteResponse to the client
-func (o *WeaviateDevicesGetNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateDevicesGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(404)
 }
 
 // WeaviateDevicesGetNotImplementedCode is the HTTP code returned for type WeaviateDevicesGetNotImplemented

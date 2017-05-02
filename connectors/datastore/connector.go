@@ -76,7 +76,7 @@ func (f Datastore) Add(owner string, refType string, object string) string {
 
 }
 
-func (f Datastore) Get(Uuid string) dbinit.Object {
+func (f Datastore) Get(Uuid string) (dbinit.Object, bool) {
 
 	// Setx your Google Cloud Platform project ID.
 	ctx := context.Background()
@@ -95,10 +95,8 @@ func (f Datastore) Get(Uuid string) dbinit.Object {
 	keys, err := client.GetAll(ctx, query, &object)
 
 	if len(keys) == 0 {
-		return dbinit.Object{
-			Uuid: "0",
-		}
+		return dbinit.Object{}, false
 	} else {
-		return object[0]
+		return object[0], true
 	}
 }
