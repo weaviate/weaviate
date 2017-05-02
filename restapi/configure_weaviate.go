@@ -10,6 +10,18 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/weaviate/weaviate/blob/master/LICENSE
+ * AUTHOR: Bob van Luijt (bob@weaviate.com)
+ * See www.weaviate.com for details
+ * Contact: @weaviate_iot / yourfriends@weaviate.com
+ */
 package restapi
 
 import (
@@ -200,18 +212,23 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.LocationsWeaviateLocationsGetHandler = locations.WeaviateLocationsGetHandlerFunc(func(params locations.WeaviateLocationsGetParams) middleware.Responder {
 
 		// select from database
-		result := selectedDb.Get(params.LocationID)
+		result, isThereResult := selectedDb.Get(params.LocationID)
 
 		// create object to return
 		object := &models.Location{}
 		json.Unmarshal([]byte(result.Object), &object)
 
-		if object.ID == "0" {
-			return locations.NewWeaviateLocationsGetOK()
+		println("'", object.ID, "'")
+
+		// If there are no results, the Object ID = 0
+		if isThereResult == false {
+			// return SUCCESS of query but no content.
+			return locations.NewWeaviateLocationsGetNotFound()
 		}
 
 		// return SUCCESS
 		return locations.NewWeaviateLocationsGetOK().WithPayload(object)
+
 	})
 	api.LocationsWeaviateLocationsInsertHandler = locations.WeaviateLocationsInsertHandlerFunc(func(params locations.WeaviateLocationsInsertParams) middleware.Responder {
 
