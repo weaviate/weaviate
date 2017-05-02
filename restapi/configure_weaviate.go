@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"reflect"
 
 	errors "github.com/go-openapi/errors"
 	runtime "github.com/go-openapi/runtime"
@@ -200,10 +201,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		result := selectedDb.Get(params.LocationID)
 
-		println(result)
+		fmt.Println(reflect.TypeOf(result))
 
 		// return SUCCESS
-		return middleware.NotImplemented("operation NOT HERE")
+		return locations.NewWeaviateLocationsGetOK()
 	})
 	api.LocationsWeaviateLocationsInsertHandler = locations.WeaviateLocationsInsertHandlerFunc(func(params locations.WeaviateLocationsInsertParams) middleware.Responder {
 
@@ -218,19 +219,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Set the body to save to the database
 		databaseBody, _ := json.Marshal(params.Body)
 
-		// save to DB, this needs to be a Go routine because we will return an accepted
-		go selectedDb.Add("FOOBAR USER UUID", "#/paths/locations", string(databaseBody))
-
 		// return error
 		if validated == false {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
 				rw.Write([]byte("{ \"ERROR\": \"There is something wrong with your original POSTed body\" }"))
 			})
-		}
+		} else {
+			// save to DB, this needs to be a Go routine because we will return an accepted
+			go selectedDb.Add("FOOBAR USER UUID", "#/paths/locations", string(databaseBody))
 
-		// return SUCCESS (NOTE: this is ACCEPTED, so the selectedDb.Add should have a go routine)
-		return locations.NewWeaviateLocationsInsertAccepted().WithPayload(params.Body)
+			// return SUCCESS (NOTE: this is ACCEPTED, so the selectedDb.Add should have a go routine)
+			return locations.NewWeaviateLocationsInsertAccepted().WithPayload(params.Body)
+		}
 
 	})
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams) middleware.Responder {
