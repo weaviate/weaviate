@@ -19,8 +19,6 @@ import (
 	"log"
 	"time"
 
-	"google.golang.org/api/iterator"
-
 	uuid "github.com/satori/go.uuid"
 
 	"cloud.google.com/go/datastore"
@@ -85,7 +83,7 @@ func (f Datastore) Add(owner string, refType string, object string) string {
 
 }
 
-func (f Datastore) Get(Uuid string) string {
+func (f Datastore) Get(Uuid string) Object {
 
 	// Setx your Google Cloud Platform project ID.
 	ctx := context.Background()
@@ -98,25 +96,10 @@ func (f Datastore) Get(Uuid string) string {
 	}
 
 	query := datastore.NewQuery("weaviate").Filter("Uuid =", Uuid).Order("-CreateTimeMs").Limit(1)
-	it := client.Run(ctx, query)
 
-	count := 0
+	var object []Object
 
-	for {
-		var object Object
-		_, err := it.Next(&object)
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			log.Fatalf("Error fetching next object: %v", err)
-		}
+	client.GetAll(ctx, query, &object)
 
-		count++
-		fmt.Printf("Uid %q, Time %d, Object %d\n", object.Uuid, object.CreateTimeMs, object.Object)
-	}
-
-	println(count)
-
-	return Uuid
+	return object[0]
 }
