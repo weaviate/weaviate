@@ -66,6 +66,27 @@ func (o *WeaviateEventsListOK) WriteResponse(rw http.ResponseWriter, producer ru
 	}
 }
 
+// WeaviateEventsListNoContentCode is the HTTP code returned for type WeaviateEventsListNoContent
+const WeaviateEventsListNoContentCode int = 204
+
+/*WeaviateEventsListNoContent Successful query result but no content
+
+swagger:response weaviateEventsListNoContent
+*/
+type WeaviateEventsListNoContent struct {
+}
+
+// NewWeaviateEventsListNoContent creates WeaviateEventsListNoContent with default headers values
+func NewWeaviateEventsListNoContent() *WeaviateEventsListNoContent {
+	return &WeaviateEventsListNoContent{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateEventsListNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(204)
+}
+
 // WeaviateEventsListNotImplementedCode is the HTTP code returned for type WeaviateEventsListNotImplemented
 const WeaviateEventsListNotImplementedCode int = 501
 

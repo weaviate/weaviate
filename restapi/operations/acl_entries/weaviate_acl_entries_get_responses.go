@@ -66,6 +66,27 @@ func (o *WeaviateACLEntriesGetOK) WriteResponse(rw http.ResponseWriter, producer
 	}
 }
 
+// WeaviateACLEntriesGetNoContentCode is the HTTP code returned for type WeaviateACLEntriesGetNoContent
+const WeaviateACLEntriesGetNoContentCode int = 204
+
+/*WeaviateACLEntriesGetNoContent Successful query result but no content
+
+swagger:response weaviateAclEntriesGetNoContent
+*/
+type WeaviateACLEntriesGetNoContent struct {
+}
+
+// NewWeaviateACLEntriesGetNoContent creates WeaviateACLEntriesGetNoContent with default headers values
+func NewWeaviateACLEntriesGetNoContent() *WeaviateACLEntriesGetNoContent {
+	return &WeaviateACLEntriesGetNoContent{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateACLEntriesGetNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(204)
+}
+
 // WeaviateACLEntriesGetNotImplementedCode is the HTTP code returned for type WeaviateACLEntriesGetNotImplemented
 const WeaviateACLEntriesGetNotImplementedCode int = 501
 

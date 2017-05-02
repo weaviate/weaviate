@@ -66,6 +66,27 @@ func (o *WeaviateCommandsGetQueueOK) WriteResponse(rw http.ResponseWriter, produ
 	}
 }
 
+// WeaviateCommandsGetQueueNoContentCode is the HTTP code returned for type WeaviateCommandsGetQueueNoContent
+const WeaviateCommandsGetQueueNoContentCode int = 204
+
+/*WeaviateCommandsGetQueueNoContent Successful query result but no content
+
+swagger:response weaviateCommandsGetQueueNoContent
+*/
+type WeaviateCommandsGetQueueNoContent struct {
+}
+
+// NewWeaviateCommandsGetQueueNoContent creates WeaviateCommandsGetQueueNoContent with default headers values
+func NewWeaviateCommandsGetQueueNoContent() *WeaviateCommandsGetQueueNoContent {
+	return &WeaviateCommandsGetQueueNoContent{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateCommandsGetQueueNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(204)
+}
+
 // WeaviateCommandsGetQueueNotImplementedCode is the HTTP code returned for type WeaviateCommandsGetQueueNotImplemented
 const WeaviateCommandsGetQueueNotImplementedCode int = 501
 

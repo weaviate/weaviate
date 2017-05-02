@@ -66,6 +66,27 @@ func (o *WeaviateLocationsGetOK) WriteResponse(rw http.ResponseWriter, producer 
 	}
 }
 
+// WeaviateLocationsGetNoContentCode is the HTTP code returned for type WeaviateLocationsGetNoContent
+const WeaviateLocationsGetNoContentCode int = 204
+
+/*WeaviateLocationsGetNoContent Successful query result but no content
+
+swagger:response weaviateLocationsGetNoContent
+*/
+type WeaviateLocationsGetNoContent struct {
+}
+
+// NewWeaviateLocationsGetNoContent creates WeaviateLocationsGetNoContent with default headers values
+func NewWeaviateLocationsGetNoContent() *WeaviateLocationsGetNoContent {
+	return &WeaviateLocationsGetNoContent{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateLocationsGetNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(204)
+}
+
 // WeaviateLocationsGetNotImplementedCode is the HTTP code returned for type WeaviateLocationsGetNotImplemented
 const WeaviateLocationsGetNotImplementedCode int = 501
 
