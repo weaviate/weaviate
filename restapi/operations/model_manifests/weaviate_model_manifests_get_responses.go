@@ -66,6 +66,27 @@ func (o *WeaviateModelManifestsGetOK) WriteResponse(rw http.ResponseWriter, prod
 	}
 }
 
+// WeaviateModelManifestsGetNoContentCode is the HTTP code returned for type WeaviateModelManifestsGetNoContent
+const WeaviateModelManifestsGetNoContentCode int = 204
+
+/*WeaviateModelManifestsGetNoContent Successful query result but no content
+
+swagger:response weaviateModelManifestsGetNoContent
+*/
+type WeaviateModelManifestsGetNoContent struct {
+}
+
+// NewWeaviateModelManifestsGetNoContent creates WeaviateModelManifestsGetNoContent with default headers values
+func NewWeaviateModelManifestsGetNoContent() *WeaviateModelManifestsGetNoContent {
+	return &WeaviateModelManifestsGetNoContent{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsGetNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(204)
+}
+
 // WeaviateModelManifestsGetNotImplementedCode is the HTTP code returned for type WeaviateModelManifestsGetNotImplemented
 const WeaviateModelManifestsGetNotImplementedCode int = 501
 

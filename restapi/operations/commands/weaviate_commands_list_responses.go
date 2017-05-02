@@ -66,6 +66,27 @@ func (o *WeaviateCommandsListOK) WriteResponse(rw http.ResponseWriter, producer 
 	}
 }
 
+// WeaviateCommandsListNoContentCode is the HTTP code returned for type WeaviateCommandsListNoContent
+const WeaviateCommandsListNoContentCode int = 204
+
+/*WeaviateCommandsListNoContent Successful query result but no content
+
+swagger:response weaviateCommandsListNoContent
+*/
+type WeaviateCommandsListNoContent struct {
+}
+
+// NewWeaviateCommandsListNoContent creates WeaviateCommandsListNoContent with default headers values
+func NewWeaviateCommandsListNoContent() *WeaviateCommandsListNoContent {
+	return &WeaviateCommandsListNoContent{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateCommandsListNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(204)
+}
+
 // WeaviateCommandsListNotImplementedCode is the HTTP code returned for type WeaviateCommandsListNotImplemented
 const WeaviateCommandsListNotImplementedCode int = 501
 

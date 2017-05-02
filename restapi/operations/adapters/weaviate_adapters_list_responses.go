@@ -66,6 +66,27 @@ func (o *WeaviateAdaptersListOK) WriteResponse(rw http.ResponseWriter, producer 
 	}
 }
 
+// WeaviateAdaptersListNoContentCode is the HTTP code returned for type WeaviateAdaptersListNoContent
+const WeaviateAdaptersListNoContentCode int = 204
+
+/*WeaviateAdaptersListNoContent Successful query result but no content
+
+swagger:response weaviateAdaptersListNoContent
+*/
+type WeaviateAdaptersListNoContent struct {
+}
+
+// NewWeaviateAdaptersListNoContent creates WeaviateAdaptersListNoContent with default headers values
+func NewWeaviateAdaptersListNoContent() *WeaviateAdaptersListNoContent {
+	return &WeaviateAdaptersListNoContent{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateAdaptersListNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(204)
+}
+
 // WeaviateAdaptersListNotImplementedCode is the HTTP code returned for type WeaviateAdaptersListNotImplemented
 const WeaviateAdaptersListNotImplementedCode int = 501
 

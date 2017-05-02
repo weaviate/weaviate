@@ -66,6 +66,27 @@ func (o *WeaviateDevicesGetOK) WriteResponse(rw http.ResponseWriter, producer ru
 	}
 }
 
+// WeaviateDevicesGetNoContentCode is the HTTP code returned for type WeaviateDevicesGetNoContent
+const WeaviateDevicesGetNoContentCode int = 204
+
+/*WeaviateDevicesGetNoContent Successful query result but no content
+
+swagger:response weaviateDevicesGetNoContent
+*/
+type WeaviateDevicesGetNoContent struct {
+}
+
+// NewWeaviateDevicesGetNoContent creates WeaviateDevicesGetNoContent with default headers values
+func NewWeaviateDevicesGetNoContent() *WeaviateDevicesGetNoContent {
+	return &WeaviateDevicesGetNoContent{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateDevicesGetNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(204)
+}
+
 // WeaviateDevicesGetNotImplementedCode is the HTTP code returned for type WeaviateDevicesGetNotImplemented
 const WeaviateDevicesGetNotImplementedCode int = 501
 
