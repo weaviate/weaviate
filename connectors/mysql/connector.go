@@ -53,3 +53,7 @@ func (f *Mysql) Get(Uuid string) (dbconnector.Object, error) {
 
 	return task, nil
 }
+
+func (f *Mysql) Delete(Uuid string) error {
+	return nil
+}

@@ -17,9 +17,11 @@ import (
 	"context"
 	"log"
 
+	gouuid "github.com/satori/go.uuid"
 	"github.com/weaviate/weaviate/connectors"
 
 	"cloud.google.com/go/datastore"
+	"fmt"
 	"time"
 )
 
@@ -51,8 +53,10 @@ func (f *Datastore) Connect() error {
 func (f *Datastore) Add(dbObject dbconnector.Object) (string, error) {
 	ctx := context.Background()
 
+	nameUUID := fmt.Sprintf("%v", gouuid.NewV4())
+
 	// Creates a Key instance.
-	taskKey := datastore.NameKey(f.kind, dbObject.Uuid, nil)
+	taskKey := datastore.NameKey(f.kind, nameUUID, nil)
 
 	// Saves the new entity.
 	if _, err := f.client.Put(ctx, taskKey, &dbObject); err != nil {
@@ -72,15 +76,40 @@ func (f *Datastore) Get(uuid string) (dbconnector.Object, error) {
 
 	object := []dbconnector.Object{}
 
-	if keys, err := f.client.GetAll(ctx, query, &object); err != nil {
+	keys, err := f.client.GetAll(ctx, query, &object)
+
+	if err != nil {
 		log.Fatalf("Failed to load task: %v", err)
 
 		return dbconnector.Object{}, err
-	} else {
-		if len(keys) == 0 {
-			return dbconnector.Object{}, nil
-		} else {
-			return object[0], nil
-		}
 	}
+
+	if len(keys) == 0 {
+		return dbconnector.Object{}, nil
+	}
+
+	return object[0], nil
+}
+
+// Delete item from Datastore by changing deleted status
+func (f *Datastore) Delete(uuid string) error {
+	object, errGet := f.Get(uuid)
+
+	// Not found or deleted
+	if errGet != nil {
+		return errGet
+	}
+
+	object.Deleted = true
+	object.CreateTimeMs = time.Now().UnixNano() / int64(time.Millisecond)
+
+	_, errAdd := f.Add(object)
+
+	// Cannot add
+	if errAdd != nil {
+		return errAdd
+	}
+
+	// Return the ID that is used to create.
+	return nil
 }
