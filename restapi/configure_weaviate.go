@@ -63,9 +63,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	commandLineInput := "datastore"
 
 	if commandLineInput == "datastore" {
-		selectedDb = datastore.Datastore{}
+		selectedDb = &datastore.Datastore{}
 	} else {
-		selectedDb = mysql.Mysql{}
+		selectedDb = &mysql.Mysql{}
+	}
+
+	err := selectedDb.Connect()
+	if err != nil {
+		panic(err)
 	}
 
 	// configure the api here
@@ -212,7 +217,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.LocationsWeaviateLocationsGetHandler = locations.WeaviateLocationsGetHandlerFunc(func(params locations.WeaviateLocationsGetParams) middleware.Responder {
 
 		// select from database
-		result, isThereResult := selectedDb.Get(params.LocationID)
+		result, err := selectedDb.Get(params.LocationID)
 
 		// create object to return
 		object := &models.Location{}
@@ -221,9 +226,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		println("'", object.ID, "'")
 
 		// If there are no results, the Object ID = 0
-		if isThereResult == false {
+		if err == nil {
 			// return SUCCESS of query but no content.
-			return locations.NewWeaviateLocationsGetNotFound()
+			//return locations.NewWeaviateLocationsGetNotFound()
 		}
 
 		// return SUCCESS

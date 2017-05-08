@@ -30,17 +30,17 @@ type Object struct {
 	Deleted      bool   // if true, it does not exsist anymore
 }
 
-func (f Mysql) Connect() bool {
-	return true
+func (f *Mysql) Connect() error {
+	return nil
 }
 
-func (f Mysql) Add(owner string, refType string, object string) string {
+func (f *Mysql) Add(owner string, refType string, object string) (string, error) {
 	log.Fatalf("Connecting to Mysql DB - NOTE ONLY FOR DEMO PURPOSE")
 
-	return "IM NOT USED"
+	return "IM NOT USED", nil
 }
 
-func (f Mysql) Get(Uuid string) (dbinit.Object, bool) {
+func (f *Mysql) Get(Uuid string) (dbinit.Object, error) {
 
 	task := dbinit.Object{
 		Uuid:         "temp",
@@ -51,5 +51,5 @@ func (f Mysql) Get(Uuid string) (dbinit.Object, bool) {
 		Deleted:      false,
 	}
 
-	return task, true
+	return task, nil
 }
