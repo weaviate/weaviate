@@ -59,7 +59,7 @@ func configureFlags(api *operations.WeaviateAPI) {
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	// configure database connection
-	var selectedDb dbinit.Intfc
+	var selectedDb dbconnector.DatabaseConnector
 
 	commandLineInput := "datastore"
 

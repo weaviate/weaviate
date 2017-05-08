@@ -61,7 +61,7 @@ func (f *Datastore) Add(owner string, refType string, object string) (string, er
 	taskKey := datastore.NameKey(kind, uuid, nil)
 
 	// Creates a Task instance.
-	task := dbinit.Object{
+	task := dbconnector.Object{
 		Uuid:         uuid,
 		Owner:        owner,
 		RefType:      refType,
@@ -81,20 +81,20 @@ func (f *Datastore) Add(owner string, refType string, object string) (string, er
 
 }
 
-func (f *Datastore) Get(Uuid string) (dbinit.Object, error) {
+func (f *Datastore) Get(Uuid string) (dbconnector.Object, error) {
 	ctx := context.Background()
 
 	query := datastore.NewQuery("weaviate").Filter("Uuid =", Uuid).Order("-CreateTimeMs").Limit(1)
 
-	object := []dbinit.Object{}
+	object := []dbconnector.Object{}
 
 	if keys, err := f.client.GetAll(ctx, query, &object); err != nil {
 		log.Fatalf("Failed to load task: %v", err)
 
-		return dbinit.Object{}, err
+		return dbconnector.Object{}, err
 	} else {
 		if len(keys) == 0 {
-			return dbinit.Object{}, nil
+			return dbconnector.Object{}, nil
 		} else {
 			return object[0], nil
 		}
