@@ -217,8 +217,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Delete item from database
 		err := databaseConnector.Delete(params.LocationID)
 
-		// Pseudo: Not found response
-		// Pseudo: Deleted response
+		// TODO: Not found response
+		// TODO: Deleted response
 
 		if err != nil {
 			panic(err)
@@ -270,7 +270,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				rw.Write([]byte("{ \"ERROR\": \"There is something wrong with your original POSTed body\" }"))
 			})
 		} else {
-			dbObject := dbconnector.Object{
+			// TODO: Make object with default fill createtime and delete
+			dbObject := dbconnector.DatabaseObject{
 				Uuid:         uuid,
 				Owner:        "FOOBAR USER UUID",
 				RefType:      "#/paths/locations",
@@ -290,7 +291,26 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams) middleware.Responder {
 		// Show all locations with List function, get max results in URL, otherwise max = 10.
 
-		return middleware.NotImplemented("operation locations.WeaviateLocationsList has not yet been implemented")
+		limit := 10
+
+		locationDatabaseObjects, err := databaseConnector.List("#/paths/locations", limit)
+
+		// TODO: Limit max here
+		// TODO: None found
+		if err != nil {
+			panic(err)
+		}
+
+		locationsListResponse := &models.LocationsListResponse{}
+		locationsListResponse.Locations = make([]*models.Location, limit)
+
+		for i, locationDatabaseObject := range locationDatabaseObjects {
+			locationObject := &models.Location{}
+			json.Unmarshal([]byte(locationDatabaseObject.Object), locationObject)
+			locationsListResponse.Locations[i] = locationObject
+		}
+
+		return locations.NewWeaviateLocationsListOK().WithPayload(locationsListResponse)
 	})
 	api.LocationsWeaviateLocationsPatchHandler = locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams) middleware.Responder {
 		return middleware.NotImplemented("operation locations.WeaviateLocationsPatch has not yet been implemented")

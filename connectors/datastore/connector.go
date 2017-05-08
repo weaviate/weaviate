@@ -25,6 +25,7 @@ import (
 	"time"
 )
 
+// Datastore has some basic variables.
 type Datastore struct {
 	client *datastore.Client
 	kind   string
@@ -50,7 +51,7 @@ func (f *Datastore) Connect() error {
 }
 
 // Add item to DB
-func (f *Datastore) Add(dbObject dbconnector.Object) (string, error) {
+func (f *Datastore) Add(dbObject dbconnector.DatabaseObject) (string, error) {
 	ctx := context.Background()
 
 	nameUUID := fmt.Sprintf("%v", gouuid.NewV4())
@@ -68,24 +69,24 @@ func (f *Datastore) Add(dbObject dbconnector.Object) (string, error) {
 	return dbObject.Uuid, nil
 }
 
-// Get Object from DB by uuid
-func (f *Datastore) Get(uuid string) (dbconnector.Object, error) {
+// Get DatabaseObject from DB by uuid
+func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 	ctx := context.Background()
 
-	query := datastore.NewQuery("weaviate").Filter("Uuid =", uuid).Order("-CreateTimeMs").Limit(1)
+	query := datastore.NewQuery(f.kind).Filter("Uuid =", uuid).Order("-CreateTimeMs").Limit(1)
 
-	object := []dbconnector.Object{}
+	object := []dbconnector.DatabaseObject{}
 
 	keys, err := f.client.GetAll(ctx, query, &object)
 
 	if err != nil {
 		log.Fatalf("Failed to load task: %v", err)
 
-		return dbconnector.Object{}, err
+		return dbconnector.DatabaseObject{}, err
 	}
 
 	if len(keys) == 0 {
-		return dbconnector.Object{}, nil
+		return dbconnector.DatabaseObject{}, nil
 	}
 
 	return object[0], nil
@@ -93,23 +94,45 @@ func (f *Datastore) Get(uuid string) (dbconnector.Object, error) {
 
 // Delete item from Datastore by changing deleted status
 func (f *Datastore) Delete(uuid string) error {
-	object, errGet := f.Get(uuid)
+	databaseObject, errGet := f.Get(uuid)
 
 	// Not found or deleted
 	if errGet != nil {
 		return errGet
 	}
 
-	object.Deleted = true
-	object.CreateTimeMs = time.Now().UnixNano() / int64(time.Millisecond)
+	databaseObject.Deleted = true
+	databaseObject.CreateTimeMs = time.Now().UnixNano() / int64(time.Millisecond)
 
-	_, errAdd := f.Add(object)
+	_, errAdd := f.Add(databaseObject)
 
 	// Cannot add
 	if errAdd != nil {
 		return errAdd
 	}
 
-	// Return the ID that is used to create.
 	return nil
+}
+
+// List lists the items from Datastore by refType and limit
+func (f *Datastore) List(refType string, limit int) ([]dbconnector.DatabaseObject, error) {
+	ctx := context.Background()
+
+	query := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false).Order("-CreateTimeMs").Limit(limit)
+
+	dbObjects := []dbconnector.DatabaseObject{}
+
+	keys, err := f.client.GetAll(ctx, query, &dbObjects)
+
+	if err != nil {
+		log.Fatalf("Failed to load task: %v", err)
+
+		return []dbconnector.DatabaseObject{}, err
+	}
+
+	if len(keys) == 0 {
+		return []dbconnector.DatabaseObject{}, nil
+	}
+
+	return dbObjects, nil
 }

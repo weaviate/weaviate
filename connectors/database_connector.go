@@ -12,7 +12,7 @@
  */
 package dbconnector
 
-type Object struct {
+type DatabaseObject struct {
 	Uuid         string // uuid, also used in Object's id
 	Owner        string // uuid of the owner
 	RefType      string // type, as defined
@@ -24,7 +24,8 @@ type Object struct {
 // The interface that all connectors should have
 type DatabaseConnector interface {
 	Connect() error
-	Add(Object) (string, error)
-	Get(string) (Object, error)
+	Add(DatabaseObject) (string, error)
+	Get(string) (DatabaseObject, error)
 	Delete(string) error
+	List(string, int) ([]DatabaseObject, error)
 }
