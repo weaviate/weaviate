@@ -23,7 +23,7 @@ type Object struct {
 
 // The interface that all connectors should have
 type Intfc interface {
-	Connect() bool
-	Add(string, string, string) string
-	Get(string) (Object, bool)
+	Connect() error
+	Add(string, string, string) (string, error)
+	Get(string) (Object, error)
 }

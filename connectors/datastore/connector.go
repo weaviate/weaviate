@@ -26,26 +26,30 @@ import (
 	"cloud.google.com/go/datastore"
 )
 
-type Datastore struct{}
-
-// Connect to datastore
-func (f Datastore) Connect() bool {
-	return true
+type Datastore struct {
+	client *datastore.Client
 }
 
-// Add item to DB
-func (f Datastore) Add(owner string, refType string, object string) string {
-
-	// Setx your Google Cloud Platform project ID.
+// Connect to datastore
+func (f *Datastore) Connect() error {
+	// Set ctx and your Google Cloud Platform project ID.
 	ctx := context.Background()
 
 	projectID := "weaviate-dev-001"
 
-	// Creates a client.
 	client, err := datastore.NewClient(ctx, projectID)
+
 	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
+		return err
 	}
+
+	f.client = client
+	return nil
+}
+
+// Add item to DB
+func (f *Datastore) Add(owner string, refType string, object string) (string, error) {
+	ctx := context.Background()
 
 	// Sets the kind for the new entity.
 	kind := "weaviate"
@@ -67,36 +71,32 @@ func (f Datastore) Add(owner string, refType string, object string) string {
 	}
 
 	// Saves the new entity.
-	if _, err := client.Put(ctx, taskKey, &task); err != nil {
+	if _, err := f.client.Put(ctx, taskKey, &task); err != nil {
 		log.Fatalf("Failed to save task: %v", err)
+		return "Error", err
 	}
 
-	// return the ID that is used to create.
-	return uuid
+	// Return the ID that is used to create.
+	return uuid, nil
 
 }
 
-func (f Datastore) Get(Uuid string) (dbinit.Object, bool) {
-
-	// Setx your Google Cloud Platform project ID.
+func (f *Datastore) Get(Uuid string) (dbinit.Object, error) {
 	ctx := context.Background()
-	projectID := "weaviate-dev-001"
-
-	// Creates a client.
-	client, err := datastore.NewClient(ctx, projectID)
-	if err != nil {
-		log.Fatalf("Failed to create client: %v", err)
-	}
 
 	query := datastore.NewQuery("weaviate").Filter("Uuid =", Uuid).Order("-CreateTimeMs").Limit(1)
 
 	object := []dbinit.Object{}
 
-	keys, err := client.GetAll(ctx, query, &object)
+	if keys, err := f.client.GetAll(ctx, query, &object); err != nil {
+		log.Fatalf("Failed to load task: %v", err)
 
-	if len(keys) == 0 {
-		return dbinit.Object{}, false
+		return dbinit.Object{}, err
 	} else {
-		return object[0], true
+		if len(keys) == 0 {
+			return dbinit.Object{}, nil
+		} else {
+			return object[0], nil
+		}
 	}
 }
