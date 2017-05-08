@@ -29,6 +29,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	errors "github.com/go-openapi/errors"
 	runtime "github.com/go-openapi/runtime"
@@ -223,12 +224,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		object := &models.Location{}
 		json.Unmarshal([]byte(result.Object), &object)
 
-		println("'", object.ID, "'")
+		objectID := strings.TrimSpace(object.ID)
+
+		println("'", objectID, "'")
 
 		// If there are no results, the Object ID = 0
-		if err == nil {
+		if len(objectID) == 0 && err == nil {
 			// return SUCCESS of query but no content.
-			//return locations.NewWeaviateLocationsGetNotFound()
+			return locations.NewWeaviateLocationsGetNotFound()
 		}
 
 		// return SUCCESS
