@@ -24,6 +24,6 @@ type Object struct {
 // The interface that all connectors should have
 type DatabaseConnector interface {
 	Connect() error
-	Add(string, string, string) (string, error)
+	Add(Object) (string, error)
 	Get(string) (Object, error)
 }

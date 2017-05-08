@@ -34,7 +34,7 @@ func (f *Mysql) Connect() error {
 	return nil
 }
 
-func (f *Mysql) Add(owner string, refType string, object string) (string, error) {
+func (f *Mysql) Add(object dbconnector.Object) (string, error) {
 	log.Fatalf("Connecting to Mysql DB - NOTE ONLY FOR DEMO PURPOSE")
 
 	return "IM NOT USED", nil
