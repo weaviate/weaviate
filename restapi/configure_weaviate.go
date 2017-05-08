@@ -35,7 +35,7 @@ import (
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/runtime/yamlpc"
-	uuid "github.com/satori/go.uuid"
+	gouuid "github.com/satori/go.uuid"
 	graceful "github.com/tylerb/graceful"
 
 	"github.com/weaviate/weaviate/connectors"
@@ -257,7 +257,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		validated := true
 
 		// Create UUID
-		uuid := fmt.Sprintf("%v", uuid.NewV4())
+		uuid := fmt.Sprintf("%v", gouuid.NewV4())
 		params.Body.ID = uuid
 
 		// Set the body to save to the database

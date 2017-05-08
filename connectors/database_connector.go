@@ -26,4 +26,5 @@ type DatabaseConnector interface {
 	Connect() error
 	Add(Object) (string, error)
 	Get(string) (Object, error)
+	Delete(string) error
 }
