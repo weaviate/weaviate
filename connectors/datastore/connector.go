@@ -15,25 +15,25 @@ package datastore
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"time"
 
 	"github.com/weaviate/weaviate/connectors"
 
-	uuid "github.com/satori/go.uuid"
-
 	"cloud.google.com/go/datastore"
+	"time"
 )
 
 type Datastore struct {
 	client *datastore.Client
+	kind   string
 }
 
 // Connect to datastore
 func (f *Datastore) Connect() error {
 	// Set ctx and your Google Cloud Platform project ID.
 	ctx := context.Background()
+
+	f.kind = "weaviate"
 
 	projectID := "weaviate-dev-001"
 
@@ -48,43 +48,27 @@ func (f *Datastore) Connect() error {
 }
 
 // Add item to DB
-func (f *Datastore) Add(owner string, refType string, object string) (string, error) {
+func (f *Datastore) Add(dbObject dbconnector.Object) (string, error) {
 	ctx := context.Background()
 
-	// Sets the kind for the new entity.
-	kind := "weaviate"
-
-	// Sets the name/ID for the new entity.
-	uuid := fmt.Sprintf("%v", uuid.NewV4())
-
 	// Creates a Key instance.
-	taskKey := datastore.NameKey(kind, uuid, nil)
-
-	// Creates a Task instance.
-	task := dbconnector.Object{
-		Uuid:         uuid,
-		Owner:        owner,
-		RefType:      refType,
-		CreateTimeMs: time.Now().UnixNano() / int64(time.Millisecond),
-		Object:       object,
-		Deleted:      false,
-	}
+	taskKey := datastore.NameKey(f.kind, dbObject.Uuid, nil)
 
 	// Saves the new entity.
-	if _, err := f.client.Put(ctx, taskKey, &task); err != nil {
+	if _, err := f.client.Put(ctx, taskKey, &dbObject); err != nil {
 		log.Fatalf("Failed to save task: %v", err)
 		return "Error", err
 	}
 
 	// Return the ID that is used to create.
-	return uuid, nil
-
+	return dbObject.Uuid, nil
 }
 
-func (f *Datastore) Get(Uuid string) (dbconnector.Object, error) {
+// Get Object from DB by uuid
+func (f *Datastore) Get(uuid string) (dbconnector.Object, error) {
 	ctx := context.Background()
 
-	query := datastore.NewQuery("weaviate").Filter("Uuid =", Uuid).Order("-CreateTimeMs").Limit(1)
+	query := datastore.NewQuery("weaviate").Filter("Uuid =", uuid).Order("-CreateTimeMs").Limit(1)
 
 	object := []dbconnector.Object{}
 

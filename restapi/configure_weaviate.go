@@ -50,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/events"
 	"github.com/weaviate/weaviate/restapi/operations/locations"
 	"github.com/weaviate/weaviate/restapi/operations/model_manifests"
+	"time"
 )
 
 func configureFlags(api *operations.WeaviateAPI) {
@@ -59,17 +60,17 @@ func configureFlags(api *operations.WeaviateAPI) {
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	// configure database connection
-	var selectedDb dbconnector.DatabaseConnector
+	var databaseConnector dbconnector.DatabaseConnector
 
 	commandLineInput := "datastore"
 
 	if commandLineInput == "datastore" {
-		selectedDb = &datastore.Datastore{}
+		databaseConnector = &datastore.Datastore{}
 	} else {
-		selectedDb = &mysql.Mysql{}
+		databaseConnector = &mysql.Mysql{}
 	}
 
-	err := selectedDb.Connect()
+	err := databaseConnector.Connect()
 	if err != nil {
 		panic(err)
 	}
@@ -213,14 +214,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE LOCATIONS
 	 */
 	api.LocationsWeaviateLocationsDeleteHandler = locations.WeaviateLocationsDeleteHandlerFunc(func(params locations.WeaviateLocationsDeleteParams) middleware.Responder {
-		return middleware.NotImplemented("operation locations.WeaviateLocationsDelete has not yet been implemented")
+		// Delete item from database
+		err := databaseConnector.Delete(params.LocationID)
+
+		// Pseudo: Not found response
+		// Pseudo: Deleted response
+
+		if err != nil {
+			panic(err)
+		}
+
+		return locations.NewWeaviateLocationsDeleteNoContent()
 	})
 	api.LocationsWeaviateLocationsGetHandler = locations.WeaviateLocationsGetHandlerFunc(func(params locations.WeaviateLocationsGetParams) middleware.Responder {
 
-		// select from database
-		result, err := selectedDb.Get(params.LocationID)
+		// Get item from database
+		result, err := databaseConnector.Get(params.LocationID)
 
-		// create object to return
+		// Create object to return
 		object := &models.Location{}
 		json.Unmarshal([]byte(result.Object), &object)
 
@@ -246,7 +257,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		validated := true
 
 		// Create UUID
-		params.Body.ID = fmt.Sprintf("%v", uuid.NewV4())
+		uuid := fmt.Sprintf("%v", uuid.NewV4())
+		params.Body.ID = uuid
 
 		// Set the body to save to the database
 		databaseBody, _ := json.Marshal(params.Body)
@@ -258,15 +270,26 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				rw.Write([]byte("{ \"ERROR\": \"There is something wrong with your original POSTed body\" }"))
 			})
 		} else {
-			// save to DB, this needs to be a Go routine because we will return an accepted
-			go selectedDb.Add("FOOBAR USER UUID", "#/paths/locations", string(databaseBody))
+			dbObject := dbconnector.Object{
+				Uuid:         uuid,
+				Owner:        "FOOBAR USER UUID",
+				RefType:      "#/paths/locations",
+				CreateTimeMs: time.Now().UnixNano() / int64(time.Millisecond),
+				Object:       string(databaseBody),
+				Deleted:      false,
+			}
 
-			// return SUCCESS (NOTE: this is ACCEPTED, so the selectedDb.Add should have a go routine)
+			// save to DB, this needs to be a Go routine because we will return an accepted
+			go databaseConnector.Add(dbObject)
+
+			// return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 			return locations.NewWeaviateLocationsInsertAccepted().WithPayload(params.Body)
 		}
 
 	})
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams) middleware.Responder {
+		// Show all locations with List function, get max results in URL, otherwise max = 10.
+
 		return middleware.NotImplemented("operation locations.WeaviateLocationsList has not yet been implemented")
 	})
 	api.LocationsWeaviateLocationsPatchHandler = locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams) middleware.Responder {
