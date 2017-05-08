@@ -10,7 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-package dbinit
+package dbconnector
 
 type Object struct {
 	Uuid         string // uuid, also used in Object's id
@@ -22,7 +22,7 @@ type Object struct {
 }
 
 // The interface that all connectors should have
-type Intfc interface {
+type DatabaseConnector interface {
 	Connect() error
 	Add(string, string, string) (string, error)
 	Get(string) (Object, error)

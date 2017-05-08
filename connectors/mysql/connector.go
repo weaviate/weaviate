@@ -40,9 +40,9 @@ func (f *Mysql) Add(owner string, refType string, object string) (string, error)
 	return "IM NOT USED", nil
 }
 
-func (f *Mysql) Get(Uuid string) (dbinit.Object, error) {
+func (f *Mysql) Get(Uuid string) (dbconnector.Object, error) {
 
-	task := dbinit.Object{
+	task := dbconnector.Object{
 		Uuid:         "temp",
 		Owner:        "temp",
 		RefType:      "temp",
