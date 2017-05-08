@@ -34,15 +34,15 @@ func (f *Mysql) Connect() error {
 	return nil
 }
 
-func (f *Mysql) Add(object dbconnector.Object) (string, error) {
+func (f *Mysql) Add(object dbconnector.DatabaseObject) (string, error) {
 	log.Fatalf("Connecting to Mysql DB - NOTE ONLY FOR DEMO PURPOSE")
 
 	return "IM NOT USED", nil
 }
 
-func (f *Mysql) Get(Uuid string) (dbconnector.Object, error) {
+func (f *Mysql) Get(Uuid string) (dbconnector.DatabaseObject, error) {
 
-	task := dbconnector.Object{
+	task := dbconnector.DatabaseObject{
 		Uuid:         "temp",
 		Owner:        "temp",
 		RefType:      "temp",
@@ -56,4 +56,10 @@ func (f *Mysql) Get(Uuid string) (dbconnector.Object, error) {
 
 func (f *Mysql) Delete(Uuid string) error {
 	return nil
+}
+
+func (f *Mysql) List(refType string, limit int) ([]dbconnector.DatabaseObject, error) {
+	dataObjs := []dbconnector.DatabaseObject{}
+
+	return dataObjs, nil
 }
