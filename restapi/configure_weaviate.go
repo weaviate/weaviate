@@ -27,7 +27,6 @@ package restapi
 import (
 	"crypto/tls"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -35,7 +34,6 @@ import (
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/runtime/yamlpc"
-	gouuid "github.com/satori/go.uuid"
 	graceful "github.com/tylerb/graceful"
 
 	"github.com/weaviate/weaviate/connectors"
@@ -50,7 +48,6 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/events"
 	"github.com/weaviate/weaviate/restapi/operations/locations"
 	"github.com/weaviate/weaviate/restapi/operations/model_manifests"
-	"time"
 )
 
 func configureFlags(api *operations.WeaviateAPI) {
@@ -256,13 +253,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		 */
 		validated := true
 
-		// Create UUID
-		uuid := fmt.Sprintf("%v", gouuid.NewV4())
-		params.Body.ID = uuid
-
-		// Set the body to save to the database
-		databaseBody, _ := json.Marshal(params.Body)
-
 		// return error
 		if validated == false {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
@@ -270,20 +260,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				rw.Write([]byte("{ \"ERROR\": \"There is something wrong with your original POSTed body\" }"))
 			})
 		} else {
-			// TODO: Make object with default fill createtime and delete
-			dbObject := dbconnector.DatabaseObject{
-				Uuid:         uuid,
-				Owner:        "FOOBAR USER UUID",
-				RefType:      "#/paths/locations",
-				CreateTimeMs: time.Now().UnixNano() / int64(time.Millisecond),
-				Object:       string(databaseBody),
-				Deleted:      false,
-			}
+			// Generate DatabaseObject without JSON-object in it.
+			dbObject := *dbconnector.NewDatabaseObject("FOOBAR USER UUID", "#/paths/locations")
 
-			// save to DB, this needs to be a Go routine because we will return an accepted
+			// Set the body-id and generate JSON to save to the database
+			params.Body.ID = dbObject.Uuid
+			databaseBody, _ := json.Marshal(params.Body)
+			dbObject.Object = string(databaseBody)
+
+			// Save to DB, this needs to be a Go routine because we will return an accepted
 			go databaseConnector.Add(dbObject)
 
-			// return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+			// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 			return locations.NewWeaviateLocationsInsertAccepted().WithPayload(params.Body)
 		}
 
