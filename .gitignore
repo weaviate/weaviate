@@ -1,5 +1,9 @@
+# TEMP: remove testing
+test
+
 # Ignore OLD files
 *.OLD
+*.OLD.go
 
 # Remove tools dir
 tools
