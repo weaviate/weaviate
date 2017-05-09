@@ -66,6 +66,27 @@ func (o *WeaviateDevicesUpdateOK) WriteResponse(rw http.ResponseWriter, producer
 	}
 }
 
+// WeaviateDevicesUpdateNotFoundCode is the HTTP code returned for type WeaviateDevicesUpdateNotFound
+const WeaviateDevicesUpdateNotFoundCode int = 404
+
+/*WeaviateDevicesUpdateNotFound Successful query result but no resource was found.
+
+swagger:response weaviateDevicesUpdateNotFound
+*/
+type WeaviateDevicesUpdateNotFound struct {
+}
+
+// NewWeaviateDevicesUpdateNotFound creates WeaviateDevicesUpdateNotFound with default headers values
+func NewWeaviateDevicesUpdateNotFound() *WeaviateDevicesUpdateNotFound {
+	return &WeaviateDevicesUpdateNotFound{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateDevicesUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(404)
+}
+
 // WeaviateDevicesUpdateNotImplementedCode is the HTTP code returned for type WeaviateDevicesUpdateNotImplemented
 const WeaviateDevicesUpdateNotImplementedCode int = 501
 

@@ -203,7 +203,7 @@ type WeaviateAPI struct {
 	defaultConsumes string
 	defaultProduces string
 	Middleware      func(middleware.Builder) http.Handler
-	// JSONConsumer registers a consumer for a "application/json" mime type
+	// JSONConsumer registers a consumer for a "application/json-patch+json" mime type
 	JSONConsumer runtime.Consumer
 	// BinConsumer registers a consumer for a "application/octet-stream" mime type
 	BinConsumer runtime.Consumer
@@ -630,6 +630,9 @@ func (o *WeaviateAPI) ConsumersFor(mediaTypes []string) map[string]runtime.Consu
 
 		case "application/json":
 			result["application/json"] = o.JSONConsumer
+
+		case "application/json-patch+json":
+			result["application/json-patch+json"] = o.JSONConsumer
 
 		case "application/octet-stream":
 			result["application/octet-stream"] = o.BinConsumer

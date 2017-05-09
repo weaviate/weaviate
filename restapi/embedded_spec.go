@@ -31,7 +31,8 @@ func init() {
     "text/plain",
     "application/octet-stream",
     "multipart/form-data",
-    "application/x-www-form-urlencoded"
+    "application/x-www-form-urlencoded",
+    "application/json-patch+json"
   ],
   "produces": [
     "application/json",
@@ -71,8 +72,8 @@ func init() {
               "$ref": "#/definitions/AdaptersListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -154,8 +155,8 @@ func init() {
               "$ref": "#/definitions/Adapter"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -192,6 +193,9 @@ func init() {
               "$ref": "#/definitions/Adapter"
             }
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -215,6 +219,9 @@ func init() {
           "204": {
             "description": "Successful deleted."
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -228,19 +235,23 @@ func init() {
         "operationId": "weaviate.adapters.patch",
         "parameters": [
           {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Adapter"
-            }
-          },
-          {
             "type": "string",
             "description": "Unique ID of the adapter.",
             "name": "adapterId",
             "in": "path",
             "required": true
+          },
+          {
+            "description": "JSONPatch document as defined by RFC 6902.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PatchDocument"
+              }
+            }
           }
         ],
         "responses": {
@@ -249,6 +260,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Adapter"
             }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -337,8 +351,8 @@ func init() {
               "$ref": "#/definitions/CommandsListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -454,8 +468,8 @@ func init() {
               "$ref": "#/definitions/CommandsQueueResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -521,8 +535,8 @@ func init() {
               "$ref": "#/definitions/Command"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -565,6 +579,9 @@ func init() {
               "$ref": "#/definitions/Command"
             }
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -595,6 +612,9 @@ func init() {
           "204": {
             "description": "Successful deleted."
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -615,18 +635,22 @@ func init() {
             "required": true
           },
           {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          },
-          {
+            "description": "JSONPatch document as defined by RFC 6902.",
             "name": "body",
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Command"
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PatchDocument"
+              }
             }
+          },
+          {
+            "type": "string",
+            "description": "Specifies the language code that should be used for text values in the API response.",
+            "name": "hl",
+            "in": "query"
           }
         ],
         "responses": {
@@ -635,6 +659,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Command"
             }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -779,8 +806,8 @@ func init() {
               "$ref": "#/definitions/DevicesListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -890,8 +917,8 @@ func init() {
               "$ref": "#/definitions/Device"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -940,6 +967,9 @@ func init() {
               "$ref": "#/definitions/Device"
             }
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -970,6 +1000,9 @@ func init() {
           "204": {
             "description": "Successful deleted."
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -990,6 +1023,18 @@ func init() {
             "required": true
           },
           {
+            "description": "JSONPatch document as defined by RFC 6902.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PatchDocument"
+              }
+            }
+          },
+          {
             "type": "string",
             "description": "Specifies the language code that should be used for text values in the API response.",
             "name": "hl",
@@ -1000,14 +1045,6 @@ func init() {
             "description": "Previous last update time in device data. Optionally set this parameter to ensure an update call does not overwrite newer data.",
             "name": "lastUpdateTimeMs",
             "in": "query"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Device"
-            }
           }
         ],
         "responses": {
@@ -1016,6 +1053,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Device"
             }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1090,8 +1130,8 @@ func init() {
               "$ref": "#/definitions/AclEntriesListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1199,8 +1239,8 @@ func init() {
               "$ref": "#/definitions/AclEntry"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1250,6 +1290,9 @@ func init() {
               "$ref": "#/definitions/AclEntry"
             }
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -1281,6 +1324,9 @@ func init() {
           "204": {
             "description": "Successful deleted."
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -1308,18 +1354,22 @@ func init() {
             "required": true
           },
           {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          },
-          {
+            "description": "JSONPatch document as defined by RFC 6902.",
             "name": "body",
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/AclEntry"
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PatchDocument"
+              }
             }
+          },
+          {
+            "type": "string",
+            "description": "Specifies the language code that should be used for text values in the API response.",
+            "name": "hl",
+            "in": "query"
           }
         ],
         "responses": {
@@ -1328,6 +1378,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/AclEntry"
             }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1460,8 +1513,8 @@ func init() {
               "$ref": "#/definitions/EventsListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1577,8 +1630,8 @@ func init() {
               "$ref": "#/definitions/Event"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1616,6 +1669,40 @@ func init() {
           "locations"
         ],
         "operationId": "weaviate.locations.list",
+        "parameters": [
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "collectionFormat": "multi",
+            "description": "Location IDs to include in the result",
+            "name": "ids",
+            "in": "query",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Specifies the language code that should be used for text values in the API response.",
+            "name": "hl",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "name": "maxResults",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "name": "startIndex",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "name": "token",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -1623,8 +1710,8 @@ func init() {
               "$ref": "#/definitions/LocationsListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1706,8 +1793,8 @@ func init() {
               "$ref": "#/definitions/Location"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1744,6 +1831,9 @@ func init() {
               "$ref": "#/definitions/Location"
             }
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -1767,6 +1857,9 @@ func init() {
           "204": {
             "description": "Successful deleted."
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -1780,19 +1873,23 @@ func init() {
         "operationId": "weaviate.locations.patch",
         "parameters": [
           {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Location"
-            }
-          },
-          {
             "type": "string",
             "description": "Unique ID of the location.",
             "name": "locationId",
             "in": "path",
             "required": true
+          },
+          {
+            "description": "JSONPatch document as defined by RFC 6902.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PatchDocument"
+              }
+            }
           }
         ],
         "responses": {
@@ -1801,6 +1898,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Location"
             }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1879,8 +1979,8 @@ func init() {
               "$ref": "#/definitions/ModelManifestsListResponse"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2145,8 +2245,8 @@ func init() {
               "$ref": "#/definitions/ModelManifest"
             }
           },
-          "204": {
-            "description": "Successful query result but no content"
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2183,6 +2283,9 @@ func init() {
               "$ref": "#/definitions/ModelManifest"
             }
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -2207,6 +2310,9 @@ func init() {
           "204": {
             "description": "Successful deleted."
           },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -2227,11 +2333,15 @@ func init() {
             "required": true
           },
           {
+            "description": "JSONPatch document as defined by RFC 6902.",
             "name": "body",
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ModelManifest"
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PatchDocument"
+              }
             }
           }
         ],
@@ -2241,6 +2351,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ModelManifest"
             }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -3534,6 +3647,39 @@ func init() {
               "$ref": "#/definitions/JsonObject"
             }
           }
+        }
+      }
+    },
+    "PatchDocument": {
+      "description": "A JSONPatch document as defined by RFC 6902.",
+      "required": [
+        "op",
+        "path"
+      ],
+      "properties": {
+        "from": {
+          "description": "A string containing a JSON Pointer value.",
+          "type": "string"
+        },
+        "op": {
+          "description": "The operation to be performed.",
+          "type": "string",
+          "enum": [
+            "add",
+            "remove",
+            "replace",
+            "move",
+            "copy",
+            "test"
+          ]
+        },
+        "path": {
+          "description": "A JSON-Pointer.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value to be used within the operations.",
+          "type": "object"
         }
       }
     },

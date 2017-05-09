@@ -66,25 +66,25 @@ func (o *WeaviateModelManifestsListOK) WriteResponse(rw http.ResponseWriter, pro
 	}
 }
 
-// WeaviateModelManifestsListNoContentCode is the HTTP code returned for type WeaviateModelManifestsListNoContent
-const WeaviateModelManifestsListNoContentCode int = 204
+// WeaviateModelManifestsListNotFoundCode is the HTTP code returned for type WeaviateModelManifestsListNotFound
+const WeaviateModelManifestsListNotFoundCode int = 404
 
-/*WeaviateModelManifestsListNoContent Successful query result but no content
+/*WeaviateModelManifestsListNotFound Successful query result but no resource was found.
 
-swagger:response weaviateModelManifestsListNoContent
+swagger:response weaviateModelManifestsListNotFound
 */
-type WeaviateModelManifestsListNoContent struct {
+type WeaviateModelManifestsListNotFound struct {
 }
 
-// NewWeaviateModelManifestsListNoContent creates WeaviateModelManifestsListNoContent with default headers values
-func NewWeaviateModelManifestsListNoContent() *WeaviateModelManifestsListNoContent {
-	return &WeaviateModelManifestsListNoContent{}
+// NewWeaviateModelManifestsListNotFound creates WeaviateModelManifestsListNotFound with default headers values
+func NewWeaviateModelManifestsListNotFound() *WeaviateModelManifestsListNotFound {
+	return &WeaviateModelManifestsListNotFound{}
 }
 
 // WriteResponse to the client
-func (o *WeaviateModelManifestsListNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateModelManifestsListNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(404)
 }
 
 // WeaviateModelManifestsListNotImplementedCode is the HTTP code returned for type WeaviateModelManifestsListNotImplemented

@@ -66,6 +66,27 @@ func (o *WeaviateACLEntriesUpdateOK) WriteResponse(rw http.ResponseWriter, produ
 	}
 }
 
+// WeaviateACLEntriesUpdateNotFoundCode is the HTTP code returned for type WeaviateACLEntriesUpdateNotFound
+const WeaviateACLEntriesUpdateNotFoundCode int = 404
+
+/*WeaviateACLEntriesUpdateNotFound Successful query result but no resource was found.
+
+swagger:response weaviateAclEntriesUpdateNotFound
+*/
+type WeaviateACLEntriesUpdateNotFound struct {
+}
+
+// NewWeaviateACLEntriesUpdateNotFound creates WeaviateACLEntriesUpdateNotFound with default headers values
+func NewWeaviateACLEntriesUpdateNotFound() *WeaviateACLEntriesUpdateNotFound {
+	return &WeaviateACLEntriesUpdateNotFound{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateACLEntriesUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(404)
+}
+
 // WeaviateACLEntriesUpdateNotImplementedCode is the HTTP code returned for type WeaviateACLEntriesUpdateNotImplemented
 const WeaviateACLEntriesUpdateNotImplementedCode int = 501
 

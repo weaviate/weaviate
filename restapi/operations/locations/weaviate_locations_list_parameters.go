@@ -59,10 +59,24 @@ type WeaviateLocationsListParams struct {
 	  In: query
 	*/
 	Fields *string
+	/*Specifies the language code that should be used for text values in the API response.
+	  In: query
+	*/
+	Hl *string
+	/*Location IDs to include in the result
+	  Required: true
+	  In: query
+	  Collection Format: multi
+	*/
+	Ids []string
 	/*API key. Your API key identifies your project and provides you with API access, quota, and reports. Required unless you provide an OAuth 2.0 token.
 	  In: query
 	*/
 	Key *string
+	/*
+	  In: query
+	*/
+	MaxResults *int64
 	/*OAuth 2.0 token for the current user.
 	  In: query
 	*/
@@ -76,6 +90,14 @@ type WeaviateLocationsListParams struct {
 	  In: query
 	*/
 	QuotaUser *string
+	/*
+	  In: query
+	*/
+	StartIndex *int64
+	/*
+	  In: query
+	*/
+	Token *string
 	/*IP address of the site where the request originates. Use this if you want to enforce per-user limits.
 	  In: query
 	*/
@@ -100,8 +122,23 @@ func (o *WeaviateLocationsListParams) BindRequest(r *http.Request, route *middle
 		res = append(res, err)
 	}
 
+	qHl, qhkHl, _ := qs.GetOK("hl")
+	if err := o.bindHl(qHl, qhkHl, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qIds, qhkIds, _ := qs.GetOK("ids")
+	if err := o.bindIds(qIds, qhkIds, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	qKey, qhkKey, _ := qs.GetOK("key")
 	if err := o.bindKey(qKey, qhkKey, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qMaxResults, qhkMaxResults, _ := qs.GetOK("maxResults")
+	if err := o.bindMaxResults(qMaxResults, qhkMaxResults, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -117,6 +154,16 @@ func (o *WeaviateLocationsListParams) BindRequest(r *http.Request, route *middle
 
 	qQuotaUser, qhkQuotaUser, _ := qs.GetOK("quotaUser")
 	if err := o.bindQuotaUser(qQuotaUser, qhkQuotaUser, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qStartIndex, qhkStartIndex, _ := qs.GetOK("startIndex")
+	if err := o.bindStartIndex(qStartIndex, qhkStartIndex, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qToken, qhkToken, _ := qs.GetOK("token")
+	if err := o.bindToken(qToken, qhkToken, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -174,6 +221,43 @@ func (o *WeaviateLocationsListParams) bindFields(rawData []string, hasKey bool, 
 	return nil
 }
 
+func (o *WeaviateLocationsListParams) bindHl(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	o.Hl = &raw
+
+	return nil
+}
+
+func (o *WeaviateLocationsListParams) bindIds(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	if !hasKey {
+		return errors.Required("ids", "query")
+	}
+
+	idsIC := rawData
+
+	if len(idsIC) == 0 {
+		return errors.Required("ids", "query")
+	}
+
+	var idsIR []string
+	for _, idsIV := range idsIC {
+		idsI := idsIV
+
+		idsIR = append(idsIR, idsI)
+	}
+
+	o.Ids = idsIR
+
+	return nil
+}
+
 func (o *WeaviateLocationsListParams) bindKey(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
@@ -184,6 +268,24 @@ func (o *WeaviateLocationsListParams) bindKey(rawData []string, hasKey bool, for
 	}
 
 	o.Key = &raw
+
+	return nil
+}
+
+func (o *WeaviateLocationsListParams) bindMaxResults(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	value, err := swag.ConvertInt64(raw)
+	if err != nil {
+		return errors.InvalidType("maxResults", "query", "int64", raw)
+	}
+	o.MaxResults = &value
 
 	return nil
 }
@@ -232,6 +334,38 @@ func (o *WeaviateLocationsListParams) bindQuotaUser(rawData []string, hasKey boo
 	}
 
 	o.QuotaUser = &raw
+
+	return nil
+}
+
+func (o *WeaviateLocationsListParams) bindStartIndex(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	value, err := swag.ConvertInt64(raw)
+	if err != nil {
+		return errors.InvalidType("startIndex", "query", "int64", raw)
+	}
+	o.StartIndex = &value
+
+	return nil
+}
+
+func (o *WeaviateLocationsListParams) bindToken(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	o.Token = &raw
 
 	return nil
 }

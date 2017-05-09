@@ -63,11 +63,11 @@ type WeaviateAdaptersPatchParams struct {
 	  Default: "json"
 	*/
 	Alt *string
-	/*
+	/*JSONPatch document as defined by RFC 6902.
 	  Required: true
 	  In: body
 	*/
-	Body *models.Adapter
+	Body []*models.PatchDocument
 	/*Selector specifying which fields to include in a partial response.
 	  In: query
 	*/
@@ -115,7 +115,7 @@ func (o *WeaviateAdaptersPatchParams) BindRequest(r *http.Request, route *middle
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.Adapter
+		var body []*models.PatchDocument
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))
@@ -124,12 +124,15 @@ func (o *WeaviateAdaptersPatchParams) BindRequest(r *http.Request, route *middle
 			}
 
 		} else {
-			if err := body.Validate(route.Formats); err != nil {
-				res = append(res, err)
+			for _, io := range o.Body {
+				if err := io.Validate(route.Formats); err != nil {
+					res = append(res, err)
+					break
+				}
 			}
 
 			if len(res) == 0 {
-				o.Body = &body
+				o.Body = body
 			}
 		}
 

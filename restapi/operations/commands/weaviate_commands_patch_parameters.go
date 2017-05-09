@@ -58,11 +58,11 @@ type WeaviateCommandsPatchParams struct {
 	  Default: "json"
 	*/
 	Alt *string
-	/*
+	/*JSONPatch document as defined by RFC 6902.
 	  Required: true
 	  In: body
 	*/
-	Body *models.Command
+	Body []*models.PatchDocument
 	/*Unique command ID.
 	  Required: true
 	  In: path
@@ -114,7 +114,7 @@ func (o *WeaviateCommandsPatchParams) BindRequest(r *http.Request, route *middle
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.Command
+		var body []*models.PatchDocument
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))
@@ -123,12 +123,15 @@ func (o *WeaviateCommandsPatchParams) BindRequest(r *http.Request, route *middle
 			}
 
 		} else {
-			if err := body.Validate(route.Formats); err != nil {
-				res = append(res, err)
+			for _, io := range o.Body {
+				if err := io.Validate(route.Formats); err != nil {
+					res = append(res, err)
+					break
+				}
 			}
 
 			if len(res) == 0 {
-				o.Body = &body
+				o.Body = body
 			}
 		}
 

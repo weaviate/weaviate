@@ -66,6 +66,27 @@ func (o *WeaviateLocationsPatchOK) WriteResponse(rw http.ResponseWriter, produce
 	}
 }
 
+// WeaviateLocationsPatchNotFoundCode is the HTTP code returned for type WeaviateLocationsPatchNotFound
+const WeaviateLocationsPatchNotFoundCode int = 404
+
+/*WeaviateLocationsPatchNotFound Successful query result but no resource was found.
+
+swagger:response weaviateLocationsPatchNotFound
+*/
+type WeaviateLocationsPatchNotFound struct {
+}
+
+// NewWeaviateLocationsPatchNotFound creates WeaviateLocationsPatchNotFound with default headers values
+func NewWeaviateLocationsPatchNotFound() *WeaviateLocationsPatchNotFound {
+	return &WeaviateLocationsPatchNotFound{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateLocationsPatchNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(404)
+}
+
 // WeaviateLocationsPatchNotImplementedCode is the HTTP code returned for type WeaviateLocationsPatchNotImplemented
 const WeaviateLocationsPatchNotImplementedCode int = 501
 

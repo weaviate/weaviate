@@ -27,10 +27,15 @@ import (
 type WeaviateLocationsListURL struct {
 	Alt         *string
 	Fields      *string
+	Hl          *string
+	Ids         []string
 	Key         *string
+	MaxResults  *int64
 	OauthToken  *string
 	PrettyPrint *bool
 	QuotaUser   *string
+	StartIndex  *int64
+	Token       *string
 	UserIP      *string
 
 	_basePath string
@@ -83,12 +88,42 @@ func (o *WeaviateLocationsListURL) Build() (*url.URL, error) {
 		qs.Set("fields", fields)
 	}
 
+	var hl string
+	if o.Hl != nil {
+		hl = *o.Hl
+	}
+	if hl != "" {
+		qs.Set("hl", hl)
+	}
+
+	var idsIR []string
+	for _, idsI := range o.Ids {
+		idsIS := idsI
+		if idsIS != "" {
+			idsIR = append(idsIR, idsIS)
+		}
+	}
+
+	ids := swag.JoinByFormat(idsIR, "multi")
+
+	for _, qsv := range ids {
+		qs.Add("ids", qsv)
+	}
+
 	var key string
 	if o.Key != nil {
 		key = *o.Key
 	}
 	if key != "" {
 		qs.Set("key", key)
+	}
+
+	var maxResults string
+	if o.MaxResults != nil {
+		maxResults = swag.FormatInt64(*o.MaxResults)
+	}
+	if maxResults != "" {
+		qs.Set("maxResults", maxResults)
 	}
 
 	var oauthToken string
@@ -113,6 +148,22 @@ func (o *WeaviateLocationsListURL) Build() (*url.URL, error) {
 	}
 	if quotaUser != "" {
 		qs.Set("quotaUser", quotaUser)
+	}
+
+	var startIndex string
+	if o.StartIndex != nil {
+		startIndex = swag.FormatInt64(*o.StartIndex)
+	}
+	if startIndex != "" {
+		qs.Set("startIndex", startIndex)
+	}
+
+	var token string
+	if o.Token != nil {
+		token = *o.Token
+	}
+	if token != "" {
+		qs.Set("token", token)
 	}
 
 	var userIP string

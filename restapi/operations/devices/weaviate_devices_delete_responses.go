@@ -42,6 +42,27 @@ func (o *WeaviateDevicesDeleteNoContent) WriteResponse(rw http.ResponseWriter, p
 	rw.WriteHeader(204)
 }
 
+// WeaviateDevicesDeleteNotFoundCode is the HTTP code returned for type WeaviateDevicesDeleteNotFound
+const WeaviateDevicesDeleteNotFoundCode int = 404
+
+/*WeaviateDevicesDeleteNotFound Successful query result but no resource was found.
+
+swagger:response weaviateDevicesDeleteNotFound
+*/
+type WeaviateDevicesDeleteNotFound struct {
+}
+
+// NewWeaviateDevicesDeleteNotFound creates WeaviateDevicesDeleteNotFound with default headers values
+func NewWeaviateDevicesDeleteNotFound() *WeaviateDevicesDeleteNotFound {
+	return &WeaviateDevicesDeleteNotFound{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateDevicesDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(404)
+}
+
 // WeaviateDevicesDeleteNotImplementedCode is the HTTP code returned for type WeaviateDevicesDeleteNotImplemented
 const WeaviateDevicesDeleteNotImplementedCode int = 501
 

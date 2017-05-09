@@ -66,25 +66,25 @@ func (o *WeaviateCommandsGetQueueOK) WriteResponse(rw http.ResponseWriter, produ
 	}
 }
 
-// WeaviateCommandsGetQueueNoContentCode is the HTTP code returned for type WeaviateCommandsGetQueueNoContent
-const WeaviateCommandsGetQueueNoContentCode int = 204
+// WeaviateCommandsGetQueueNotFoundCode is the HTTP code returned for type WeaviateCommandsGetQueueNotFound
+const WeaviateCommandsGetQueueNotFoundCode int = 404
 
-/*WeaviateCommandsGetQueueNoContent Successful query result but no content
+/*WeaviateCommandsGetQueueNotFound Successful query result but no resource was found.
 
-swagger:response weaviateCommandsGetQueueNoContent
+swagger:response weaviateCommandsGetQueueNotFound
 */
-type WeaviateCommandsGetQueueNoContent struct {
+type WeaviateCommandsGetQueueNotFound struct {
 }
 
-// NewWeaviateCommandsGetQueueNoContent creates WeaviateCommandsGetQueueNoContent with default headers values
-func NewWeaviateCommandsGetQueueNoContent() *WeaviateCommandsGetQueueNoContent {
-	return &WeaviateCommandsGetQueueNoContent{}
+// NewWeaviateCommandsGetQueueNotFound creates WeaviateCommandsGetQueueNotFound with default headers values
+func NewWeaviateCommandsGetQueueNotFound() *WeaviateCommandsGetQueueNotFound {
+	return &WeaviateCommandsGetQueueNotFound{}
 }
 
 // WriteResponse to the client
-func (o *WeaviateCommandsGetQueueNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateCommandsGetQueueNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(404)
 }
 
 // WeaviateCommandsGetQueueNotImplementedCode is the HTTP code returned for type WeaviateCommandsGetQueueNotImplemented
