@@ -66,25 +66,25 @@ func (o *WeaviateCommandsListOK) WriteResponse(rw http.ResponseWriter, producer 
 	}
 }
 
-// WeaviateCommandsListNoContentCode is the HTTP code returned for type WeaviateCommandsListNoContent
-const WeaviateCommandsListNoContentCode int = 204
+// WeaviateCommandsListNotFoundCode is the HTTP code returned for type WeaviateCommandsListNotFound
+const WeaviateCommandsListNotFoundCode int = 404
 
-/*WeaviateCommandsListNoContent Successful query result but no content
+/*WeaviateCommandsListNotFound Successful query result but no resource was found.
 
-swagger:response weaviateCommandsListNoContent
+swagger:response weaviateCommandsListNotFound
 */
-type WeaviateCommandsListNoContent struct {
+type WeaviateCommandsListNotFound struct {
 }
 
-// NewWeaviateCommandsListNoContent creates WeaviateCommandsListNoContent with default headers values
-func NewWeaviateCommandsListNoContent() *WeaviateCommandsListNoContent {
-	return &WeaviateCommandsListNoContent{}
+// NewWeaviateCommandsListNotFound creates WeaviateCommandsListNotFound with default headers values
+func NewWeaviateCommandsListNotFound() *WeaviateCommandsListNotFound {
+	return &WeaviateCommandsListNotFound{}
 }
 
 // WriteResponse to the client
-func (o *WeaviateCommandsListNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateCommandsListNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(404)
 }
 
 // WeaviateCommandsListNotImplementedCode is the HTTP code returned for type WeaviateCommandsListNotImplemented

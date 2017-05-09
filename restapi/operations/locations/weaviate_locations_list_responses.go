@@ -66,25 +66,25 @@ func (o *WeaviateLocationsListOK) WriteResponse(rw http.ResponseWriter, producer
 	}
 }
 
-// WeaviateLocationsListNoContentCode is the HTTP code returned for type WeaviateLocationsListNoContent
-const WeaviateLocationsListNoContentCode int = 204
+// WeaviateLocationsListNotFoundCode is the HTTP code returned for type WeaviateLocationsListNotFound
+const WeaviateLocationsListNotFoundCode int = 404
 
-/*WeaviateLocationsListNoContent Successful query result but no content
+/*WeaviateLocationsListNotFound Successful query result but no resource was found.
 
-swagger:response weaviateLocationsListNoContent
+swagger:response weaviateLocationsListNotFound
 */
-type WeaviateLocationsListNoContent struct {
+type WeaviateLocationsListNotFound struct {
 }
 
-// NewWeaviateLocationsListNoContent creates WeaviateLocationsListNoContent with default headers values
-func NewWeaviateLocationsListNoContent() *WeaviateLocationsListNoContent {
-	return &WeaviateLocationsListNoContent{}
+// NewWeaviateLocationsListNotFound creates WeaviateLocationsListNotFound with default headers values
+func NewWeaviateLocationsListNotFound() *WeaviateLocationsListNotFound {
+	return &WeaviateLocationsListNotFound{}
 }
 
 // WriteResponse to the client
-func (o *WeaviateLocationsListNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateLocationsListNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(404)
 }
 
 // WeaviateLocationsListNotImplementedCode is the HTTP code returned for type WeaviateLocationsListNotImplemented

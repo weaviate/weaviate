@@ -66,6 +66,27 @@ func (o *WeaviateModelManifestsUpdateOK) WriteResponse(rw http.ResponseWriter, p
 	}
 }
 
+// WeaviateModelManifestsUpdateNotFoundCode is the HTTP code returned for type WeaviateModelManifestsUpdateNotFound
+const WeaviateModelManifestsUpdateNotFoundCode int = 404
+
+/*WeaviateModelManifestsUpdateNotFound Successful query result but no resource was found.
+
+swagger:response weaviateModelManifestsUpdateNotFound
+*/
+type WeaviateModelManifestsUpdateNotFound struct {
+}
+
+// NewWeaviateModelManifestsUpdateNotFound creates WeaviateModelManifestsUpdateNotFound with default headers values
+func NewWeaviateModelManifestsUpdateNotFound() *WeaviateModelManifestsUpdateNotFound {
+	return &WeaviateModelManifestsUpdateNotFound{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(404)
+}
+
 // WeaviateModelManifestsUpdateNotImplementedCode is the HTTP code returned for type WeaviateModelManifestsUpdateNotImplemented
 const WeaviateModelManifestsUpdateNotImplementedCode int = 501
 

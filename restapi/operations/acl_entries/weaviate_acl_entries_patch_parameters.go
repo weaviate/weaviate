@@ -63,11 +63,11 @@ type WeaviateACLEntriesPatchParams struct {
 	  Default: "json"
 	*/
 	Alt *string
-	/*
+	/*JSONPatch document as defined by RFC 6902.
 	  Required: true
 	  In: body
 	*/
-	Body *models.ACLEntry
+	Body []*models.PatchDocument
 	/*ID of the device to use.
 	  Required: true
 	  In: path
@@ -124,7 +124,7 @@ func (o *WeaviateACLEntriesPatchParams) BindRequest(r *http.Request, route *midd
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.ACLEntry
+		var body []*models.PatchDocument
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))
@@ -133,12 +133,15 @@ func (o *WeaviateACLEntriesPatchParams) BindRequest(r *http.Request, route *midd
 			}
 
 		} else {
-			if err := body.Validate(route.Formats); err != nil {
-				res = append(res, err)
+			for _, io := range o.Body {
+				if err := io.Validate(route.Formats); err != nil {
+					res = append(res, err)
+					break
+				}
 			}
 
 			if len(res) == 0 {
-				o.Body = &body
+				o.Body = body
 			}
 		}
 

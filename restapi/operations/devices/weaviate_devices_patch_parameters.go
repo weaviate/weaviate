@@ -58,11 +58,11 @@ type WeaviateDevicesPatchParams struct {
 	  Default: "json"
 	*/
 	Alt *string
-	/*
+	/*JSONPatch document as defined by RFC 6902.
 	  Required: true
 	  In: body
 	*/
-	Body *models.Device
+	Body []*models.PatchDocument
 	/*Unique ID of the device.
 	  Required: true
 	  In: path
@@ -118,7 +118,7 @@ func (o *WeaviateDevicesPatchParams) BindRequest(r *http.Request, route *middlew
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.Device
+		var body []*models.PatchDocument
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))
@@ -127,12 +127,15 @@ func (o *WeaviateDevicesPatchParams) BindRequest(r *http.Request, route *middlew
 			}
 
 		} else {
-			if err := body.Validate(route.Formats); err != nil {
-				res = append(res, err)
+			for _, io := range o.Body {
+				if err := io.Validate(route.Formats); err != nil {
+					res = append(res, err)
+					break
+				}
 			}
 
 			if len(res) == 0 {
-				o.Body = &body
+				o.Body = body
 			}
 		}
 

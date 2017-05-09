@@ -66,25 +66,25 @@ func (o *WeaviateEventsListOK) WriteResponse(rw http.ResponseWriter, producer ru
 	}
 }
 
-// WeaviateEventsListNoContentCode is the HTTP code returned for type WeaviateEventsListNoContent
-const WeaviateEventsListNoContentCode int = 204
+// WeaviateEventsListNotFoundCode is the HTTP code returned for type WeaviateEventsListNotFound
+const WeaviateEventsListNotFoundCode int = 404
 
-/*WeaviateEventsListNoContent Successful query result but no content
+/*WeaviateEventsListNotFound Successful query result but no resource was found.
 
-swagger:response weaviateEventsListNoContent
+swagger:response weaviateEventsListNotFound
 */
-type WeaviateEventsListNoContent struct {
+type WeaviateEventsListNotFound struct {
 }
 
-// NewWeaviateEventsListNoContent creates WeaviateEventsListNoContent with default headers values
-func NewWeaviateEventsListNoContent() *WeaviateEventsListNoContent {
-	return &WeaviateEventsListNoContent{}
+// NewWeaviateEventsListNotFound creates WeaviateEventsListNotFound with default headers values
+func NewWeaviateEventsListNotFound() *WeaviateEventsListNotFound {
+	return &WeaviateEventsListNotFound{}
 }
 
 // WriteResponse to the client
-func (o *WeaviateEventsListNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateEventsListNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(204)
+	rw.WriteHeader(404)
 }
 
 // WeaviateEventsListNotImplementedCode is the HTTP code returned for type WeaviateEventsListNotImplemented

@@ -42,6 +42,27 @@ func (o *WeaviateModelManifestsDeleteNoContent) WriteResponse(rw http.ResponseWr
 	rw.WriteHeader(204)
 }
 
+// WeaviateModelManifestsDeleteNotFoundCode is the HTTP code returned for type WeaviateModelManifestsDeleteNotFound
+const WeaviateModelManifestsDeleteNotFoundCode int = 404
+
+/*WeaviateModelManifestsDeleteNotFound Successful query result but no resource was found.
+
+swagger:response weaviateModelManifestsDeleteNotFound
+*/
+type WeaviateModelManifestsDeleteNotFound struct {
+}
+
+// NewWeaviateModelManifestsDeleteNotFound creates WeaviateModelManifestsDeleteNotFound with default headers values
+func NewWeaviateModelManifestsDeleteNotFound() *WeaviateModelManifestsDeleteNotFound {
+	return &WeaviateModelManifestsDeleteNotFound{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(404)
+}
+
 // WeaviateModelManifestsDeleteNotImplementedCode is the HTTP code returned for type WeaviateModelManifestsDeleteNotImplemented
 const WeaviateModelManifestsDeleteNotImplementedCode int = 501
 
