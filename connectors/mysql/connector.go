@@ -54,10 +54,6 @@ func (f *Mysql) Get(Uuid string) (dbconnector.DatabaseObject, error) {
 	return task, nil
 }
 
-func (f *Mysql) Delete(Uuid string) error {
-	return nil
-}
-
 func (f *Mysql) List(refType string, limit int) ([]dbconnector.DatabaseObject, error) {
 	dataObjs := []dbconnector.DatabaseObject{}
 

@@ -28,8 +28,8 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"net/http"
-	"strings"
 
+	jsonpatch "github.com/evanphx/json-patch"
 	errors "github.com/go-openapi/errors"
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
@@ -211,16 +211,35 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE LOCATIONS
 	 */
 	api.LocationsWeaviateLocationsDeleteHandler = locations.WeaviateLocationsDeleteHandlerFunc(func(params locations.WeaviateLocationsDeleteParams) middleware.Responder {
-		// Delete item from database
-		err := databaseConnector.Delete(params.LocationID)
+		// Get item from database
+		databaseObject, errGet := databaseConnector.Get(params.LocationID)
 
-		// TODO: Not found response
-		// TODO: Deleted response
-
-		if err != nil {
-			panic(err)
+		// Not found
+		if errGet != nil {
+			//return locations.NewWeaviateLocationsDeleteNotFound()
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(404)
+				rw.Write([]byte("{ \"ERROR\": \"Not found\" }"))
+			})
 		}
 
+		// Already deleted
+		if databaseObject.Deleted {
+			//return locations.NewWeaviateLocationsDeleteNotFound() ??
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(404)
+				rw.Write([]byte("{ \"ERROR\": \"Already deleted\" }"))
+			})
+		}
+
+		// Set deleted values
+		databaseObject.Deleted = true
+		databaseObject.SetTimeToNow()
+
+		// Add new row as GO-routine
+		go databaseConnector.Add(databaseObject)
+
+		// Return 'No Content'
 		return locations.NewWeaviateLocationsDeleteNoContent()
 	})
 	api.LocationsWeaviateLocationsGetHandler = locations.WeaviateLocationsGetHandlerFunc(func(params locations.WeaviateLocationsGetParams) middleware.Responder {
@@ -231,15 +250,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		object := &models.Location{}
 		json.Unmarshal([]byte(result.Object), &object)
 
-		objectID := strings.TrimSpace(object.ID)
-
 		// If there are no results, the Object ID = 0
-		if len(objectID) == 0 && err == nil {
-			// return SUCCESS of query but no content.
+		if len(object.ID) == 0 && err == nil {
+			// Object not found response.
 			return locations.NewWeaviateLocationsGetNotFound()
 		}
 
-		// return SUCCESS
+		// Get is successful
 		return locations.NewWeaviateLocationsGetOK().WithPayload(object)
 
 	})
@@ -248,7 +265,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		validated := true
 
 		// return error
-		if validated == false {
+		if !validated {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
 				rw.Write([]byte("{ \"ERROR\": \"There is something wrong with your original POSTed body\" }"))
@@ -268,7 +285,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 			return locations.NewWeaviateLocationsInsertAccepted().WithPayload(params.Body)
 		}
-
 	})
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams) middleware.Responder {
 		// Show all locations with List function, get max results in URL, otherwise max = 10.
@@ -295,14 +311,49 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return locations.NewWeaviateLocationsListOK().WithPayload(locationsListResponse)
 	})
 	api.LocationsWeaviateLocationsPatchHandler = locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams) middleware.Responder {
-		return middleware.NotImplemented("operation locations.WeaviateLocationsPatch has not yet been implemented")
+		// Get PATCH params in format RFC 6902
+		jsonBody, _ := json.Marshal(params.Body)
+
+		// Get and transform object
+		// TODO: Use errors
+		// TODO: 404 not found
+		UUID := params.LocationID
+		dbObject, _ := databaseConnector.Get(UUID)
+
+		// Transform using JSON input
+		patchObject, _ := jsonpatch.DecodePatch([]byte(jsonBody))
+		updatedJSON, _ := patchObject.Apply([]byte(dbObject.Object))
+
+		// Set patched JSON back in dbObject
+		dbObject.Object = string(updatedJSON)
+
+		dbObject.SetTimeToNow()
+		//go databaseConnector.Add(dbObject)
+
+		// Create return Object
+		returnObject := &models.Location{}
+		json.Unmarshal([]byte(updatedJSON), &returnObject)
+
+		return locations.NewWeaviateLocationsPatchOK().WithPayload(returnObject)
 	})
 	api.LocationsWeaviateLocationsUpdateHandler = locations.WeaviateLocationsUpdateHandlerFunc(func(params locations.WeaviateLocationsUpdateParams) middleware.Responder {
 		// Get item from database
 		UUID := params.LocationID
 		dbObject, _ := databaseConnector.Get(UUID)
 
-		// TODO: Add item not found 404
+		// Create object to return
+		object := &models.Location{}
+		json.Unmarshal([]byte(dbObject.Object), &object)
+
+		// If there are no results, the Object ID = 0
+		if len(object.ID) == 0 && err == nil {
+			// Object not found response.
+			//return locations.NewWeaviateLocationsUpdateNotFound()
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(404)
+				rw.Write([]byte("{ \"ERROR\": \"Not found\" }"))
+			})
+		}
 
 		// TODO: VALIDATE IF THE OBJECT IS OKAY
 		validated := true
