@@ -22,7 +22,6 @@ import (
 
 	"cloud.google.com/go/datastore"
 	"fmt"
-	"time"
 )
 
 // Datastore has some basic variables.
@@ -90,28 +89,6 @@ func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 	}
 
 	return object[0], nil
-}
-
-// Delete item from Datastore by changing deleted status
-func (f *Datastore) Delete(uuid string) error {
-	databaseObject, errGet := f.Get(uuid)
-
-	// Not found or deleted
-	if errGet != nil {
-		return errGet
-	}
-
-	databaseObject.Deleted = true
-	databaseObject.CreateTimeMs = time.Now().UnixNano() / int64(time.Millisecond)
-
-	_, errAdd := f.Add(databaseObject)
-
-	// Cannot add
-	if errAdd != nil {
-		return errAdd
-	}
-
-	return nil
 }
 
 // List lists the items from Datastore by refType and limit

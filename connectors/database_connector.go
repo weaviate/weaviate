@@ -29,6 +29,7 @@ type DatabaseObject struct {
 }
 
 // NewDatabaseObject creates a new object with default values
+// Note: TODO EXPLAIN FLOW
 func NewDatabaseObject(owner string, refType string) *DatabaseObject {
 	dbo := new(DatabaseObject)
 
@@ -59,6 +60,5 @@ type DatabaseConnector interface {
 	Connect() error
 	Add(DatabaseObject) (string, error)
 	Get(string) (DatabaseObject, error)
-	Delete(string) error
 	List(string, int) ([]DatabaseObject, error)
 }
