@@ -12,6 +12,13 @@
  */
 package dbconnector
 
+import (
+	"fmt"
+	gouuid "github.com/satori/go.uuid"
+	"time"
+)
+
+// DatabaseObject for a new row in de database
 type DatabaseObject struct {
 	Uuid         string // uuid, also used in Object's id
 	Owner        string // uuid of the owner
@@ -21,7 +28,33 @@ type DatabaseObject struct {
 	Deleted      bool   // if true, it does not exsist anymore
 }
 
-// The interface that all connectors should have
+// NewDatabaseObject creates a new object with default values
+func NewDatabaseObject(owner string, refType string) *DatabaseObject {
+	dbo := new(DatabaseObject)
+
+	// Set default values
+	dbo.GenerateAndSetUUID()
+	dbo.SetTimeToNow()
+	dbo.Deleted = false
+
+	// Set values by function params
+	dbo.Owner = owner
+	dbo.RefType = refType
+
+	return dbo
+}
+
+// SetTimeToNow gives the Object the current time in mili seconds
+func (f *DatabaseObject) SetTimeToNow() {
+	f.CreateTimeMs = time.Now().UnixNano() / int64(time.Millisecond)
+}
+
+// GenerateAndSetUUID generates and sets a new Uuid
+func (f *DatabaseObject) GenerateAndSetUUID() {
+	f.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
+}
+
+// DatabaseConnector is the interface that all connectors should have
 type DatabaseConnector interface {
 	Connect() error
 	Add(DatabaseObject) (string, error)
