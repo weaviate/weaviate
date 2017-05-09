@@ -224,7 +224,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return locations.NewWeaviateLocationsDeleteNoContent()
 	})
 	api.LocationsWeaviateLocationsGetHandler = locations.WeaviateLocationsGetHandlerFunc(func(params locations.WeaviateLocationsGetParams) middleware.Responder {
-
 		// Get item from database
 		result, err := databaseConnector.Get(params.LocationID)
 
@@ -233,8 +232,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(result.Object), &object)
 
 		objectID := strings.TrimSpace(object.ID)
-
-		println("'", objectID, "'")
 
 		// If there are no results, the Object ID = 0
 		if len(objectID) == 0 && err == nil {
@@ -247,10 +244,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	})
 	api.LocationsWeaviateLocationsInsertHandler = locations.WeaviateLocationsInsertHandlerFunc(func(params locations.WeaviateLocationsInsertParams) middleware.Responder {
-
-		/*
-		 * TODO VALIDATE IF THE OBJECT IS OKAY
-		 */
+		// TODO: VALIDATE IF THE OBJECT IS OKAY
 		validated := true
 
 		// return error
@@ -304,7 +298,33 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation locations.WeaviateLocationsPatch has not yet been implemented")
 	})
 	api.LocationsWeaviateLocationsUpdateHandler = locations.WeaviateLocationsUpdateHandlerFunc(func(params locations.WeaviateLocationsUpdateParams) middleware.Responder {
-		return middleware.NotImplemented("operation locations.WeaviateLocationsUpdate has not yet been implemented")
+		// Get item from database
+		UUID := params.LocationID
+		dbObject, _ := databaseConnector.Get(UUID)
+
+		// TODO: Add item not found 404
+
+		// TODO: VALIDATE IF THE OBJECT IS OKAY
+		validated := true
+
+		// return error
+		if validated == false {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(422)
+				rw.Write([]byte("{ \"ERROR\": \"There is something wrong with your original POSTed body\" }"))
+			})
+		} else {
+			// Set the body-id and generate JSON to save to the database
+			databaseBody, _ := json.Marshal(params.Body)
+			dbObject.Object = string(databaseBody)
+			dbObject.SetTimeToNow()
+
+			// Save to DB, this needs to be a Go routine because we will return an accepted
+			go databaseConnector.Add(dbObject)
+
+			// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+			return locations.NewWeaviateLocationsUpdateOK().WithPayload(params.Body)
+		}
 	})
 
 	/*
