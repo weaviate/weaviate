@@ -1662,6 +1662,126 @@ func init() {
         }
       ]
     },
+    "/keys": {
+      "post": {
+        "description": "Creates a new key.",
+        "tags": [
+          "keys"
+        ],
+        "operationId": "weaviate.key.create",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/KeyCreate"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/Key"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      }
+    },
+    "/keys/{keyId}": {
+      "get": {
+        "description": "Get a key.",
+        "tags": [
+          "keys"
+        ],
+        "operationId": "weaviate.keys.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Unique ID of the key.",
+            "name": "keyId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/Key"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "delete": {
+        "description": "Deletes a key. Only parent or self is allowed to delete key.",
+        "tags": [
+          "keys"
+        ],
+        "operationId": "weaviate.keys.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "keyId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful deleted."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      }
+    },
+    "/keys/{keyId}/children": {
+      "get": {
+        "description": "Get children or a key, only one step deep. A child can have children of its own.",
+        "tags": [
+          "keys"
+        ],
+        "operationId": "weaviate.children.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Unique ID of the key.",
+            "name": "keyId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyChildren"
+            }
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented"
+          }
+        }
+      }
+    },
     "/locations": {
       "get": {
         "description": "Lists all locations.",
@@ -1670,17 +1790,6 @@ func init() {
         ],
         "operationId": "weaviate.locations.list",
         "parameters": [
-          {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "collectionFormat": "multi",
-            "description": "Location IDs to include in the result",
-            "name": "ids",
-            "in": "query",
-            "required": true
-          },
           {
             "type": "string",
             "description": "Specifies the language code that should be used for text values in the API response.",
@@ -1939,17 +2048,6 @@ func init() {
         ],
         "operationId": "weaviate.modelManifests.list",
         "parameters": [
-          {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "collectionFormat": "multi",
-            "description": "Model manifest IDs to include in the result",
-            "name": "ids",
-            "in": "query",
-            "required": true
-          },
           {
             "type": "string",
             "description": "Specifies the language code that should be used for text values in the API response.",
@@ -2359,30 +2457,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         }
-      },
-      "parameters": [
-        {
-          "$ref": "#/parameters/alt"
-        },
-        {
-          "$ref": "#/parameters/fields"
-        },
-        {
-          "$ref": "#/parameters/key"
-        },
-        {
-          "$ref": "#/parameters/oauth_token"
-        },
-        {
-          "$ref": "#/parameters/prettyPrint"
-        },
-        {
-          "$ref": "#/parameters/quotaUser"
-        },
-        {
-          "$ref": "#/parameters/userIp"
-        }
-      ]
+      }
     }
   },
   "definitions": {
@@ -3152,6 +3227,82 @@ func init() {
     "JsonValue": {
       "description": "JSON value -- union over JSON value types."
     },
+    "Key": {
+      "properties": {
+        "delete": {
+          "description": "Is user allowed to delete.",
+          "type": "boolean"
+        },
+        "email": {
+          "description": "Email associated with this account.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Id of the key.",
+          "type": "string"
+        },
+        "ipOrigin": {
+          "description": "Origin of the IP using CIDR notation.",
+          "type": "string"
+        },
+        "key": {
+          "description": "Key for user to use.",
+          "type": "string"
+        },
+        "keyExpiresMs": {
+          "description": "Time in milliseconds that the key expires. Set to 0 for never.",
+          "type": "number"
+        },
+        "parent": {
+          "description": "Parent key. A parent allways has access to a child. Root key has parent value 0. Only a user with a root of 0 can set a root key.",
+          "type": "string"
+        },
+        "read": {
+          "description": "Is user allowed to read.",
+          "type": "boolean"
+        },
+        "write": {
+          "description": "Is user allowed to write.",
+          "type": "boolean"
+        }
+      }
+    },
+    "KeyChildren": {
+      "properties": {
+        "childeren": {
+          "description": "Childeren one step deep.",
+          "type": "array"
+        }
+      }
+    },
+    "KeyCreate": {
+      "properties": {
+        "delete": {
+          "description": "Is user allowed to delete.",
+          "type": "boolean"
+        },
+        "email": {
+          "description": "Email associated with this account.",
+          "type": "string"
+        },
+        "ipOrigin": {
+          "description": "Origin of the IP using CIDR notation.",
+          "type": "string"
+        },
+        "keyExpiresUnix": {
+          "description": "Time as Unix timestamp that the key expires. Set to 0 for never.",
+          "type": "number"
+        },
+        "read": {
+          "description": "Is user allowed to read.",
+          "type": "boolean"
+        },
+        "write": {
+          "description": "Is user allowed to write.",
+          "type": "boolean"
+        }
+      }
+    },
     "LocalAccessEntry": {
       "type": "object",
       "properties": {
@@ -3767,6 +3918,11 @@ func init() {
       "in": "header"
     }
   },
+  "security": [
+    {
+      "apiKey": []
+    }
+  ],
   "tags": [
     {
       "name": "adapters"
@@ -3785,6 +3941,9 @@ func init() {
     },
     {
       "name": "modelManifests"
+    },
+    {
+      "name": "keys"
     }
   ],
   "externalDocs": {

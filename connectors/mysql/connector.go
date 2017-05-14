@@ -59,3 +59,8 @@ func (f *Mysql) List(refType string, limit int) ([]dbconnector.DatabaseObject, e
 
 	return dataObjs, nil
 }
+
+// Validate if a user has access, returns permissions object
+func (f *Mysql) ValidateUser(token string) bool {
+	return false
+}

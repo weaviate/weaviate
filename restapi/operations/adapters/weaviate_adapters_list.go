@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateAdaptersListHandlerFunc turns a function with the right signature into a weaviate adapters list handler
-type WeaviateAdaptersListHandlerFunc func(WeaviateAdaptersListParams) middleware.Responder
+type WeaviateAdaptersListHandlerFunc func(WeaviateAdaptersListParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateAdaptersListHandlerFunc) Handle(params WeaviateAdaptersListParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateAdaptersListHandlerFunc) Handle(params WeaviateAdaptersListParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateAdaptersListHandler interface for that can handle valid weaviate adapters list params
 type WeaviateAdaptersListHandler interface {
-	Handle(WeaviateAdaptersListParams) middleware.Responder
+	Handle(WeaviateAdaptersListParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateAdaptersList creates a new http.Handler for the weaviate adapters list operation
@@ -53,12 +53,22 @@ func (o *WeaviateAdaptersList) ServeHTTP(rw http.ResponseWriter, r *http.Request
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateAdaptersListParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

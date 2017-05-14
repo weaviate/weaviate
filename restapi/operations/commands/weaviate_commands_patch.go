@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateCommandsPatchHandlerFunc turns a function with the right signature into a weaviate commands patch handler
-type WeaviateCommandsPatchHandlerFunc func(WeaviateCommandsPatchParams) middleware.Responder
+type WeaviateCommandsPatchHandlerFunc func(WeaviateCommandsPatchParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateCommandsPatchHandlerFunc) Handle(params WeaviateCommandsPatchParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateCommandsPatchHandlerFunc) Handle(params WeaviateCommandsPatchParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateCommandsPatchHandler interface for that can handle valid weaviate commands patch params
 type WeaviateCommandsPatchHandler interface {
-	Handle(WeaviateCommandsPatchParams) middleware.Responder
+	Handle(WeaviateCommandsPatchParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateCommandsPatch creates a new http.Handler for the weaviate commands patch operation
@@ -53,12 +53,22 @@ func (o *WeaviateCommandsPatch) ServeHTTP(rw http.ResponseWriter, r *http.Reques
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateCommandsPatchParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

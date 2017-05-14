@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateACLEntriesDeleteHandlerFunc turns a function with the right signature into a weaviate acl entries delete handler
-type WeaviateACLEntriesDeleteHandlerFunc func(WeaviateACLEntriesDeleteParams) middleware.Responder
+type WeaviateACLEntriesDeleteHandlerFunc func(WeaviateACLEntriesDeleteParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateACLEntriesDeleteHandlerFunc) Handle(params WeaviateACLEntriesDeleteParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateACLEntriesDeleteHandlerFunc) Handle(params WeaviateACLEntriesDeleteParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateACLEntriesDeleteHandler interface for that can handle valid weaviate acl entries delete params
 type WeaviateACLEntriesDeleteHandler interface {
-	Handle(WeaviateACLEntriesDeleteParams) middleware.Responder
+	Handle(WeaviateACLEntriesDeleteParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateACLEntriesDelete creates a new http.Handler for the weaviate acl entries delete operation
@@ -53,12 +53,22 @@ func (o *WeaviateACLEntriesDelete) ServeHTTP(rw http.ResponseWriter, r *http.Req
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateACLEntriesDeleteParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateEventsListHandlerFunc turns a function with the right signature into a weaviate events list handler
-type WeaviateEventsListHandlerFunc func(WeaviateEventsListParams) middleware.Responder
+type WeaviateEventsListHandlerFunc func(WeaviateEventsListParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateEventsListHandlerFunc) Handle(params WeaviateEventsListParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateEventsListHandlerFunc) Handle(params WeaviateEventsListParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateEventsListHandler interface for that can handle valid weaviate events list params
 type WeaviateEventsListHandler interface {
-	Handle(WeaviateEventsListParams) middleware.Responder
+	Handle(WeaviateEventsListParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateEventsList creates a new http.Handler for the weaviate events list operation
@@ -53,12 +53,22 @@ func (o *WeaviateEventsList) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateEventsListParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
