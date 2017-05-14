@@ -174,6 +174,8 @@ Class | Method | HTTP request | Description
 3. Every parent can access a childs' data all the way down the family tree.
 4. You can create keys for devices, organistations, etcetera. How you decide to organise is up to you. A single project can have different ways of key organisation.
 
+To authenticate add: `X-API-KEY: SOMEKEY` (replace SOMEKEY) as a header to the request.
+
 ### Database support
 
 Weavaite aims to support many databases, the database currently supported is Google Datastore.
