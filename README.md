@@ -169,9 +169,10 @@ Class | Method | HTTP request | Description
 
 ### Authentication
 
-Weaviate uses API-key based authentication.
-
-[soon more]
+1. Weaviate uses API-key based authentication.
+2. A Weaviate key can has multiple childeren, every key can create a child.
+3. Every parent can access a childs' data all the way down the family tree.
+4. You can create keys for devices, organistations, etcetera. How you decide to organise is up to you. A single project can have different ways of key organisation.
 
 ### Database support
 
