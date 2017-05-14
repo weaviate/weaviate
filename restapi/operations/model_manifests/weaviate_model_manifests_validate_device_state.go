@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateModelManifestsValidateDeviceStateHandlerFunc turns a function with the right signature into a weaviate model manifests validate device state handler
-type WeaviateModelManifestsValidateDeviceStateHandlerFunc func(WeaviateModelManifestsValidateDeviceStateParams) middleware.Responder
+type WeaviateModelManifestsValidateDeviceStateHandlerFunc func(WeaviateModelManifestsValidateDeviceStateParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateModelManifestsValidateDeviceStateHandlerFunc) Handle(params WeaviateModelManifestsValidateDeviceStateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateModelManifestsValidateDeviceStateHandlerFunc) Handle(params WeaviateModelManifestsValidateDeviceStateParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateModelManifestsValidateDeviceStateHandler interface for that can handle valid weaviate model manifests validate device state params
 type WeaviateModelManifestsValidateDeviceStateHandler interface {
-	Handle(WeaviateModelManifestsValidateDeviceStateParams) middleware.Responder
+	Handle(WeaviateModelManifestsValidateDeviceStateParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateModelManifestsValidateDeviceState creates a new http.Handler for the weaviate model manifests validate device state operation
@@ -53,12 +53,22 @@ func (o *WeaviateModelManifestsValidateDeviceState) ServeHTTP(rw http.ResponseWr
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateModelManifestsValidateDeviceStateParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

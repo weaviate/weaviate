@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateDevicesListHandlerFunc turns a function with the right signature into a weaviate devices list handler
-type WeaviateDevicesListHandlerFunc func(WeaviateDevicesListParams) middleware.Responder
+type WeaviateDevicesListHandlerFunc func(WeaviateDevicesListParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateDevicesListHandlerFunc) Handle(params WeaviateDevicesListParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateDevicesListHandlerFunc) Handle(params WeaviateDevicesListParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateDevicesListHandler interface for that can handle valid weaviate devices list params
 type WeaviateDevicesListHandler interface {
-	Handle(WeaviateDevicesListParams) middleware.Responder
+	Handle(WeaviateDevicesListParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateDevicesList creates a new http.Handler for the weaviate devices list operation
@@ -53,12 +53,22 @@ func (o *WeaviateDevicesList) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateDevicesListParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

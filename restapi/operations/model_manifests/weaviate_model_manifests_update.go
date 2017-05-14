@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateModelManifestsUpdateHandlerFunc turns a function with the right signature into a weaviate model manifests update handler
-type WeaviateModelManifestsUpdateHandlerFunc func(WeaviateModelManifestsUpdateParams) middleware.Responder
+type WeaviateModelManifestsUpdateHandlerFunc func(WeaviateModelManifestsUpdateParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateModelManifestsUpdateHandlerFunc) Handle(params WeaviateModelManifestsUpdateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateModelManifestsUpdateHandlerFunc) Handle(params WeaviateModelManifestsUpdateParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateModelManifestsUpdateHandler interface for that can handle valid weaviate model manifests update params
 type WeaviateModelManifestsUpdateHandler interface {
-	Handle(WeaviateModelManifestsUpdateParams) middleware.Responder
+	Handle(WeaviateModelManifestsUpdateParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateModelManifestsUpdate creates a new http.Handler for the weaviate model manifests update operation
@@ -53,12 +53,22 @@ func (o *WeaviateModelManifestsUpdate) ServeHTTP(rw http.ResponseWriter, r *http
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateModelManifestsUpdateParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

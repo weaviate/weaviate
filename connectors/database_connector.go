@@ -14,8 +14,9 @@ package dbconnector
 
 import (
 	"fmt"
-	gouuid "github.com/satori/go.uuid"
 	"time"
+
+	gouuid "github.com/satori/go.uuid"
 )
 
 // DatabaseObject for a new row in de database
@@ -61,4 +62,5 @@ type DatabaseConnector interface {
 	Add(DatabaseObject) (string, error)
 	Get(string) (DatabaseObject, error)
 	List(string, int) ([]DatabaseObject, error)
+	ValidateUser(string) bool
 }

@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateEventsRecordDeviceEventsHandlerFunc turns a function with the right signature into a weaviate events record device events handler
-type WeaviateEventsRecordDeviceEventsHandlerFunc func(WeaviateEventsRecordDeviceEventsParams) middleware.Responder
+type WeaviateEventsRecordDeviceEventsHandlerFunc func(WeaviateEventsRecordDeviceEventsParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateEventsRecordDeviceEventsHandlerFunc) Handle(params WeaviateEventsRecordDeviceEventsParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateEventsRecordDeviceEventsHandlerFunc) Handle(params WeaviateEventsRecordDeviceEventsParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateEventsRecordDeviceEventsHandler interface for that can handle valid weaviate events record device events params
 type WeaviateEventsRecordDeviceEventsHandler interface {
-	Handle(WeaviateEventsRecordDeviceEventsParams) middleware.Responder
+	Handle(WeaviateEventsRecordDeviceEventsParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateEventsRecordDeviceEvents creates a new http.Handler for the weaviate events record device events operation
@@ -53,12 +53,22 @@ func (o *WeaviateEventsRecordDeviceEvents) ServeHTTP(rw http.ResponseWriter, r *
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateEventsRecordDeviceEventsParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

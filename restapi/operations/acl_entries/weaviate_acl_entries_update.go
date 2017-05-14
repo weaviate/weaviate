@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateACLEntriesUpdateHandlerFunc turns a function with the right signature into a weaviate acl entries update handler
-type WeaviateACLEntriesUpdateHandlerFunc func(WeaviateACLEntriesUpdateParams) middleware.Responder
+type WeaviateACLEntriesUpdateHandlerFunc func(WeaviateACLEntriesUpdateParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateACLEntriesUpdateHandlerFunc) Handle(params WeaviateACLEntriesUpdateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateACLEntriesUpdateHandlerFunc) Handle(params WeaviateACLEntriesUpdateParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateACLEntriesUpdateHandler interface for that can handle valid weaviate acl entries update params
 type WeaviateACLEntriesUpdateHandler interface {
-	Handle(WeaviateACLEntriesUpdateParams) middleware.Responder
+	Handle(WeaviateACLEntriesUpdateParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateACLEntriesUpdate creates a new http.Handler for the weaviate acl entries update operation
@@ -53,12 +53,22 @@ func (o *WeaviateACLEntriesUpdate) ServeHTTP(rw http.ResponseWriter, r *http.Req
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateACLEntriesUpdateParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

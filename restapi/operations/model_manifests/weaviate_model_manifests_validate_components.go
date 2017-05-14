@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateModelManifestsValidateComponentsHandlerFunc turns a function with the right signature into a weaviate model manifests validate components handler
-type WeaviateModelManifestsValidateComponentsHandlerFunc func(WeaviateModelManifestsValidateComponentsParams) middleware.Responder
+type WeaviateModelManifestsValidateComponentsHandlerFunc func(WeaviateModelManifestsValidateComponentsParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateModelManifestsValidateComponentsHandlerFunc) Handle(params WeaviateModelManifestsValidateComponentsParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateModelManifestsValidateComponentsHandlerFunc) Handle(params WeaviateModelManifestsValidateComponentsParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateModelManifestsValidateComponentsHandler interface for that can handle valid weaviate model manifests validate components params
 type WeaviateModelManifestsValidateComponentsHandler interface {
-	Handle(WeaviateModelManifestsValidateComponentsParams) middleware.Responder
+	Handle(WeaviateModelManifestsValidateComponentsParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateModelManifestsValidateComponents creates a new http.Handler for the weaviate model manifests validate components operation
@@ -53,12 +53,22 @@ func (o *WeaviateModelManifestsValidateComponents) ServeHTTP(rw http.ResponseWri
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateModelManifestsValidateComponentsParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

@@ -23,7 +23,7 @@ Lets you register, view and manage cloud ready devices.
     Contact: Weaviate https://github.com/weaviate/weaviate
 
     Consumes:
-    - application/json-patch+json
+    - application/json
 
     - application/octet-stream
 

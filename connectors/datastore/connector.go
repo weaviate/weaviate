@@ -20,8 +20,9 @@ import (
 	gouuid "github.com/satori/go.uuid"
 	"github.com/weaviate/weaviate/connectors"
 
-	"cloud.google.com/go/datastore"
 	"fmt"
+
+	"cloud.google.com/go/datastore"
 )
 
 // Datastore has some basic variables.
@@ -112,4 +113,9 @@ func (f *Datastore) List(refType string, limit int) ([]dbconnector.DatabaseObjec
 	}
 
 	return dbObjects, nil
+}
+
+// Validate if a user has access, returns permissions object
+func (f *Datastore) ValidateUser(token string) bool {
+	return false
 }

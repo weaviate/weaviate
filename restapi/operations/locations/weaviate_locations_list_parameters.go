@@ -63,12 +63,6 @@ type WeaviateLocationsListParams struct {
 	  In: query
 	*/
 	Hl *string
-	/*Location IDs to include in the result
-	  Required: true
-	  In: query
-	  Collection Format: multi
-	*/
-	Ids []string
 	/*API key. Your API key identifies your project and provides you with API access, quota, and reports. Required unless you provide an OAuth 2.0 token.
 	  In: query
 	*/
@@ -124,11 +118,6 @@ func (o *WeaviateLocationsListParams) BindRequest(r *http.Request, route *middle
 
 	qHl, qhkHl, _ := qs.GetOK("hl")
 	if err := o.bindHl(qHl, qhkHl, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
-	qIds, qhkIds, _ := qs.GetOK("ids")
-	if err := o.bindIds(qIds, qhkIds, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -231,29 +220,6 @@ func (o *WeaviateLocationsListParams) bindHl(rawData []string, hasKey bool, form
 	}
 
 	o.Hl = &raw
-
-	return nil
-}
-
-func (o *WeaviateLocationsListParams) bindIds(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	if !hasKey {
-		return errors.Required("ids", "query")
-	}
-
-	idsIC := rawData
-
-	if len(idsIC) == 0 {
-		return errors.Required("ids", "query")
-	}
-
-	var idsIR []string
-	for _, idsIV := range idsIC {
-		idsI := idsIV
-
-		idsIR = append(idsIR, idsI)
-	}
-
-	o.Ids = idsIR
 
 	return nil
 }
