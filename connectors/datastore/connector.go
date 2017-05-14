@@ -54,6 +54,8 @@ func (f *Datastore) Connect() error {
 func (f *Datastore) Add(dbObject dbconnector.DatabaseObject) (string, error) {
 	ctx := context.Background()
 
+	f.kind = "weaviate"
+
 	nameUUID := fmt.Sprintf("%v", gouuid.NewV4())
 
 	// Creates a Key instance.
@@ -72,6 +74,8 @@ func (f *Datastore) Add(dbObject dbconnector.DatabaseObject) (string, error) {
 // Get DatabaseObject from DB by uuid
 func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 	ctx := context.Background()
+
+	f.kind = "weaviate"
 
 	query := datastore.NewQuery(f.kind).Filter("Uuid =", uuid).Order("-CreateTimeMs").Limit(1)
 
@@ -96,6 +100,8 @@ func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 func (f *Datastore) List(refType string, limit int) ([]dbconnector.DatabaseObject, error) {
 	ctx := context.Background()
 
+	f.kind = "weaviate"
+
 	query := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false).Order("-CreateTimeMs").Limit(limit)
 
 	dbObjects := []dbconnector.DatabaseObject{}
@@ -116,6 +122,22 @@ func (f *Datastore) List(refType string, limit int) ([]dbconnector.DatabaseObjec
 }
 
 // Validate if a user has access, returns permissions object
-func (f *Datastore) ValidateUser(token string) bool {
-	return false
+func (f *Datastore) ValidateUser(token string) []dbconnector.DatabaseUsersObject {
+
+	ctx := context.Background()
+
+	f.kind = "weaviate_users"
+
+	query := datastore.NewQuery(f.kind).Filter("KeyToken =", token).Limit(1)
+
+	dbUsersObjects := []dbconnector.DatabaseUsersObject{}
+
+	_, err := f.client.GetAll(ctx, query, &dbUsersObjects)
+
+	if err != nil {
+		log.Fatalf("Failed to load task: %v", err)
+	}
+
+	// keys are found, return true
+	return dbUsersObjects
 }

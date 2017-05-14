@@ -101,11 +101,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Check if the user has access, true if yes
 		validatedUser := databaseConnector.ValidateUser(token)
 
-		if validatedUser == true {
-			return token, nil
+		if len(validatedUser) == 0 {
+			return nil, errors.New(403, "Provided key is not valid")
 		}
 
-		return nil, errors.New(403, "Provided key is not valid")
+		// key is valid, next step is allowing per Handler handling
+		return validatedUser[0], nil
+
 	}
 
 	/*
@@ -232,6 +234,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE LOCATIONS
 	 */
 	api.LocationsWeaviateLocationsDeleteHandler = locations.WeaviateLocationsDeleteHandlerFunc(func(params locations.WeaviateLocationsDeleteParams, principal interface{}) middleware.Responder {
+
+		// This is a delete function, validate if allowed to read?
+		if dbconnector.DeleteAllowed(principal) == false {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(403)
+				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
+			})
+		}
+
 		// Get item from database
 		databaseObject, errGet := databaseConnector.Get(params.LocationID)
 
@@ -264,6 +275,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return locations.NewWeaviateLocationsDeleteNoContent()
 	})
 	api.LocationsWeaviateLocationsGetHandler = locations.WeaviateLocationsGetHandlerFunc(func(params locations.WeaviateLocationsGetParams, principal interface{}) middleware.Responder {
+
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(403)
+				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
+			})
+		}
+
 		// Get item from database
 		result, err := databaseConnector.Get(params.LocationID)
 
@@ -281,6 +301,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return locations.NewWeaviateLocationsGetOK().WithPayload(object)
 	})
 	api.LocationsWeaviateLocationsInsertHandler = locations.WeaviateLocationsInsertHandlerFunc(func(params locations.WeaviateLocationsInsertParams, principal interface{}) middleware.Responder {
+
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(403)
+				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
+			})
+		}
+
 		// TODO: VALIDATE IF THE OBJECT IS OKAY
 		validated := true
 
@@ -307,8 +336,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 	})
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams, principal interface{}) middleware.Responder {
-		// Show all locations with List function, get max results in URL, otherwise max = 10.
 
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(403)
+				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
+			})
+		}
+
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(403)
+				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
+			})
+		}
+
+		// Show all locations with List function, get max results in URL, otherwise max = 100.
 		limit := 100
 
 		locationDatabaseObjects, err := databaseConnector.List("#/paths/locations", limit)
@@ -331,6 +376,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return locations.NewWeaviateLocationsListOK().WithPayload(locationsListResponse)
 	})
 	api.LocationsWeaviateLocationsPatchHandler = locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams, principal interface{}) middleware.Responder {
+
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(403)
+				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
+			})
+		}
+
 		// Get PATCH params in format RFC 6902
 		jsonBody, _ := json.Marshal(params.Body)
 
@@ -357,6 +411,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return locations.NewWeaviateLocationsPatchOK().WithPayload(returnObject)
 	})
 	api.LocationsWeaviateLocationsUpdateHandler = locations.WeaviateLocationsUpdateHandlerFunc(func(params locations.WeaviateLocationsUpdateParams, principal interface{}) middleware.Responder {
+
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(403)
+				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
+			})
+		}
+
 		// Get item from database
 		UUID := params.LocationID
 		dbObject, _ := databaseConnector.Get(UUID)

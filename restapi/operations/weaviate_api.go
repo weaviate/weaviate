@@ -10,10 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package operations
-
-
-
+package operations
 
 import (
 	"fmt"

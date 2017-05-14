@@ -13,6 +13,7 @@
 package dbconnector
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -27,6 +28,24 @@ type DatabaseObject struct {
 	CreateTimeMs int64  // creation time in ms
 	Object       string // the JSON object, id will be collected from current uuid
 	Deleted      bool   // if true, it does not exsist anymore
+}
+
+// DatabaseUsersObject for a new row in de database
+type DatabaseUsersObject struct {
+	Uuid         string // uuid, also used in Object's id
+	KeyToken     string // uuid, also used in Object's id
+	KeyExpiresMs int64  // uuid of the owner
+	Object       string // type, as defined
+	Parent       string // Parent Uuid (not key)
+}
+
+// Object of DatabaseUsersObject
+type DatabaseUsersObjectsObject struct {
+	Delete   bool   `json:"Delete"`
+	Email    string `json:"Email"`
+	IpOrigin string `json:"IpOrigin"`
+	Read     bool   `json:"Read"`
+	Write    bool   `json:"Write"`
 }
 
 // NewDatabaseObject creates a new object with default values
@@ -56,11 +75,43 @@ func (f *DatabaseObject) GenerateAndSetUUID() {
 	f.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
 }
 
+// Marhshall and Unmarshall Principal and Principals Objects
+func PrincipalMarshalling(Object interface{}) (DatabaseUsersObject, DatabaseUsersObjectsObject) {
+	// marshall principal
+	principalMarshall, _ := json.Marshal(Object)
+	var Principal DatabaseUsersObject
+	json.Unmarshal(principalMarshall, &Principal)
+
+	// Unmarshall the Object inside the Principal (aka ObjectsObject)
+	var ObjectsObject DatabaseUsersObjectsObject
+	json.Unmarshal([]byte(Principal.Object), &ObjectsObject)
+
+	return Principal, ObjectsObject
+}
+
+// check if reading is allowed
+func ReadAllowed(validateObject interface{}) bool {
+	_, ObjectsObject := PrincipalMarshalling(validateObject)
+	return ObjectsObject.Read
+}
+
+// check if writing is allowed
+func WriteAllowed(validateObject interface{}) bool {
+	_, ObjectsObject := PrincipalMarshalling(validateObject)
+	return ObjectsObject.Write
+}
+
+// check if deleting is allowed
+func DeleteAllowed(validateObject interface{}) bool {
+	_, ObjectsObject := PrincipalMarshalling(validateObject)
+	return ObjectsObject.Delete
+}
+
 // DatabaseConnector is the interface that all connectors should have
 type DatabaseConnector interface {
 	Connect() error
 	Add(DatabaseObject) (string, error)
 	Get(string) (DatabaseObject, error)
 	List(string, int) ([]DatabaseObject, error)
-	ValidateUser(string) bool
+	ValidateUser(string) []DatabaseUsersObject
 }
