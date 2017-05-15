@@ -55,7 +55,7 @@ func NewDatabaseObject(owner string, refType string) *DatabaseObject {
 
 	// Set default values
 	dbo.GenerateAndSetUUID()
-	dbo.SetTimeToNow()
+	dbo.SetCreateTimeMsToNow()
 	dbo.Deleted = false
 
 	// Set values by function params
@@ -65,8 +65,8 @@ func NewDatabaseObject(owner string, refType string) *DatabaseObject {
 	return dbo
 }
 
-// SetTimeToNow gives the Object the current time in mili seconds
-func (f *DatabaseObject) SetTimeToNow() {
+// SetCreateTimeMsToNow gives the Object the current time in mili seconds
+func (f *DatabaseObject) SetCreateTimeMsToNow() {
 	f.CreateTimeMs = time.Now().UnixNano() / int64(time.Millisecond)
 }
 
