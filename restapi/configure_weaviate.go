@@ -376,7 +376,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return locations.NewWeaviateLocationsListOK().WithPayload(locationsListResponse)
 	})
 	api.LocationsWeaviateLocationsPatchHandler = locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams, principal interface{}) middleware.Responder {
-
 		// This is a write function, validate if allowed to read?
 		if dbconnector.WriteAllowed(principal) == false {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
@@ -402,7 +401,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		dbObject.Object = string(updatedJSON)
 
 		dbObject.SetTimeToNow()
-		//go databaseConnector.Add(dbObject)
+		go databaseConnector.Add(dbObject)
 
 		// Create return Object
 		returnObject := &models.Location{}
