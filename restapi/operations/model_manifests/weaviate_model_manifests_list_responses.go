@@ -66,6 +66,48 @@ func (o *WeaviateModelManifestsListOK) WriteResponse(rw http.ResponseWriter, pro
 	}
 }
 
+// WeaviateModelManifestsListUnauthorizedCode is the HTTP code returned for type WeaviateModelManifestsListUnauthorized
+const WeaviateModelManifestsListUnauthorizedCode int = 401
+
+/*WeaviateModelManifestsListUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateModelManifestsListUnauthorized
+*/
+type WeaviateModelManifestsListUnauthorized struct {
+}
+
+// NewWeaviateModelManifestsListUnauthorized creates WeaviateModelManifestsListUnauthorized with default headers values
+func NewWeaviateModelManifestsListUnauthorized() *WeaviateModelManifestsListUnauthorized {
+	return &WeaviateModelManifestsListUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsListUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateModelManifestsListForbiddenCode is the HTTP code returned for type WeaviateModelManifestsListForbidden
+const WeaviateModelManifestsListForbiddenCode int = 403
+
+/*WeaviateModelManifestsListForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateModelManifestsListForbidden
+*/
+type WeaviateModelManifestsListForbidden struct {
+}
+
+// NewWeaviateModelManifestsListForbidden creates WeaviateModelManifestsListForbidden with default headers values
+func NewWeaviateModelManifestsListForbidden() *WeaviateModelManifestsListForbidden {
+	return &WeaviateModelManifestsListForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsListForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateModelManifestsListNotFoundCode is the HTTP code returned for type WeaviateModelManifestsListNotFound
 const WeaviateModelManifestsListNotFoundCode int = 404
 

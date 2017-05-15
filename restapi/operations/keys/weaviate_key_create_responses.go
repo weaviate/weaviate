@@ -66,6 +66,48 @@ func (o *WeaviateKeyCreateAccepted) WriteResponse(rw http.ResponseWriter, produc
 	}
 }
 
+// WeaviateKeyCreateUnauthorizedCode is the HTTP code returned for type WeaviateKeyCreateUnauthorized
+const WeaviateKeyCreateUnauthorizedCode int = 401
+
+/*WeaviateKeyCreateUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateKeyCreateUnauthorized
+*/
+type WeaviateKeyCreateUnauthorized struct {
+}
+
+// NewWeaviateKeyCreateUnauthorized creates WeaviateKeyCreateUnauthorized with default headers values
+func NewWeaviateKeyCreateUnauthorized() *WeaviateKeyCreateUnauthorized {
+	return &WeaviateKeyCreateUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateKeyCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateKeyCreateForbiddenCode is the HTTP code returned for type WeaviateKeyCreateForbidden
+const WeaviateKeyCreateForbiddenCode int = 403
+
+/*WeaviateKeyCreateForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateKeyCreateForbidden
+*/
+type WeaviateKeyCreateForbidden struct {
+}
+
+// NewWeaviateKeyCreateForbidden creates WeaviateKeyCreateForbidden with default headers values
+func NewWeaviateKeyCreateForbidden() *WeaviateKeyCreateForbidden {
+	return &WeaviateKeyCreateForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateKeyCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateKeyCreateNotImplementedCode is the HTTP code returned for type WeaviateKeyCreateNotImplemented
 const WeaviateKeyCreateNotImplementedCode int = 501
 

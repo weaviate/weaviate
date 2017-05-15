@@ -41,7 +41,7 @@ type Key struct {
 	Key string `json:"key,omitempty"`
 
 	// Time in milliseconds that the key expires. Set to 0 for never.
-	KeyExpiresMs float64 `json:"keyExpiresMs,omitempty"`
+	KeyExpiresUnix float64 `json:"keyExpiresUnix,omitempty"`
 
 	// Parent key. A parent allways has access to a child. Root key has parent value 0. Only a user with a root of 0 can set a root key.
 	Parent string `json:"parent,omitempty"`

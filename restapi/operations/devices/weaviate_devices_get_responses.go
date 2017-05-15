@@ -66,6 +66,48 @@ func (o *WeaviateDevicesGetOK) WriteResponse(rw http.ResponseWriter, producer ru
 	}
 }
 
+// WeaviateDevicesGetUnauthorizedCode is the HTTP code returned for type WeaviateDevicesGetUnauthorized
+const WeaviateDevicesGetUnauthorizedCode int = 401
+
+/*WeaviateDevicesGetUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateDevicesGetUnauthorized
+*/
+type WeaviateDevicesGetUnauthorized struct {
+}
+
+// NewWeaviateDevicesGetUnauthorized creates WeaviateDevicesGetUnauthorized with default headers values
+func NewWeaviateDevicesGetUnauthorized() *WeaviateDevicesGetUnauthorized {
+	return &WeaviateDevicesGetUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateDevicesGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateDevicesGetForbiddenCode is the HTTP code returned for type WeaviateDevicesGetForbidden
+const WeaviateDevicesGetForbiddenCode int = 403
+
+/*WeaviateDevicesGetForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateDevicesGetForbidden
+*/
+type WeaviateDevicesGetForbidden struct {
+}
+
+// NewWeaviateDevicesGetForbidden creates WeaviateDevicesGetForbidden with default headers values
+func NewWeaviateDevicesGetForbidden() *WeaviateDevicesGetForbidden {
+	return &WeaviateDevicesGetForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateDevicesGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateDevicesGetNotFoundCode is the HTTP code returned for type WeaviateDevicesGetNotFound
 const WeaviateDevicesGetNotFoundCode int = 404
 

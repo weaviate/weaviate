@@ -42,6 +42,48 @@ func (o *WeaviateDevicesDeleteNoContent) WriteResponse(rw http.ResponseWriter, p
 	rw.WriteHeader(204)
 }
 
+// WeaviateDevicesDeleteUnauthorizedCode is the HTTP code returned for type WeaviateDevicesDeleteUnauthorized
+const WeaviateDevicesDeleteUnauthorizedCode int = 401
+
+/*WeaviateDevicesDeleteUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateDevicesDeleteUnauthorized
+*/
+type WeaviateDevicesDeleteUnauthorized struct {
+}
+
+// NewWeaviateDevicesDeleteUnauthorized creates WeaviateDevicesDeleteUnauthorized with default headers values
+func NewWeaviateDevicesDeleteUnauthorized() *WeaviateDevicesDeleteUnauthorized {
+	return &WeaviateDevicesDeleteUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateDevicesDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateDevicesDeleteForbiddenCode is the HTTP code returned for type WeaviateDevicesDeleteForbidden
+const WeaviateDevicesDeleteForbiddenCode int = 403
+
+/*WeaviateDevicesDeleteForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateDevicesDeleteForbidden
+*/
+type WeaviateDevicesDeleteForbidden struct {
+}
+
+// NewWeaviateDevicesDeleteForbidden creates WeaviateDevicesDeleteForbidden with default headers values
+func NewWeaviateDevicesDeleteForbidden() *WeaviateDevicesDeleteForbidden {
+	return &WeaviateDevicesDeleteForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateDevicesDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateDevicesDeleteNotFoundCode is the HTTP code returned for type WeaviateDevicesDeleteNotFound
 const WeaviateDevicesDeleteNotFoundCode int = 404
 

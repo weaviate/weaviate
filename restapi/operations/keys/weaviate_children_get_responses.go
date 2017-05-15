@@ -66,6 +66,48 @@ func (o *WeaviateChildrenGetOK) WriteResponse(rw http.ResponseWriter, producer r
 	}
 }
 
+// WeaviateChildrenGetUnauthorizedCode is the HTTP code returned for type WeaviateChildrenGetUnauthorized
+const WeaviateChildrenGetUnauthorizedCode int = 401
+
+/*WeaviateChildrenGetUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateChildrenGetUnauthorized
+*/
+type WeaviateChildrenGetUnauthorized struct {
+}
+
+// NewWeaviateChildrenGetUnauthorized creates WeaviateChildrenGetUnauthorized with default headers values
+func NewWeaviateChildrenGetUnauthorized() *WeaviateChildrenGetUnauthorized {
+	return &WeaviateChildrenGetUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateChildrenGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateChildrenGetForbiddenCode is the HTTP code returned for type WeaviateChildrenGetForbidden
+const WeaviateChildrenGetForbiddenCode int = 403
+
+/*WeaviateChildrenGetForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateChildrenGetForbidden
+*/
+type WeaviateChildrenGetForbidden struct {
+}
+
+// NewWeaviateChildrenGetForbidden creates WeaviateChildrenGetForbidden with default headers values
+func NewWeaviateChildrenGetForbidden() *WeaviateChildrenGetForbidden {
+	return &WeaviateChildrenGetForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateChildrenGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateChildrenGetNotFoundCode is the HTTP code returned for type WeaviateChildrenGetNotFound
 const WeaviateChildrenGetNotFoundCode int = 404
 

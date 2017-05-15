@@ -66,6 +66,48 @@ func (o *WeaviateLocationsInsertAccepted) WriteResponse(rw http.ResponseWriter, 
 	}
 }
 
+// WeaviateLocationsInsertUnauthorizedCode is the HTTP code returned for type WeaviateLocationsInsertUnauthorized
+const WeaviateLocationsInsertUnauthorizedCode int = 401
+
+/*WeaviateLocationsInsertUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateLocationsInsertUnauthorized
+*/
+type WeaviateLocationsInsertUnauthorized struct {
+}
+
+// NewWeaviateLocationsInsertUnauthorized creates WeaviateLocationsInsertUnauthorized with default headers values
+func NewWeaviateLocationsInsertUnauthorized() *WeaviateLocationsInsertUnauthorized {
+	return &WeaviateLocationsInsertUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateLocationsInsertUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateLocationsInsertForbiddenCode is the HTTP code returned for type WeaviateLocationsInsertForbidden
+const WeaviateLocationsInsertForbiddenCode int = 403
+
+/*WeaviateLocationsInsertForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateLocationsInsertForbidden
+*/
+type WeaviateLocationsInsertForbidden struct {
+}
+
+// NewWeaviateLocationsInsertForbidden creates WeaviateLocationsInsertForbidden with default headers values
+func NewWeaviateLocationsInsertForbidden() *WeaviateLocationsInsertForbidden {
+	return &WeaviateLocationsInsertForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateLocationsInsertForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateLocationsInsertNotImplementedCode is the HTTP code returned for type WeaviateLocationsInsertNotImplemented
 const WeaviateLocationsInsertNotImplementedCode int = 501
 
