@@ -266,7 +266,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Set deleted values
 		databaseObject.Deleted = true
-		databaseObject.SetTimeToNow()
+		databaseObject.SetCreateTimeMsToNow()
 
 		// Add new row as GO-routine
 		go databaseConnector.Add(databaseObject)
@@ -392,7 +392,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Set patched JSON back in dbObject
 		dbObject.Object = string(updatedJSON)
 
-		dbObject.SetTimeToNow()
+		dbObject.SetCreateTimeMsToNow()
 		go databaseConnector.Add(dbObject)
 
 		// Create return Object
@@ -442,7 +442,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			// Set the body-id and generate JSON to save to the database
 			databaseBody, _ := json.Marshal(params.Body)
 			dbObject.Object = string(databaseBody)
-			dbObject.SetTimeToNow()
+			dbObject.SetCreateTimeMsToNow()
 
 			// Save to DB, this needs to be a Go routine because we will return an accepted
 			go databaseConnector.Add(dbObject)
