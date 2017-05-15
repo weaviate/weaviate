@@ -61,10 +61,19 @@ func (f *Mysql) List(refType string, limit int) ([]dbconnector.DatabaseObject, e
 }
 
 // Validate if a user has access, returns permissions object
-func (f *Mysql) ValidateUser(token string) []dbconnector.DatabaseUsersObject {
+func (f *Mysql) ValidateKey(token string) ([]dbconnector.DatabaseUsersObject, error) {
 
 	dbUsersObjects := []dbconnector.DatabaseUsersObject{}
 
+	var err error
+
 	// keys are found, return true
-	return dbUsersObjects
+	return dbUsersObjects, err
+}
+
+// AddUser to DB
+func (f *Mysql) AddKey(parentUuid string, dbObject dbconnector.DatabaseUsersObject) (dbconnector.DatabaseUsersObject, error) {
+
+	return dbObject, nil
+
 }

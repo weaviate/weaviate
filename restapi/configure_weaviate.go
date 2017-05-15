@@ -99,14 +99,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.APIKeyAuth = func(token string) (interface{}, error) {
 
 		// Check if the user has access, true if yes
-		validatedUser := databaseConnector.ValidateUser(token)
+		validatedKey, _ := databaseConnector.ValidateKey(token)
 
-		if len(validatedUser) == 0 {
+		if len(validatedKey) == 0 {
 			return nil, errors.New(401, "Provided key is not valid")
 		}
 
 		// key is valid, next step is allowing per Handler handling
-		return validatedUser[0], nil
+		return validatedKey[0], nil
 
 	}
 
@@ -221,7 +221,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation keys.WeaviateChildrenGet has not yet been implemented")
 	})
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation keys.WeaviateKeyCreate has not yet been implemented")
+
+		// marshall principal
+		principalMarshall, _ := json.Marshal(principal)
+		var Principal dbconnector.DatabaseUsersObject
+		json.Unmarshal(principalMarshall, &Principal)
+
+		result, _ := databaseConnector.AddKey(Principal.Uuid, params.Body)
+
+		return keys.NewWeaviateKeyCreateAccepted().WithPayload(result)
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation keys.WeaviateKeysDelete has not yet been implemented")
@@ -292,8 +300,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return locations.NewWeaviateLocationsInsertForbidden()
 		}
 
+		// Get user id
+		principalMarshall, _ := json.Marshal(principal)
+		var Principal dbconnector.DatabaseUsersObject
+		json.Unmarshal(principalMarshall, &Principal)
+
 		// Generate DatabaseObject without JSON-object in it.
-		dbObject := *dbconnector.NewDatabaseObject("FOOBAR USER UUID", "#/paths/locations")
+		dbObject := *dbconnector.NewDatabaseObject(Principal.Uuid, "#/paths/locations")
 
 		// Set the body-id and generate JSON to save to the database
 		params.Body.ID = dbObject.Uuid

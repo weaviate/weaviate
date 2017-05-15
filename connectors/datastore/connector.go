@@ -121,7 +121,7 @@ func (f *Datastore) List(refType string, limit int) ([]dbconnector.DatabaseObjec
 }
 
 // Validate if a user has access, returns permissions object
-func (f *Datastore) ValidateUser(token string) []dbconnector.DatabaseUsersObject {
+func (f *Datastore) ValidateKey(token string) ([]dbconnector.DatabaseUsersObject, error) {
 
 	ctx := context.Background()
 
@@ -134,30 +134,36 @@ func (f *Datastore) ValidateUser(token string) []dbconnector.DatabaseUsersObject
 	_, err := f.client.GetAll(ctx, query, &dbUsersObjects)
 
 	if err != nil {
-		log.Fatalf("Failed to load task: %v", err)
+		return dbUsersObjects, err
 	}
 
 	// keys are found, return true
-	return dbUsersObjects
+	return dbUsersObjects, nil
 }
 
 // AddUser to DB
-func (f *Datastore) AddUser(dbObject dbconnector.DatabaseUsersObject) (string, error) {
+func (f *Datastore) AddKey(parentUuid string, dbObject dbconnector.DatabaseUsersObject) (dbconnector.DatabaseUsersObject, error) {
 	ctx := context.Background()
 
 	f.kind = "weaviate_users"
 
 	nameUUID := fmt.Sprintf("%v", gouuid.NewV4())
 
+	// Create key token
+	dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
+
 	// Creates a Key instance.
 	taskKey := datastore.NameKey(f.kind, nameUUID, nil)
+
+	// Auto set the parent ID
+	dbObject.Parent = parentUuid
 
 	// Saves the new entity.
 	if _, err := f.client.Put(ctx, taskKey, &dbObject); err != nil {
 		log.Fatalf("Failed to save task: %v", err)
-		return "Error", err
+		return dbObject, err
 	}
 
 	// Return the ID that is used to create.
-	return dbObject.Uuid, nil
+	return dbObject, nil
 }
