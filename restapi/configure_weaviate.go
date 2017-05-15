@@ -278,7 +278,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(result.Object), &object)
 
 		// If there are no results, error is returned. Object not found response.
-		if err == nil {
+		if err != nil {
 			return locations.NewWeaviateLocationsGetNotFound()
 		}
 
@@ -316,13 +316,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Show all locations with List function, get max results in URL, otherwise max = 100.
 		limit := 100
 
-		locationDatabaseObjects, err := databaseConnector.List("#/paths/locations", limit)
+		locationDatabaseObjects, _ := databaseConnector.List("#/paths/locations", limit)
 
 		// TODO: Limit max here
-		// TODO: None found
-		if err != nil {
-			panic(err)
-		}
 
 		locationsListResponse := &models.LocationsListResponse{}
 		locationsListResponse.Locations = make([]*models.Location, limit)
