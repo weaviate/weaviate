@@ -109,16 +109,12 @@ func (f *Datastore) List(refType string, limit int) ([]dbconnector.DatabaseObjec
 
 	dbObjects := []dbconnector.DatabaseObject{}
 
-	keys, err := f.client.GetAll(ctx, query, &dbObjects)
+	_, err := f.client.GetAll(ctx, query, &dbObjects)
 
 	if err != nil {
 		log.Fatalf("Failed to load task: %v", err)
 
 		return []dbconnector.DatabaseObject{}, err
-	}
-
-	if len(keys) == 0 {
-		return []dbconnector.DatabaseObject{}, nil
 	}
 
 	return dbObjects, nil
@@ -143,4 +139,25 @@ func (f *Datastore) ValidateUser(token string) []dbconnector.DatabaseUsersObject
 
 	// keys are found, return true
 	return dbUsersObjects
+}
+
+// AddUser to DB
+func (f *Datastore) AddUser(dbObject dbconnector.DatabaseUsersObject) (string, error) {
+	ctx := context.Background()
+
+	f.kind = "weaviate_users"
+
+	nameUUID := fmt.Sprintf("%v", gouuid.NewV4())
+
+	// Creates a Key instance.
+	taskKey := datastore.NameKey(f.kind, nameUUID, nil)
+
+	// Saves the new entity.
+	if _, err := f.client.Put(ctx, taskKey, &dbObject); err != nil {
+		log.Fatalf("Failed to save task: %v", err)
+		return "Error", err
+	}
+
+	// Return the ID that is used to create.
+	return dbObject.Uuid, nil
 }
