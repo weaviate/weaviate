@@ -18,6 +18,7 @@ import (
 	"time"
 
 	gouuid "github.com/satori/go.uuid"
+	"github.com/weaviate/weaviate/restapi/operations/keys"
 )
 
 // DatabaseObject for a new row in de database
@@ -113,5 +114,6 @@ type DatabaseConnector interface {
 	Add(DatabaseObject) (string, error)
 	Get(string) (DatabaseObject, error)
 	List(string, int) ([]DatabaseObject, error)
-	ValidateUser(string) []DatabaseUsersObject
+	ValidateKey(string) ([]DatabaseUsersObject, error)
+	AddKey(string, keys.WeaviateKeyCreateParams) (keys.WeaviateKeyCreateParams, error)
 }
