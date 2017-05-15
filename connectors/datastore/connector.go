@@ -23,6 +23,7 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/datastore"
+	"errors"
 )
 
 // Datastore has some basic variables.
@@ -90,7 +91,8 @@ func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 	}
 
 	if len(keys) == 0 {
-		return dbconnector.DatabaseObject{}, nil
+		notFoundErr := errors.New("no object with such UUID found")
+		return dbconnector.DatabaseObject{}, notFoundErr
 	}
 
 	return object[0], nil
