@@ -248,20 +248,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Not found
 		if errGet != nil {
-			//return locations.NewWeaviateLocationsDeleteNotFound()
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(404)
-				rw.Write([]byte("{ \"ERROR\": \"Not found\" }"))
-			})
+			return locations.NewWeaviateLocationsDeleteNotFound()
 		}
 
 		// Already deleted
 		if databaseObject.Deleted {
-			//return locations.NewWeaviateLocationsDeleteNotFound() ??
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(404)
-				rw.Write([]byte("{ \"ERROR\": \"Already deleted\" }"))
-			})
+			return locations.NewWeaviateLocationsDeleteNotFound()
 		}
 
 		// Set deleted values
@@ -291,9 +283,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		object := &models.Location{}
 		json.Unmarshal([]byte(result.Object), &object)
 
-		// If there are no results, error is returned.
+		// If there are no results, error is returned. Object not found response.
 		if err == nil {
-			// Object not found response.
 			return locations.NewWeaviateLocationsGetNotFound()
 		}
 
@@ -376,18 +367,36 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			})
 		}
 
-		// Get PATCH params in format RFC 6902
-		jsonBody, _ := json.Marshal(params.Body)
-
 		// Get and transform object
-		// TODO: Use errors
-		// TODO: 404 not found
 		UUID := params.LocationID
-		dbObject, _ := databaseConnector.Get(UUID)
+		dbObject, errGet := databaseConnector.Get(UUID)
 
-		// Transform using JSON input
-		patchObject, _ := jsonpatch.DecodePatch([]byte(jsonBody))
-		updatedJSON, _ := patchObject.Apply([]byte(dbObject.Object))
+		// Return error if UUID is not found.
+		if errGet != nil {
+			return locations.NewWeaviateLocationsPatchNotFound()
+		}
+
+		// Get PATCH params in format RFC 6902
+		jsonBody, marshalErr := json.Marshal(params.Body)
+		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
+
+		if marshalErr != nil || decodeErr != nil {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(400)
+				rw.Header().Set("Accept-Patch", "*")
+				rw.Write([]byte("{ \"ERROR\": \"The JSON-patch-content is malformed.\" }"))
+			})
+		}
+
+		// Apply the patch
+		updatedJSON, applyErr := patchObject.Apply([]byte(dbObject.Object))
+
+		if applyErr != nil {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(422)
+				rw.Write([]byte("{ \"ERROR\": \"The patch is unprocessable.\" }"))
+			})
+		}
 
 		// Set patched JSON back in dbObject
 		dbObject.Object = string(updatedJSON)
@@ -419,14 +428,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		object := &models.Location{}
 		json.Unmarshal([]byte(dbObject.Object), &object)
 
-		// If there are no results, the Object ID = 0
-		if len(object.ID) == 0 && err == nil {
+		// If there are no results, there is an error
+		if err != nil {
 			// Object not found response.
-			//return locations.NewWeaviateLocationsUpdateNotFound()
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(404)
-				rw.Write([]byte("{ \"ERROR\": \"Not found\" }"))
-			})
+			return locations.NewWeaviateLocationsUpdateNotFound()
 		}
 
 		// TODO: VALIDATE IF THE OBJECT IS OKAY
