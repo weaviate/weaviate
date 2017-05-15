@@ -66,6 +66,69 @@ func (o *WeaviateACLEntriesPatchOK) WriteResponse(rw http.ResponseWriter, produc
 	}
 }
 
+// WeaviateACLEntriesPatchBadRequestCode is the HTTP code returned for type WeaviateACLEntriesPatchBadRequest
+const WeaviateACLEntriesPatchBadRequestCode int = 400
+
+/*WeaviateACLEntriesPatchBadRequest The patch-JSON is malformed.
+
+swagger:response weaviateAclEntriesPatchBadRequest
+*/
+type WeaviateACLEntriesPatchBadRequest struct {
+}
+
+// NewWeaviateACLEntriesPatchBadRequest creates WeaviateACLEntriesPatchBadRequest with default headers values
+func NewWeaviateACLEntriesPatchBadRequest() *WeaviateACLEntriesPatchBadRequest {
+	return &WeaviateACLEntriesPatchBadRequest{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateACLEntriesPatchBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+}
+
+// WeaviateACLEntriesPatchUnauthorizedCode is the HTTP code returned for type WeaviateACLEntriesPatchUnauthorized
+const WeaviateACLEntriesPatchUnauthorizedCode int = 401
+
+/*WeaviateACLEntriesPatchUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateAclEntriesPatchUnauthorized
+*/
+type WeaviateACLEntriesPatchUnauthorized struct {
+}
+
+// NewWeaviateACLEntriesPatchUnauthorized creates WeaviateACLEntriesPatchUnauthorized with default headers values
+func NewWeaviateACLEntriesPatchUnauthorized() *WeaviateACLEntriesPatchUnauthorized {
+	return &WeaviateACLEntriesPatchUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateACLEntriesPatchUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateACLEntriesPatchForbiddenCode is the HTTP code returned for type WeaviateACLEntriesPatchForbidden
+const WeaviateACLEntriesPatchForbiddenCode int = 403
+
+/*WeaviateACLEntriesPatchForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateAclEntriesPatchForbidden
+*/
+type WeaviateACLEntriesPatchForbidden struct {
+}
+
+// NewWeaviateACLEntriesPatchForbidden creates WeaviateACLEntriesPatchForbidden with default headers values
+func NewWeaviateACLEntriesPatchForbidden() *WeaviateACLEntriesPatchForbidden {
+	return &WeaviateACLEntriesPatchForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateACLEntriesPatchForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateACLEntriesPatchNotFoundCode is the HTTP code returned for type WeaviateACLEntriesPatchNotFound
 const WeaviateACLEntriesPatchNotFoundCode int = 404
 
@@ -85,6 +148,27 @@ func NewWeaviateACLEntriesPatchNotFound() *WeaviateACLEntriesPatchNotFound {
 func (o *WeaviateACLEntriesPatchNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(404)
+}
+
+// WeaviateACLEntriesPatchUnprocessableEntityCode is the HTTP code returned for type WeaviateACLEntriesPatchUnprocessableEntity
+const WeaviateACLEntriesPatchUnprocessableEntityCode int = 422
+
+/*WeaviateACLEntriesPatchUnprocessableEntity The patch-JSON is valid but unprocessable.
+
+swagger:response weaviateAclEntriesPatchUnprocessableEntity
+*/
+type WeaviateACLEntriesPatchUnprocessableEntity struct {
+}
+
+// NewWeaviateACLEntriesPatchUnprocessableEntity creates WeaviateACLEntriesPatchUnprocessableEntity with default headers values
+func NewWeaviateACLEntriesPatchUnprocessableEntity() *WeaviateACLEntriesPatchUnprocessableEntity {
+	return &WeaviateACLEntriesPatchUnprocessableEntity{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateACLEntriesPatchUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
 }
 
 // WeaviateACLEntriesPatchNotImplementedCode is the HTTP code returned for type WeaviateACLEntriesPatchNotImplemented

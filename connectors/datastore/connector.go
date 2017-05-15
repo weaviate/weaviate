@@ -22,8 +22,9 @@ import (
 
 	"fmt"
 
-	"cloud.google.com/go/datastore"
 	"errors"
+
+	"cloud.google.com/go/datastore"
 )
 
 // Datastore has some basic variables.

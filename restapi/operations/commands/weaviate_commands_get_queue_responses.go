@@ -66,6 +66,48 @@ func (o *WeaviateCommandsGetQueueOK) WriteResponse(rw http.ResponseWriter, produ
 	}
 }
 
+// WeaviateCommandsGetQueueUnauthorizedCode is the HTTP code returned for type WeaviateCommandsGetQueueUnauthorized
+const WeaviateCommandsGetQueueUnauthorizedCode int = 401
+
+/*WeaviateCommandsGetQueueUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateCommandsGetQueueUnauthorized
+*/
+type WeaviateCommandsGetQueueUnauthorized struct {
+}
+
+// NewWeaviateCommandsGetQueueUnauthorized creates WeaviateCommandsGetQueueUnauthorized with default headers values
+func NewWeaviateCommandsGetQueueUnauthorized() *WeaviateCommandsGetQueueUnauthorized {
+	return &WeaviateCommandsGetQueueUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateCommandsGetQueueUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateCommandsGetQueueForbiddenCode is the HTTP code returned for type WeaviateCommandsGetQueueForbidden
+const WeaviateCommandsGetQueueForbiddenCode int = 403
+
+/*WeaviateCommandsGetQueueForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateCommandsGetQueueForbidden
+*/
+type WeaviateCommandsGetQueueForbidden struct {
+}
+
+// NewWeaviateCommandsGetQueueForbidden creates WeaviateCommandsGetQueueForbidden with default headers values
+func NewWeaviateCommandsGetQueueForbidden() *WeaviateCommandsGetQueueForbidden {
+	return &WeaviateCommandsGetQueueForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateCommandsGetQueueForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateCommandsGetQueueNotFoundCode is the HTTP code returned for type WeaviateCommandsGetQueueNotFound
 const WeaviateCommandsGetQueueNotFoundCode int = 404
 

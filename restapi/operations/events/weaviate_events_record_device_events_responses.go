@@ -42,6 +42,48 @@ func (o *WeaviateEventsRecordDeviceEventsAccepted) WriteResponse(rw http.Respons
 	rw.WriteHeader(202)
 }
 
+// WeaviateEventsRecordDeviceEventsUnauthorizedCode is the HTTP code returned for type WeaviateEventsRecordDeviceEventsUnauthorized
+const WeaviateEventsRecordDeviceEventsUnauthorizedCode int = 401
+
+/*WeaviateEventsRecordDeviceEventsUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateEventsRecordDeviceEventsUnauthorized
+*/
+type WeaviateEventsRecordDeviceEventsUnauthorized struct {
+}
+
+// NewWeaviateEventsRecordDeviceEventsUnauthorized creates WeaviateEventsRecordDeviceEventsUnauthorized with default headers values
+func NewWeaviateEventsRecordDeviceEventsUnauthorized() *WeaviateEventsRecordDeviceEventsUnauthorized {
+	return &WeaviateEventsRecordDeviceEventsUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateEventsRecordDeviceEventsUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateEventsRecordDeviceEventsForbiddenCode is the HTTP code returned for type WeaviateEventsRecordDeviceEventsForbidden
+const WeaviateEventsRecordDeviceEventsForbiddenCode int = 403
+
+/*WeaviateEventsRecordDeviceEventsForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateEventsRecordDeviceEventsForbidden
+*/
+type WeaviateEventsRecordDeviceEventsForbidden struct {
+}
+
+// NewWeaviateEventsRecordDeviceEventsForbidden creates WeaviateEventsRecordDeviceEventsForbidden with default headers values
+func NewWeaviateEventsRecordDeviceEventsForbidden() *WeaviateEventsRecordDeviceEventsForbidden {
+	return &WeaviateEventsRecordDeviceEventsForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateEventsRecordDeviceEventsForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateEventsRecordDeviceEventsNotImplementedCode is the HTTP code returned for type WeaviateEventsRecordDeviceEventsNotImplemented
 const WeaviateEventsRecordDeviceEventsNotImplementedCode int = 501
 

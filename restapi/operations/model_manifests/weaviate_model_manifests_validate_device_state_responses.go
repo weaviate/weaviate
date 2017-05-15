@@ -66,6 +66,48 @@ func (o *WeaviateModelManifestsValidateDeviceStateCreated) WriteResponse(rw http
 	}
 }
 
+// WeaviateModelManifestsValidateDeviceStateUnauthorizedCode is the HTTP code returned for type WeaviateModelManifestsValidateDeviceStateUnauthorized
+const WeaviateModelManifestsValidateDeviceStateUnauthorizedCode int = 401
+
+/*WeaviateModelManifestsValidateDeviceStateUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateModelManifestsValidateDeviceStateUnauthorized
+*/
+type WeaviateModelManifestsValidateDeviceStateUnauthorized struct {
+}
+
+// NewWeaviateModelManifestsValidateDeviceStateUnauthorized creates WeaviateModelManifestsValidateDeviceStateUnauthorized with default headers values
+func NewWeaviateModelManifestsValidateDeviceStateUnauthorized() *WeaviateModelManifestsValidateDeviceStateUnauthorized {
+	return &WeaviateModelManifestsValidateDeviceStateUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsValidateDeviceStateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateModelManifestsValidateDeviceStateForbiddenCode is the HTTP code returned for type WeaviateModelManifestsValidateDeviceStateForbidden
+const WeaviateModelManifestsValidateDeviceStateForbiddenCode int = 403
+
+/*WeaviateModelManifestsValidateDeviceStateForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateModelManifestsValidateDeviceStateForbidden
+*/
+type WeaviateModelManifestsValidateDeviceStateForbidden struct {
+}
+
+// NewWeaviateModelManifestsValidateDeviceStateForbidden creates WeaviateModelManifestsValidateDeviceStateForbidden with default headers values
+func NewWeaviateModelManifestsValidateDeviceStateForbidden() *WeaviateModelManifestsValidateDeviceStateForbidden {
+	return &WeaviateModelManifestsValidateDeviceStateForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsValidateDeviceStateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateModelManifestsValidateDeviceStateNotImplementedCode is the HTTP code returned for type WeaviateModelManifestsValidateDeviceStateNotImplemented
 const WeaviateModelManifestsValidateDeviceStateNotImplementedCode int = 501
 

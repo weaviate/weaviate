@@ -241,6 +241,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				rw.WriteHeader(403)
 				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
 			})
+			return locations.NewWeaviateLocationsDeleteForbidden()
 		}
 
 		// Get item from database

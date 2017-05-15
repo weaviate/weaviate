@@ -42,6 +42,48 @@ func (o *WeaviateACLEntriesDeleteNoContent) WriteResponse(rw http.ResponseWriter
 	rw.WriteHeader(204)
 }
 
+// WeaviateACLEntriesDeleteUnauthorizedCode is the HTTP code returned for type WeaviateACLEntriesDeleteUnauthorized
+const WeaviateACLEntriesDeleteUnauthorizedCode int = 401
+
+/*WeaviateACLEntriesDeleteUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateAclEntriesDeleteUnauthorized
+*/
+type WeaviateACLEntriesDeleteUnauthorized struct {
+}
+
+// NewWeaviateACLEntriesDeleteUnauthorized creates WeaviateACLEntriesDeleteUnauthorized with default headers values
+func NewWeaviateACLEntriesDeleteUnauthorized() *WeaviateACLEntriesDeleteUnauthorized {
+	return &WeaviateACLEntriesDeleteUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateACLEntriesDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateACLEntriesDeleteForbiddenCode is the HTTP code returned for type WeaviateACLEntriesDeleteForbidden
+const WeaviateACLEntriesDeleteForbiddenCode int = 403
+
+/*WeaviateACLEntriesDeleteForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateAclEntriesDeleteForbidden
+*/
+type WeaviateACLEntriesDeleteForbidden struct {
+}
+
+// NewWeaviateACLEntriesDeleteForbidden creates WeaviateACLEntriesDeleteForbidden with default headers values
+func NewWeaviateACLEntriesDeleteForbidden() *WeaviateACLEntriesDeleteForbidden {
+	return &WeaviateACLEntriesDeleteForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateACLEntriesDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateACLEntriesDeleteNotFoundCode is the HTTP code returned for type WeaviateACLEntriesDeleteNotFound
 const WeaviateACLEntriesDeleteNotFoundCode int = 404
 

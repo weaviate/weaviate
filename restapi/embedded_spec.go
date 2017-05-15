@@ -72,6 +72,12 @@ func init() {
               "$ref": "#/definitions/AdaptersListResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -102,6 +108,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Adapter"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -155,6 +167,12 @@ func init() {
               "$ref": "#/definitions/Adapter"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -193,6 +211,12 @@ func init() {
               "$ref": "#/definitions/Adapter"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -217,7 +241,13 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successful deleted"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -261,8 +291,20 @@ func init() {
               "$ref": "#/definitions/Adapter"
             }
           },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -351,6 +393,12 @@ func init() {
               "$ref": "#/definitions/CommandsListResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -401,6 +449,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Command"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -467,6 +521,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/CommandsQueueResponse"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -535,6 +595,12 @@ func init() {
               "$ref": "#/definitions/Command"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -579,6 +645,12 @@ func init() {
               "$ref": "#/definitions/Command"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -611,6 +683,12 @@ func init() {
         "responses": {
           "204": {
             "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -660,8 +738,20 @@ func init() {
               "$ref": "#/definitions/Command"
             }
           },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -806,6 +896,12 @@ func init() {
               "$ref": "#/definitions/DevicesListResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -848,6 +944,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Device"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -917,6 +1019,12 @@ func init() {
               "$ref": "#/definitions/Device"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -967,6 +1075,12 @@ func init() {
               "$ref": "#/definitions/Device"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -999,6 +1113,12 @@ func init() {
         "responses": {
           "204": {
             "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1054,8 +1174,20 @@ func init() {
               "$ref": "#/definitions/Device"
             }
           },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1130,6 +1262,12 @@ func init() {
               "$ref": "#/definitions/AclEntriesListResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1173,6 +1311,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/AclEntry"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1239,6 +1383,12 @@ func init() {
               "$ref": "#/definitions/AclEntry"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1290,6 +1440,12 @@ func init() {
               "$ref": "#/definitions/AclEntry"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1323,6 +1479,12 @@ func init() {
         "responses": {
           "204": {
             "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1379,8 +1541,20 @@ func init() {
               "$ref": "#/definitions/AclEntry"
             }
           },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1513,6 +1687,12 @@ func init() {
               "$ref": "#/definitions/EventsListResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1572,6 +1752,12 @@ func init() {
           "202": {
             "description": "Successfully received."
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -1630,6 +1816,12 @@ func init() {
               "$ref": "#/definitions/Event"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1686,6 +1878,12 @@ func init() {
               "$ref": "#/definitions/Key"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -1715,6 +1913,12 @@ func init() {
               "$ref": "#/definitions/Key"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1740,6 +1944,12 @@ func init() {
         "responses": {
           "204": {
             "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1772,6 +1982,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/KeyChildren"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1819,6 +2035,12 @@ func init() {
               "$ref": "#/definitions/LocationsListResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1849,6 +2071,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Location"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1902,6 +2130,12 @@ func init() {
               "$ref": "#/definitions/Location"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1940,6 +2174,12 @@ func init() {
               "$ref": "#/definitions/Location"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1965,6 +2205,12 @@ func init() {
         "responses": {
           "204": {
             "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2008,8 +2254,20 @@ func init() {
               "$ref": "#/definitions/Location"
             }
           },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2077,6 +2335,12 @@ func init() {
               "$ref": "#/definitions/ModelManifestsListResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -2107,6 +2371,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ModelManifest"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2167,6 +2437,12 @@ func init() {
               "$ref": "#/definitions/ModelManifestsValidateCommandDefsResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -2225,6 +2501,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ModelManifestsValidateComponentsResponse"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2285,6 +2567,12 @@ func init() {
               "$ref": "#/definitions/ModelManifestsValidateDeviceStateResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -2343,6 +2631,12 @@ func init() {
               "$ref": "#/definitions/ModelManifest"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -2381,6 +2675,12 @@ func init() {
               "$ref": "#/definitions/ModelManifest"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -2407,6 +2707,12 @@ func init() {
         "responses": {
           "204": {
             "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2450,8 +2756,20 @@ func init() {
               "$ref": "#/definitions/ModelManifest"
             }
           },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -3249,7 +3567,7 @@ func init() {
           "description": "Key for user to use.",
           "type": "string"
         },
-        "keyExpiresMs": {
+        "keyExpiresUnix": {
           "description": "Time in milliseconds that the key expires. Set to 0 for never.",
           "type": "number"
         },

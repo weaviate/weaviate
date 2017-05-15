@@ -66,6 +66,48 @@ func (o *WeaviateAdaptersInsertAccepted) WriteResponse(rw http.ResponseWriter, p
 	}
 }
 
+// WeaviateAdaptersInsertUnauthorizedCode is the HTTP code returned for type WeaviateAdaptersInsertUnauthorized
+const WeaviateAdaptersInsertUnauthorizedCode int = 401
+
+/*WeaviateAdaptersInsertUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateAdaptersInsertUnauthorized
+*/
+type WeaviateAdaptersInsertUnauthorized struct {
+}
+
+// NewWeaviateAdaptersInsertUnauthorized creates WeaviateAdaptersInsertUnauthorized with default headers values
+func NewWeaviateAdaptersInsertUnauthorized() *WeaviateAdaptersInsertUnauthorized {
+	return &WeaviateAdaptersInsertUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateAdaptersInsertUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateAdaptersInsertForbiddenCode is the HTTP code returned for type WeaviateAdaptersInsertForbidden
+const WeaviateAdaptersInsertForbiddenCode int = 403
+
+/*WeaviateAdaptersInsertForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateAdaptersInsertForbidden
+*/
+type WeaviateAdaptersInsertForbidden struct {
+}
+
+// NewWeaviateAdaptersInsertForbidden creates WeaviateAdaptersInsertForbidden with default headers values
+func NewWeaviateAdaptersInsertForbidden() *WeaviateAdaptersInsertForbidden {
+	return &WeaviateAdaptersInsertForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateAdaptersInsertForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateAdaptersInsertNotImplementedCode is the HTTP code returned for type WeaviateAdaptersInsertNotImplemented
 const WeaviateAdaptersInsertNotImplementedCode int = 501
 
