@@ -102,7 +102,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		validatedUser := databaseConnector.ValidateUser(token)
 
 		if len(validatedUser) == 0 {
-			return nil, errors.New(403, "Provided key is not valid")
+			return nil, errors.New(401, "Provided key is not valid")
 		}
 
 		// key is valid, next step is allowing per Handler handling
@@ -291,8 +291,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		object := &models.Location{}
 		json.Unmarshal([]byte(result.Object), &object)
 
-		// If there are no results, the Object ID = 0
-		if len(object.ID) == 0 && err == nil {
+		// If there are no results, error is returned.
+		if err == nil {
 			// Object not found response.
 			return locations.NewWeaviateLocationsGetNotFound()
 		}
@@ -336,14 +336,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 	})
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams, principal interface{}) middleware.Responder {
-
-		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(403)
-				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
-			})
-		}
 
 		// This is a read function, validate if allowed to read?
 		if dbconnector.ReadAllowed(principal) == false {
