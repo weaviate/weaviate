@@ -237,10 +237,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// This is a delete function, validate if allowed to read?
 		if dbconnector.DeleteAllowed(principal) == false {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(403)
-				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
-			})
 			return locations.NewWeaviateLocationsDeleteForbidden()
 		}
 
@@ -271,10 +267,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// This is a read function, validate if allowed to read?
 		if dbconnector.ReadAllowed(principal) == false {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(403)
-				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
-			})
+			return locations.NewWeaviateLocationsGetForbidden()
 		}
 
 		// Get item from database
@@ -296,45 +289,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// This is a write function, validate if allowed to read?
 		if dbconnector.WriteAllowed(principal) == false {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(403)
-				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
-			})
+			return locations.NewWeaviateLocationsInsertForbidden()
 		}
 
-		// TODO: VALIDATE IF THE OBJECT IS OKAY
-		validated := true
+		// Generate DatabaseObject without JSON-object in it.
+		dbObject := *dbconnector.NewDatabaseObject("FOOBAR USER UUID", "#/paths/locations")
 
-		// return error
-		if !validated {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte("{ \"ERROR\": \"There is something wrong with your original POSTed body\" }"))
-			})
-		} else {
-			// Generate DatabaseObject without JSON-object in it.
-			dbObject := *dbconnector.NewDatabaseObject("FOOBAR USER UUID", "#/paths/locations")
+		// Set the body-id and generate JSON to save to the database
+		params.Body.ID = dbObject.Uuid
+		databaseBody, _ := json.Marshal(params.Body)
+		dbObject.Object = string(databaseBody)
 
-			// Set the body-id and generate JSON to save to the database
-			params.Body.ID = dbObject.Uuid
-			databaseBody, _ := json.Marshal(params.Body)
-			dbObject.Object = string(databaseBody)
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
 
-			// Save to DB, this needs to be a Go routine because we will return an accepted
-			go databaseConnector.Add(dbObject)
-
-			// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-			return locations.NewWeaviateLocationsInsertAccepted().WithPayload(params.Body)
-		}
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return locations.NewWeaviateLocationsInsertAccepted().WithPayload(params.Body)
 	})
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams, principal interface{}) middleware.Responder {
 
 		// This is a read function, validate if allowed to read?
 		if dbconnector.ReadAllowed(principal) == false {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(403)
-				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
-			})
+			return locations.NewWeaviateLocationsListForbidden()
 		}
 
 		// Show all locations with List function, get max results in URL, otherwise max = 100.
@@ -362,10 +338,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.LocationsWeaviateLocationsPatchHandler = locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
 		if dbconnector.WriteAllowed(principal) == false {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(403)
-				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
-			})
+			return locations.NewWeaviateLocationsPatchForbidden()
 		}
 
 		// Get and transform object
@@ -382,21 +355,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
 
 		if marshalErr != nil || decodeErr != nil {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(400)
-				rw.Header().Set("Accept-Patch", "*")
-				rw.Write([]byte("{ \"ERROR\": \"The JSON-patch-content is malformed.\" }"))
-			})
+			return locations.NewWeaviateLocationsPatchBadRequest()
 		}
 
 		// Apply the patch
 		updatedJSON, applyErr := patchObject.Apply([]byte(dbObject.Object))
 
 		if applyErr != nil {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte("{ \"ERROR\": \"The patch is unprocessable.\" }"))
-			})
+			return locations.NewWeaviateLocationsPatchUnprocessableEntity()
 		}
 
 		// Set patched JSON back in dbObject
@@ -415,10 +381,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// This is a write function, validate if allowed to read?
 		if dbconnector.WriteAllowed(principal) == false {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(403)
-				rw.Write([]byte("{ \"ERROR\": \"This key has insufficient permissions\" }"))
-			})
+			return locations.NewWeaviateLocationsUpdateForbidden()
 		}
 
 		// Get item from database
@@ -435,27 +398,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return locations.NewWeaviateLocationsUpdateNotFound()
 		}
 
-		// TODO: VALIDATE IF THE OBJECT IS OKAY
-		validated := true
+		// Set the body-id and generate JSON to save to the database
+		databaseBody, _ := json.Marshal(params.Body)
+		dbObject.Object = string(databaseBody)
+		dbObject.SetCreateTimeMsToNow()
 
-		// return error
-		if validated == false {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte("{ \"ERROR\": \"There is something wrong with your original POSTed body\" }"))
-			})
-		} else {
-			// Set the body-id and generate JSON to save to the database
-			databaseBody, _ := json.Marshal(params.Body)
-			dbObject.Object = string(databaseBody)
-			dbObject.SetCreateTimeMsToNow()
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
 
-			// Save to DB, this needs to be a Go routine because we will return an accepted
-			go databaseConnector.Add(dbObject)
-
-			// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-			return locations.NewWeaviateLocationsUpdateOK().WithPayload(params.Body)
-		}
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return locations.NewWeaviateLocationsUpdateOK().WithPayload(params.Body)
 	})
 
 	/*
