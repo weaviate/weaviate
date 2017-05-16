@@ -15,6 +15,7 @@ package restapi
 import (
 	"crypto/tls"
 	"encoding/json"
+	"math"
 	"net/http"
 
 	jsonpatch "github.com/evanphx/json-patch"
@@ -321,16 +322,23 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return locations.NewWeaviateLocationsListForbidden()
 		}
 
-		// Show all locations with List function, get max results in URL, otherwise max = 100.
-		limit := 100
+		// Get the max results from params, if exists
+		maxResults := int64(100)
+		if params.MaxResults != nil {
+			maxResults = *params.MaxResults
+		}
 
+		// Show all locations with List function, get max results in URL, otherwise max = 100.
+		limit := int(math.Min(float64(maxResults), 100))
+
+		// List all results
 		locationDatabaseObjects, _ := databaseConnector.List("#/paths/locations", limit)
 
-		// TODO: Limit max here
-
+		// Convert to an response object
 		locationsListResponse := &models.LocationsListResponse{}
 		locationsListResponse.Locations = make([]*models.Location, limit)
 
+		// Loop to fill response project
 		for i, locationDatabaseObject := range locationDatabaseObjects {
 			locationObject := &models.Location{}
 			json.Unmarshal([]byte(locationDatabaseObject.Object), locationObject)
