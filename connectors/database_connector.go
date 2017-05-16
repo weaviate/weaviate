@@ -49,7 +49,8 @@ type DatabaseUsersObjectsObject struct {
 }
 
 // NewDatabaseObject creates a new object with default values
-// Note: TODO EXPLAIN FLOW
+// Note: Only owner and refType has to be filled. New object automatically gets new UUID and TIME.
+// 	Time is updatable by function.
 func NewDatabaseObject(owner string, refType string) *DatabaseObject {
 	dbo := new(DatabaseObject)
 
