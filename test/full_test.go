@@ -69,31 +69,6 @@ var locationId string
 func init() {
 	flag.StringVar(&apiKeyCmdLine, "api-key", "", "API-KEY as used as haeder in the tests.")
 	flag.Parse()
-
-	// testUserObject := &dbconnector.DatabaseUsersObjectsObject{
-	// 	Delete:   true,
-	// 	Email:    "test@ing.nl",
-	// 	IpOrigin: "*",
-	// 	Read:     true,
-	// 	Write:    true,
-	// }
-
-	// jsonValue, _ := json.Marshal(testUserObject)
-
-	// testUser := &dbconnector.DatabaseUsersObject{
-	// 	Uuid:         "sdf",
-	// 	KeyToken:     "TESTTEST",
-	// 	KeyExpiresMs: 0,
-	// 	Object:       string(jsonValue),
-	// 	Parent:       "",
-	// }
-
-	// databaseConnector := &datastore.Datastore{}
-	// databaseConnector.Connect()
-
-	// UUID, _ := databaseConnector.AddUser(*testUser)
-
-	// print(UUID)
 }
 
 /******************
@@ -102,9 +77,11 @@ func init() {
 
 // weaviate.location.insert
 func Test__weaviate_location_insert_JSON(t *testing.T) {
+	// Create insert request
 	jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"TEST","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"string","types":["UNDEFINED"]} `))
 	response := doRequest("/locations", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
+	// Check status code of insert
 	if response.StatusCode != http.StatusAccepted {
 		t.Errorf("Expected response code %d. Got %d\n", http.StatusAccepted, response.StatusCode)
 	}
@@ -114,6 +91,7 @@ func Test__weaviate_location_insert_JSON(t *testing.T) {
 	respObject := &models.Location{}
 	json.Unmarshal(body, respObject)
 
+	// Check whether generated UUID is added
 	locationId = respObject.ID
 
 	expLength := 36
@@ -124,7 +102,10 @@ func Test__weaviate_location_insert_JSON(t *testing.T) {
 
 // weaviate.location.list
 func Test__weaviate_location_list_JSON(t *testing.T) {
+	// Create list request
 	response := doRequest("/locations", "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code of list
 	if response.StatusCode != http.StatusOK {
 		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
 	}
@@ -134,6 +115,7 @@ func Test__weaviate_location_list_JSON(t *testing.T) {
 	respObject := &models.LocationsListResponse{}
 	json.Unmarshal(body, respObject)
 
+	// Check most recent
 	if respObject.Locations[0].ID != locationId {
 		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.Locations[0].ID)
 	}
@@ -141,7 +123,10 @@ func Test__weaviate_location_list_JSON(t *testing.T) {
 
 // weaviate.location.get
 func Test__weaviate_location_get_JSON(t *testing.T) {
+	// Create get request
 	response := doRequest("/locations/"+locationId, "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
 	if response.StatusCode != http.StatusOK {
 		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
 	}
@@ -151,19 +136,142 @@ func Test__weaviate_location_get_JSON(t *testing.T) {
 	respObject := &models.Location{}
 	json.Unmarshal(body, respObject)
 
+	// Check ID of object
 	if respObject.ID != locationId {
 		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.ID)
 	}
 
+	// Create get request with non-existing location
 	responseNotFound := doRequest("/locations/11111111-1111-1111-1111-111111111111", "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check response of non-existing location
 	if responseNotFound.StatusCode != http.StatusNotFound {
 		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
 	}
 }
 
 // weaviate.location.update
+func Test__weaviate_location_update_JSON(t *testing.T) {
+	// Create update request
+	newPlaceID := "updated_place_id"
+	jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"TEST","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"` + newPlaceID + `","types":["UNDEFINED"]} `))
+	response := doRequest("/locations/"+locationId, "PUT", "application/json", jsonStr, apiKeyCmdLine)
+
+	body := getResponseBody(response)
+
+	respObject := &models.Location{}
+	json.Unmarshal(body, respObject)
+
+	// Check location ID is same
+	if respObject.ID != locationId {
+		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.ID)
+	}
+
+	// Check ID after update
+	if respObject.PlaceID != newPlaceID {
+		t.Errorf("Expected updated PlaceID %s. Got %s\n", newPlaceID, respObject.PlaceID)
+	}
+
+	// Check if update is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/locations/"+locationId, "GET", "application/json", nil, apiKeyCmdLine)
+
+	bodyGet := getResponseBody(responseGet)
+
+	respObjectGet := &models.Location{}
+	json.Unmarshal(bodyGet, respObjectGet)
+
+	// Check place after update and get
+	if respObjectGet.PlaceID != newPlaceID {
+		t.Errorf("Expected updated PlaceID after GET %s. Got %s\n", newPlaceID, respObject.PlaceID)
+	}
+
+	// Check put on non-existing ID
+	emptyJSON := bytes.NewBuffer([]byte(`{}`))
+	responseNotFound := doRequest("/locations/11111111-1111-1111-1111-111111111111", "PUT", "application/json", emptyJSON, apiKeyCmdLine)
+	if responseNotFound.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected response code for not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
+	}
+}
+
 // weaviate.location.patch
+func Test__weaviate_location_patch_JSON(t *testing.T) {
+	// Create patch request
+	newPlaceID := "patched_place_id"
+
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/place_id", "value": "` + newPlaceID + `"}]`))
+	response := doRequest("/locations/"+locationId, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
+
+	body := getResponseBody(response)
+
+	respObject := &models.Location{}
+	json.Unmarshal(body, respObject)
+
+	// Check ID is the same
+	if respObject.ID != locationId {
+		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.ID)
+	}
+
+	// Check ID after patch
+	if respObject.PlaceID != newPlaceID {
+		t.Errorf("Expected patched PlaceID %s. Got %s\n", newPlaceID, respObject.PlaceID)
+	}
+
+	// Check if patch is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/locations/"+locationId, "GET", "application/json", nil, apiKeyCmdLine)
+
+	bodyGet := getResponseBody(responseGet)
+
+	respObjectGet := &models.Location{}
+	json.Unmarshal(bodyGet, respObjectGet)
+
+	// Check place after patch and get
+	if respObjectGet.PlaceID != newPlaceID {
+		t.Errorf("Expected patched PlaceID after GET %s. Got %s\n", newPlaceID, respObject.PlaceID)
+	}
+
+	// Check patch with incorrect contents
+	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/place_id", "value": "` + newPlaceID + `"}`))
+	responseError := doRequest("/locations/"+locationId, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+
+	if responseError.StatusCode != http.StatusBadRequest {
+		t.Errorf("Expected response code for wrong input %d. Got %d\n", http.StatusBadRequest, responseError.StatusCode)
+	}
+
+	// Check patch on non-existing ID
+	emptyJSON := bytes.NewBuffer([]byte(`[{}]`))
+	responseNotFound := doRequest("/locations/11111111-1111-1111-1111-111111111111", "PATCH", "application/json", emptyJSON, apiKeyCmdLine)
+
+	if responseNotFound.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected response code for not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
+	}
+}
+
 // weaviate.location.delete
+func Test__weaviate_location_delete_JSON(t *testing.T) {
+	// Create delete request
+	response := doRequest("/locations/"+locationId, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	if response.StatusCode != http.StatusNoContent {
+		t.Errorf("Expected response code %d. Got %d\n", http.StatusNoContent, response.StatusCode)
+	}
+
+	// Create delete request
+	responseAlreadyDeleted := doRequest("/locations/"+locationId, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	if responseAlreadyDeleted.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected response code already deleted %d. Got %d\n", http.StatusNotFound, responseAlreadyDeleted.StatusCode)
+	}
+
+	// Create get request with non-existing location
+	responseNotFound := doRequest("/locations/11111111-1111-1111-1111-111111111111", "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check response of non-existing location
+	if responseNotFound.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected response code not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
+	}
+}
 
 // weaviate.adapters.list
 func Test__weaviate_adapters_list_JSON(t *testing.T) {
