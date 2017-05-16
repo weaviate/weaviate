@@ -227,9 +227,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		var Principal dbconnector.DatabaseUsersObject
 		json.Unmarshal(principalMarshall, &Principal)
 
-		result, _ := databaseConnector.AddKey(Principal.Uuid, params.Body)
+		go databaseConnector.AddKey(Principal.Uuid, Principal)
 
-		return keys.NewWeaviateKeyCreateAccepted().WithPayload(result)
+		return keys.NewWeaviateKeyCreateAccepted()
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation keys.WeaviateKeysDelete has not yet been implemented")
@@ -252,12 +252,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		databaseObject, errGet := databaseConnector.Get(params.LocationID)
 
 		// Not found
-		if errGet != nil {
-			return locations.NewWeaviateLocationsDeleteNotFound()
-		}
-
-		// Already deleted
-		if databaseObject.Deleted {
+		if databaseObject.Deleted || errGet != nil {
 			return locations.NewWeaviateLocationsDeleteNotFound()
 		}
 
@@ -279,16 +274,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get item from database
-		result, err := databaseConnector.Get(params.LocationID)
+		dbObject, err := databaseConnector.Get(params.LocationID)
+
+		// Object is deleted eleted
+		if dbObject.Deleted || err != nil {
+			return locations.NewWeaviateLocationsGetNotFound()
+		}
 
 		// Create object to return
 		object := &models.Location{}
-		json.Unmarshal([]byte(result.Object), &object)
-
-		// If there are no results, error is returned. Object not found response.
-		if err != nil {
-			return locations.NewWeaviateLocationsGetNotFound()
-		}
+		json.Unmarshal([]byte(dbObject.Object), &object)
 
 		// Get is successful
 		return locations.NewWeaviateLocationsGetOK().WithPayload(object)
@@ -355,7 +350,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		dbObject, errGet := databaseConnector.Get(UUID)
 
 		// Return error if UUID is not found.
-		if errGet != nil {
+		if dbObject.Deleted || errGet != nil {
 			return locations.NewWeaviateLocationsPatchNotFound()
 		}
 
@@ -395,17 +390,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get item from database
 		UUID := params.LocationID
-		dbObject, _ := databaseConnector.Get(UUID)
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// If there are no results, there is an error
+		if dbObject.Deleted || errGet != nil {
+			// Object not found response.
+			return locations.NewWeaviateLocationsUpdateNotFound()
+		}
 
 		// Create object to return
 		object := &models.Location{}
 		json.Unmarshal([]byte(dbObject.Object), &object)
 
-		// If there are no results, there is an error
-		if err != nil {
-			// Object not found response.
-			return locations.NewWeaviateLocationsUpdateNotFound()
-		}
+		// Overwrite body ID with UUID // TODO???
+		params.Body.ID = UUID
 
 		// Set the body-id and generate JSON to save to the database
 		databaseBody, _ := json.Marshal(params.Body)
