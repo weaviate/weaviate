@@ -18,9 +18,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 
 	"cloud.google.com/go/datastore"
 	gouuid "github.com/satori/go.uuid"
+
+	"encoding/json"
 
 	"github.com/weaviate/weaviate/connectors"
 )
@@ -47,6 +50,89 @@ func (f *Datastore) Connect() error {
 	}
 
 	f.client = client
+	return nil
+}
+
+// Creates a root key and tables if not already available
+func (f *Datastore) Init() error {
+
+	ctx := context.Background()
+
+	f.kind = "weaviate_users"
+
+	// create query to check for root key
+	query := datastore.NewQuery(f.kind).Filter("Parent =", "*").Limit(1)
+
+	dbKeyObjects := []dbconnector.DatabaseUsersObject{}
+
+	_, err := f.client.GetAll(ctx, query, &dbKeyObjects)
+
+	if err != nil {
+		panic("ERROR INITIALIZING SERVER")
+	}
+
+	// No key was found, create one
+	if len(dbKeyObjects) == 0 {
+
+		dbObject := dbconnector.DatabaseUsersObject{}
+
+		// Create key token
+		dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
+
+		// Uuid + name
+		uuid := fmt.Sprintf("%v", gouuid.NewV4())
+
+		// Creates a Key instance.
+		taskKey := datastore.NameKey(f.kind, uuid, nil)
+
+		// Auto set the parent ID to root *
+		dbObject.Parent = "*"
+
+		// Set Uuid
+		dbObject.Uuid = uuid
+
+		// Set chmod variables
+		dbObjectObject := dbconnector.DatabaseUsersObjectsObject{}
+		dbObjectObject.Read = true
+		dbObjectObject.Write = true
+		dbObjectObject.Delete = true
+
+		// Get ips as v6
+		var ips []string
+		ifaces, _ := net.Interfaces()
+		for _, i := range ifaces {
+			addrs, _ := i.Addrs()
+			for _, addr := range addrs {
+				var ip net.IP
+				switch v := addr.(type) {
+				case *net.IPNet:
+					ip = v.IP
+				case *net.IPAddr:
+					ip = v.IP
+				}
+
+				ipv6 := ip.To16()
+				ips = append(ips, ipv6.String())
+			}
+		}
+
+		dbObjectObject.IpOrigin = ips
+
+		// Marshall and add to object
+		dbObjectObjectJson, _ := json.Marshal(dbObjectObject)
+		dbObject.Object = string(dbObjectObjectJson)
+
+		// Saves the new entity.
+		if _, err := f.client.Put(ctx, taskKey, &dbObject); err != nil {
+			log.Fatalf("Failed to save task: %v", err)
+		}
+
+		// Print the key
+		log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/weaviate/weaviate/blob/develop/README.md#authentication")
+		log.Println("INFO: Auto set allowed IPs to: ", ips)
+		log.Println("ROOTKEY=" + dbObject.KeyToken)
+	}
+
 	return nil
 }
 

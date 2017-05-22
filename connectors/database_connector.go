@@ -41,11 +41,11 @@ type DatabaseUsersObject struct {
 
 // Object of DatabaseUsersObject
 type DatabaseUsersObjectsObject struct {
-	Delete   bool   `json:"Delete"`
-	Email    string `json:"Email"`
-	IpOrigin string `json:"IpOrigin"`
-	Read     bool   `json:"Read"`
-	Write    bool   `json:"Write"`
+	Delete   bool     `json:"Delete"`
+	Email    string   `json:"Email"`
+	IpOrigin []string `json:"IpOrigin"`
+	Read     bool     `json:"Read"`
+	Write    bool     `json:"Write"`
 }
 
 // NewDatabaseObject creates a new object with default values
@@ -123,6 +123,7 @@ func DeleteAllowed(validateObject interface{}) bool {
 // DatabaseConnector is the interface that all connectors should have
 type DatabaseConnector interface {
 	Connect() error
+	Init() error
 	Add(DatabaseObject) (string, error)
 	Get(string) (DatabaseObject, error)
 	List(string, int) ([]DatabaseObject, error)

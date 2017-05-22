@@ -82,9 +82,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		databaseConnector = &mysql.Mysql{}
 	}
 
-	err := databaseConnector.Connect()
-	if err != nil {
-		panic(err)
+	// connect the database
+	errConnect := databaseConnector.Connect()
+	if errConnect != nil {
+		panic(errConnect)
+	}
+
+	// init the database
+	errInit := databaseConnector.Init()
+	if errInit != nil {
+		panic(errInit)
 	}
 
 	// configure the api here
