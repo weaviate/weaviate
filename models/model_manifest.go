@@ -28,20 +28,17 @@ import (
 // swagger:model ModelManifest
 type ModelManifest struct {
 
-	// For gateways, a list of device ids that are allowed to connect to it.
+	// For gateways, a list of thing ids that are allowed to connect to it.
 	AllowedChildModelManifestIds []string `json:"allowedChildModelManifestIds"`
 
-	// List of applications recommended to use with a device model.
+	// List of applications recommended to use with a thing model.
 	Applications []*Application `json:"applications"`
 
 	// URL of image showing a confirmation button.
 	ConfirmationImageURL string `json:"confirmationImageUrl,omitempty"`
 
-	// URL of device image.
-	DeviceImageURL string `json:"deviceImageUrl,omitempty"`
-
-	// Device kind, see "deviceKind" field of the Device resource. See list of device kinds values.
-	DeviceKind string `json:"deviceKind,omitempty"`
+	// The list of groups.
+	Groups []*Group `json:"groups"`
 
 	// Unique model manifest ID.
 	ID string `json:"id,omitempty"`
@@ -49,17 +46,23 @@ type ModelManifest struct {
 	// Identifies what kind of resource this is. Value: the fixed string "weave#modelManifest".
 	Kind *string `json:"kind,omitempty"`
 
-	// User readable device model description.
+	// User readable thing model description.
 	ModelDescription string `json:"modelDescription,omitempty"`
 
-	// User readable device model name.
+	// User readable thing model name.
 	ModelName string `json:"modelName,omitempty"`
 
-	// User readable name of device model manufacturer.
+	// User readable name of thing model manufacturer.
 	OemName string `json:"oemName,omitempty"`
 
-	// URL of device support page.
+	// URL of thing support page.
 	SupportPageURL string `json:"supportPageUrl,omitempty"`
+
+	// URL of thing image.
+	ThingImageURL string `json:"thingImageUrl,omitempty"`
+
+	// Thing kind, see "thingKind" field of the Thing resource. See list of thing kinds values.
+	ThingKind string `json:"thingKind,omitempty"`
 }
 
 // Validate validates this model manifest
@@ -72,6 +75,11 @@ func (m *ModelManifest) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateApplications(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
+	if err := m.validateGroups(formats); err != nil {
 		// prop
 		res = append(res, err)
 	}
@@ -108,6 +116,33 @@ func (m *ModelManifest) validateApplications(formats strfmt.Registry) error {
 			if err := m.Applications[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("applications" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+func (m *ModelManifest) validateGroups(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Groups) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Groups); i++ {
+
+		if swag.IsZero(m.Groups[i]) { // not required
+			continue
+		}
+
+		if m.Groups[i] != nil {
+
+			if err := m.Groups[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("groups" + "." + strconv.Itoa(i))
 				}
 				return err
 			}

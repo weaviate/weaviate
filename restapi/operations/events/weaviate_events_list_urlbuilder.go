@@ -27,7 +27,6 @@ import (
 type WeaviateEventsListURL struct {
 	Alt         *string
 	CommandID   []string
-	DeviceID    []string
 	EndTimeMs   *string
 	Fields      *string
 	Hl          *string
@@ -38,6 +37,7 @@ type WeaviateEventsListURL struct {
 	QuotaUser   *string
 	StartIndex  *int64
 	StartTimeMs *string
+	ThingID     []string
 	Token       *string
 	Type        *string
 	UserIP      *string
@@ -96,20 +96,6 @@ func (o *WeaviateEventsListURL) Build() (*url.URL, error) {
 
 	for _, qsv := range commandID {
 		qs.Add("commandId", qsv)
-	}
-
-	var deviceIDIR []string
-	for _, deviceIDI := range o.DeviceID {
-		deviceIDIS := deviceIDI
-		if deviceIDIS != "" {
-			deviceIDIR = append(deviceIDIR, deviceIDIS)
-		}
-	}
-
-	deviceID := swag.JoinByFormat(deviceIDIR, "multi")
-
-	for _, qsv := range deviceID {
-		qs.Add("deviceId", qsv)
 	}
 
 	var endTimeMs string
@@ -190,6 +176,20 @@ func (o *WeaviateEventsListURL) Build() (*url.URL, error) {
 	}
 	if startTimeMs != "" {
 		qs.Set("startTimeMs", startTimeMs)
+	}
+
+	var thingIDIR []string
+	for _, thingIDI := range o.ThingID {
+		thingIDIS := thingIDI
+		if thingIDIS != "" {
+			thingIDIR = append(thingIDIR, thingIDIS)
+		}
+	}
+
+	thingID := swag.JoinByFormat(thingIDIR, "multi")
+
+	for _, qsv := range thingID {
+		qs.Add("thingId", qsv)
 	}
 
 	var token string

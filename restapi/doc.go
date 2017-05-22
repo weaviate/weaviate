@@ -12,7 +12,7 @@
  */
  /*Package restapi Weaviate API
 
-Lets you register, view and manage cloud ready devices.
+Lets you register, view and manage cloud ready things.
 
 
     Schemes:

@@ -92,7 +92,7 @@ type WeaviateCommandsInsertParams struct {
 	  In: query
 	*/
 	QuotaUser *string
-	/*Number of milliseconds to wait for device response before returning.
+	/*Number of milliseconds to wait for thing response before returning.
 	  Maximum: 25000
 	  In: query
 	*/

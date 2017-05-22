@@ -41,7 +41,7 @@ func NewWeaviateCommandsPatch(ctx *middleware.Context, handler WeaviateCommandsP
 
 /*WeaviateCommandsPatch swagger:route PATCH /commands/{commandId} commands weaviateCommandsPatch
 
-Updates a command. This method may be used only by devices. This method supports patch semantics.
+Updates a command. This method may be used only by things. This method supports patch semantics.
 
 */
 type WeaviateCommandsPatch struct {
