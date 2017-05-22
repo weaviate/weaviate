@@ -37,6 +37,9 @@ type Location struct {
 	// geometry
 	Geometry *LocationGeometry `json:"geometry,omitempty"`
 
+	// The list of groups.
+	Groups []*Group `json:"groups"`
+
 	// ID of the location.
 	ID string `json:"id,omitempty"`
 
@@ -57,6 +60,11 @@ func (m *Location) Validate(formats strfmt.Registry) error {
 	}
 
 	if err := m.validateGeometry(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
+	if err := m.validateGroups(formats); err != nil {
 		// prop
 		res = append(res, err)
 	}
@@ -113,6 +121,33 @@ func (m *Location) validateGeometry(formats strfmt.Registry) error {
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *Location) validateGroups(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Groups) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Groups); i++ {
+
+		if swag.IsZero(m.Groups[i]) { // not required
+			continue
+		}
+
+		if m.Groups[i] != nil {
+
+			if err := m.Groups[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("groups" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
 	}
 
 	return nil

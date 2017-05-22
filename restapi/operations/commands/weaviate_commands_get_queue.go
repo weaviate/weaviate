@@ -41,7 +41,7 @@ func NewWeaviateCommandsGetQueue(ctx *middleware.Context, handler WeaviateComman
 
 /*WeaviateCommandsGetQueue swagger:route GET /commands/queue commands weaviateCommandsGetQueue
 
-Returns all queued commands that device is supposed to execute. This method may be used only by devices.
+Returns all queued commands that thing is supposed to execute. This method may be used only by things.
 
 */
 type WeaviateCommandsGetQueue struct {

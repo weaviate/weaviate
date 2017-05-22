@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// Application Contains information about a recommended application for a device model.
+// Application Contains information about a recommended application for a thing model.
 // swagger:model Application
 type Application struct {
 
