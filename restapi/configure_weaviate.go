@@ -54,6 +54,17 @@ func init() {
 	grpclog.SetLogger(myGRPCLogger)
 }
 
+func getLimit(paramMaxResults *int64) int {
+	// Get the max results from params, if exists
+	maxResults := maxResultsOverride
+	if paramMaxResults != nil {
+		maxResults = *paramMaxResults
+	}
+
+	// Max results form URL, otherwise max = maxResultsOverride.
+	return int(math.Min(float64(maxResults), float64(maxResultsOverride)))
+}
+
 func configureFlags(api *operations.WeaviateAPI) {
 	// api.CommandLineOptionsGroups = []swag.CommandLineOptionsGroup{ ... }
 }
@@ -236,13 +247,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation keys.WeaviateChildrenGet has not yet been implemented")
 	})
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
+		// Get user object
+		UsersObject, _ := dbconnector.PrincipalMarshalling(principal)
 
-		// marshall principal
-		principalMarshall, _ := json.Marshal(principal)
-		var Principal dbconnector.DatabaseUsersObject
-		json.Unmarshal(principalMarshall, &Principal)
-
-		go databaseConnector.AddKey(Principal.Uuid, Principal)
+		go databaseConnector.AddKey(UsersObject.Uuid, UsersObject)
 
 		return keys.NewWeaviateKeyCreateAccepted()
 	})
@@ -272,8 +280,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Set deleted values
-		databaseObject.Deleted = true
-		databaseObject.SetCreateTimeMsToNow()
+		databaseObject.MakeObjectDeleted()
 
 		// Add new row as GO-routine
 		go databaseConnector.Add(databaseObject)
@@ -310,18 +317,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return locations.NewWeaviateLocationsInsertForbidden()
 		}
 
-		// Get user id
-		principalMarshall, _ := json.Marshal(principal)
-		var Principal dbconnector.DatabaseUsersObject
-		json.Unmarshal(principalMarshall, &Principal)
+		// Get user object
+		UsersObject, _ := dbconnector.PrincipalMarshalling(principal)
 
 		// Generate DatabaseObject without JSON-object in it.
-		dbObject := *dbconnector.NewDatabaseObject(Principal.Uuid, refTypeLocation)
+		dbObject := *dbconnector.NewDatabaseObject(UsersObject.Uuid, refTypeLocation)
 
 		// Set the body-id and generate JSON to save to the database
 		params.Body.ID = dbObject.Uuid
-		databaseBody, _ := json.Marshal(params.Body)
-		dbObject.Object = string(databaseBody)
+		dbObject.MergeRequestBodyIntoObject(params.Body)
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
 		go databaseConnector.Add(dbObject)
@@ -336,14 +340,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return locations.NewWeaviateLocationsListForbidden()
 		}
 
-		// Get the max results from params, if exists
-		maxResults := maxResultsOverride
-		if params.MaxResults != nil {
-			maxResults = *params.MaxResults
-		}
-
-		// Show all locations with List function, get max results in URL, otherwise max = 100.
-		limit := int(math.Min(float64(maxResults), float64(maxResultsOverride)))
+		// Get limit
+		limit := getLimit(params.MaxResults)
 
 		// List all results
 		locationDatabaseObjects, _ := databaseConnector.List(refTypeLocation, limit)
@@ -428,8 +426,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		params.Body.ID = UUID
 
 		// Set the body-id and generate JSON to save to the database
-		databaseBody, _ := json.Marshal(params.Body)
-		dbObject.Object = string(databaseBody)
+		dbObject.MergeRequestBodyIntoObject(params.Body)
 		dbObject.SetCreateTimeMsToNow()
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
