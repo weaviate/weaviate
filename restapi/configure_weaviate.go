@@ -45,6 +45,8 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/model_manifests"
 )
 
+const refTypeLocation string = "#/paths/locations"
+
 func init() {
 	var discard io.Writer = ioutil.Discard
 	var myGRPCLogger grpclog.Logger = log.New(discard, "", log.LstdFlags)
@@ -313,7 +315,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal(principalMarshall, &Principal)
 
 		// Generate DatabaseObject without JSON-object in it.
-		dbObject := *dbconnector.NewDatabaseObject(Principal.Uuid, "#/paths/locations")
+		dbObject := *dbconnector.NewDatabaseObject(Principal.Uuid, refTypeLocation)
 
 		// Set the body-id and generate JSON to save to the database
 		params.Body.ID = dbObject.Uuid
@@ -343,7 +345,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := int(math.Min(float64(maxResults), 100))
 
 		// List all results
-		locationDatabaseObjects, _ := databaseConnector.List("#/paths/locations", limit)
+		locationDatabaseObjects, _ := databaseConnector.List(refTypeLocation, limit)
 
 		// Convert to an response object
 		locationsListResponse := &models.LocationsListResponse{}
