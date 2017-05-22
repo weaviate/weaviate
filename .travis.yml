@@ -6,6 +6,13 @@ env:
 before_install:
   - go get ./...
 script:
+  # RUN DATASTORE TEST
+  - export CLOUD_SDK_REPO="cloud-sdk-$(lsb_release -c -s)"
+  - echo "deb http://packages.cloud.google.com/apt $CLOUD_SDK_REPO main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+  - curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+  - sudo apt-get update && sudo apt-get install google-cloud-sdk
+  - nohup gcloud beta emulators datastore start &
+  - rm nohup.out
   - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8080 --host=127.0.0.1 &
   - sleep 12
   - WEAVIATEKEY=$(grep "ROOTKEY=" nohup.out | cut -d "=" -f 2)
