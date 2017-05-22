@@ -76,6 +76,18 @@ func (f *DatabaseObject) GenerateAndSetUUID() {
 	f.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
 }
 
+// MakeObjectDeleted gives the Object the current time in mili seconds and marks it as deleted
+func (f *DatabaseObject) MakeObjectDeleted() {
+	f.Deleted = true
+	f.SetCreateTimeMsToNow()
+}
+
+// MergeRequestBodyIntoObject merges the Object with right body
+func (f *DatabaseObject) MergeRequestBodyIntoObject(body interface{}) {
+	databaseBody, _ := json.Marshal(body)
+	f.Object = string(databaseBody)
+}
+
 // Marhshall and Unmarshall Principal and Principals Objects
 func PrincipalMarshalling(Object interface{}) (DatabaseUsersObject, DatabaseUsersObjectsObject) {
 	// marshall principal
