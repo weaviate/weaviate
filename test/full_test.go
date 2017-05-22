@@ -98,6 +98,9 @@ func Test__weaviate_location_insert_JSON(t *testing.T) {
 	if len(locationId) != expLength {
 		t.Errorf("Expected length of ID %d. Got %d\n", expLength, len(locationId))
 	}
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 }
 
 // weaviate.location.list
@@ -172,6 +175,9 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 		t.Errorf("Expected updated PlaceID %s. Got %s\n", newPlaceID, respObject.PlaceID)
 	}
 
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
 	// Check if update is also applied on object when using a new GET request on same object
 	responseGet := doRequest("/locations/"+locationId, "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -216,6 +222,9 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 		t.Errorf("Expected patched PlaceID %s. Got %s\n", newPlaceID, respObject.PlaceID)
 	}
 
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
 	// Check if patch is also applied on object when using a new GET request on same object
 	responseGet := doRequest("/locations/"+locationId, "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -255,6 +264,9 @@ func Test__weaviate_location_delete_JSON(t *testing.T) {
 	if response.StatusCode != http.StatusNoContent {
 		t.Errorf("Expected response code %d. Got %d\n", http.StatusNoContent, response.StatusCode)
 	}
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 
 	// Create delete request
 	responseAlreadyDeleted := doRequest("/locations/"+locationId, "DELETE", "application/json", nil, apiKeyCmdLine)
