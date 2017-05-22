@@ -46,6 +46,7 @@ import (
 )
 
 const refTypeLocation string = "#/paths/locations"
+const maxResultsOverride int64 = 100
 
 func init() {
 	var discard io.Writer = ioutil.Discard
@@ -336,13 +337,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get the max results from params, if exists
-		maxResults := int64(100)
+		maxResults := maxResultsOverride
 		if params.MaxResults != nil {
 			maxResults = *params.MaxResults
 		}
 
 		// Show all locations with List function, get max results in URL, otherwise max = 100.
-		limit := int(math.Min(float64(maxResults), 100))
+		limit := int(math.Min(float64(maxResults), float64(maxResultsOverride)))
 
 		// List all results
 		locationDatabaseObjects, _ := databaseConnector.List(refTypeLocation, limit)
