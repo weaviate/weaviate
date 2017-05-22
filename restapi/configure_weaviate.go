@@ -15,8 +15,13 @@ package restapi
 import (
 	"crypto/tls"
 	"encoding/json"
+	"io"
+	"io/ioutil"
+	"log"
 	"math"
 	"net/http"
+
+	"google.golang.org/grpc/grpclog"
 
 	jsonpatch "github.com/evanphx/json-patch"
 	errors "github.com/go-openapi/errors"
@@ -39,6 +44,12 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/locations"
 	"github.com/weaviate/weaviate/restapi/operations/model_manifests"
 )
+
+func init() {
+	var discard io.Writer = ioutil.Discard
+	var myGRPCLogger grpclog.Logger = log.New(discard, "", log.LstdFlags)
+	grpclog.SetLogger(myGRPCLogger)
+}
 
 func configureFlags(api *operations.WeaviateAPI) {
 	// api.CommandLineOptionsGroups = []swag.CommandLineOptionsGroup{ ... }
