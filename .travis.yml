@@ -7,7 +7,7 @@ env:
 before_install:
   - go get ./...
 script:
-  - nohup if [ ! -d "$HOME/google-cloud-sdk/bin" ]; then rm -rf $HOME/google-cloud-sdk; export CLOUDSDK_CORE_DISABLE_PROMPTS=1; curl https://sdk.cloud.google.com | bash; fi &
+  - nohup "if [ ! -d \"$HOME/google-cloud-sdk/bin\" ]; then rm -rf $HOME/google-cloud-sdk; export CLOUDSDK_CORE_DISABLE_PROMPTS=1; curl https://sdk.cloud.google.com | bash; fi" &
   - source /home/travis/google-cloud-sdk/path.bash.inc
   - export CLOUDSDK_CORE_PROJECT=weaviate-dev-001
   - export DATASTORE_DATASET=weaviate-dev-001
