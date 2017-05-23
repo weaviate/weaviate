@@ -366,7 +366,7 @@ func Test__weaviate_adapters_update_XML(t *testing.T) {
 
 // weaviate.adapters.patch
 func Test__weaviate_adapters_patch_JSON(t *testing.T) {
-	jsonStr := bytes.NewBuffer([]byte(`{}`))
+	jsonStr := bytes.NewBuffer([]byte(`[]`))
 	result := doRequest("/adapters/1", "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 	if result.StatusCode != http.StatusNotImplemented {
 		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
@@ -374,7 +374,7 @@ func Test__weaviate_adapters_patch_JSON(t *testing.T) {
 }
 
 func Test__weaviate_adapters_patch_XML(t *testing.T) {
-	jsonStr := bytes.NewBuffer([]byte(`{}`))
+	jsonStr := bytes.NewBuffer([]byte(`[]`))
 	result := doRequest("/adapters/1", "PATCH", "application/xml", jsonStr, apiKeyCmdLine)
 	if result.StatusCode != http.StatusNotImplemented {
 		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
