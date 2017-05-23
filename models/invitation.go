@@ -19,15 +19,11 @@ import (
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
-	"github.com/go-openapi/swag"
 )
 
 // Invitation invitation
 // swagger:model Invitation
 type Invitation struct {
-
-	// acl entry
-	ACLEntry *ACLEntry `json:"aclEntry,omitempty"`
 
 	// Email of a user who created this invitation.
 	CreatorEmail string `json:"creatorEmail,omitempty"`
@@ -37,32 +33,8 @@ type Invitation struct {
 func (m *Invitation) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateACLEntry(formats); err != nil {
-		// prop
-		res = append(res, err)
-	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *Invitation) validateACLEntry(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.ACLEntry) { // not required
-		return nil
-	}
-
-	if m.ACLEntry != nil {
-
-		if err := m.ACLEntry.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("aclEntry")
-			}
-			return err
-		}
-	}
-
 	return nil
 }

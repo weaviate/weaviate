@@ -17,6 +17,7 @@
 
 import (
 	"encoding/json"
+	"strconv"
 
 	strfmt "github.com/go-openapi/strfmt"
 
@@ -44,9 +45,6 @@ type Command struct {
 	// User that created the command (not applicable if the user is deleted).
 	CreatorEmail string `json:"creatorEmail,omitempty"`
 
-	// Device ID that this command belongs to.
-	DeviceID string `json:"deviceId,omitempty"`
-
 	// error
 	Error *CommandError `json:"error,omitempty"`
 
@@ -55,6 +53,9 @@ type Command struct {
 
 	// Expiration timeout for the command since its creation, 10 seconds min, 30 days max.
 	ExpirationTimeoutMs int64 `json:"expirationTimeoutMs,omitempty"`
+
+	// The list of groups.
+	Groups []*Group `json:"groups"`
 
 	// Unique command ID.
 	ID string `json:"id,omitempty"`
@@ -80,7 +81,10 @@ type Command struct {
 	// Current command state.
 	State string `json:"state,omitempty"`
 
-	// Pending command state that is not acknowledged by the device yet.
+	// Thing ID that this command belongs to.
+	ThingID string `json:"thingId,omitempty"`
+
+	// Pending command state that is not acknowledged by the thing yet.
 	UserAction string `json:"userAction,omitempty"`
 }
 
@@ -89,6 +93,11 @@ func (m *Command) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateError(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
+	if err := m.validateGroups(formats); err != nil {
 		// prop
 		res = append(res, err)
 	}
@@ -118,6 +127,33 @@ func (m *Command) validateError(formats strfmt.Registry) error {
 			}
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (m *Command) validateGroups(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Groups) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Groups); i++ {
+
+		if swag.IsZero(m.Groups[i]) { // not required
+			continue
+		}
+
+		if m.Groups[i] != nil {
+
+			if err := m.Groups[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("groups" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
 	}
 
 	return nil

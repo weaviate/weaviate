@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateModelManifestsGetHandlerFunc turns a function with the right signature into a weaviate model manifests get handler
-type WeaviateModelManifestsGetHandlerFunc func(WeaviateModelManifestsGetParams) middleware.Responder
+type WeaviateModelManifestsGetHandlerFunc func(WeaviateModelManifestsGetParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateModelManifestsGetHandlerFunc) Handle(params WeaviateModelManifestsGetParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateModelManifestsGetHandlerFunc) Handle(params WeaviateModelManifestsGetParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateModelManifestsGetHandler interface for that can handle valid weaviate model manifests get params
 type WeaviateModelManifestsGetHandler interface {
-	Handle(WeaviateModelManifestsGetParams) middleware.Responder
+	Handle(WeaviateModelManifestsGetParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateModelManifestsGet creates a new http.Handler for the weaviate model manifests get operation
@@ -53,12 +53,22 @@ func (o *WeaviateModelManifestsGet) ServeHTTP(rw http.ResponseWriter, r *http.Re
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateModelManifestsGetParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

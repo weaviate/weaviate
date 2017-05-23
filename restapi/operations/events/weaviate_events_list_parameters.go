@@ -60,11 +60,6 @@ type WeaviateEventsListParams struct {
 	  Collection Format: multi
 	*/
 	CommandID []string
-	/*Sending or affected device id.
-	  In: query
-	  Collection Format: multi
-	*/
-	DeviceID []string
 	/*End of time range in ms since epoch.
 	  In: query
 	*/
@@ -106,6 +101,11 @@ type WeaviateEventsListParams struct {
 	  In: query
 	*/
 	StartTimeMs *string
+	/*Sending or affected thing id.
+	  In: query
+	  Collection Format: multi
+	*/
+	ThingID []string
 	/*
 	  In: query
 	*/
@@ -135,11 +135,6 @@ func (o *WeaviateEventsListParams) BindRequest(r *http.Request, route *middlewar
 
 	qCommandID, qhkCommandID, _ := qs.GetOK("commandId")
 	if err := o.bindCommandID(qCommandID, qhkCommandID, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
-	qDeviceID, qhkDeviceID, _ := qs.GetOK("deviceId")
-	if err := o.bindDeviceID(qDeviceID, qhkDeviceID, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -190,6 +185,11 @@ func (o *WeaviateEventsListParams) BindRequest(r *http.Request, route *middlewar
 
 	qStartTimeMs, qhkStartTimeMs, _ := qs.GetOK("startTimeMs")
 	if err := o.bindStartTimeMs(qStartTimeMs, qhkStartTimeMs, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qThingID, qhkThingID, _ := qs.GetOK("thingId")
+	if err := o.bindThingID(qThingID, qhkThingID, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -259,26 +259,6 @@ func (o *WeaviateEventsListParams) bindCommandID(rawData []string, hasKey bool, 
 	}
 
 	o.CommandID = commandIDIR
-
-	return nil
-}
-
-func (o *WeaviateEventsListParams) bindDeviceID(rawData []string, hasKey bool, formats strfmt.Registry) error {
-
-	deviceIDIC := rawData
-
-	if len(deviceIDIC) == 0 {
-		return nil
-	}
-
-	var deviceIDIR []string
-	for _, deviceIDIV := range deviceIDIC {
-		deviceIDI := deviceIDIV
-
-		deviceIDIR = append(deviceIDIR, deviceIDI)
-	}
-
-	o.DeviceID = deviceIDIR
 
 	return nil
 }
@@ -437,6 +417,26 @@ func (o *WeaviateEventsListParams) bindStartTimeMs(rawData []string, hasKey bool
 	return nil
 }
 
+func (o *WeaviateEventsListParams) bindThingID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+
+	thingIDIC := rawData
+
+	if len(thingIDIC) == 0 {
+		return nil
+	}
+
+	var thingIDIR []string
+	for _, thingIDIV := range thingIDIC {
+		thingIDI := thingIDIV
+
+		thingIDIR = append(thingIDIR, thingIDI)
+	}
+
+	o.ThingID = thingIDIR
+
+	return nil
+}
+
 func (o *WeaviateEventsListParams) bindToken(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
@@ -471,7 +471,7 @@ func (o *WeaviateEventsListParams) bindType(rawData []string, hasKey bool, forma
 
 func (o *WeaviateEventsListParams) validateType(formats strfmt.Registry) error {
 
-	if err := validate.Enum("type", "query", *o.Type, []interface{}{"adapterDeactivated", "commandCancelled", "commandCreated", "commandDeleted", "commandExpired", "commandUpdated", "deviceAclUpdated", "deviceConnectivityChange", "deviceCreated", "deviceDeleted", "deviceLocationUpdated", "deviceTransferred", "deviceUpdated", "deviceUseTimeUpdated", "deviceUserAclCreated", "deviceUserAclDeleted", "deviceUserAclUpdated", "eventsDeleted", "eventsRecordingDisabled", "eventsRecordingEnabled", "locationCreated", "locationDeleted", "locationMemberAdded", "locationMemberRemoved", "locationUpdated"}); err != nil {
+	if err := validate.Enum("type", "query", *o.Type, []interface{}{"adapterDeactivated", "commandCancelled", "commandCreated", "commandDeleted", "commandExpired", "commandUpdated", "thingConnectivityChange", "thingCreated", "thingDeleted", "thingLocationUpdated", "thingTransferred", "thingUpdated", "thingUseTimeUpdated", "eventsDeleted", "eventsRecordingDisabled", "eventsRecordingEnabled", "locationCreated", "locationDeleted", "locationMemberAdded", "locationMemberRemoved", "locationUpdated"}); err != nil {
 		return err
 	}
 

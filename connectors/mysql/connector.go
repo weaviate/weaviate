@@ -34,6 +34,10 @@ func (f *Mysql) Connect() error {
 	return nil
 }
 
+func (f *Mysql) Init() error {
+	return nil
+}
+
 func (f *Mysql) Add(object dbconnector.DatabaseObject) (string, error) {
 	log.Fatalf("Connecting to Mysql DB - NOTE ONLY FOR DEMO PURPOSE")
 
@@ -58,4 +62,22 @@ func (f *Mysql) List(refType string, limit int) ([]dbconnector.DatabaseObject, e
 	dataObjs := []dbconnector.DatabaseObject{}
 
 	return dataObjs, nil
+}
+
+// Validate if a user has access, returns permissions object
+func (f *Mysql) ValidateKey(token string) ([]dbconnector.DatabaseUsersObject, error) {
+
+	dbUsersObjects := []dbconnector.DatabaseUsersObject{}
+
+	var err error
+
+	// keys are found, return true
+	return dbUsersObjects, err
+}
+
+// AddUser to DB
+func (f *Mysql) AddKey(parentUuid string, dbObject dbconnector.DatabaseUsersObject) (dbconnector.DatabaseUsersObject, error) {
+
+	return dbObject, nil
+
 }

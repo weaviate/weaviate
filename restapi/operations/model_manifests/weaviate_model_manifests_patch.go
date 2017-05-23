@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateModelManifestsPatchHandlerFunc turns a function with the right signature into a weaviate model manifests patch handler
-type WeaviateModelManifestsPatchHandlerFunc func(WeaviateModelManifestsPatchParams) middleware.Responder
+type WeaviateModelManifestsPatchHandlerFunc func(WeaviateModelManifestsPatchParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateModelManifestsPatchHandlerFunc) Handle(params WeaviateModelManifestsPatchParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateModelManifestsPatchHandlerFunc) Handle(params WeaviateModelManifestsPatchParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateModelManifestsPatchHandler interface for that can handle valid weaviate model manifests patch params
 type WeaviateModelManifestsPatchHandler interface {
-	Handle(WeaviateModelManifestsPatchParams) middleware.Responder
+	Handle(WeaviateModelManifestsPatchParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateModelManifestsPatch creates a new http.Handler for the weaviate model manifests patch operation
@@ -53,12 +53,22 @@ func (o *WeaviateModelManifestsPatch) ServeHTTP(rw http.ResponseWriter, r *http.
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateModelManifestsPatchParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

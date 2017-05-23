@@ -42,6 +42,48 @@ func (o *WeaviateModelManifestsDeleteNoContent) WriteResponse(rw http.ResponseWr
 	rw.WriteHeader(204)
 }
 
+// WeaviateModelManifestsDeleteUnauthorizedCode is the HTTP code returned for type WeaviateModelManifestsDeleteUnauthorized
+const WeaviateModelManifestsDeleteUnauthorizedCode int = 401
+
+/*WeaviateModelManifestsDeleteUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateModelManifestsDeleteUnauthorized
+*/
+type WeaviateModelManifestsDeleteUnauthorized struct {
+}
+
+// NewWeaviateModelManifestsDeleteUnauthorized creates WeaviateModelManifestsDeleteUnauthorized with default headers values
+func NewWeaviateModelManifestsDeleteUnauthorized() *WeaviateModelManifestsDeleteUnauthorized {
+	return &WeaviateModelManifestsDeleteUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateModelManifestsDeleteForbiddenCode is the HTTP code returned for type WeaviateModelManifestsDeleteForbidden
+const WeaviateModelManifestsDeleteForbiddenCode int = 403
+
+/*WeaviateModelManifestsDeleteForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateModelManifestsDeleteForbidden
+*/
+type WeaviateModelManifestsDeleteForbidden struct {
+}
+
+// NewWeaviateModelManifestsDeleteForbidden creates WeaviateModelManifestsDeleteForbidden with default headers values
+func NewWeaviateModelManifestsDeleteForbidden() *WeaviateModelManifestsDeleteForbidden {
+	return &WeaviateModelManifestsDeleteForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateModelManifestsDeleteNotFoundCode is the HTTP code returned for type WeaviateModelManifestsDeleteNotFound
 const WeaviateModelManifestsDeleteNotFoundCode int = 404
 

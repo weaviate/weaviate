@@ -48,7 +48,7 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Lets you register, view and manage cloud ready devices.",
+    "description": "Lets you register, view and manage cloud ready things.",
     "title": "Weaviate API",
     "contact": {
       "name": "Weaviate",
@@ -71,6 +71,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/AdaptersListResponse"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -102,6 +108,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Adapter"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -155,6 +167,12 @@ func init() {
               "$ref": "#/definitions/Adapter"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -193,6 +211,12 @@ func init() {
               "$ref": "#/definitions/Adapter"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -217,7 +241,13 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successful deleted"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -261,8 +291,20 @@ func init() {
               "$ref": "#/definitions/Adapter"
             }
           },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -351,6 +393,12 @@ func init() {
               "$ref": "#/definitions/CommandsListResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -382,7 +430,7 @@ func init() {
             "maximum": 25000,
             "type": "integer",
             "format": "int64",
-            "description": "Number of milliseconds to wait for device response before returning.",
+            "description": "Number of milliseconds to wait for thing response before returning.",
             "name": "responseAwaitMs",
             "in": "query"
           },
@@ -401,6 +449,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Command"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -433,7 +487,7 @@ func init() {
     },
     "/commands/queue": {
       "get": {
-        "description": "Returns all queued commands that device is supposed to execute. This method may be used only by devices.",
+        "description": "Returns all queued commands that thing is supposed to execute. This method may be used only by things.",
         "tags": [
           "commands"
         ],
@@ -467,6 +521,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/CommandsQueueResponse"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -535,6 +595,12 @@ func init() {
               "$ref": "#/definitions/Command"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -544,7 +610,7 @@ func init() {
         }
       },
       "put": {
-        "description": "Updates a command. This method may be used only by devices.",
+        "description": "Updates a command. This method may be used only by things.",
         "tags": [
           "commands"
         ],
@@ -579,6 +645,12 @@ func init() {
               "$ref": "#/definitions/Command"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -612,6 +684,12 @@ func init() {
           "204": {
             "description": "Successful deleted."
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -621,7 +699,7 @@ func init() {
         }
       },
       "patch": {
-        "description": "Updates a command. This method may be used only by devices. This method supports patch semantics.",
+        "description": "Updates a command. This method may be used only by things. This method supports patch semantics.",
         "tags": [
           "commands"
         ],
@@ -660,727 +738,20 @@ func init() {
               "$ref": "#/definitions/Command"
             }
           },
-          "404": {
-            "description": "Successful query result but no resource was found."
+          "400": {
+            "description": "The patch-JSON is malformed."
           },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "parameters": [
-        {
-          "$ref": "#/parameters/alt"
-        },
-        {
-          "$ref": "#/parameters/fields"
-        },
-        {
-          "$ref": "#/parameters/key"
-        },
-        {
-          "$ref": "#/parameters/oauth_token"
-        },
-        {
-          "$ref": "#/parameters/prettyPrint"
-        },
-        {
-          "$ref": "#/parameters/quotaUser"
-        },
-        {
-          "$ref": "#/parameters/userIp"
-        }
-      ]
-    },
-    "/devices": {
-      "get": {
-        "description": "Lists all devices user has access to.",
-        "tags": [
-          "devices"
-        ],
-        "operationId": "weaviate.devices.list",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Device description.",
-            "name": "descriptionSubstring",
-            "in": "query"
+          "401": {
+            "description": "Unauthorized or invalid credentials."
           },
-          {
-            "enum": [
-              "acHeating",
-              "accessPoint",
-              "adapterGateway",
-              "aggregator",
-              "camera",
-              "developmentBoard",
-              "fan",
-              "light",
-              "lock",
-              "outlet",
-              "printer",
-              "scanner",
-              "speaker",
-              "storage",
-              "switch",
-              "toy",
-              "tv",
-              "unknownDeviceKind",
-              "vendor",
-              "video"
-            ],
-            "type": "string",
-            "description": "Device kind.",
-            "name": "deviceKind",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Device display name. Deprecated, use 'nameSubstring' instead.",
-            "name": "displayNameSubstring",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          },
-          {
-            "type": "integer",
-            "name": "maxResults",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Device's location.",
-            "name": "locationId",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Device model manifest.",
-            "name": "modelManifestId",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Device name.",
-            "name": "nameSubstring",
-            "in": "query"
-          },
-          {
-            "enum": [
-              "manager",
-              "owner",
-              "robot",
-              "user",
-              "viewer"
-            ],
-            "type": "string",
-            "description": "Access role to the device.",
-            "name": "role",
-            "in": "query"
-          },
-          {
-            "type": "integer",
-            "name": "startIndex",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Device system name. Deprecated, use 'nameSubstring' instead.",
-            "name": "systemNameSubstring",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "name": "token",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/DevicesListResponse"
-            }
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
           },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "post": {
-        "description": "Registers a new device. This method may be used only by aggregator devices or adapters.",
-        "tags": [
-          "devices"
-        ],
-        "operationId": "weaviate.devices.insert",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "ID of the adapter activation that this device belongs to, if any.",
-            "name": "adapterActivationId",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Device"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/Device"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "parameters": [
-        {
-          "$ref": "#/parameters/alt"
-        },
-        {
-          "$ref": "#/parameters/fields"
-        },
-        {
-          "$ref": "#/parameters/key"
-        },
-        {
-          "$ref": "#/parameters/oauth_token"
-        },
-        {
-          "$ref": "#/parameters/prettyPrint"
-        },
-        {
-          "$ref": "#/parameters/quotaUser"
-        },
-        {
-          "$ref": "#/parameters/userIp"
-        }
-      ]
-    },
-    "/devices/{deviceId}": {
-      "get": {
-        "description": "Returns a particular device data.",
-        "tags": [
-          "devices"
-        ],
-        "operationId": "weaviate.devices.get",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Unique ID of the device.",
-            "name": "deviceId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          },
-          {
-            "enum": [
-              "full",
-              "noUserInfo"
-            ],
-            "type": "string",
-            "description": "Projection controls which fields of the Device resource are returned.",
-            "name": "projection",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/Device"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "put": {
-        "description": "Updates a device data.",
-        "tags": [
-          "devices"
-        ],
-        "operationId": "weaviate.devices.update",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Unique ID of the device.",
-            "name": "deviceId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Previous last update time in device data. Optionally set this parameter to ensure an update call does not overwrite newer data.",
-            "name": "lastUpdateTimeMs",
-            "in": "query"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Device"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful update.",
-            "schema": {
-              "$ref": "#/definitions/Device"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "delete": {
-        "description": "Deletes a device from the system.",
-        "tags": [
-          "devices"
-        ],
-        "operationId": "weaviate.devices.delete",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Unique ID of the device.",
-            "name": "deviceId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful deleted."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "patch": {
-        "description": "Updates a device data. This method supports patch semantics.",
-        "tags": [
-          "devices"
-        ],
-        "operationId": "weaviate.devices.patch",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Unique ID of the device.",
-            "name": "deviceId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "description": "JSONPatch document as defined by RFC 6902.",
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/PatchDocument"
-              }
-            }
-          },
-          {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Previous last update time in device data. Optionally set this parameter to ensure an update call does not overwrite newer data.",
-            "name": "lastUpdateTimeMs",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful update.",
-            "schema": {
-              "$ref": "#/definitions/Device"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "parameters": [
-        {
-          "$ref": "#/parameters/alt"
-        },
-        {
-          "$ref": "#/parameters/fields"
-        },
-        {
-          "$ref": "#/parameters/key"
-        },
-        {
-          "$ref": "#/parameters/oauth_token"
-        },
-        {
-          "$ref": "#/parameters/prettyPrint"
-        },
-        {
-          "$ref": "#/parameters/quotaUser"
-        },
-        {
-          "$ref": "#/parameters/userIp"
-        }
-      ]
-    },
-    "/devices/{deviceId}/aclEntries": {
-      "get": {
-        "description": "Lists ACL entries.",
-        "tags": [
-          "aclEntries"
-        ],
-        "operationId": "weaviate.aclEntries.list",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "ID of the device to use.",
-            "name": "deviceId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          },
-          {
-            "type": "integer",
-            "name": "maxResults",
-            "in": "query"
-          },
-          {
-            "type": "integer",
-            "name": "startIndex",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "name": "token",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/AclEntriesListResponse"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "post": {
-        "description": "Inserts a new ACL entry.",
-        "tags": [
-          "aclEntries"
-        ],
-        "operationId": "weaviate.aclEntries.insert",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "ID of the device to use.",
-            "name": "deviceId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/AclEntry"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/AclEntry"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "parameters": [
-        {
-          "$ref": "#/parameters/alt"
-        },
-        {
-          "$ref": "#/parameters/fields"
-        },
-        {
-          "$ref": "#/parameters/key"
-        },
-        {
-          "$ref": "#/parameters/oauth_token"
-        },
-        {
-          "$ref": "#/parameters/prettyPrint"
-        },
-        {
-          "$ref": "#/parameters/quotaUser"
-        },
-        {
-          "$ref": "#/parameters/userIp"
-        }
-      ]
-    },
-    "/devices/{deviceId}/aclEntries/{aclEntryId}": {
-      "get": {
-        "description": "Returns the requested ACL entry.",
-        "tags": [
-          "aclEntries"
-        ],
-        "operationId": "weaviate.aclEntries.get",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "ID of the device to use.",
-            "name": "deviceId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Unique ACL entry ID.",
-            "name": "aclEntryId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/AclEntry"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "put": {
-        "description": "Updates an ACL entry.",
-        "tags": [
-          "aclEntries"
-        ],
-        "operationId": "weaviate.aclEntries.update",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "ID of the device to use.",
-            "name": "deviceId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Unique ACL entry ID.",
-            "name": "aclEntryId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/AclEntry"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful updated.",
-            "schema": {
-              "$ref": "#/definitions/AclEntry"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "delete": {
-        "description": "Deletes an ACL entry.",
-        "tags": [
-          "aclEntries"
-        ],
-        "operationId": "weaviate.aclEntries.delete",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "ID of the device to use.",
-            "name": "deviceId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Unique ACL entry ID.",
-            "name": "aclEntryId",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful deleted."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        }
-      },
-      "patch": {
-        "description": "Updates an ACL entry. This method supports patch semantics.",
-        "tags": [
-          "aclEntries"
-        ],
-        "operationId": "weaviate.aclEntries.patch",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "ID of the device to use.",
-            "name": "deviceId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Unique ACL entry ID.",
-            "name": "aclEntryId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "description": "JSONPatch document as defined by RFC 6902.",
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/PatchDocument"
-              }
-            }
-          },
-          {
-            "type": "string",
-            "description": "Specifies the language code that should be used for text values in the API response.",
-            "name": "hl",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful updated.",
-            "schema": {
-              "$ref": "#/definitions/AclEntry"
-            }
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1435,8 +806,8 @@ func init() {
               "type": "string"
             },
             "collectionFormat": "multi",
-            "description": "Sending or affected device id.",
-            "name": "deviceId",
+            "description": "Sending or affected thing id.",
+            "name": "thingId",
             "in": "query"
           },
           {
@@ -1480,17 +851,13 @@ func init() {
               "commandDeleted",
               "commandExpired",
               "commandUpdated",
-              "deviceAclUpdated",
-              "deviceConnectivityChange",
-              "deviceCreated",
-              "deviceDeleted",
-              "deviceLocationUpdated",
-              "deviceTransferred",
-              "deviceUpdated",
-              "deviceUseTimeUpdated",
-              "deviceUserAclCreated",
-              "deviceUserAclDeleted",
-              "deviceUserAclUpdated",
+              "thingConnectivityChange",
+              "thingCreated",
+              "thingDeleted",
+              "thingLocationUpdated",
+              "thingTransferred",
+              "thingUpdated",
+              "thingUseTimeUpdated",
               "eventsDeleted",
               "eventsRecordingDisabled",
               "eventsRecordingEnabled",
@@ -1512,6 +879,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/EventsListResponse"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1545,13 +918,13 @@ func init() {
         }
       ]
     },
-    "/events/recordDeviceEvents": {
+    "/events/recordThingEvents": {
       "post": {
-        "description": "Enables or disables recording of a particular device's events based on a boolean parameter. Enabled by default.",
+        "description": "Enables or disables recording of a particular thing's events based on a boolean parameter. Enabled by default.",
         "tags": [
           "events"
         ],
-        "operationId": "weaviate.events.recordDeviceEvents",
+        "operationId": "weaviate.events.recordThingEvents",
         "parameters": [
           {
             "type": "string",
@@ -1564,13 +937,19 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/EventsRecordDeviceEventsRequest"
+              "$ref": "#/definitions/EventsRecordThingEventsRequest"
             }
           }
         ],
         "responses": {
           "202": {
             "description": "Successfully received."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1630,6 +1009,12 @@ func init() {
               "$ref": "#/definitions/Event"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1662,6 +1047,450 @@ func init() {
         }
       ]
     },
+    "/groups": {
+      "get": {
+        "description": "Lists all groups.",
+        "tags": [
+          "groups"
+        ],
+        "operationId": "weaviate.groups.list",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Specifies the language code that should be used for text values in the API response.",
+            "name": "hl",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "name": "maxResults",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "name": "startIndex",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "name": "token",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/GroupsListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "post": {
+        "description": "Inserts group.",
+        "tags": [
+          "groups"
+        ],
+        "operationId": "weaviate.groups.insert",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Group"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/Group"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/parameters/alt"
+        },
+        {
+          "$ref": "#/parameters/fields"
+        },
+        {
+          "$ref": "#/parameters/key"
+        },
+        {
+          "$ref": "#/parameters/oauth_token"
+        },
+        {
+          "$ref": "#/parameters/prettyPrint"
+        },
+        {
+          "$ref": "#/parameters/quotaUser"
+        },
+        {
+          "$ref": "#/parameters/userIp"
+        }
+      ]
+    },
+    "/groups/{groupId}": {
+      "get": {
+        "description": "Get a group.",
+        "tags": [
+          "groups"
+        ],
+        "operationId": "weaviate.groups.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Unique ID of the group.",
+            "name": "groupId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/Group"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "put": {
+        "description": "Updates an group.",
+        "tags": [
+          "groups"
+        ],
+        "operationId": "weaviate.groups.update",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Group"
+            }
+          },
+          {
+            "type": "string",
+            "description": "Unique ID of the group.",
+            "name": "groupId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful updated.",
+            "schema": {
+              "$ref": "#/definitions/Group"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "delete": {
+        "description": "Deletes an group.",
+        "tags": [
+          "groups"
+        ],
+        "operationId": "weaviate.groups.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "groupId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "patch": {
+        "description": "Updates an group. This method supports patch semantics.",
+        "tags": [
+          "groups"
+        ],
+        "operationId": "weaviate.groups.patch",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Unique ID of the group.",
+            "name": "groupId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "JSONPatch document as defined by RFC 6902.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PatchDocument"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful updated.",
+            "schema": {
+              "$ref": "#/definitions/Group"
+            }
+          },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/parameters/alt"
+        },
+        {
+          "$ref": "#/parameters/fields"
+        },
+        {
+          "$ref": "#/parameters/key"
+        },
+        {
+          "$ref": "#/parameters/oauth_token"
+        },
+        {
+          "$ref": "#/parameters/prettyPrint"
+        },
+        {
+          "$ref": "#/parameters/quotaUser"
+        },
+        {
+          "$ref": "#/parameters/userIp"
+        }
+      ]
+    },
+    "/keys": {
+      "post": {
+        "description": "Creates a new key.",
+        "tags": [
+          "keys"
+        ],
+        "operationId": "weaviate.key.create",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/KeyCreate"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/Key"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      }
+    },
+    "/keys/{keyId}": {
+      "get": {
+        "description": "Get a key.",
+        "tags": [
+          "keys"
+        ],
+        "operationId": "weaviate.keys.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Unique ID of the key.",
+            "name": "keyId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/Key"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "delete": {
+        "description": "Deletes a key. Only parent or self is allowed to delete key.",
+        "tags": [
+          "keys"
+        ],
+        "operationId": "weaviate.keys.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "keyId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      }
+    },
+    "/keys/{keyId}/children": {
+      "get": {
+        "description": "Get children or a key, only one step deep. A child can have children of its own.",
+        "tags": [
+          "keys"
+        ],
+        "operationId": "weaviate.children.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Unique ID of the key.",
+            "name": "keyId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyChildren"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented"
+          }
+        }
+      }
+    },
     "/locations": {
       "get": {
         "description": "Lists all locations.",
@@ -1670,17 +1499,6 @@ func init() {
         ],
         "operationId": "weaviate.locations.list",
         "parameters": [
-          {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "collectionFormat": "multi",
-            "description": "Location IDs to include in the result",
-            "name": "ids",
-            "in": "query",
-            "required": true
-          },
           {
             "type": "string",
             "description": "Specifies the language code that should be used for text values in the API response.",
@@ -1709,6 +1527,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/LocationsListResponse"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1740,6 +1564,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/Location"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1793,6 +1623,12 @@ func init() {
               "$ref": "#/definitions/Location"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1831,6 +1667,12 @@ func init() {
               "$ref": "#/definitions/Location"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -1856,6 +1698,12 @@ func init() {
         "responses": {
           "204": {
             "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1899,8 +1747,20 @@ func init() {
               "$ref": "#/definitions/Location"
             }
           },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1940,17 +1800,6 @@ func init() {
         "operationId": "weaviate.modelManifests.list",
         "parameters": [
           {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "collectionFormat": "multi",
-            "description": "Model manifest IDs to include in the result",
-            "name": "ids",
-            "in": "query",
-            "required": true
-          },
-          {
             "type": "string",
             "description": "Specifies the language code that should be used for text values in the API response.",
             "name": "hl",
@@ -1978,6 +1827,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ModelManifestsListResponse"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2009,6 +1864,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ModelManifest"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2069,6 +1930,12 @@ func init() {
               "$ref": "#/definitions/ModelManifestsValidateCommandDefsResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -2128,6 +1995,12 @@ func init() {
               "$ref": "#/definitions/ModelManifestsValidateComponentsResponse"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -2157,13 +2030,13 @@ func init() {
         }
       ]
     },
-    "/modelManifests/validateDeviceState": {
+    "/modelManifests/validateThingState": {
       "post": {
-        "description": "Validates given device state object and returns errors.",
+        "description": "Validates given thing state object and returns errors.",
         "tags": [
           "modelManifests"
         ],
-        "operationId": "weaviate.modelManifests.validateDeviceState",
+        "operationId": "weaviate.modelManifests.validateThingState",
         "parameters": [
           {
             "type": "string",
@@ -2176,7 +2049,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ModelManifestsValidateDeviceStateRequest"
+              "$ref": "#/definitions/ModelManifestsValidateThingStateRequest"
             }
           }
         ],
@@ -2184,8 +2057,14 @@ func init() {
           "201": {
             "description": "Successful created.",
             "schema": {
-              "$ref": "#/definitions/ModelManifestsValidateDeviceStateResponse"
+              "$ref": "#/definitions/ModelManifestsValidateThingStateResponse"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2245,6 +2124,12 @@ func init() {
               "$ref": "#/definitions/ModelManifest"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -2283,6 +2168,12 @@ func init() {
               "$ref": "#/definitions/ModelManifest"
             }
           },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
           },
@@ -2309,6 +2200,12 @@ func init() {
         "responses": {
           "204": {
             "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2352,8 +2249,433 @@ func init() {
               "$ref": "#/definitions/ModelManifest"
             }
           },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      }
+    },
+    "/things": {
+      "get": {
+        "description": "Lists all things user has access to.",
+        "tags": [
+          "things"
+        ],
+        "operationId": "weaviate.things.list",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Thing description.",
+            "name": "descriptionSubstring",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "acHeating",
+              "accessPoint",
+              "adapterGateway",
+              "aggregator",
+              "camera",
+              "developmentBoard",
+              "fan",
+              "light",
+              "lock",
+              "outlet",
+              "printer",
+              "scanner",
+              "speaker",
+              "storage",
+              "switch",
+              "toy",
+              "tv",
+              "unknownThingKind",
+              "vendor",
+              "video"
+            ],
+            "type": "string",
+            "description": "Thing kind.",
+            "name": "thingKind",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Thing display name. Deprecated, use 'nameSubstring' instead.",
+            "name": "displayNameSubstring",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the language code that should be used for text values in the API response.",
+            "name": "hl",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "name": "maxResults",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Thing's location.",
+            "name": "locationId",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Thing model manifest.",
+            "name": "modelManifestId",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Thing name.",
+            "name": "nameSubstring",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "manager",
+              "owner",
+              "robot",
+              "user",
+              "viewer"
+            ],
+            "type": "string",
+            "description": "Access role to the thing.",
+            "name": "role",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "name": "startIndex",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Thing system name. Deprecated, use 'nameSubstring' instead.",
+            "name": "systemNameSubstring",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "name": "token",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ThingsListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "post": {
+        "description": "Registers a new thing. This method may be used only by aggregator things or adapters.",
+        "tags": [
+          "things"
+        ],
+        "operationId": "weaviate.things.insert",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "ID of the adapter activation that this thing belongs to, if any.",
+            "name": "adapterActivationId",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Specifies the language code that should be used for text values in the API response.",
+            "name": "hl",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Thing"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/Thing"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "parameters": [
+        {
+          "$ref": "#/parameters/alt"
+        },
+        {
+          "$ref": "#/parameters/fields"
+        },
+        {
+          "$ref": "#/parameters/key"
+        },
+        {
+          "$ref": "#/parameters/oauth_token"
+        },
+        {
+          "$ref": "#/parameters/prettyPrint"
+        },
+        {
+          "$ref": "#/parameters/quotaUser"
+        },
+        {
+          "$ref": "#/parameters/userIp"
+        }
+      ]
+    },
+    "/things/{thingId}": {
+      "get": {
+        "description": "Returns a particular thing data.",
+        "tags": [
+          "things"
+        ],
+        "operationId": "weaviate.things.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Unique ID of the thing.",
+            "name": "thingId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Specifies the language code that should be used for text values in the API response.",
+            "name": "hl",
+            "in": "query"
+          },
+          {
+            "enum": [
+              "full",
+              "noUserInfo"
+            ],
+            "type": "string",
+            "description": "Projection controls which fields of the Thing resource are returned.",
+            "name": "projection",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/Thing"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "put": {
+        "description": "Updates a thing data.",
+        "tags": [
+          "things"
+        ],
+        "operationId": "weaviate.things.update",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Unique ID of the thing.",
+            "name": "thingId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Specifies the language code that should be used for text values in the API response.",
+            "name": "hl",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Previous last update time in thing data. Optionally set this parameter to ensure an update call does not overwrite newer data.",
+            "name": "lastUpdateTimeMs",
+            "in": "query"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Thing"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful update.",
+            "schema": {
+              "$ref": "#/definitions/Thing"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "delete": {
+        "description": "Deletes a thing from the system.",
+        "tags": [
+          "things"
+        ],
+        "operationId": "weaviate.things.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Unique ID of the thing.",
+            "name": "thingId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Specifies the language code that should be used for text values in the API response.",
+            "name": "hl",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        }
+      },
+      "patch": {
+        "description": "Updates a thing data. This method supports patch semantics.",
+        "tags": [
+          "things"
+        ],
+        "operationId": "weaviate.things.patch",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Unique ID of the thing.",
+            "name": "thingId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "JSONPatch document as defined by RFC 6902.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PatchDocument"
+              }
+            }
+          },
+          {
+            "type": "string",
+            "description": "Specifies the language code that should be used for text values in the API response.",
+            "name": "hl",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Previous last update time in thing data. Optionally set this parameter to ensure an update call does not overwrite newer data.",
+            "name": "lastUpdateTimeMs",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful update.",
+            "schema": {
+              "$ref": "#/definitions/Thing"
+            }
+          },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2386,131 +2708,6 @@ func init() {
     }
   },
   "definitions": {
-    "AclEntriesListResponse": {
-      "description": "List of Access control list entries.",
-      "type": "object",
-      "properties": {
-        "aclEntries": {
-          "description": "The actual list of ACL entries.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/AclEntry"
-          }
-        },
-        "kind": {
-          "description": "Identifies what kind of resource this is. Value: the fixed string \"weave#aclEntriesListResponse\".",
-          "type": "string",
-          "default": "weave#aclEntriesListResponse"
-        },
-        "nextPageToken": {
-          "description": "Token corresponding to the next page of ACL entries.",
-          "type": "string"
-        },
-        "totalResults": {
-          "description": "The total number of ACL entries for the query. The number of items in a response may be smaller due to paging.",
-          "type": "integer",
-          "format": "int32"
-        }
-      }
-    },
-    "AclEntry": {
-      "type": "object",
-      "properties": {
-        "cloudAccessRevoked": {
-          "description": "Indicates whether the AclEntry has been revoked from the cloud and the user has no cloud access, but they still might have local auth tokens that are valid and can access the device and execute commands locally. See localAccessInfo for local auth details.",
-          "type": "boolean"
-        },
-        "creatorEmail": {
-          "description": "User who created this entry. At the moment it is populated only when pending == true.",
-          "type": "string"
-        },
-        "delegator": {
-          "description": "User on behalf of whom the access is granted to the application.",
-          "type": "string"
-        },
-        "id": {
-          "description": "Unique ACL entry ID.",
-          "type": "string"
-        },
-        "key": {
-          "description": "Public access key value. Set only when scopeType is PUBLIC.",
-          "type": "string",
-          "format": "int64"
-        },
-        "kind": {
-          "description": "Identifies what kind of resource this is. Value: the fixed string \"weave#aclEntry\".",
-          "type": "string",
-          "default": "weave#aclEntry"
-        },
-        "localAccessInfo": {
-          "$ref": "#/definitions/LocalAccessInfo"
-        },
-        "pending": {
-          "description": "Whether this ACL entry is pending for user reply to accept/reject it.",
-          "type": "boolean"
-        },
-        "privileges": {
-          "description": "Set of access privileges granted for this scope.\n\nValid values are:  \n- \"modifyAcl\" \n- \"viewAllEvents\"",
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "modifyAcl",
-              "viewAllEvents"
-            ]
-          }
-        },
-        "revocationTimeMs": {
-          "description": "Time in milliseconds since Unix Epoch indicating when the AclEntry was revoked.",
-          "type": "string",
-          "format": "int64"
-        },
-        "role": {
-          "description": "Access role granted to this scope.",
-          "type": "string",
-          "enum": [
-            "manager",
-            "owner",
-            "robot",
-            "user",
-            "viewer"
-          ]
-        },
-        "scopeId": {
-          "description": "Email address if scope type is user or group, domain name if scope type is a domain.",
-          "type": "string"
-        },
-        "scopeMembership": {
-          "description": "Type of membership the user has in the scope.",
-          "type": "string",
-          "enum": [
-            "delegator",
-            "manager",
-            "member",
-            "none"
-          ]
-        },
-        "scopeName": {
-          "description": "Displayable scope name.",
-          "type": "string"
-        },
-        "scopePhotoUrl": {
-          "description": "URL of this scope displayable photo.",
-          "type": "string"
-        },
-        "scopeType": {
-          "description": "Type of the access scope.",
-          "type": "string",
-          "enum": [
-            "application",
-            "domain",
-            "group",
-            "public",
-            "user"
-          ]
-        }
-      }
-    },
     "Adapter": {
       "type": "object",
       "properties": {
@@ -2530,6 +2727,13 @@ func init() {
           "description": "Display name of the adapter.",
           "type": "string"
         },
+        "groups": {
+          "description": "The list of groups.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Group"
+          }
+        },
         "iconUrl": {
           "description": "URL to an icon that represents the adapter.",
           "type": "string"
@@ -2539,7 +2743,7 @@ func init() {
           "type": "string"
         },
         "manageUrl": {
-          "description": "URL to adapter web flow to connect new devices. Only used for adapters that cannot automatically detect new devices. This field is returned only if the user has already activated the adapter.",
+          "description": "URL to adapter web flow to connect new things. Only used for adapters that cannot automatically detect new things. This field is returned only if the user has already activated the adapter.",
           "type": "string"
         }
       }
@@ -2562,7 +2766,7 @@ func init() {
       }
     },
     "Application": {
-      "description": "Contains information about a recommended application for a device model.",
+      "description": "Contains information about a recommended application for a thing model.",
       "type": "object",
       "properties": {
         "description": {
@@ -2639,10 +2843,6 @@ func init() {
           "description": "User that created the command (not applicable if the user is deleted).",
           "type": "string"
         },
-        "deviceId": {
-          "description": "Device ID that this command belongs to.",
-          "type": "string"
-        },
         "error": {
           "description": "Error descriptor.",
           "type": "object",
@@ -2673,6 +2873,13 @@ func init() {
           "description": "Expiration timeout for the command since its creation, 10 seconds min, 30 days max.",
           "type": "string",
           "format": "int64"
+        },
+        "groups": {
+          "description": "The list of groups.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Group"
+          }
         },
         "id": {
           "description": "Unique command ID.",
@@ -2714,8 +2921,12 @@ func init() {
             "queued"
           ]
         },
+        "thingId": {
+          "description": "Thing ID that this command belongs to.",
+          "type": "string"
+        },
         "userAction": {
-          "description": "Pending command state that is not acknowledged by the device yet.",
+          "description": "Pending command state that is not acknowledged by the thing yet.",
           "type": "string"
         }
       }
@@ -2759,258 +2970,6 @@ func init() {
         }
       }
     },
-    "Device": {
-      "type": "object",
-      "properties": {
-        "adapterId": {
-          "description": "ID of the adapter that created this device.",
-          "type": "string"
-        },
-        "certFingerprint": {
-          "description": "Deprecated, do not use. The HTTPS certificate fingerprint used to secure communication with device..",
-          "type": "string"
-        },
-        "channel": {
-          "description": "Device notification channel description.",
-          "type": "object",
-          "properties": {
-            "connectionStatusHint": {
-              "description": "Connection status hint, set by parent device.",
-              "type": "string",
-              "enum": [
-                "offline",
-                "online",
-                "unknown"
-              ]
-            },
-            "gcmRegistrationId": {
-              "description": "GCM registration ID. Required if device supports GCM delivery channel.",
-              "type": "string"
-            },
-            "gcmSenderId": {
-              "description": "GCM sender ID. For Chrome apps must be the same as sender ID during registration, usually API project ID.",
-              "type": "string"
-            },
-            "parentId": {
-              "description": "Parent device ID (aggregator) if it exists.",
-              "type": "string"
-            },
-            "pubsub": {
-              "description": "Pubsub channel details.",
-              "type": "object",
-              "properties": {
-                "connectionStatusHint": {
-                  "description": "Device's connection status, as set by the pubsub subscriber.",
-                  "type": "string",
-                  "enum": [
-                    "offline",
-                    "online",
-                    "unknown"
-                  ]
-                },
-                "topic": {
-                  "description": "Pubsub topic to publish to with device notifications.",
-                  "type": "string"
-                }
-              }
-            },
-            "supportedType": {
-              "description": "Channel type supported by device. Allowed types are: \"gcm\", \"xmpp\", \"pubsub\", and \"parent\".",
-              "type": "string"
-            }
-          }
-        },
-        "commandDefs": {
-          "description": "Deprecated, use \"traits\" instead. Description of commands supported by the device. This field is writable only by devices.",
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/PackageDef"
-          }
-        },
-        "components": {
-          "$ref": "#/definitions/JsonObject"
-        },
-        "connectionStatus": {
-          "description": "Device connection status.",
-          "type": "string"
-        },
-        "creationTimeMs": {
-          "description": "Timestamp of creation of this device in milliseconds since epoch UTC.",
-          "type": "string",
-          "format": "int64"
-        },
-        "description": {
-          "description": "User readable description of this device.",
-          "type": "string"
-        },
-        "deviceKind": {
-          "description": "Device kind. Deprecated, provide \"modelManifestId\" instead. See list of device kinds values.",
-          "type": "string"
-        },
-        "deviceLocalId": {
-          "description": "Deprecated, do not use. The ID of the device for use on the local network.",
-          "type": "string"
-        },
-        "id": {
-          "description": "Unique device ID.",
-          "type": "string"
-        },
-        "invitations": {
-          "description": "List of pending invitations for the currently logged-in user.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/Invitation"
-          }
-        },
-        "isEventRecordingDisabled": {
-          "description": "Indicates whether event recording is enabled or disabled for this device.",
-          "type": "boolean"
-        },
-        "kind": {
-          "description": "Identifies what kind of resource this is. Value: the fixed string \"weave#device\".",
-          "type": "string",
-          "default": "weave#device"
-        },
-        "labels": {
-          "description": "Any labels attached to the device. Use the addLabel and removeLabel APIs to modify this list.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/AssociatedLabel"
-          }
-        },
-        "lastSeenTimeMs": {
-          "description": "Timestamp of the last request from this device in milliseconds since epoch UTC. Supported only for devices with XMPP channel type.",
-          "type": "string",
-          "format": "int64"
-        },
-        "lastUpdateTimeMs": {
-          "description": "Timestamp of the last device update in milliseconds since epoch UTC.",
-          "type": "string",
-          "format": "int64"
-        },
-        "lastUseTimeMs": {
-          "description": "Timestamp of the last device usage in milliseconds since epoch UTC.",
-          "type": "string",
-          "format": "int64"
-        },
-        "locationId": {
-          "description": "ID of the location of this device.",
-          "type": "string",
-          "format": "int64"
-        },
-        "modelManifest": {
-          "description": "Device model information provided by the model manifest of this device.",
-          "type": "object",
-          "properties": {
-            "modelName": {
-              "description": "Device model name.",
-              "type": "string"
-            },
-            "oemName": {
-              "description": "Name of device model manufacturer.",
-              "type": "string"
-            }
-          }
-        },
-        "modelManifestId": {
-          "description": "Model manifest ID of this device.",
-          "type": "string"
-        },
-        "name": {
-          "description": "Name of this device provided by the manufacturer.",
-          "type": "string"
-        },
-        "nicknames": {
-          "description": "Nicknames of the device. Use the addNickname and removeNickname APIs to modify this list.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "owner": {
-          "description": "E-mail address of the device owner.",
-          "type": "string"
-        },
-        "personalizedInfo": {
-          "description": "Personalized device information for currently logged-in user.",
-          "type": "object",
-          "properties": {
-            "lastUseTimeMs": {
-              "description": "Timestamp of the last device usage by the user in milliseconds since epoch UTC.",
-              "type": "string",
-              "format": "int64"
-            },
-            "location": {
-              "description": "Personalized device location.",
-              "type": "string"
-            },
-            "maxRole": {
-              "description": "The maximum role on the device.",
-              "type": "string"
-            },
-            "name": {
-              "description": "Personalized device display name.",
-              "type": "string"
-            }
-          }
-        },
-        "serialNumber": {
-          "description": "Serial number of a device provided by its manufacturer.",
-          "type": "string"
-        },
-        "state": {
-          "$ref": "#/definitions/JsonObject"
-        },
-        "stateDefs": {
-          "description": "Deprecated, do not use. Description of the device state. This field is writable only by devices.",
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/definitions/StateDef"
-          }
-        },
-        "tags": {
-          "description": "Custom free-form manufacturer tags.",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "traits": {
-          "$ref": "#/definitions/JsonObject"
-        },
-        "uiDeviceKind": {
-          "description": "Device kind from the model manifest used in UI applications. See list of device kinds values.",
-          "type": "string"
-        }
-      }
-    },
-    "DevicesListResponse": {
-      "description": "List of devices.",
-      "type": "object",
-      "properties": {
-        "devices": {
-          "description": "The actual list of devices.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/Device"
-          }
-        },
-        "kind": {
-          "description": "Identifies what kind of resource this is. Value: the fixed string \"weave#devicesListResponse\".",
-          "type": "string",
-          "default": "weave#devicesListResponse"
-        },
-        "nextPageToken": {
-          "description": "Token corresponding to the next page of devices.",
-          "type": "string"
-        },
-        "totalResults": {
-          "description": "The total number of devices for the query. The number of items in a response may be smaller due to paging.",
-          "type": "integer",
-          "format": "int32"
-        }
-      }
-    },
     "Event": {
       "type": "object",
       "properties": {
@@ -3029,12 +2988,15 @@ func init() {
           }
         },
         "connectionStatus": {
-          "description": "New device connection state (if connectivity change event).",
+          "description": "New thing connection state (if connectivity change event).",
           "type": "string"
         },
-        "deviceId": {
-          "description": "The device that was affected by this event.",
-          "type": "string"
+        "groups": {
+          "description": "The list of groups.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Group"
+          }
         },
         "id": {
           "description": "ID of the event.",
@@ -3047,6 +3009,10 @@ func init() {
         },
         "statePatch": {
           "$ref": "#/definitions/JsonObject"
+        },
+        "thingId": {
+          "description": "The thing that was affected by this event.",
+          "type": "string"
         },
         "timeMs": {
           "description": "Time the event was generated in milliseconds since epoch UTC.",
@@ -3063,17 +3029,6 @@ func init() {
             "commandDeleted",
             "commandExpired",
             "commandUpdated",
-            "deviceAclUpdated",
-            "deviceConnectivityChange",
-            "deviceCreated",
-            "deviceDeleted",
-            "deviceLocationUpdated",
-            "deviceTransferred",
-            "deviceUpdated",
-            "deviceUseTimeUpdated",
-            "deviceUserAclCreated",
-            "deviceUserAclDeleted",
-            "deviceUserAclUpdated",
             "eventsDeleted",
             "eventsRecordingDisabled",
             "eventsRecordingEnabled",
@@ -3081,7 +3036,14 @@ func init() {
             "locationDeleted",
             "locationMemberAdded",
             "locationMemberRemoved",
-            "locationUpdated"
+            "locationUpdated",
+            "thingConnectivityChange",
+            "thingCreated",
+            "thingDeleted",
+            "thingLocationUpdated",
+            "thingTransferred",
+            "thingUpdated",
+            "thingUseTimeUpdated"
           ]
         },
         "userEmail": {
@@ -3117,25 +3079,48 @@ func init() {
         }
       }
     },
-    "EventsRecordDeviceEventsRequest": {
+    "EventsRecordThingEventsRequest": {
       "type": "object",
       "properties": {
-        "deviceId": {
-          "description": "Device ID.",
-          "type": "string"
-        },
-        "recordDeviceEvents": {
+        "recordThingEvents": {
           "description": "Flag to indicate whether recording should be enabled or disabled.",
           "type": "boolean"
+        },
+        "thingId": {
+          "description": "Thing ID.",
+          "type": "string"
+        }
+      }
+    },
+    "Group": {
+      "description": "Group.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID of the group.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name of the group.",
+          "type": "string"
+        }
+      }
+    },
+    "GroupsListResponse": {
+      "type": "object",
+      "properties": {
+        "groups": {
+          "description": "The list of groups.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Group"
+          }
         }
       }
     },
     "Invitation": {
       "type": "object",
       "properties": {
-        "aclEntry": {
-          "$ref": "#/definitions/AclEntry"
-        },
         "creatorEmail": {
           "description": "Email of a user who created this invitation.",
           "type": "string"
@@ -3151,6 +3136,82 @@ func init() {
     },
     "JsonValue": {
       "description": "JSON value -- union over JSON value types."
+    },
+    "Key": {
+      "properties": {
+        "delete": {
+          "description": "Is user allowed to delete.",
+          "type": "boolean"
+        },
+        "email": {
+          "description": "Email associated with this account.",
+          "type": "string"
+        },
+        "id": {
+          "description": "Id of the key.",
+          "type": "string"
+        },
+        "ipOrigin": {
+          "description": "Origin of the IP using CIDR notation.",
+          "type": "string"
+        },
+        "key": {
+          "description": "Key for user to use.",
+          "type": "string"
+        },
+        "keyExpiresUnix": {
+          "description": "Time in milliseconds that the key expires. Set to 0 for never.",
+          "type": "number"
+        },
+        "parent": {
+          "description": "Parent key. A parent allways has access to a child. Root key has parent value 0. Only a user with a root of 0 can set a root key.",
+          "type": "string"
+        },
+        "read": {
+          "description": "Is user allowed to read.",
+          "type": "boolean"
+        },
+        "write": {
+          "description": "Is user allowed to write.",
+          "type": "boolean"
+        }
+      }
+    },
+    "KeyChildren": {
+      "properties": {
+        "childeren": {
+          "description": "Childeren one step deep.",
+          "type": "array"
+        }
+      }
+    },
+    "KeyCreate": {
+      "properties": {
+        "delete": {
+          "description": "Is user allowed to delete.",
+          "type": "boolean"
+        },
+        "email": {
+          "description": "Email associated with this account.",
+          "type": "string"
+        },
+        "ipOrigin": {
+          "description": "Origin of the IP using CIDR notation.",
+          "type": "string"
+        },
+        "keyExpiresUnix": {
+          "description": "Time as Unix timestamp that the key expires. Set to 0 for never.",
+          "type": "number"
+        },
+        "read": {
+          "description": "Is user allowed to read.",
+          "type": "boolean"
+        },
+        "write": {
+          "description": "Is user allowed to write.",
+          "type": "boolean"
+        }
+      }
     },
     "LocalAccessEntry": {
       "type": "object",
@@ -3299,6 +3360,13 @@ func init() {
                 }
               }
             }
+          }
+        },
+        "groups": {
+          "description": "The list of groups.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Group"
           }
         },
         "id": {
@@ -3470,14 +3538,14 @@ func init() {
       "type": "object",
       "properties": {
         "allowedChildModelManifestIds": {
-          "description": "For gateways, a list of device ids that are allowed to connect to it.",
+          "description": "For gateways, a list of thing ids that are allowed to connect to it.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "applications": {
-          "description": "List of applications recommended to use with a device model.",
+          "description": "List of applications recommended to use with a thing model.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/Application"
@@ -3487,13 +3555,12 @@ func init() {
           "description": "URL of image showing a confirmation button.",
           "type": "string"
         },
-        "deviceImageUrl": {
-          "description": "URL of device image.",
-          "type": "string"
-        },
-        "deviceKind": {
-          "description": "Device kind, see \"deviceKind\" field of the Device resource. See list of device kinds values.",
-          "type": "string"
+        "groups": {
+          "description": "The list of groups.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Group"
+          }
         },
         "id": {
           "description": "Unique model manifest ID.",
@@ -3505,19 +3572,27 @@ func init() {
           "default": "weave#modelManifest"
         },
         "modelDescription": {
-          "description": "User readable device model description.",
+          "description": "User readable thing model description.",
           "type": "string"
         },
         "modelName": {
-          "description": "User readable device model name.",
+          "description": "User readable thing model name.",
           "type": "string"
         },
         "oemName": {
-          "description": "User readable name of device model manufacturer.",
+          "description": "User readable name of thing model manufacturer.",
           "type": "string"
         },
         "supportPageUrl": {
-          "description": "URL of device support page.",
+          "description": "URL of thing support page.",
+          "type": "string"
+        },
+        "thingImageUrl": {
+          "description": "URL of thing image.",
+          "type": "string"
+        },
+        "thingKind": {
+          "description": "Thing kind, see \"thingKind\" field of the Thing resource. See list of thing kinds values.",
           "type": "string"
         }
       }
@@ -3596,7 +3671,7 @@ func init() {
         }
       }
     },
-    "ModelManifestsValidateDeviceStateRequest": {
+    "ModelManifestsValidateThingStateRequest": {
       "type": "object",
       "properties": {
         "state": {
@@ -3604,11 +3679,11 @@ func init() {
         }
       }
     },
-    "ModelManifestsValidateDeviceStateResponse": {
+    "ModelManifestsValidateThingStateResponse": {
       "type": "object",
       "properties": {
         "validationErrors": {
-          "description": "Validation errors in device state.",
+          "description": "Validation errors in thing state.",
           "type": "array",
           "items": {
             "type": "string"
@@ -3709,6 +3784,265 @@ func init() {
           }
         }
       }
+    },
+    "Thing": {
+      "type": "object",
+      "properties": {
+        "adapterId": {
+          "description": "ID of the adapter that created this thing.",
+          "type": "string"
+        },
+        "certFingerprint": {
+          "description": "Deprecated, do not use. The HTTPS certificate fingerprint used to secure communication with thing..",
+          "type": "string"
+        },
+        "channel": {
+          "description": "Thing notification channel description.",
+          "type": "object",
+          "properties": {
+            "connectionStatusHint": {
+              "description": "Connection status hint, set by parent thing.",
+              "type": "string",
+              "enum": [
+                "offline",
+                "online",
+                "unknown"
+              ]
+            },
+            "gcmRegistrationId": {
+              "description": "GCM registration ID. Required if thing supports GCM delivery channel.",
+              "type": "string"
+            },
+            "gcmSenderId": {
+              "description": "GCM sender ID. For Chrome apps must be the same as sender ID during registration, usually API project ID.",
+              "type": "string"
+            },
+            "parentId": {
+              "description": "Parent thing ID (aggregator) if it exists.",
+              "type": "string"
+            },
+            "pubsub": {
+              "description": "Pubsub channel details.",
+              "type": "object",
+              "properties": {
+                "connectionStatusHint": {
+                  "description": "Thing's connection status, as set by the pubsub subscriber.",
+                  "type": "string",
+                  "enum": [
+                    "offline",
+                    "online",
+                    "unknown"
+                  ]
+                },
+                "topic": {
+                  "description": "Pubsub topic to publish to with thing notifications.",
+                  "type": "string"
+                }
+              }
+            },
+            "supportedType": {
+              "description": "Channel type supported by thing. Allowed types are: \"gcm\", \"xmpp\", \"pubsub\", and \"parent\".",
+              "type": "string"
+            }
+          }
+        },
+        "commandDefs": {
+          "description": "Deprecated, use \"traits\" instead. Description of commands supported by the thing. This field is writable only by things.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/PackageDef"
+          }
+        },
+        "components": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "connectionStatus": {
+          "description": "Thing connection status.",
+          "type": "string"
+        },
+        "creationTimeMs": {
+          "description": "Timestamp of creation of this thing in milliseconds since epoch UTC.",
+          "type": "string",
+          "format": "int64"
+        },
+        "description": {
+          "description": "User readable description of this thing.",
+          "type": "string"
+        },
+        "groups": {
+          "description": "The list of groups.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Group"
+          }
+        },
+        "id": {
+          "description": "Unique thing ID.",
+          "type": "string"
+        },
+        "invitations": {
+          "description": "List of pending invitations for the currently logged-in user.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Invitation"
+          }
+        },
+        "isEventRecordingDisabled": {
+          "description": "Indicates whether event recording is enabled or disabled for this thing.",
+          "type": "boolean"
+        },
+        "kind": {
+          "description": "Identifies what kind of resource this is. Value: the fixed string \"weave#thing\".",
+          "type": "string",
+          "default": "weave#thing"
+        },
+        "labels": {
+          "description": "Any labels attached to the thing. Use the addLabel and removeLabel APIs to modify this list.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AssociatedLabel"
+          }
+        },
+        "lastSeenTimeMs": {
+          "description": "Timestamp of the last request from this thing in milliseconds since epoch UTC. Supported only for things with XMPP channel type.",
+          "type": "string",
+          "format": "int64"
+        },
+        "lastUpdateTimeMs": {
+          "description": "Timestamp of the last thing update in milliseconds since epoch UTC.",
+          "type": "string",
+          "format": "int64"
+        },
+        "lastUseTimeMs": {
+          "description": "Timestamp of the last thing usage in milliseconds since epoch UTC.",
+          "type": "string",
+          "format": "int64"
+        },
+        "locationId": {
+          "description": "ID of the location of this thing.",
+          "type": "string",
+          "format": "int64"
+        },
+        "modelManifest": {
+          "description": "Thing model information provided by the model manifest of this thing.",
+          "type": "object",
+          "properties": {
+            "modelName": {
+              "description": "Thing model name.",
+              "type": "string"
+            },
+            "oemName": {
+              "description": "Name of thing model manufacturer.",
+              "type": "string"
+            }
+          }
+        },
+        "modelManifestId": {
+          "description": "Model manifest ID of this thing.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name of this thing provided by the manufacturer.",
+          "type": "string"
+        },
+        "nicknames": {
+          "description": "Nicknames of the thing. Use the addNickname and removeNickname APIs to modify this list.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "owner": {
+          "description": "E-mail address of the thing owner.",
+          "type": "string"
+        },
+        "personalizedInfo": {
+          "description": "Personalized thing information for currently logged-in user.",
+          "type": "object",
+          "properties": {
+            "lastUseTimeMs": {
+              "description": "Timestamp of the last thing usage by the user in milliseconds since epoch UTC.",
+              "type": "string",
+              "format": "int64"
+            },
+            "location": {
+              "description": "Personalized thing location.",
+              "type": "string"
+            },
+            "maxRole": {
+              "description": "The maximum role on the thing.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Personalized thing display name.",
+              "type": "string"
+            }
+          }
+        },
+        "serialNumber": {
+          "description": "Serial number of a thing provided by its manufacturer.",
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "stateDefs": {
+          "description": "Deprecated, do not use. Description of the thing state. This field is writable only by things.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/StateDef"
+          }
+        },
+        "tags": {
+          "description": "Custom free-form manufacturer tags.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "thingKind": {
+          "description": "Thing kind. Deprecated, provide \"modelManifestId\" instead. See list of thing kinds values.",
+          "type": "string"
+        },
+        "thingLocalId": {
+          "description": "Deprecated, do not use. The ID of the thing for use on the local network.",
+          "type": "string"
+        },
+        "traits": {
+          "$ref": "#/definitions/JsonObject"
+        },
+        "uiThingKind": {
+          "description": "Thing kind from the model manifest used in UI applications. See list of thing kinds values.",
+          "type": "string"
+        }
+      }
+    },
+    "ThingsListResponse": {
+      "description": "List of things.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "description": "Identifies what kind of resource this is. Value: the fixed string \"weave#thingsListResponse\".",
+          "type": "string",
+          "default": "weave#thingsListResponse"
+        },
+        "nextPageToken": {
+          "description": "Token corresponding to the next page of things.",
+          "type": "string"
+        },
+        "things": {
+          "description": "The actual list of things.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Thing"
+          }
+        },
+        "totalResults": {
+          "description": "The total number of things for the query. The number of items in a response may be smaller due to paging.",
+          "type": "integer",
+          "format": "int32"
+        }
+      }
     }
   },
   "parameters": {
@@ -3767,6 +4101,11 @@ func init() {
       "in": "header"
     }
   },
+  "security": [
+    {
+      "apiKey": []
+    }
+  ],
   "tags": [
     {
       "name": "adapters"
@@ -3775,7 +4114,7 @@ func init() {
       "name": "commands"
     },
     {
-      "name": "devices"
+      "name": "things"
     },
     {
       "name": "events"
@@ -3785,6 +4124,9 @@ func init() {
     },
     {
       "name": "modelManifests"
+    },
+    {
+      "name": "keys"
     }
   ],
   "externalDocs": {

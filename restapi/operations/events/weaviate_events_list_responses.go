@@ -66,6 +66,48 @@ func (o *WeaviateEventsListOK) WriteResponse(rw http.ResponseWriter, producer ru
 	}
 }
 
+// WeaviateEventsListUnauthorizedCode is the HTTP code returned for type WeaviateEventsListUnauthorized
+const WeaviateEventsListUnauthorizedCode int = 401
+
+/*WeaviateEventsListUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateEventsListUnauthorized
+*/
+type WeaviateEventsListUnauthorized struct {
+}
+
+// NewWeaviateEventsListUnauthorized creates WeaviateEventsListUnauthorized with default headers values
+func NewWeaviateEventsListUnauthorized() *WeaviateEventsListUnauthorized {
+	return &WeaviateEventsListUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateEventsListUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateEventsListForbiddenCode is the HTTP code returned for type WeaviateEventsListForbidden
+const WeaviateEventsListForbiddenCode int = 403
+
+/*WeaviateEventsListForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateEventsListForbidden
+*/
+type WeaviateEventsListForbidden struct {
+}
+
+// NewWeaviateEventsListForbidden creates WeaviateEventsListForbidden with default headers values
+func NewWeaviateEventsListForbidden() *WeaviateEventsListForbidden {
+	return &WeaviateEventsListForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateEventsListForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateEventsListNotFoundCode is the HTTP code returned for type WeaviateEventsListNotFound
 const WeaviateEventsListNotFoundCode int = 404
 

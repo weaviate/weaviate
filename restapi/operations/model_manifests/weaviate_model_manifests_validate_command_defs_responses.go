@@ -66,6 +66,48 @@ func (o *WeaviateModelManifestsValidateCommandDefsCreated) WriteResponse(rw http
 	}
 }
 
+// WeaviateModelManifestsValidateCommandDefsUnauthorizedCode is the HTTP code returned for type WeaviateModelManifestsValidateCommandDefsUnauthorized
+const WeaviateModelManifestsValidateCommandDefsUnauthorizedCode int = 401
+
+/*WeaviateModelManifestsValidateCommandDefsUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateModelManifestsValidateCommandDefsUnauthorized
+*/
+type WeaviateModelManifestsValidateCommandDefsUnauthorized struct {
+}
+
+// NewWeaviateModelManifestsValidateCommandDefsUnauthorized creates WeaviateModelManifestsValidateCommandDefsUnauthorized with default headers values
+func NewWeaviateModelManifestsValidateCommandDefsUnauthorized() *WeaviateModelManifestsValidateCommandDefsUnauthorized {
+	return &WeaviateModelManifestsValidateCommandDefsUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsValidateCommandDefsUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateModelManifestsValidateCommandDefsForbiddenCode is the HTTP code returned for type WeaviateModelManifestsValidateCommandDefsForbidden
+const WeaviateModelManifestsValidateCommandDefsForbiddenCode int = 403
+
+/*WeaviateModelManifestsValidateCommandDefsForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateModelManifestsValidateCommandDefsForbidden
+*/
+type WeaviateModelManifestsValidateCommandDefsForbidden struct {
+}
+
+// NewWeaviateModelManifestsValidateCommandDefsForbidden creates WeaviateModelManifestsValidateCommandDefsForbidden with default headers values
+func NewWeaviateModelManifestsValidateCommandDefsForbidden() *WeaviateModelManifestsValidateCommandDefsForbidden {
+	return &WeaviateModelManifestsValidateCommandDefsForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsValidateCommandDefsForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateModelManifestsValidateCommandDefsNotImplementedCode is the HTTP code returned for type WeaviateModelManifestsValidateCommandDefsNotImplemented
 const WeaviateModelManifestsValidateCommandDefsNotImplementedCode int = 501
 
