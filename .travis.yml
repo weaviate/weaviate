@@ -6,6 +6,19 @@ env:
 before_install:
   - go get ./...
 script:
+  - if [ ! -d "$HOME/google-cloud-sdk/bin" ]; then rm -rf $HOME/google-cloud-sdk; export CLOUDSDK_CORE_DISABLE_PROMPTS=1; curl https://sdk.cloud.google.com | bash; fi
+  - source /home/travis/google-cloud-sdk/path.bash.inc
+  - export CLOUDSDK_CORE_PROJECT=weaviate-dev-001
+  - export DATASTORE_DATASET=weaviate-dev-001
+  - export DATASTORE_EMULATOR_HOST=127.0.0.1:8081
+  - export DATASTORE_EMULATOR_HOST_PATH=127.0.0.1:8081/datastore
+  - export DATASTORE_HOST=http://127.0.0.1:8081
+  - export DATASTORE_PROJECT_ID=weaviate-dev-001
+  - export DATASTORE_EMULATOR_HOST=localhost:8081
+  - nohup gcloud beta emulators datastore start --no-store-on-disk &
+  - sleep 60
+  - rm nohup.out
   - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8080 --host=127.0.0.1 &
   - sleep 12
-  - go test -v ./test
+  - export WEAVIATEKEY=$(grep "ROOTKEY=" nohup.out | cut -d "=" -f 2)
+  - go test -v ./test -args -api-key=$WEAVIATEKEY

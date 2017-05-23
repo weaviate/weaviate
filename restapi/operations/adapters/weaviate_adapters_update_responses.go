@@ -66,6 +66,48 @@ func (o *WeaviateAdaptersUpdateOK) WriteResponse(rw http.ResponseWriter, produce
 	}
 }
 
+// WeaviateAdaptersUpdateUnauthorizedCode is the HTTP code returned for type WeaviateAdaptersUpdateUnauthorized
+const WeaviateAdaptersUpdateUnauthorizedCode int = 401
+
+/*WeaviateAdaptersUpdateUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateAdaptersUpdateUnauthorized
+*/
+type WeaviateAdaptersUpdateUnauthorized struct {
+}
+
+// NewWeaviateAdaptersUpdateUnauthorized creates WeaviateAdaptersUpdateUnauthorized with default headers values
+func NewWeaviateAdaptersUpdateUnauthorized() *WeaviateAdaptersUpdateUnauthorized {
+	return &WeaviateAdaptersUpdateUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateAdaptersUpdateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateAdaptersUpdateForbiddenCode is the HTTP code returned for type WeaviateAdaptersUpdateForbidden
+const WeaviateAdaptersUpdateForbiddenCode int = 403
+
+/*WeaviateAdaptersUpdateForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateAdaptersUpdateForbidden
+*/
+type WeaviateAdaptersUpdateForbidden struct {
+}
+
+// NewWeaviateAdaptersUpdateForbidden creates WeaviateAdaptersUpdateForbidden with default headers values
+func NewWeaviateAdaptersUpdateForbidden() *WeaviateAdaptersUpdateForbidden {
+	return &WeaviateAdaptersUpdateForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateAdaptersUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateAdaptersUpdateNotFoundCode is the HTTP code returned for type WeaviateAdaptersUpdateNotFound
 const WeaviateAdaptersUpdateNotFoundCode int = 404
 

@@ -17,6 +17,7 @@
 
 import (
 	"encoding/json"
+	"strconv"
 
 	strfmt "github.com/go-openapi/strfmt"
 
@@ -32,11 +33,11 @@ type Event struct {
 	// command patch
 	CommandPatch *EventCommandPatch `json:"commandPatch,omitempty"`
 
-	// New device connection state (if connectivity change event).
+	// New thing connection state (if connectivity change event).
 	ConnectionStatus string `json:"connectionStatus,omitempty"`
 
-	// The device that was affected by this event.
-	DeviceID string `json:"deviceId,omitempty"`
+	// The list of groups.
+	Groups []*Group `json:"groups"`
 
 	// ID of the event.
 	ID string `json:"id,omitempty"`
@@ -46,6 +47,9 @@ type Event struct {
 
 	// state patch
 	StatePatch JSONObject `json:"statePatch,omitempty"`
+
+	// The thing that was affected by this event.
+	ThingID string `json:"thingId,omitempty"`
 
 	// Time the event was generated in milliseconds since epoch UTC.
 	TimeMs int64 `json:"timeMs,omitempty"`
@@ -62,6 +66,11 @@ func (m *Event) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateCommandPatch(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
+	if err := m.validateGroups(formats); err != nil {
 		// prop
 		res = append(res, err)
 	}
@@ -96,11 +105,38 @@ func (m *Event) validateCommandPatch(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Event) validateGroups(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Groups) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Groups); i++ {
+
+		if swag.IsZero(m.Groups[i]) { // not required
+			continue
+		}
+
+		if m.Groups[i] != nil {
+
+			if err := m.Groups[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("groups" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
 var eventTypeTypePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["adapterDeactivated","commandCancelled","commandCreated","commandDeleted","commandExpired","commandUpdated","deviceAclUpdated","deviceConnectivityChange","deviceCreated","deviceDeleted","deviceLocationUpdated","deviceTransferred","deviceUpdated","deviceUseTimeUpdated","deviceUserAclCreated","deviceUserAclDeleted","deviceUserAclUpdated","eventsDeleted","eventsRecordingDisabled","eventsRecordingEnabled","locationCreated","locationDeleted","locationMemberAdded","locationMemberRemoved","locationUpdated"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["adapterDeactivated","commandCancelled","commandCreated","commandDeleted","commandExpired","commandUpdated","eventsDeleted","eventsRecordingDisabled","eventsRecordingEnabled","locationCreated","locationDeleted","locationMemberAdded","locationMemberRemoved","locationUpdated","thingConnectivityChange","thingCreated","thingDeleted","thingLocationUpdated","thingTransferred","thingUpdated","thingUseTimeUpdated"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -121,28 +157,6 @@ const (
 	EventTypeCommandExpired string = "commandExpired"
 	// EventTypeCommandUpdated captures enum value "commandUpdated"
 	EventTypeCommandUpdated string = "commandUpdated"
-	// EventTypeDeviceACLUpdated captures enum value "deviceAclUpdated"
-	EventTypeDeviceACLUpdated string = "deviceAclUpdated"
-	// EventTypeDeviceConnectivityChange captures enum value "deviceConnectivityChange"
-	EventTypeDeviceConnectivityChange string = "deviceConnectivityChange"
-	// EventTypeDeviceCreated captures enum value "deviceCreated"
-	EventTypeDeviceCreated string = "deviceCreated"
-	// EventTypeDeviceDeleted captures enum value "deviceDeleted"
-	EventTypeDeviceDeleted string = "deviceDeleted"
-	// EventTypeDeviceLocationUpdated captures enum value "deviceLocationUpdated"
-	EventTypeDeviceLocationUpdated string = "deviceLocationUpdated"
-	// EventTypeDeviceTransferred captures enum value "deviceTransferred"
-	EventTypeDeviceTransferred string = "deviceTransferred"
-	// EventTypeDeviceUpdated captures enum value "deviceUpdated"
-	EventTypeDeviceUpdated string = "deviceUpdated"
-	// EventTypeDeviceUseTimeUpdated captures enum value "deviceUseTimeUpdated"
-	EventTypeDeviceUseTimeUpdated string = "deviceUseTimeUpdated"
-	// EventTypeDeviceUserACLCreated captures enum value "deviceUserAclCreated"
-	EventTypeDeviceUserACLCreated string = "deviceUserAclCreated"
-	// EventTypeDeviceUserACLDeleted captures enum value "deviceUserAclDeleted"
-	EventTypeDeviceUserACLDeleted string = "deviceUserAclDeleted"
-	// EventTypeDeviceUserACLUpdated captures enum value "deviceUserAclUpdated"
-	EventTypeDeviceUserACLUpdated string = "deviceUserAclUpdated"
 	// EventTypeEventsDeleted captures enum value "eventsDeleted"
 	EventTypeEventsDeleted string = "eventsDeleted"
 	// EventTypeEventsRecordingDisabled captures enum value "eventsRecordingDisabled"
@@ -159,6 +173,20 @@ const (
 	EventTypeLocationMemberRemoved string = "locationMemberRemoved"
 	// EventTypeLocationUpdated captures enum value "locationUpdated"
 	EventTypeLocationUpdated string = "locationUpdated"
+	// EventTypeThingConnectivityChange captures enum value "thingConnectivityChange"
+	EventTypeThingConnectivityChange string = "thingConnectivityChange"
+	// EventTypeThingCreated captures enum value "thingCreated"
+	EventTypeThingCreated string = "thingCreated"
+	// EventTypeThingDeleted captures enum value "thingDeleted"
+	EventTypeThingDeleted string = "thingDeleted"
+	// EventTypeThingLocationUpdated captures enum value "thingLocationUpdated"
+	EventTypeThingLocationUpdated string = "thingLocationUpdated"
+	// EventTypeThingTransferred captures enum value "thingTransferred"
+	EventTypeThingTransferred string = "thingTransferred"
+	// EventTypeThingUpdated captures enum value "thingUpdated"
+	EventTypeThingUpdated string = "thingUpdated"
+	// EventTypeThingUseTimeUpdated captures enum value "thingUseTimeUpdated"
+	EventTypeThingUseTimeUpdated string = "thingUseTimeUpdated"
 )
 
 // prop value enum

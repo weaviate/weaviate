@@ -24,18 +24,20 @@ import (
 	loads "github.com/go-openapi/loads"
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
+	security "github.com/go-openapi/runtime/security"
 	"github.com/go-openapi/runtime/yamlpc"
 	spec "github.com/go-openapi/spec"
 	strfmt "github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
-	"github.com/weaviate/weaviate/restapi/operations/acl_entries"
 	"github.com/weaviate/weaviate/restapi/operations/adapters"
 	"github.com/weaviate/weaviate/restapi/operations/commands"
-	"github.com/weaviate/weaviate/restapi/operations/devices"
 	"github.com/weaviate/weaviate/restapi/operations/events"
+	"github.com/weaviate/weaviate/restapi/operations/groups"
+	"github.com/weaviate/weaviate/restapi/operations/keys"
 	"github.com/weaviate/weaviate/restapi/operations/locations"
 	"github.com/weaviate/weaviate/restapi/operations/model_manifests"
+	"github.com/weaviate/weaviate/restapi/operations/things"
 )
 
 // NewWeaviateAPI creates a new Weaviate instance
@@ -62,139 +64,156 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		XMLProducer:           runtime.XMLProducer(),
 		MultipartformProducer: runtime.DiscardProducer,
 		TxtProducer:           runtime.TextProducer(),
-		ACLEntriesWeaviateACLEntriesDeleteHandler: acl_entries.WeaviateACLEntriesDeleteHandlerFunc(func(params acl_entries.WeaviateACLEntriesDeleteParams) middleware.Responder {
-			return middleware.NotImplemented("operation ACLEntriesWeaviateACLEntriesDelete has not yet been implemented")
-		}),
-		ACLEntriesWeaviateACLEntriesGetHandler: acl_entries.WeaviateACLEntriesGetHandlerFunc(func(params acl_entries.WeaviateACLEntriesGetParams) middleware.Responder {
-			return middleware.NotImplemented("operation ACLEntriesWeaviateACLEntriesGet has not yet been implemented")
-		}),
-		ACLEntriesWeaviateACLEntriesInsertHandler: acl_entries.WeaviateACLEntriesInsertHandlerFunc(func(params acl_entries.WeaviateACLEntriesInsertParams) middleware.Responder {
-			return middleware.NotImplemented("operation ACLEntriesWeaviateACLEntriesInsert has not yet been implemented")
-		}),
-		ACLEntriesWeaviateACLEntriesListHandler: acl_entries.WeaviateACLEntriesListHandlerFunc(func(params acl_entries.WeaviateACLEntriesListParams) middleware.Responder {
-			return middleware.NotImplemented("operation ACLEntriesWeaviateACLEntriesList has not yet been implemented")
-		}),
-		ACLEntriesWeaviateACLEntriesPatchHandler: acl_entries.WeaviateACLEntriesPatchHandlerFunc(func(params acl_entries.WeaviateACLEntriesPatchParams) middleware.Responder {
-			return middleware.NotImplemented("operation ACLEntriesWeaviateACLEntriesPatch has not yet been implemented")
-		}),
-		ACLEntriesWeaviateACLEntriesUpdateHandler: acl_entries.WeaviateACLEntriesUpdateHandlerFunc(func(params acl_entries.WeaviateACLEntriesUpdateParams) middleware.Responder {
-			return middleware.NotImplemented("operation ACLEntriesWeaviateACLEntriesUpdate has not yet been implemented")
-		}),
-		AdaptersWeaviateAdaptersDeleteHandler: adapters.WeaviateAdaptersDeleteHandlerFunc(func(params adapters.WeaviateAdaptersDeleteParams) middleware.Responder {
+		AdaptersWeaviateAdaptersDeleteHandler: adapters.WeaviateAdaptersDeleteHandlerFunc(func(params adapters.WeaviateAdaptersDeleteParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation AdaptersWeaviateAdaptersDelete has not yet been implemented")
 		}),
-		AdaptersWeaviateAdaptersGetHandler: adapters.WeaviateAdaptersGetHandlerFunc(func(params adapters.WeaviateAdaptersGetParams) middleware.Responder {
+		AdaptersWeaviateAdaptersGetHandler: adapters.WeaviateAdaptersGetHandlerFunc(func(params adapters.WeaviateAdaptersGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation AdaptersWeaviateAdaptersGet has not yet been implemented")
 		}),
-		AdaptersWeaviateAdaptersInsertHandler: adapters.WeaviateAdaptersInsertHandlerFunc(func(params adapters.WeaviateAdaptersInsertParams) middleware.Responder {
+		AdaptersWeaviateAdaptersInsertHandler: adapters.WeaviateAdaptersInsertHandlerFunc(func(params adapters.WeaviateAdaptersInsertParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation AdaptersWeaviateAdaptersInsert has not yet been implemented")
 		}),
-		AdaptersWeaviateAdaptersListHandler: adapters.WeaviateAdaptersListHandlerFunc(func(params adapters.WeaviateAdaptersListParams) middleware.Responder {
+		AdaptersWeaviateAdaptersListHandler: adapters.WeaviateAdaptersListHandlerFunc(func(params adapters.WeaviateAdaptersListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation AdaptersWeaviateAdaptersList has not yet been implemented")
 		}),
-		AdaptersWeaviateAdaptersPatchHandler: adapters.WeaviateAdaptersPatchHandlerFunc(func(params adapters.WeaviateAdaptersPatchParams) middleware.Responder {
+		AdaptersWeaviateAdaptersPatchHandler: adapters.WeaviateAdaptersPatchHandlerFunc(func(params adapters.WeaviateAdaptersPatchParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation AdaptersWeaviateAdaptersPatch has not yet been implemented")
 		}),
-		AdaptersWeaviateAdaptersUpdateHandler: adapters.WeaviateAdaptersUpdateHandlerFunc(func(params adapters.WeaviateAdaptersUpdateParams) middleware.Responder {
+		AdaptersWeaviateAdaptersUpdateHandler: adapters.WeaviateAdaptersUpdateHandlerFunc(func(params adapters.WeaviateAdaptersUpdateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation AdaptersWeaviateAdaptersUpdate has not yet been implemented")
 		}),
-		CommandsWeaviateCommandsDeleteHandler: commands.WeaviateCommandsDeleteHandlerFunc(func(params commands.WeaviateCommandsDeleteParams) middleware.Responder {
+		KeysWeaviateChildrenGetHandler: keys.WeaviateChildrenGetHandlerFunc(func(params keys.WeaviateChildrenGetParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation KeysWeaviateChildrenGet has not yet been implemented")
+		}),
+		CommandsWeaviateCommandsDeleteHandler: commands.WeaviateCommandsDeleteHandlerFunc(func(params commands.WeaviateCommandsDeleteParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation CommandsWeaviateCommandsDelete has not yet been implemented")
 		}),
-		CommandsWeaviateCommandsGetHandler: commands.WeaviateCommandsGetHandlerFunc(func(params commands.WeaviateCommandsGetParams) middleware.Responder {
+		CommandsWeaviateCommandsGetHandler: commands.WeaviateCommandsGetHandlerFunc(func(params commands.WeaviateCommandsGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation CommandsWeaviateCommandsGet has not yet been implemented")
 		}),
-		CommandsWeaviateCommandsGetQueueHandler: commands.WeaviateCommandsGetQueueHandlerFunc(func(params commands.WeaviateCommandsGetQueueParams) middleware.Responder {
+		CommandsWeaviateCommandsGetQueueHandler: commands.WeaviateCommandsGetQueueHandlerFunc(func(params commands.WeaviateCommandsGetQueueParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation CommandsWeaviateCommandsGetQueue has not yet been implemented")
 		}),
-		CommandsWeaviateCommandsInsertHandler: commands.WeaviateCommandsInsertHandlerFunc(func(params commands.WeaviateCommandsInsertParams) middleware.Responder {
+		CommandsWeaviateCommandsInsertHandler: commands.WeaviateCommandsInsertHandlerFunc(func(params commands.WeaviateCommandsInsertParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation CommandsWeaviateCommandsInsert has not yet been implemented")
 		}),
-		CommandsWeaviateCommandsListHandler: commands.WeaviateCommandsListHandlerFunc(func(params commands.WeaviateCommandsListParams) middleware.Responder {
+		CommandsWeaviateCommandsListHandler: commands.WeaviateCommandsListHandlerFunc(func(params commands.WeaviateCommandsListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation CommandsWeaviateCommandsList has not yet been implemented")
 		}),
-		CommandsWeaviateCommandsPatchHandler: commands.WeaviateCommandsPatchHandlerFunc(func(params commands.WeaviateCommandsPatchParams) middleware.Responder {
+		CommandsWeaviateCommandsPatchHandler: commands.WeaviateCommandsPatchHandlerFunc(func(params commands.WeaviateCommandsPatchParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation CommandsWeaviateCommandsPatch has not yet been implemented")
 		}),
-		CommandsWeaviateCommandsUpdateHandler: commands.WeaviateCommandsUpdateHandlerFunc(func(params commands.WeaviateCommandsUpdateParams) middleware.Responder {
+		CommandsWeaviateCommandsUpdateHandler: commands.WeaviateCommandsUpdateHandlerFunc(func(params commands.WeaviateCommandsUpdateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation CommandsWeaviateCommandsUpdate has not yet been implemented")
 		}),
-		DevicesWeaviateDevicesDeleteHandler: devices.WeaviateDevicesDeleteHandlerFunc(func(params devices.WeaviateDevicesDeleteParams) middleware.Responder {
-			return middleware.NotImplemented("operation DevicesWeaviateDevicesDelete has not yet been implemented")
-		}),
-		DevicesWeaviateDevicesGetHandler: devices.WeaviateDevicesGetHandlerFunc(func(params devices.WeaviateDevicesGetParams) middleware.Responder {
-			return middleware.NotImplemented("operation DevicesWeaviateDevicesGet has not yet been implemented")
-		}),
-		DevicesWeaviateDevicesInsertHandler: devices.WeaviateDevicesInsertHandlerFunc(func(params devices.WeaviateDevicesInsertParams) middleware.Responder {
-			return middleware.NotImplemented("operation DevicesWeaviateDevicesInsert has not yet been implemented")
-		}),
-		DevicesWeaviateDevicesListHandler: devices.WeaviateDevicesListHandlerFunc(func(params devices.WeaviateDevicesListParams) middleware.Responder {
-			return middleware.NotImplemented("operation DevicesWeaviateDevicesList has not yet been implemented")
-		}),
-		DevicesWeaviateDevicesPatchHandler: devices.WeaviateDevicesPatchHandlerFunc(func(params devices.WeaviateDevicesPatchParams) middleware.Responder {
-			return middleware.NotImplemented("operation DevicesWeaviateDevicesPatch has not yet been implemented")
-		}),
-		DevicesWeaviateDevicesUpdateHandler: devices.WeaviateDevicesUpdateHandlerFunc(func(params devices.WeaviateDevicesUpdateParams) middleware.Responder {
-			return middleware.NotImplemented("operation DevicesWeaviateDevicesUpdate has not yet been implemented")
-		}),
-		EventsWeaviateEventsGetHandler: events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams) middleware.Responder {
+		EventsWeaviateEventsGetHandler: events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation EventsWeaviateEventsGet has not yet been implemented")
 		}),
-		EventsWeaviateEventsListHandler: events.WeaviateEventsListHandlerFunc(func(params events.WeaviateEventsListParams) middleware.Responder {
+		EventsWeaviateEventsListHandler: events.WeaviateEventsListHandlerFunc(func(params events.WeaviateEventsListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation EventsWeaviateEventsList has not yet been implemented")
 		}),
-		EventsWeaviateEventsRecordDeviceEventsHandler: events.WeaviateEventsRecordDeviceEventsHandlerFunc(func(params events.WeaviateEventsRecordDeviceEventsParams) middleware.Responder {
-			return middleware.NotImplemented("operation EventsWeaviateEventsRecordDeviceEvents has not yet been implemented")
+		EventsWeaviateEventsRecordThingEventsHandler: events.WeaviateEventsRecordThingEventsHandlerFunc(func(params events.WeaviateEventsRecordThingEventsParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation EventsWeaviateEventsRecordThingEvents has not yet been implemented")
 		}),
-		LocationsWeaviateLocationsDeleteHandler: locations.WeaviateLocationsDeleteHandlerFunc(func(params locations.WeaviateLocationsDeleteParams) middleware.Responder {
+		GroupsWeaviateGroupsDeleteHandler: groups.WeaviateGroupsDeleteHandlerFunc(func(params groups.WeaviateGroupsDeleteParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation GroupsWeaviateGroupsDelete has not yet been implemented")
+		}),
+		GroupsWeaviateGroupsGetHandler: groups.WeaviateGroupsGetHandlerFunc(func(params groups.WeaviateGroupsGetParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation GroupsWeaviateGroupsGet has not yet been implemented")
+		}),
+		GroupsWeaviateGroupsInsertHandler: groups.WeaviateGroupsInsertHandlerFunc(func(params groups.WeaviateGroupsInsertParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation GroupsWeaviateGroupsInsert has not yet been implemented")
+		}),
+		GroupsWeaviateGroupsListHandler: groups.WeaviateGroupsListHandlerFunc(func(params groups.WeaviateGroupsListParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation GroupsWeaviateGroupsList has not yet been implemented")
+		}),
+		GroupsWeaviateGroupsPatchHandler: groups.WeaviateGroupsPatchHandlerFunc(func(params groups.WeaviateGroupsPatchParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation GroupsWeaviateGroupsPatch has not yet been implemented")
+		}),
+		GroupsWeaviateGroupsUpdateHandler: groups.WeaviateGroupsUpdateHandlerFunc(func(params groups.WeaviateGroupsUpdateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation GroupsWeaviateGroupsUpdate has not yet been implemented")
+		}),
+		KeysWeaviateKeyCreateHandler: keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation KeysWeaviateKeyCreate has not yet been implemented")
+		}),
+		KeysWeaviateKeysDeleteHandler: keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation KeysWeaviateKeysDelete has not yet been implemented")
+		}),
+		KeysWeaviateKeysGetHandler: keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation KeysWeaviateKeysGet has not yet been implemented")
+		}),
+		LocationsWeaviateLocationsDeleteHandler: locations.WeaviateLocationsDeleteHandlerFunc(func(params locations.WeaviateLocationsDeleteParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation LocationsWeaviateLocationsDelete has not yet been implemented")
 		}),
-		LocationsWeaviateLocationsGetHandler: locations.WeaviateLocationsGetHandlerFunc(func(params locations.WeaviateLocationsGetParams) middleware.Responder {
+		LocationsWeaviateLocationsGetHandler: locations.WeaviateLocationsGetHandlerFunc(func(params locations.WeaviateLocationsGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation LocationsWeaviateLocationsGet has not yet been implemented")
 		}),
-		LocationsWeaviateLocationsInsertHandler: locations.WeaviateLocationsInsertHandlerFunc(func(params locations.WeaviateLocationsInsertParams) middleware.Responder {
+		LocationsWeaviateLocationsInsertHandler: locations.WeaviateLocationsInsertHandlerFunc(func(params locations.WeaviateLocationsInsertParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation LocationsWeaviateLocationsInsert has not yet been implemented")
 		}),
-		LocationsWeaviateLocationsListHandler: locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams) middleware.Responder {
+		LocationsWeaviateLocationsListHandler: locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation LocationsWeaviateLocationsList has not yet been implemented")
 		}),
-		LocationsWeaviateLocationsPatchHandler: locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams) middleware.Responder {
+		LocationsWeaviateLocationsPatchHandler: locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation LocationsWeaviateLocationsPatch has not yet been implemented")
 		}),
-		LocationsWeaviateLocationsUpdateHandler: locations.WeaviateLocationsUpdateHandlerFunc(func(params locations.WeaviateLocationsUpdateParams) middleware.Responder {
+		LocationsWeaviateLocationsUpdateHandler: locations.WeaviateLocationsUpdateHandlerFunc(func(params locations.WeaviateLocationsUpdateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation LocationsWeaviateLocationsUpdate has not yet been implemented")
 		}),
-		ModelManifestsWeaviateModelManifestsCreateHandler: model_manifests.WeaviateModelManifestsCreateHandlerFunc(func(params model_manifests.WeaviateModelManifestsCreateParams) middleware.Responder {
+		ModelManifestsWeaviateModelManifestsCreateHandler: model_manifests.WeaviateModelManifestsCreateHandlerFunc(func(params model_manifests.WeaviateModelManifestsCreateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ModelManifestsWeaviateModelManifestsCreate has not yet been implemented")
 		}),
-		ModelManifestsWeaviateModelManifestsDeleteHandler: model_manifests.WeaviateModelManifestsDeleteHandlerFunc(func(params model_manifests.WeaviateModelManifestsDeleteParams) middleware.Responder {
+		ModelManifestsWeaviateModelManifestsDeleteHandler: model_manifests.WeaviateModelManifestsDeleteHandlerFunc(func(params model_manifests.WeaviateModelManifestsDeleteParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ModelManifestsWeaviateModelManifestsDelete has not yet been implemented")
 		}),
-		ModelManifestsWeaviateModelManifestsGetHandler: model_manifests.WeaviateModelManifestsGetHandlerFunc(func(params model_manifests.WeaviateModelManifestsGetParams) middleware.Responder {
+		ModelManifestsWeaviateModelManifestsGetHandler: model_manifests.WeaviateModelManifestsGetHandlerFunc(func(params model_manifests.WeaviateModelManifestsGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ModelManifestsWeaviateModelManifestsGet has not yet been implemented")
 		}),
-		ModelManifestsWeaviateModelManifestsListHandler: model_manifests.WeaviateModelManifestsListHandlerFunc(func(params model_manifests.WeaviateModelManifestsListParams) middleware.Responder {
+		ModelManifestsWeaviateModelManifestsListHandler: model_manifests.WeaviateModelManifestsListHandlerFunc(func(params model_manifests.WeaviateModelManifestsListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ModelManifestsWeaviateModelManifestsList has not yet been implemented")
 		}),
-		ModelManifestsWeaviateModelManifestsPatchHandler: model_manifests.WeaviateModelManifestsPatchHandlerFunc(func(params model_manifests.WeaviateModelManifestsPatchParams) middleware.Responder {
+		ModelManifestsWeaviateModelManifestsPatchHandler: model_manifests.WeaviateModelManifestsPatchHandlerFunc(func(params model_manifests.WeaviateModelManifestsPatchParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ModelManifestsWeaviateModelManifestsPatch has not yet been implemented")
 		}),
-		ModelManifestsWeaviateModelManifestsUpdateHandler: model_manifests.WeaviateModelManifestsUpdateHandlerFunc(func(params model_manifests.WeaviateModelManifestsUpdateParams) middleware.Responder {
+		ModelManifestsWeaviateModelManifestsUpdateHandler: model_manifests.WeaviateModelManifestsUpdateHandlerFunc(func(params model_manifests.WeaviateModelManifestsUpdateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ModelManifestsWeaviateModelManifestsUpdate has not yet been implemented")
 		}),
-		ModelManifestsWeaviateModelManifestsValidateCommandDefsHandler: model_manifests.WeaviateModelManifestsValidateCommandDefsHandlerFunc(func(params model_manifests.WeaviateModelManifestsValidateCommandDefsParams) middleware.Responder {
+		ModelManifestsWeaviateModelManifestsValidateCommandDefsHandler: model_manifests.WeaviateModelManifestsValidateCommandDefsHandlerFunc(func(params model_manifests.WeaviateModelManifestsValidateCommandDefsParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ModelManifestsWeaviateModelManifestsValidateCommandDefs has not yet been implemented")
 		}),
-		ModelManifestsWeaviateModelManifestsValidateComponentsHandler: model_manifests.WeaviateModelManifestsValidateComponentsHandlerFunc(func(params model_manifests.WeaviateModelManifestsValidateComponentsParams) middleware.Responder {
+		ModelManifestsWeaviateModelManifestsValidateComponentsHandler: model_manifests.WeaviateModelManifestsValidateComponentsHandlerFunc(func(params model_manifests.WeaviateModelManifestsValidateComponentsParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ModelManifestsWeaviateModelManifestsValidateComponents has not yet been implemented")
 		}),
-		ModelManifestsWeaviateModelManifestsValidateDeviceStateHandler: model_manifests.WeaviateModelManifestsValidateDeviceStateHandlerFunc(func(params model_manifests.WeaviateModelManifestsValidateDeviceStateParams) middleware.Responder {
-			return middleware.NotImplemented("operation ModelManifestsWeaviateModelManifestsValidateDeviceState has not yet been implemented")
+		ModelManifestsWeaviateModelManifestsValidateThingStateHandler: model_manifests.WeaviateModelManifestsValidateThingStateHandlerFunc(func(params model_manifests.WeaviateModelManifestsValidateThingStateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ModelManifestsWeaviateModelManifestsValidateThingState has not yet been implemented")
 		}),
+		ThingsWeaviateThingsDeleteHandler: things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsDelete has not yet been implemented")
+		}),
+		ThingsWeaviateThingsGetHandler: things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsGet has not yet been implemented")
+		}),
+		ThingsWeaviateThingsInsertHandler: things.WeaviateThingsInsertHandlerFunc(func(params things.WeaviateThingsInsertParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsInsert has not yet been implemented")
+		}),
+		ThingsWeaviateThingsListHandler: things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsList has not yet been implemented")
+		}),
+		ThingsWeaviateThingsPatchHandler: things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsPatch has not yet been implemented")
+		}),
+		ThingsWeaviateThingsUpdateHandler: things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsUpdate has not yet been implemented")
+		}),
+
+		// Applies when the "X-API-KEY" header is set
+		APIKeyAuth: func(token string) (interface{}, error) {
+			return nil, errors.NotImplemented("api key auth (apiKey) X-API-KEY from header param [X-API-KEY] has not yet been implemented")
+		},
 	}
 }
 
-/*WeaviateAPI Lets you register, view and manage cloud ready devices. */
+/*WeaviateAPI Lets you register, view and manage cloud ready things. */
 type WeaviateAPI struct {
 	spec            *loads.Document
 	context         *middleware.Context
@@ -203,7 +222,7 @@ type WeaviateAPI struct {
 	defaultConsumes string
 	defaultProduces string
 	Middleware      func(middleware.Builder) http.Handler
-	// JSONConsumer registers a consumer for a "application/json-patch+json" mime type
+	// JSONConsumer registers a consumer for a "application/json" mime type
 	JSONConsumer runtime.Consumer
 	// BinConsumer registers a consumer for a "application/octet-stream" mime type
 	BinConsumer runtime.Consumer
@@ -233,18 +252,10 @@ type WeaviateAPI struct {
 	// TxtProducer registers a producer for a "text/plain" mime type
 	TxtProducer runtime.Producer
 
-	// ACLEntriesWeaviateACLEntriesDeleteHandler sets the operation handler for the weaviate acl entries delete operation
-	ACLEntriesWeaviateACLEntriesDeleteHandler acl_entries.WeaviateACLEntriesDeleteHandler
-	// ACLEntriesWeaviateACLEntriesGetHandler sets the operation handler for the weaviate acl entries get operation
-	ACLEntriesWeaviateACLEntriesGetHandler acl_entries.WeaviateACLEntriesGetHandler
-	// ACLEntriesWeaviateACLEntriesInsertHandler sets the operation handler for the weaviate acl entries insert operation
-	ACLEntriesWeaviateACLEntriesInsertHandler acl_entries.WeaviateACLEntriesInsertHandler
-	// ACLEntriesWeaviateACLEntriesListHandler sets the operation handler for the weaviate acl entries list operation
-	ACLEntriesWeaviateACLEntriesListHandler acl_entries.WeaviateACLEntriesListHandler
-	// ACLEntriesWeaviateACLEntriesPatchHandler sets the operation handler for the weaviate acl entries patch operation
-	ACLEntriesWeaviateACLEntriesPatchHandler acl_entries.WeaviateACLEntriesPatchHandler
-	// ACLEntriesWeaviateACLEntriesUpdateHandler sets the operation handler for the weaviate acl entries update operation
-	ACLEntriesWeaviateACLEntriesUpdateHandler acl_entries.WeaviateACLEntriesUpdateHandler
+	// APIKeyAuth registers a function that takes a token and returns a principal
+	// it performs authentication based on an api key X-API-KEY provided in the header
+	APIKeyAuth func(string) (interface{}, error)
+
 	// AdaptersWeaviateAdaptersDeleteHandler sets the operation handler for the weaviate adapters delete operation
 	AdaptersWeaviateAdaptersDeleteHandler adapters.WeaviateAdaptersDeleteHandler
 	// AdaptersWeaviateAdaptersGetHandler sets the operation handler for the weaviate adapters get operation
@@ -257,6 +268,8 @@ type WeaviateAPI struct {
 	AdaptersWeaviateAdaptersPatchHandler adapters.WeaviateAdaptersPatchHandler
 	// AdaptersWeaviateAdaptersUpdateHandler sets the operation handler for the weaviate adapters update operation
 	AdaptersWeaviateAdaptersUpdateHandler adapters.WeaviateAdaptersUpdateHandler
+	// KeysWeaviateChildrenGetHandler sets the operation handler for the weaviate children get operation
+	KeysWeaviateChildrenGetHandler keys.WeaviateChildrenGetHandler
 	// CommandsWeaviateCommandsDeleteHandler sets the operation handler for the weaviate commands delete operation
 	CommandsWeaviateCommandsDeleteHandler commands.WeaviateCommandsDeleteHandler
 	// CommandsWeaviateCommandsGetHandler sets the operation handler for the weaviate commands get operation
@@ -271,24 +284,30 @@ type WeaviateAPI struct {
 	CommandsWeaviateCommandsPatchHandler commands.WeaviateCommandsPatchHandler
 	// CommandsWeaviateCommandsUpdateHandler sets the operation handler for the weaviate commands update operation
 	CommandsWeaviateCommandsUpdateHandler commands.WeaviateCommandsUpdateHandler
-	// DevicesWeaviateDevicesDeleteHandler sets the operation handler for the weaviate devices delete operation
-	DevicesWeaviateDevicesDeleteHandler devices.WeaviateDevicesDeleteHandler
-	// DevicesWeaviateDevicesGetHandler sets the operation handler for the weaviate devices get operation
-	DevicesWeaviateDevicesGetHandler devices.WeaviateDevicesGetHandler
-	// DevicesWeaviateDevicesInsertHandler sets the operation handler for the weaviate devices insert operation
-	DevicesWeaviateDevicesInsertHandler devices.WeaviateDevicesInsertHandler
-	// DevicesWeaviateDevicesListHandler sets the operation handler for the weaviate devices list operation
-	DevicesWeaviateDevicesListHandler devices.WeaviateDevicesListHandler
-	// DevicesWeaviateDevicesPatchHandler sets the operation handler for the weaviate devices patch operation
-	DevicesWeaviateDevicesPatchHandler devices.WeaviateDevicesPatchHandler
-	// DevicesWeaviateDevicesUpdateHandler sets the operation handler for the weaviate devices update operation
-	DevicesWeaviateDevicesUpdateHandler devices.WeaviateDevicesUpdateHandler
 	// EventsWeaviateEventsGetHandler sets the operation handler for the weaviate events get operation
 	EventsWeaviateEventsGetHandler events.WeaviateEventsGetHandler
 	// EventsWeaviateEventsListHandler sets the operation handler for the weaviate events list operation
 	EventsWeaviateEventsListHandler events.WeaviateEventsListHandler
-	// EventsWeaviateEventsRecordDeviceEventsHandler sets the operation handler for the weaviate events record device events operation
-	EventsWeaviateEventsRecordDeviceEventsHandler events.WeaviateEventsRecordDeviceEventsHandler
+	// EventsWeaviateEventsRecordThingEventsHandler sets the operation handler for the weaviate events record thing events operation
+	EventsWeaviateEventsRecordThingEventsHandler events.WeaviateEventsRecordThingEventsHandler
+	// GroupsWeaviateGroupsDeleteHandler sets the operation handler for the weaviate groups delete operation
+	GroupsWeaviateGroupsDeleteHandler groups.WeaviateGroupsDeleteHandler
+	// GroupsWeaviateGroupsGetHandler sets the operation handler for the weaviate groups get operation
+	GroupsWeaviateGroupsGetHandler groups.WeaviateGroupsGetHandler
+	// GroupsWeaviateGroupsInsertHandler sets the operation handler for the weaviate groups insert operation
+	GroupsWeaviateGroupsInsertHandler groups.WeaviateGroupsInsertHandler
+	// GroupsWeaviateGroupsListHandler sets the operation handler for the weaviate groups list operation
+	GroupsWeaviateGroupsListHandler groups.WeaviateGroupsListHandler
+	// GroupsWeaviateGroupsPatchHandler sets the operation handler for the weaviate groups patch operation
+	GroupsWeaviateGroupsPatchHandler groups.WeaviateGroupsPatchHandler
+	// GroupsWeaviateGroupsUpdateHandler sets the operation handler for the weaviate groups update operation
+	GroupsWeaviateGroupsUpdateHandler groups.WeaviateGroupsUpdateHandler
+	// KeysWeaviateKeyCreateHandler sets the operation handler for the weaviate key create operation
+	KeysWeaviateKeyCreateHandler keys.WeaviateKeyCreateHandler
+	// KeysWeaviateKeysDeleteHandler sets the operation handler for the weaviate keys delete operation
+	KeysWeaviateKeysDeleteHandler keys.WeaviateKeysDeleteHandler
+	// KeysWeaviateKeysGetHandler sets the operation handler for the weaviate keys get operation
+	KeysWeaviateKeysGetHandler keys.WeaviateKeysGetHandler
 	// LocationsWeaviateLocationsDeleteHandler sets the operation handler for the weaviate locations delete operation
 	LocationsWeaviateLocationsDeleteHandler locations.WeaviateLocationsDeleteHandler
 	// LocationsWeaviateLocationsGetHandler sets the operation handler for the weaviate locations get operation
@@ -317,8 +336,20 @@ type WeaviateAPI struct {
 	ModelManifestsWeaviateModelManifestsValidateCommandDefsHandler model_manifests.WeaviateModelManifestsValidateCommandDefsHandler
 	// ModelManifestsWeaviateModelManifestsValidateComponentsHandler sets the operation handler for the weaviate model manifests validate components operation
 	ModelManifestsWeaviateModelManifestsValidateComponentsHandler model_manifests.WeaviateModelManifestsValidateComponentsHandler
-	// ModelManifestsWeaviateModelManifestsValidateDeviceStateHandler sets the operation handler for the weaviate model manifests validate device state operation
-	ModelManifestsWeaviateModelManifestsValidateDeviceStateHandler model_manifests.WeaviateModelManifestsValidateDeviceStateHandler
+	// ModelManifestsWeaviateModelManifestsValidateThingStateHandler sets the operation handler for the weaviate model manifests validate thing state operation
+	ModelManifestsWeaviateModelManifestsValidateThingStateHandler model_manifests.WeaviateModelManifestsValidateThingStateHandler
+	// ThingsWeaviateThingsDeleteHandler sets the operation handler for the weaviate things delete operation
+	ThingsWeaviateThingsDeleteHandler things.WeaviateThingsDeleteHandler
+	// ThingsWeaviateThingsGetHandler sets the operation handler for the weaviate things get operation
+	ThingsWeaviateThingsGetHandler things.WeaviateThingsGetHandler
+	// ThingsWeaviateThingsInsertHandler sets the operation handler for the weaviate things insert operation
+	ThingsWeaviateThingsInsertHandler things.WeaviateThingsInsertHandler
+	// ThingsWeaviateThingsListHandler sets the operation handler for the weaviate things list operation
+	ThingsWeaviateThingsListHandler things.WeaviateThingsListHandler
+	// ThingsWeaviateThingsPatchHandler sets the operation handler for the weaviate things patch operation
+	ThingsWeaviateThingsPatchHandler things.WeaviateThingsPatchHandler
+	// ThingsWeaviateThingsUpdateHandler sets the operation handler for the weaviate things update operation
+	ThingsWeaviateThingsUpdateHandler things.WeaviateThingsUpdateHandler
 
 	// ServeError is called when an error is received, there is a default handler
 	// but you can set your own with this
@@ -430,28 +461,8 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "TxtProducer")
 	}
 
-	if o.ACLEntriesWeaviateACLEntriesDeleteHandler == nil {
-		unregistered = append(unregistered, "acl_entries.WeaviateACLEntriesDeleteHandler")
-	}
-
-	if o.ACLEntriesWeaviateACLEntriesGetHandler == nil {
-		unregistered = append(unregistered, "acl_entries.WeaviateACLEntriesGetHandler")
-	}
-
-	if o.ACLEntriesWeaviateACLEntriesInsertHandler == nil {
-		unregistered = append(unregistered, "acl_entries.WeaviateACLEntriesInsertHandler")
-	}
-
-	if o.ACLEntriesWeaviateACLEntriesListHandler == nil {
-		unregistered = append(unregistered, "acl_entries.WeaviateACLEntriesListHandler")
-	}
-
-	if o.ACLEntriesWeaviateACLEntriesPatchHandler == nil {
-		unregistered = append(unregistered, "acl_entries.WeaviateACLEntriesPatchHandler")
-	}
-
-	if o.ACLEntriesWeaviateACLEntriesUpdateHandler == nil {
-		unregistered = append(unregistered, "acl_entries.WeaviateACLEntriesUpdateHandler")
+	if o.APIKeyAuth == nil {
+		unregistered = append(unregistered, "XAPIKEYAuth")
 	}
 
 	if o.AdaptersWeaviateAdaptersDeleteHandler == nil {
@@ -476,6 +487,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.AdaptersWeaviateAdaptersUpdateHandler == nil {
 		unregistered = append(unregistered, "adapters.WeaviateAdaptersUpdateHandler")
+	}
+
+	if o.KeysWeaviateChildrenGetHandler == nil {
+		unregistered = append(unregistered, "keys.WeaviateChildrenGetHandler")
 	}
 
 	if o.CommandsWeaviateCommandsDeleteHandler == nil {
@@ -506,30 +521,6 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "commands.WeaviateCommandsUpdateHandler")
 	}
 
-	if o.DevicesWeaviateDevicesDeleteHandler == nil {
-		unregistered = append(unregistered, "devices.WeaviateDevicesDeleteHandler")
-	}
-
-	if o.DevicesWeaviateDevicesGetHandler == nil {
-		unregistered = append(unregistered, "devices.WeaviateDevicesGetHandler")
-	}
-
-	if o.DevicesWeaviateDevicesInsertHandler == nil {
-		unregistered = append(unregistered, "devices.WeaviateDevicesInsertHandler")
-	}
-
-	if o.DevicesWeaviateDevicesListHandler == nil {
-		unregistered = append(unregistered, "devices.WeaviateDevicesListHandler")
-	}
-
-	if o.DevicesWeaviateDevicesPatchHandler == nil {
-		unregistered = append(unregistered, "devices.WeaviateDevicesPatchHandler")
-	}
-
-	if o.DevicesWeaviateDevicesUpdateHandler == nil {
-		unregistered = append(unregistered, "devices.WeaviateDevicesUpdateHandler")
-	}
-
 	if o.EventsWeaviateEventsGetHandler == nil {
 		unregistered = append(unregistered, "events.WeaviateEventsGetHandler")
 	}
@@ -538,8 +529,44 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "events.WeaviateEventsListHandler")
 	}
 
-	if o.EventsWeaviateEventsRecordDeviceEventsHandler == nil {
-		unregistered = append(unregistered, "events.WeaviateEventsRecordDeviceEventsHandler")
+	if o.EventsWeaviateEventsRecordThingEventsHandler == nil {
+		unregistered = append(unregistered, "events.WeaviateEventsRecordThingEventsHandler")
+	}
+
+	if o.GroupsWeaviateGroupsDeleteHandler == nil {
+		unregistered = append(unregistered, "groups.WeaviateGroupsDeleteHandler")
+	}
+
+	if o.GroupsWeaviateGroupsGetHandler == nil {
+		unregistered = append(unregistered, "groups.WeaviateGroupsGetHandler")
+	}
+
+	if o.GroupsWeaviateGroupsInsertHandler == nil {
+		unregistered = append(unregistered, "groups.WeaviateGroupsInsertHandler")
+	}
+
+	if o.GroupsWeaviateGroupsListHandler == nil {
+		unregistered = append(unregistered, "groups.WeaviateGroupsListHandler")
+	}
+
+	if o.GroupsWeaviateGroupsPatchHandler == nil {
+		unregistered = append(unregistered, "groups.WeaviateGroupsPatchHandler")
+	}
+
+	if o.GroupsWeaviateGroupsUpdateHandler == nil {
+		unregistered = append(unregistered, "groups.WeaviateGroupsUpdateHandler")
+	}
+
+	if o.KeysWeaviateKeyCreateHandler == nil {
+		unregistered = append(unregistered, "keys.WeaviateKeyCreateHandler")
+	}
+
+	if o.KeysWeaviateKeysDeleteHandler == nil {
+		unregistered = append(unregistered, "keys.WeaviateKeysDeleteHandler")
+	}
+
+	if o.KeysWeaviateKeysGetHandler == nil {
+		unregistered = append(unregistered, "keys.WeaviateKeysGetHandler")
 	}
 
 	if o.LocationsWeaviateLocationsDeleteHandler == nil {
@@ -598,8 +625,32 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "model_manifests.WeaviateModelManifestsValidateComponentsHandler")
 	}
 
-	if o.ModelManifestsWeaviateModelManifestsValidateDeviceStateHandler == nil {
-		unregistered = append(unregistered, "model_manifests.WeaviateModelManifestsValidateDeviceStateHandler")
+	if o.ModelManifestsWeaviateModelManifestsValidateThingStateHandler == nil {
+		unregistered = append(unregistered, "model_manifests.WeaviateModelManifestsValidateThingStateHandler")
+	}
+
+	if o.ThingsWeaviateThingsDeleteHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsDeleteHandler")
+	}
+
+	if o.ThingsWeaviateThingsGetHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsGetHandler")
+	}
+
+	if o.ThingsWeaviateThingsInsertHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsInsertHandler")
+	}
+
+	if o.ThingsWeaviateThingsListHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsListHandler")
+	}
+
+	if o.ThingsWeaviateThingsPatchHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsPatchHandler")
+	}
+
+	if o.ThingsWeaviateThingsUpdateHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsUpdateHandler")
 	}
 
 	if len(unregistered) > 0 {
@@ -617,7 +668,17 @@ func (o *WeaviateAPI) ServeErrorFor(operationID string) func(http.ResponseWriter
 // AuthenticatorsFor gets the authenticators for the specified security schemes
 func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) map[string]runtime.Authenticator {
 
-	return nil
+	result := make(map[string]runtime.Authenticator)
+	for name, scheme := range schemes {
+		switch name {
+
+		case "apiKey":
+
+			result[name] = security.APIKeyAuth(scheme.Name, scheme.In, o.APIKeyAuth)
+
+		}
+	}
+	return result
 
 }
 
@@ -727,36 +788,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/devices/{deviceId}/aclEntries/{aclEntryId}"] = acl_entries.NewWeaviateACLEntriesDelete(o.context, o.ACLEntriesWeaviateACLEntriesDeleteHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/devices/{deviceId}/aclEntries/{aclEntryId}"] = acl_entries.NewWeaviateACLEntriesGet(o.context, o.ACLEntriesWeaviateACLEntriesGetHandler)
-
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
-	o.handlers["POST"]["/devices/{deviceId}/aclEntries"] = acl_entries.NewWeaviateACLEntriesInsert(o.context, o.ACLEntriesWeaviateACLEntriesInsertHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/devices/{deviceId}/aclEntries"] = acl_entries.NewWeaviateACLEntriesList(o.context, o.ACLEntriesWeaviateACLEntriesListHandler)
-
-	if o.handlers["PATCH"] == nil {
-		o.handlers["PATCH"] = make(map[string]http.Handler)
-	}
-	o.handlers["PATCH"]["/devices/{deviceId}/aclEntries/{aclEntryId}"] = acl_entries.NewWeaviateACLEntriesPatch(o.context, o.ACLEntriesWeaviateACLEntriesPatchHandler)
-
-	if o.handlers["PUT"] == nil {
-		o.handlers["PUT"] = make(map[string]http.Handler)
-	}
-	o.handlers["PUT"]["/devices/{deviceId}/aclEntries/{aclEntryId}"] = acl_entries.NewWeaviateACLEntriesUpdate(o.context, o.ACLEntriesWeaviateACLEntriesUpdateHandler)
-
-	if o.handlers["DELETE"] == nil {
-		o.handlers["DELETE"] = make(map[string]http.Handler)
-	}
 	o.handlers["DELETE"]["/adapters/{adapterId}"] = adapters.NewWeaviateAdaptersDelete(o.context, o.AdaptersWeaviateAdaptersDeleteHandler)
 
 	if o.handlers["GET"] == nil {
@@ -783,6 +814,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/adapters/{adapterId}"] = adapters.NewWeaviateAdaptersUpdate(o.context, o.AdaptersWeaviateAdaptersUpdateHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/keys/{keyId}/children"] = keys.NewWeaviateChildrenGet(o.context, o.KeysWeaviateChildrenGetHandler)
 
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
@@ -819,36 +855,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 	}
 	o.handlers["PUT"]["/commands/{commandId}"] = commands.NewWeaviateCommandsUpdate(o.context, o.CommandsWeaviateCommandsUpdateHandler)
 
-	if o.handlers["DELETE"] == nil {
-		o.handlers["DELETE"] = make(map[string]http.Handler)
-	}
-	o.handlers["DELETE"]["/devices/{deviceId}"] = devices.NewWeaviateDevicesDelete(o.context, o.DevicesWeaviateDevicesDeleteHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/devices/{deviceId}"] = devices.NewWeaviateDevicesGet(o.context, o.DevicesWeaviateDevicesGetHandler)
-
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
-	o.handlers["POST"]["/devices"] = devices.NewWeaviateDevicesInsert(o.context, o.DevicesWeaviateDevicesInsertHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/devices"] = devices.NewWeaviateDevicesList(o.context, o.DevicesWeaviateDevicesListHandler)
-
-	if o.handlers["PATCH"] == nil {
-		o.handlers["PATCH"] = make(map[string]http.Handler)
-	}
-	o.handlers["PATCH"]["/devices/{deviceId}"] = devices.NewWeaviateDevicesPatch(o.context, o.DevicesWeaviateDevicesPatchHandler)
-
-	if o.handlers["PUT"] == nil {
-		o.handlers["PUT"] = make(map[string]http.Handler)
-	}
-	o.handlers["PUT"]["/devices/{deviceId}"] = devices.NewWeaviateDevicesUpdate(o.context, o.DevicesWeaviateDevicesUpdateHandler)
-
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -862,7 +868,52 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/events/recordDeviceEvents"] = events.NewWeaviateEventsRecordDeviceEvents(o.context, o.EventsWeaviateEventsRecordDeviceEventsHandler)
+	o.handlers["POST"]["/events/recordThingEvents"] = events.NewWeaviateEventsRecordThingEvents(o.context, o.EventsWeaviateEventsRecordThingEventsHandler)
+
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/groups/{groupId}"] = groups.NewWeaviateGroupsDelete(o.context, o.GroupsWeaviateGroupsDeleteHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/groups/{groupId}"] = groups.NewWeaviateGroupsGet(o.context, o.GroupsWeaviateGroupsGetHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/groups"] = groups.NewWeaviateGroupsInsert(o.context, o.GroupsWeaviateGroupsInsertHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/groups"] = groups.NewWeaviateGroupsList(o.context, o.GroupsWeaviateGroupsListHandler)
+
+	if o.handlers["PATCH"] == nil {
+		o.handlers["PATCH"] = make(map[string]http.Handler)
+	}
+	o.handlers["PATCH"]["/groups/{groupId}"] = groups.NewWeaviateGroupsPatch(o.context, o.GroupsWeaviateGroupsPatchHandler)
+
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/groups/{groupId}"] = groups.NewWeaviateGroupsUpdate(o.context, o.GroupsWeaviateGroupsUpdateHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/keys"] = keys.NewWeaviateKeyCreate(o.context, o.KeysWeaviateKeyCreateHandler)
+
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/keys/{keyId}"] = keys.NewWeaviateKeysDelete(o.context, o.KeysWeaviateKeysDeleteHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/keys/{keyId}"] = keys.NewWeaviateKeysGet(o.context, o.KeysWeaviateKeysGetHandler)
 
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
@@ -937,7 +988,37 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/modelManifests/validateDeviceState"] = model_manifests.NewWeaviateModelManifestsValidateDeviceState(o.context, o.ModelManifestsWeaviateModelManifestsValidateDeviceStateHandler)
+	o.handlers["POST"]["/modelManifests/validateThingState"] = model_manifests.NewWeaviateModelManifestsValidateThingState(o.context, o.ModelManifestsWeaviateModelManifestsValidateThingStateHandler)
+
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/things/{thingId}"] = things.NewWeaviateThingsDelete(o.context, o.ThingsWeaviateThingsDeleteHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/things/{thingId}"] = things.NewWeaviateThingsGet(o.context, o.ThingsWeaviateThingsGetHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/things"] = things.NewWeaviateThingsInsert(o.context, o.ThingsWeaviateThingsInsertHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/things"] = things.NewWeaviateThingsList(o.context, o.ThingsWeaviateThingsListHandler)
+
+	if o.handlers["PATCH"] == nil {
+		o.handlers["PATCH"] = make(map[string]http.Handler)
+	}
+	o.handlers["PATCH"]["/things/{thingId}"] = things.NewWeaviateThingsPatch(o.context, o.ThingsWeaviateThingsPatchHandler)
+
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/things/{thingId}"] = things.NewWeaviateThingsUpdate(o.context, o.ThingsWeaviateThingsUpdateHandler)
 
 }
 

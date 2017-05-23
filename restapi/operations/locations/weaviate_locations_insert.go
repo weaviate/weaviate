@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateLocationsInsertHandlerFunc turns a function with the right signature into a weaviate locations insert handler
-type WeaviateLocationsInsertHandlerFunc func(WeaviateLocationsInsertParams) middleware.Responder
+type WeaviateLocationsInsertHandlerFunc func(WeaviateLocationsInsertParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateLocationsInsertHandlerFunc) Handle(params WeaviateLocationsInsertParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateLocationsInsertHandlerFunc) Handle(params WeaviateLocationsInsertParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateLocationsInsertHandler interface for that can handle valid weaviate locations insert params
 type WeaviateLocationsInsertHandler interface {
-	Handle(WeaviateLocationsInsertParams) middleware.Responder
+	Handle(WeaviateLocationsInsertParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateLocationsInsert creates a new http.Handler for the weaviate locations insert operation
@@ -53,12 +53,22 @@ func (o *WeaviateLocationsInsert) ServeHTTP(rw http.ResponseWriter, r *http.Requ
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateLocationsInsertParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

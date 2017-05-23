@@ -66,6 +66,48 @@ func (o *WeaviateModelManifestsUpdateOK) WriteResponse(rw http.ResponseWriter, p
 	}
 }
 
+// WeaviateModelManifestsUpdateUnauthorizedCode is the HTTP code returned for type WeaviateModelManifestsUpdateUnauthorized
+const WeaviateModelManifestsUpdateUnauthorizedCode int = 401
+
+/*WeaviateModelManifestsUpdateUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateModelManifestsUpdateUnauthorized
+*/
+type WeaviateModelManifestsUpdateUnauthorized struct {
+}
+
+// NewWeaviateModelManifestsUpdateUnauthorized creates WeaviateModelManifestsUpdateUnauthorized with default headers values
+func NewWeaviateModelManifestsUpdateUnauthorized() *WeaviateModelManifestsUpdateUnauthorized {
+	return &WeaviateModelManifestsUpdateUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsUpdateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateModelManifestsUpdateForbiddenCode is the HTTP code returned for type WeaviateModelManifestsUpdateForbidden
+const WeaviateModelManifestsUpdateForbiddenCode int = 403
+
+/*WeaviateModelManifestsUpdateForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateModelManifestsUpdateForbidden
+*/
+type WeaviateModelManifestsUpdateForbidden struct {
+}
+
+// NewWeaviateModelManifestsUpdateForbidden creates WeaviateModelManifestsUpdateForbidden with default headers values
+func NewWeaviateModelManifestsUpdateForbidden() *WeaviateModelManifestsUpdateForbidden {
+	return &WeaviateModelManifestsUpdateForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsUpdateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateModelManifestsUpdateNotFoundCode is the HTTP code returned for type WeaviateModelManifestsUpdateNotFound
 const WeaviateModelManifestsUpdateNotFoundCode int = 404
 

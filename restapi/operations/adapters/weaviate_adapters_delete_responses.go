@@ -24,7 +24,7 @@ import (
 // WeaviateAdaptersDeleteNoContentCode is the HTTP code returned for type WeaviateAdaptersDeleteNoContent
 const WeaviateAdaptersDeleteNoContentCode int = 204
 
-/*WeaviateAdaptersDeleteNoContent Successful deleted.
+/*WeaviateAdaptersDeleteNoContent Successful deleted
 
 swagger:response weaviateAdaptersDeleteNoContent
 */
@@ -40,6 +40,48 @@ func NewWeaviateAdaptersDeleteNoContent() *WeaviateAdaptersDeleteNoContent {
 func (o *WeaviateAdaptersDeleteNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(204)
+}
+
+// WeaviateAdaptersDeleteUnauthorizedCode is the HTTP code returned for type WeaviateAdaptersDeleteUnauthorized
+const WeaviateAdaptersDeleteUnauthorizedCode int = 401
+
+/*WeaviateAdaptersDeleteUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateAdaptersDeleteUnauthorized
+*/
+type WeaviateAdaptersDeleteUnauthorized struct {
+}
+
+// NewWeaviateAdaptersDeleteUnauthorized creates WeaviateAdaptersDeleteUnauthorized with default headers values
+func NewWeaviateAdaptersDeleteUnauthorized() *WeaviateAdaptersDeleteUnauthorized {
+	return &WeaviateAdaptersDeleteUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateAdaptersDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateAdaptersDeleteForbiddenCode is the HTTP code returned for type WeaviateAdaptersDeleteForbidden
+const WeaviateAdaptersDeleteForbiddenCode int = 403
+
+/*WeaviateAdaptersDeleteForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateAdaptersDeleteForbidden
+*/
+type WeaviateAdaptersDeleteForbidden struct {
+}
+
+// NewWeaviateAdaptersDeleteForbidden creates WeaviateAdaptersDeleteForbidden with default headers values
+func NewWeaviateAdaptersDeleteForbidden() *WeaviateAdaptersDeleteForbidden {
+	return &WeaviateAdaptersDeleteForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateAdaptersDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
 }
 
 // WeaviateAdaptersDeleteNotFoundCode is the HTTP code returned for type WeaviateAdaptersDeleteNotFound

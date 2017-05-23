@@ -66,6 +66,48 @@ func (o *WeaviateModelManifestsValidateComponentsCreated) WriteResponse(rw http.
 	}
 }
 
+// WeaviateModelManifestsValidateComponentsUnauthorizedCode is the HTTP code returned for type WeaviateModelManifestsValidateComponentsUnauthorized
+const WeaviateModelManifestsValidateComponentsUnauthorizedCode int = 401
+
+/*WeaviateModelManifestsValidateComponentsUnauthorized Unauthorized or invalid credentials.
+
+swagger:response weaviateModelManifestsValidateComponentsUnauthorized
+*/
+type WeaviateModelManifestsValidateComponentsUnauthorized struct {
+}
+
+// NewWeaviateModelManifestsValidateComponentsUnauthorized creates WeaviateModelManifestsValidateComponentsUnauthorized with default headers values
+func NewWeaviateModelManifestsValidateComponentsUnauthorized() *WeaviateModelManifestsValidateComponentsUnauthorized {
+	return &WeaviateModelManifestsValidateComponentsUnauthorized{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsValidateComponentsUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(401)
+}
+
+// WeaviateModelManifestsValidateComponentsForbiddenCode is the HTTP code returned for type WeaviateModelManifestsValidateComponentsForbidden
+const WeaviateModelManifestsValidateComponentsForbiddenCode int = 403
+
+/*WeaviateModelManifestsValidateComponentsForbidden The used API-key has insufficient permissions.
+
+swagger:response weaviateModelManifestsValidateComponentsForbidden
+*/
+type WeaviateModelManifestsValidateComponentsForbidden struct {
+}
+
+// NewWeaviateModelManifestsValidateComponentsForbidden creates WeaviateModelManifestsValidateComponentsForbidden with default headers values
+func NewWeaviateModelManifestsValidateComponentsForbidden() *WeaviateModelManifestsValidateComponentsForbidden {
+	return &WeaviateModelManifestsValidateComponentsForbidden{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateModelManifestsValidateComponentsForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(403)
+}
+
 // WeaviateModelManifestsValidateComponentsNotImplementedCode is the HTTP code returned for type WeaviateModelManifestsValidateComponentsNotImplemented
 const WeaviateModelManifestsValidateComponentsNotImplementedCode int = 501
 

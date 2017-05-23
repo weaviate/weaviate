@@ -28,7 +28,6 @@ type WeaviateLocationsListURL struct {
 	Alt         *string
 	Fields      *string
 	Hl          *string
-	Ids         []string
 	Key         *string
 	MaxResults  *int64
 	OauthToken  *string
@@ -94,20 +93,6 @@ func (o *WeaviateLocationsListURL) Build() (*url.URL, error) {
 	}
 	if hl != "" {
 		qs.Set("hl", hl)
-	}
-
-	var idsIR []string
-	for _, idsI := range o.Ids {
-		idsIS := idsI
-		if idsIS != "" {
-			idsIR = append(idsIR, idsIS)
-		}
-	}
-
-	ids := swag.JoinByFormat(idsIR, "multi")
-
-	for _, qsv := range ids {
-		qs.Add("ids", qsv)
 	}
 
 	var key string

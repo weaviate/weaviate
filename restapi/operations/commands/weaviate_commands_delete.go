@@ -22,16 +22,16 @@ import (
 )
 
 // WeaviateCommandsDeleteHandlerFunc turns a function with the right signature into a weaviate commands delete handler
-type WeaviateCommandsDeleteHandlerFunc func(WeaviateCommandsDeleteParams) middleware.Responder
+type WeaviateCommandsDeleteHandlerFunc func(WeaviateCommandsDeleteParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateCommandsDeleteHandlerFunc) Handle(params WeaviateCommandsDeleteParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateCommandsDeleteHandlerFunc) Handle(params WeaviateCommandsDeleteParams, principal interface{}) middleware.Responder {
+	return fn(params, principal)
 }
 
 // WeaviateCommandsDeleteHandler interface for that can handle valid weaviate commands delete params
 type WeaviateCommandsDeleteHandler interface {
-	Handle(WeaviateCommandsDeleteParams) middleware.Responder
+	Handle(WeaviateCommandsDeleteParams, interface{}) middleware.Responder
 }
 
 // NewWeaviateCommandsDelete creates a new http.Handler for the weaviate commands delete operation
@@ -53,12 +53,22 @@ func (o *WeaviateCommandsDelete) ServeHTTP(rw http.ResponseWriter, r *http.Reque
 	route, _ := o.Context.RouteInfo(r)
 	var Params = NewWeaviateCommandsDeleteParams()
 
+	uprinc, err := o.Context.Authorize(r, route)
+	if err != nil {
+		o.Context.Respond(rw, r, route.Produces, route, err)
+		return
+	}
+	var principal interface{}
+	if uprinc != nil {
+		principal = uprinc
+	}
+
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(Params, principal) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

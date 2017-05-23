@@ -39,7 +39,7 @@ func main() {
 
 	parser := flags.NewParser(server, flags.Default)
 	parser.ShortDescription = "Weaviate API"
-	parser.LongDescription = "Lets you register, view and manage cloud ready devices."
+	parser.LongDescription = "Lets you register, view and manage cloud ready things."
 
 	server.ConfigureFlags()
 	for _, optsGroup := range api.CommandLineOptionsGroups {
