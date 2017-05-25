@@ -30,6 +30,8 @@ import (
 	"github.com/go-openapi/runtime/yamlpc"
 	graceful "github.com/tylerb/graceful"
 
+	"github.com/weaviate/weaviate/mqtt"
+
 	"github.com/weaviate/weaviate/connectors"
 	"github.com/weaviate/weaviate/connectors/datastore"
 	"github.com/weaviate/weaviate/connectors/mysql"
@@ -93,6 +95,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	if errInit != nil {
 		panic(errInit)
 	}
+
+	// connect to mqtt
+	mqtt_client.Connect()
 
 	// configure the api here
 	api.ServeError = errors.ServeError
