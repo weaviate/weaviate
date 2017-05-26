@@ -41,6 +41,8 @@ func NewWeaviateThingsList(ctx *middleware.Context, handler WeaviateThingsListHa
 
 /*WeaviateThingsList swagger:route GET /things things weaviateThingsList
 
+Get a list of things related to this key.
+
 Lists all things user has access to.
 
 */

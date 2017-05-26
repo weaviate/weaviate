@@ -35,7 +35,7 @@ type WeaviateCommandsInsertAccepted struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.Command `json:"body,omitempty"`
+	Payload *models.CommandGetResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateCommandsInsertAccepted creates WeaviateCommandsInsertAccepted with default headers values
@@ -44,13 +44,13 @@ func NewWeaviateCommandsInsertAccepted() *WeaviateCommandsInsertAccepted {
 }
 
 // WithPayload adds the payload to the weaviate commands insert accepted response
-func (o *WeaviateCommandsInsertAccepted) WithPayload(payload *models.Command) *WeaviateCommandsInsertAccepted {
+func (o *WeaviateCommandsInsertAccepted) WithPayload(payload *models.CommandGetResponse) *WeaviateCommandsInsertAccepted {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate commands insert accepted response
-func (o *WeaviateCommandsInsertAccepted) SetPayload(payload *models.Command) {
+func (o *WeaviateCommandsInsertAccepted) SetPayload(payload *models.CommandGetResponse) {
 	o.Payload = payload
 }
 

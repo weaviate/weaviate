@@ -41,6 +41,8 @@ func NewWeaviateCommandsInsert(ctx *middleware.Context, handler WeaviateCommands
 
 /*WeaviateCommandsInsert swagger:route POST /commands commands weaviateCommandsInsert
 
+Create a new command related to this key related to this key.
+
 Inserts and sends a new command.
 
 */

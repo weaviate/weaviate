@@ -20,21 +20,11 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
-
-	"github.com/go-openapi/swag"
 )
 
 // WeaviateGroupsPatchURL generates an URL for the weaviate groups patch operation
 type WeaviateGroupsPatchURL struct {
 	GroupID string
-
-	Alt         *string
-	Fields      *string
-	Key         *string
-	OauthToken  *string
-	PrettyPrint *bool
-	QuotaUser   *string
-	UserIP      *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -70,69 +60,9 @@ func (o *WeaviateGroupsPatchURL) Build() (*url.URL, error) {
 	}
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/weaviate/v1-alpha"
+		_basePath = "/weaviate/v1"
 	}
 	result.Path = golangswaggerpaths.Join(_basePath, _path)
-
-	qs := make(url.Values)
-
-	var alt string
-	if o.Alt != nil {
-		alt = *o.Alt
-	}
-	if alt != "" {
-		qs.Set("alt", alt)
-	}
-
-	var fields string
-	if o.Fields != nil {
-		fields = *o.Fields
-	}
-	if fields != "" {
-		qs.Set("fields", fields)
-	}
-
-	var key string
-	if o.Key != nil {
-		key = *o.Key
-	}
-	if key != "" {
-		qs.Set("key", key)
-	}
-
-	var oauthToken string
-	if o.OauthToken != nil {
-		oauthToken = *o.OauthToken
-	}
-	if oauthToken != "" {
-		qs.Set("oauth_token", oauthToken)
-	}
-
-	var prettyPrint string
-	if o.PrettyPrint != nil {
-		prettyPrint = swag.FormatBool(*o.PrettyPrint)
-	}
-	if prettyPrint != "" {
-		qs.Set("prettyPrint", prettyPrint)
-	}
-
-	var quotaUser string
-	if o.QuotaUser != nil {
-		quotaUser = *o.QuotaUser
-	}
-	if quotaUser != "" {
-		qs.Set("quotaUser", quotaUser)
-	}
-
-	var userIP string
-	if o.UserIP != nil {
-		userIP = *o.UserIP
-	}
-	if userIP != "" {
-		qs.Set("userIp", userIP)
-	}
-
-	result.RawQuery = qs.Encode()
 
 	return &result, nil
 }

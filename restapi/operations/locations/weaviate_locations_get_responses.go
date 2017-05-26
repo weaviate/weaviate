@@ -35,7 +35,7 @@ type WeaviateLocationsGetOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.Location `json:"body,omitempty"`
+	Payload *models.LocationGetResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateLocationsGetOK creates WeaviateLocationsGetOK with default headers values
@@ -44,13 +44,13 @@ func NewWeaviateLocationsGetOK() *WeaviateLocationsGetOK {
 }
 
 // WithPayload adds the payload to the weaviate locations get o k response
-func (o *WeaviateLocationsGetOK) WithPayload(payload *models.Location) *WeaviateLocationsGetOK {
+func (o *WeaviateLocationsGetOK) WithPayload(payload *models.LocationGetResponse) *WeaviateLocationsGetOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate locations get o k response
-func (o *WeaviateLocationsGetOK) SetPayload(payload *models.Location) {
+func (o *WeaviateLocationsGetOK) SetPayload(payload *models.LocationGetResponse) {
 	o.Payload = payload
 }
 

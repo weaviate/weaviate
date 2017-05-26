@@ -41,6 +41,8 @@ func NewWeaviateThingsInsert(ctx *middleware.Context, handler WeaviateThingsInse
 
 /*WeaviateThingsInsert swagger:route POST /things things weaviateThingsInsert
 
+Create a new thing based on a thing template related to this key.
+
 Registers a new thing. This method may be used only by aggregator things or adapters.
 
 */

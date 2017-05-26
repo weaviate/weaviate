@@ -41,6 +41,8 @@ func NewWeaviateKeyCreate(ctx *middleware.Context, handler WeaviateKeyCreateHand
 
 /*WeaviateKeyCreate swagger:route POST /keys keys weaviateKeyCreate
 
+Create a new key related to this key.
+
 Creates a new key.
 
 */

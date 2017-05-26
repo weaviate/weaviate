@@ -41,6 +41,8 @@ func NewWeaviateCommandsUpdate(ctx *middleware.Context, handler WeaviateCommands
 
 /*WeaviateCommandsUpdate swagger:route PUT /commands/{commandId} commands weaviateCommandsUpdate
 
+Update a command based on its uuid related to this key.
+
 Updates a command. This method may be used only by things.
 
 */

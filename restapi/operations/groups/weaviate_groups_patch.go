@@ -41,6 +41,8 @@ func NewWeaviateGroupsPatch(ctx *middleware.Context, handler WeaviateGroupsPatch
 
 /*WeaviateGroupsPatch swagger:route PATCH /groups/{groupId} groups weaviateGroupsPatch
 
+Update a group based on its uuid (using patch semantics) related to this key.
+
 Updates an group. This method supports patch semantics.
 
 */

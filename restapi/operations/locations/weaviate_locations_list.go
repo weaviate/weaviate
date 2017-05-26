@@ -41,6 +41,8 @@ func NewWeaviateLocationsList(ctx *middleware.Context, handler WeaviateLocations
 
 /*WeaviateLocationsList swagger:route GET /locations locations weaviateLocationsList
 
+Get a list of locations related to this key.
+
 Lists all locations.
 
 */

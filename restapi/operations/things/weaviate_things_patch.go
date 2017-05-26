@@ -41,6 +41,8 @@ func NewWeaviateThingsPatch(ctx *middleware.Context, handler WeaviateThingsPatch
 
 /*WeaviateThingsPatch swagger:route PATCH /things/{thingId} things weaviateThingsPatch
 
+Update a thing based on its uuid (using patch semantics) related to this key.
+
 Updates a thing data. This method supports patch semantics.
 
 */

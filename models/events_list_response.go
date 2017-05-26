@@ -29,9 +29,9 @@ import (
 type EventsListResponse struct {
 
 	// The actual list of events in reverse chronological order.
-	Events []*Event `json:"events"`
+	Events []*EventGetResponse `json:"events"`
 
-	// Identifies what kind of resource this is. Value: the fixed string "weave#eventsListResponse".
+	// Identifies what kind of resource this is. Value: the fixed string "weaviate#eventsListResponse".
 	Kind *string `json:"kind,omitempty"`
 
 	// Token for the next page of events.

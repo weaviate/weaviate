@@ -41,6 +41,8 @@ func NewWeaviateGroupsList(ctx *middleware.Context, handler WeaviateGroupsListHa
 
 /*WeaviateGroupsList swagger:route GET /groups groups weaviateGroupsList
 
+Get a list of groups related to this key.
+
 Lists all groups.
 
 */

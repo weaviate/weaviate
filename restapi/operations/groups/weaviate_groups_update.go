@@ -41,6 +41,8 @@ func NewWeaviateGroupsUpdate(ctx *middleware.Context, handler WeaviateGroupsUpda
 
 /*WeaviateGroupsUpdate swagger:route PUT /groups/{groupId} groups weaviateGroupsUpdate
 
+Update a group based on its uuid related to this key.
+
 Updates an group.
 
 */

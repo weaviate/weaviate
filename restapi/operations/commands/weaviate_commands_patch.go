@@ -41,6 +41,8 @@ func NewWeaviateCommandsPatch(ctx *middleware.Context, handler WeaviateCommandsP
 
 /*WeaviateCommandsPatch swagger:route PATCH /commands/{commandId} commands weaviateCommandsPatch
 
+Update a command based on its uuid by using patch semantics related to this key.
+
 Updates a command. This method may be used only by things. This method supports patch semantics.
 
 */

@@ -10,40 +10,24 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package models
-
-
-
+package models
 
 import (
-	"encoding/json"
-	"strconv"
-
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
-	"github.com/go-openapi/validate"
 )
 
 // Command command
 // swagger:model Command
 type Command struct {
 
-	// blob parameters
-	BlobParameters JSONObject `json:"blobParameters,omitempty"`
-
-	// blob results
-	BlobResults JSONObject `json:"blobResults,omitempty"`
-
-	// Component name paths separated by '/'.
-	Component string `json:"component,omitempty"`
-
 	// Timestamp since epoch of a creation of a command.
 	CreationTimeMs int64 `json:"creationTimeMs,omitempty"`
 
-	// User that created the command (not applicable if the user is deleted).
-	CreatorEmail string `json:"creatorEmail,omitempty"`
+	// User that created the command (by key).
+	CreatorKey string `json:"creatorKey,omitempty"`
 
 	// error
 	Error *CommandError `json:"error,omitempty"`
@@ -54,15 +38,6 @@ type Command struct {
 	// Expiration timeout for the command since its creation, 10 seconds min, 30 days max.
 	ExpirationTimeoutMs int64 `json:"expirationTimeoutMs,omitempty"`
 
-	// The list of groups.
-	Groups []*Group `json:"groups"`
-
-	// Unique command ID.
-	ID string `json:"id,omitempty"`
-
-	// Identifies what kind of resource this is. Value: the fixed string "weave#command".
-	Kind *string `json:"kind,omitempty"`
-
 	// Timestamp since epoch of last update made to the command.
 	LastUpdateTimeMs int64 `json:"lastUpdateTimeMs,omitempty"`
 
@@ -70,19 +45,16 @@ type Command struct {
 	Name string `json:"name,omitempty"`
 
 	// parameters
-	Parameters JSONObject `json:"parameters,omitempty"`
+	Parameters *CommandParameters `json:"parameters,omitempty"`
 
 	// progress
-	Progress JSONObject `json:"progress,omitempty"`
+	Progress CommandProgress `json:"progress,omitempty"`
 
 	// results
-	Results JSONObject `json:"results,omitempty"`
+	Results *CommandResults `json:"results,omitempty"`
 
-	// Current command state.
-	State string `json:"state,omitempty"`
-
-	// Thing ID that this command belongs to.
-	ThingID string `json:"thingId,omitempty"`
+	// ThingTemplate ID that this command belongs to.
+	ThingTemplateID strfmt.UUID `json:"thingTemplateId,omitempty"`
 
 	// Pending command state that is not acknowledged by the thing yet.
 	UserAction string `json:"userAction,omitempty"`
@@ -97,12 +69,7 @@ func (m *Command) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateGroups(formats); err != nil {
-		// prop
-		res = append(res, err)
-	}
-
-	if err := m.validateState(formats); err != nil {
+	if err := m.validateProgress(formats); err != nil {
 		// prop
 		res = append(res, err)
 	}
@@ -132,78 +99,16 @@ func (m *Command) validateError(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Command) validateGroups(formats strfmt.Registry) error {
+func (m *Command) validateProgress(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.Groups) { // not required
+	if swag.IsZero(m.Progress) { // not required
 		return nil
 	}
 
-	for i := 0; i < len(m.Groups); i++ {
-
-		if swag.IsZero(m.Groups[i]) { // not required
-			continue
+	if err := m.Progress.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("progress")
 		}
-
-		if m.Groups[i] != nil {
-
-			if err := m.Groups[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("groups" + "." + strconv.Itoa(i))
-				}
-				return err
-			}
-		}
-
-	}
-
-	return nil
-}
-
-var commandTypeStatePropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["aborted","cancelled","done","error","expired","inProgress","queued"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		commandTypeStatePropEnum = append(commandTypeStatePropEnum, v)
-	}
-}
-
-const (
-	// CommandStateAborted captures enum value "aborted"
-	CommandStateAborted string = "aborted"
-	// CommandStateCancelled captures enum value "cancelled"
-	CommandStateCancelled string = "cancelled"
-	// CommandStateDone captures enum value "done"
-	CommandStateDone string = "done"
-	// CommandStateError captures enum value "error"
-	CommandStateError string = "error"
-	// CommandStateExpired captures enum value "expired"
-	CommandStateExpired string = "expired"
-	// CommandStateInProgress captures enum value "inProgress"
-	CommandStateInProgress string = "inProgress"
-	// CommandStateQueued captures enum value "queued"
-	CommandStateQueued string = "queued"
-)
-
-// prop value enum
-func (m *Command) validateStateEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, commandTypeStatePropEnum); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *Command) validateState(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.State) { // not required
-		return nil
-	}
-
-	// value enum
-	if err := m.validateStateEnum("state", "body", m.State); err != nil {
 		return err
 	}
 

@@ -41,6 +41,8 @@ func NewWeaviateGroupsInsert(ctx *middleware.Context, handler WeaviateGroupsInse
 
 /*WeaviateGroupsInsert swagger:route POST /groups groups weaviateGroupsInsert
 
+Create a new group related to this key.
+
 Inserts group.
 
 */

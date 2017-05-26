@@ -41,6 +41,8 @@ func NewWeaviateLocationsPatch(ctx *middleware.Context, handler WeaviateLocation
 
 /*WeaviateLocationsPatch swagger:route PATCH /locations/{locationId} locations weaviateLocationsPatch
 
+Update a location based on its uuid (using patch semantics) related to this key.
+
 Updates an location. This method supports patch semantics.
 
 */

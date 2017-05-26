@@ -25,8 +25,8 @@ import (
 // swagger:model KeyChildren
 type KeyChildren struct {
 
-	// Childeren one step deep.
-	Childeren []interface{} `json:"childeren"`
+	// children
+	Children JSONObject `json:"children,omitempty"`
 }
 
 // Validate validates this key children

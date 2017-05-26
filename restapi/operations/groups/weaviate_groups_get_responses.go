@@ -35,7 +35,7 @@ type WeaviateGroupsGetOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.Group `json:"body,omitempty"`
+	Payload *models.GroupGetResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateGroupsGetOK creates WeaviateGroupsGetOK with default headers values
@@ -44,13 +44,13 @@ func NewWeaviateGroupsGetOK() *WeaviateGroupsGetOK {
 }
 
 // WithPayload adds the payload to the weaviate groups get o k response
-func (o *WeaviateGroupsGetOK) WithPayload(payload *models.Group) *WeaviateGroupsGetOK {
+func (o *WeaviateGroupsGetOK) WithPayload(payload *models.GroupGetResponse) *WeaviateGroupsGetOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate groups get o k response
-func (o *WeaviateGroupsGetOK) SetPayload(payload *models.Group) {
+func (o *WeaviateGroupsGetOK) SetPayload(payload *models.GroupGetResponse) {
 	o.Payload = payload
 }
 

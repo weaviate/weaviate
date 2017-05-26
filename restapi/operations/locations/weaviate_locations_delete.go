@@ -41,6 +41,8 @@ func NewWeaviateLocationsDelete(ctx *middleware.Context, handler WeaviateLocatio
 
 /*WeaviateLocationsDelete swagger:route DELETE /locations/{locationId} locations weaviateLocationsDelete
 
+Delete a location based on its uuid related to this key.
+
 Deletes an location.
 
 */

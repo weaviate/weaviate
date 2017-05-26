@@ -29,7 +29,7 @@ import (
 type GroupsListResponse struct {
 
 	// The list of groups.
-	Groups []*Group `json:"groups"`
+	Groups []*GroupGetResponse `json:"groups"`
 }
 
 // Validate validates this groups list response

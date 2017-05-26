@@ -41,6 +41,8 @@ func NewWeaviateLocationsInsert(ctx *middleware.Context, handler WeaviateLocatio
 
 /*WeaviateLocationsInsert swagger:route POST /locations locations weaviateLocationsInsert
 
+Create a new location related to this key.
+
 Inserts location.
 
 */

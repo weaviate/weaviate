@@ -41,6 +41,8 @@ func NewWeaviateCommandsGet(ctx *middleware.Context, handler WeaviateCommandsGet
 
 /*WeaviateCommandsGet swagger:route GET /commands/{commandId} commands weaviateCommandsGet
 
+Get a command based on its uuid related to this key.
+
 Returns a particular command.
 
 */
