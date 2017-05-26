@@ -35,7 +35,7 @@ type WeaviateThingsGetOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.Thing `json:"body,omitempty"`
+	Payload *models.ThingGetResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateThingsGetOK creates WeaviateThingsGetOK with default headers values
@@ -44,13 +44,13 @@ func NewWeaviateThingsGetOK() *WeaviateThingsGetOK {
 }
 
 // WithPayload adds the payload to the weaviate things get o k response
-func (o *WeaviateThingsGetOK) WithPayload(payload *models.Thing) *WeaviateThingsGetOK {
+func (o *WeaviateThingsGetOK) WithPayload(payload *models.ThingGetResponse) *WeaviateThingsGetOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate things get o k response
-func (o *WeaviateThingsGetOK) SetPayload(payload *models.Thing) {
+func (o *WeaviateThingsGetOK) SetPayload(payload *models.ThingGetResponse) {
 	o.Payload = payload
 }
 

@@ -49,7 +49,7 @@ func (o *WeaviateKeyCreateURL) Build() (*url.URL, error) {
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/weaviate/v1-alpha"
+		_basePath = "/weaviate/v1"
 	}
 	result.Path = golangswaggerpaths.Join(_basePath, _path)
 

@@ -41,6 +41,8 @@ func NewWeaviateThingsGet(ctx *middleware.Context, handler WeaviateThingsGetHand
 
 /*WeaviateThingsGet swagger:route GET /things/{thingId} things weaviateThingsGet
 
+Get a thing based on its uuid related to this key.
+
 Returns a particular thing data.
 
 */

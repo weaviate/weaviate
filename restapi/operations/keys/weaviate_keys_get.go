@@ -41,6 +41,8 @@ func NewWeaviateKeysGet(ctx *middleware.Context, handler WeaviateKeysGetHandler)
 
 /*WeaviateKeysGet swagger:route GET /keys/{keyId} keys weaviateKeysGet
 
+Get a key based on its uuid related to this key.
+
 Get a key.
 
 */

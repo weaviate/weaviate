@@ -29,9 +29,9 @@ import (
 type CommandsListResponse struct {
 
 	// The actual list of commands.
-	Commands []*Command `json:"commands"`
+	Commands []*CommandGetResponse `json:"commands"`
 
-	// Identifies what kind of resource this is. Value: the fixed string "weave#commandsListResponse".
+	// Identifies what kind of resource this is. Value: the fixed string "weaviate#commandsListResponse".
 	Kind *string `json:"kind,omitempty"`
 
 	// Token for the next page of commands.

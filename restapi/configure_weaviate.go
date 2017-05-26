@@ -10,7 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-package restapi
+ package restapi
 
 import (
 	"crypto/tls"
@@ -36,14 +36,14 @@ import (
 	"github.com/weaviate/weaviate/connectors/datastore"
 	"github.com/weaviate/weaviate/connectors/mysql"
 	"github.com/weaviate/weaviate/models"
+
 	"github.com/weaviate/weaviate/restapi/operations"
-	"github.com/weaviate/weaviate/restapi/operations/adapters"
 	"github.com/weaviate/weaviate/restapi/operations/commands"
 	"github.com/weaviate/weaviate/restapi/operations/events"
 	"github.com/weaviate/weaviate/restapi/operations/groups"
 	"github.com/weaviate/weaviate/restapi/operations/keys"
 	"github.com/weaviate/weaviate/restapi/operations/locations"
-	"github.com/weaviate/weaviate/restapi/operations/model_manifests"
+	"github.com/weaviate/weaviate/restapi/operations/thing_templates"
 	"github.com/weaviate/weaviate/restapi/operations/things"
 )
 
@@ -99,7 +99,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// connect to mqtt
 	mqtt_client.Connect()
 
-	// configure the api here
 	api.ServeError = errors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
@@ -148,39 +147,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	}
 
-	/*
-	 * HANDLE ADAPTERS
-	 */
-	api.AdaptersWeaviateAdaptersDeleteHandler = adapters.WeaviateAdaptersDeleteHandlerFunc(func(params adapters.WeaviateAdaptersDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation adapters.WeaviateAdaptersDelete has not yet been implemented")
-	})
-	api.AdaptersWeaviateAdaptersGetHandler = adapters.WeaviateAdaptersGetHandlerFunc(func(params adapters.WeaviateAdaptersGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation adapters.WeaviateAdaptersGet has not yet been implemented")
-	})
-	api.AdaptersWeaviateAdaptersInsertHandler = adapters.WeaviateAdaptersInsertHandlerFunc(func(params adapters.WeaviateAdaptersInsertParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation adapters.WeaviateAdaptersInsert has not yet been implemented")
-	})
-	api.AdaptersWeaviateAdaptersListHandler = adapters.WeaviateAdaptersListHandlerFunc(func(params adapters.WeaviateAdaptersListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation adapters.WeaviateAdaptersList has not yet been implemented")
-	})
-	api.AdaptersWeaviateAdaptersPatchHandler = adapters.WeaviateAdaptersPatchHandlerFunc(func(params adapters.WeaviateAdaptersPatchParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation adapters.WeaviateAdaptersPatch has not yet been implemented")
-	})
-	api.AdaptersWeaviateAdaptersUpdateHandler = adapters.WeaviateAdaptersUpdateHandlerFunc(func(params adapters.WeaviateAdaptersUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation adapters.WeaviateAdaptersUpdate has not yet been implemented")
-	})
-
-	/*
-	 * HANDLE COMMANDS
-	 */
 	api.CommandsWeaviateCommandsDeleteHandler = commands.WeaviateCommandsDeleteHandlerFunc(func(params commands.WeaviateCommandsDeleteParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsDelete has not yet been implemented")
 	})
 	api.CommandsWeaviateCommandsGetHandler = commands.WeaviateCommandsGetHandlerFunc(func(params commands.WeaviateCommandsGetParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsGet has not yet been implemented")
-	})
-	api.CommandsWeaviateCommandsGetQueueHandler = commands.WeaviateCommandsGetQueueHandlerFunc(func(params commands.WeaviateCommandsGetQueueParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsGetQueue has not yet been implemented")
 	})
 	api.CommandsWeaviateCommandsInsertHandler = commands.WeaviateCommandsInsertHandlerFunc(func(params commands.WeaviateCommandsInsertParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsInsert has not yet been implemented")
@@ -194,12 +165,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.CommandsWeaviateCommandsUpdateHandler = commands.WeaviateCommandsUpdateHandlerFunc(func(params commands.WeaviateCommandsUpdateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsUpdate has not yet been implemented")
 	})
-
-	/*
-	 * HANDLE GROUPS
-	 */
+	api.CommandsWeaviateCommandsValidateHandler = commands.WeaviateCommandsValidateHandlerFunc(func(params commands.WeaviateCommandsValidateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation commands.WeaviateCommandsValidate has not yet been implemented")
+	})
 	api.GroupsWeaviateGroupsDeleteHandler = groups.WeaviateGroupsDeleteHandlerFunc(func(params groups.WeaviateGroupsDeleteParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation groups.WeaviateGroupsDelete has not yet been implemented")
+	})
+	api.EventsWeaviateGroupsEventsCreateHandler = events.WeaviateGroupsEventsCreateHandlerFunc(func(params events.WeaviateGroupsEventsCreateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation events.WeaviateGroupsEventsCreate has not yet been implemented")
+	})
+	api.EventsWeaviateGroupsEventsGetHandler = events.WeaviateGroupsEventsGetHandlerFunc(func(params events.WeaviateGroupsEventsGetParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation events.WeaviateGroupsEventsGet has not yet been implemented")
+	})
+	api.EventsWeaviateGroupsEventsListHandler = events.WeaviateGroupsEventsListHandlerFunc(func(params events.WeaviateGroupsEventsListParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation events.WeaviateGroupsEventsList has not yet been implemented")
 	})
 	api.GroupsWeaviateGroupsGetHandler = groups.WeaviateGroupsGetHandlerFunc(func(params groups.WeaviateGroupsGetParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation groups.WeaviateGroupsGet has not yet been implemented")
@@ -216,33 +195,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.GroupsWeaviateGroupsUpdateHandler = groups.WeaviateGroupsUpdateHandlerFunc(func(params groups.WeaviateGroupsUpdateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation groups.WeaviateGroupsUpdate has not yet been implemented")
 	})
-
-	/*
-	 * HANDLE EVENTS
-	 */
-	api.EventsWeaviateEventsGetHandler = events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation events.WeaviateEventsGet has not yet been implemented")
-	})
-	api.EventsWeaviateEventsListHandler = events.WeaviateEventsListHandlerFunc(func(params events.WeaviateEventsListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation events.WeaviateEventsList has not yet been implemented")
-	})
-	api.EventsWeaviateEventsRecordThingEventsHandler = events.WeaviateEventsRecordThingEventsHandlerFunc(func(params events.WeaviateEventsRecordThingEventsParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation events.WeaviateEventsRecordThingEvents has not yet been implemented")
-	})
-
-	/*
-	 * HANDLE KEYS
-	 */
-	api.KeysWeaviateChildrenGetHandler = keys.WeaviateChildrenGetHandlerFunc(func(params keys.WeaviateChildrenGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation keys.WeaviateChildrenGet has not yet been implemented")
-	})
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
-		// Get user object
-		UsersObject, _ := dbconnector.PrincipalMarshalling(principal)
-
-		go databaseConnector.AddKey(UsersObject.Uuid, UsersObject)
-
-		return keys.NewWeaviateKeyCreateAccepted()
+		return middleware.NotImplemented("operation keys.WeaviateKeyCreate has not yet been implemented")
+	})
+	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation keys.WeaviateKeysChildrenGet has not yet been implemented")
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation keys.WeaviateKeysDelete has not yet been implemented")
@@ -294,7 +251,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Create object to return
-		object := &models.Location{}
+		object := &models.LocationGetResponse{}
 		json.Unmarshal([]byte(dbObject.Object), &object)
 
 		// Get is successful
@@ -426,42 +383,38 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return locations.NewWeaviateLocationsUpdateOK().WithPayload(params.Body)
 	})
 
-	/*
-	 * HANDLE MODEL MANIFESTS
-	 */
-	api.ModelManifestsWeaviateModelManifestsCreateHandler = model_manifests.WeaviateModelManifestsCreateHandlerFunc(func(params model_manifests.WeaviateModelManifestsCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation model_manifests.WeaviateModelManifestsCreate has not yet been implemented")
+	api.ThingTemplatesWeaviateThingTemplatesCreateHandler = thing_templates.WeaviateThingTemplatesCreateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesCreateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesCreate has not yet been implemented")
 	})
-	api.ModelManifestsWeaviateModelManifestsDeleteHandler = model_manifests.WeaviateModelManifestsDeleteHandlerFunc(func(params model_manifests.WeaviateModelManifestsDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation model_manifests.WeaviateModelManifestsDelete has not yet been implemented")
+	api.ThingTemplatesWeaviateThingTemplatesDeleteHandler = thing_templates.WeaviateThingTemplatesDeleteHandlerFunc(func(params thing_templates.WeaviateThingTemplatesDeleteParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesDelete has not yet been implemented")
 	})
-	api.ModelManifestsWeaviateModelManifestsGetHandler = model_manifests.WeaviateModelManifestsGetHandlerFunc(func(params model_manifests.WeaviateModelManifestsGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation model_manifests.WeaviateModelManifestsGet has not yet been implemented")
+	api.ThingTemplatesWeaviateThingTemplatesGetHandler = thing_templates.WeaviateThingTemplatesGetHandlerFunc(func(params thing_templates.WeaviateThingTemplatesGetParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesGet has not yet been implemented")
 	})
-	api.ModelManifestsWeaviateModelManifestsListHandler = model_manifests.WeaviateModelManifestsListHandlerFunc(func(params model_manifests.WeaviateModelManifestsListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation model_manifests.WeaviateModelManifestsList has not yet been implemented")
+	api.ThingTemplatesWeaviateThingTemplatesListHandler = thing_templates.WeaviateThingTemplatesListHandlerFunc(func(params thing_templates.WeaviateThingTemplatesListParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesList has not yet been implemented")
 	})
-	api.ModelManifestsWeaviateModelManifestsPatchHandler = model_manifests.WeaviateModelManifestsPatchHandlerFunc(func(params model_manifests.WeaviateModelManifestsPatchParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation model_manifests.WeaviateModelManifestsPatch has not yet been implemented")
+	api.ThingTemplatesWeaviateThingTemplatesPatchHandler = thing_templates.WeaviateThingTemplatesPatchHandlerFunc(func(params thing_templates.WeaviateThingTemplatesPatchParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesPatch has not yet been implemented")
 	})
-	api.ModelManifestsWeaviateModelManifestsUpdateHandler = model_manifests.WeaviateModelManifestsUpdateHandlerFunc(func(params model_manifests.WeaviateModelManifestsUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation model_manifests.WeaviateModelManifestsUpdate has not yet been implemented")
+	api.ThingTemplatesWeaviateThingTemplatesUpdateHandler = thing_templates.WeaviateThingTemplatesUpdateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesUpdateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesUpdate has not yet been implemented")
 	})
-	api.ModelManifestsWeaviateModelManifestsValidateCommandDefsHandler = model_manifests.WeaviateModelManifestsValidateCommandDefsHandlerFunc(func(params model_manifests.WeaviateModelManifestsValidateCommandDefsParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation model_manifests.WeaviateModelManifestsValidateCommandDefs has not yet been implemented")
+	api.ThingTemplatesWeaviateThingTemplatesValidateHandler = thing_templates.WeaviateThingTemplatesValidateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesValidateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesValidate has not yet been implemented")
 	})
-	api.ModelManifestsWeaviateModelManifestsValidateComponentsHandler = model_manifests.WeaviateModelManifestsValidateComponentsHandlerFunc(func(params model_manifests.WeaviateModelManifestsValidateComponentsParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation model_manifests.WeaviateModelManifestsValidateComponents has not yet been implemented")
-	})
-	api.ModelManifestsWeaviateModelManifestsValidateThingStateHandler = model_manifests.WeaviateModelManifestsValidateThingStateHandlerFunc(func(params model_manifests.WeaviateModelManifestsValidateThingStateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation model_manifests.WeaviateModelManifestsValidateThingState has not yet been implemented")
-	})
-
-	/*
-	 * HANDLE THINGS
-	 */
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation things.WeaviateThingsDelete has not yet been implemented")
+	})
+	api.EventsWeaviateThingsEventsCreateHandler = events.WeaviateThingsEventsCreateHandlerFunc(func(params events.WeaviateThingsEventsCreateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation events.WeaviateThingsEventsCreate has not yet been implemented")
+	})
+	api.EventsWeaviateThingsEventsGetHandler = events.WeaviateThingsEventsGetHandlerFunc(func(params events.WeaviateThingsEventsGetParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation events.WeaviateThingsEventsGet has not yet been implemented")
+	})
+	api.EventsWeaviateThingsEventsListHandler = events.WeaviateThingsEventsListHandlerFunc(func(params events.WeaviateThingsEventsListParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation events.WeaviateThingsEventsList has not yet been implemented")
 	})
 	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation things.WeaviateThingsGet has not yet been implemented")

@@ -41,6 +41,8 @@ func NewWeaviateGroupsDelete(ctx *middleware.Context, handler WeaviateGroupsDele
 
 /*WeaviateGroupsDelete swagger:route DELETE /groups/{groupId} groups weaviateGroupsDelete
 
+Delete a group based on its uuid related to this key.
+
 Deletes an group.
 
 */

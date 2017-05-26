@@ -41,6 +41,8 @@ func NewWeaviateLocationsGet(ctx *middleware.Context, handler WeaviateLocationsG
 
 /*WeaviateLocationsGet swagger:route GET /locations/{locationId} locations weaviateLocationsGet
 
+Get a location based on its uuid related to this key.
+
 Get a location.
 
 */

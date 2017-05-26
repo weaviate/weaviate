@@ -35,7 +35,7 @@ type WeaviateKeyCreateAccepted struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.Key `json:"body,omitempty"`
+	Payload *models.KeyGetResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateKeyCreateAccepted creates WeaviateKeyCreateAccepted with default headers values
@@ -44,13 +44,13 @@ func NewWeaviateKeyCreateAccepted() *WeaviateKeyCreateAccepted {
 }
 
 // WithPayload adds the payload to the weaviate key create accepted response
-func (o *WeaviateKeyCreateAccepted) WithPayload(payload *models.Key) *WeaviateKeyCreateAccepted {
+func (o *WeaviateKeyCreateAccepted) WithPayload(payload *models.KeyGetResponse) *WeaviateKeyCreateAccepted {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate key create accepted response
-func (o *WeaviateKeyCreateAccepted) SetPayload(payload *models.Key) {
+func (o *WeaviateKeyCreateAccepted) SetPayload(payload *models.KeyGetResponse) {
 	o.Payload = payload
 }
 

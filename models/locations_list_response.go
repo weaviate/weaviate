@@ -29,7 +29,7 @@ import (
 type LocationsListResponse struct {
 
 	// The list of locations.
-	Locations []*Location `json:"locations"`
+	Locations []*LocationGetResponse `json:"locations"`
 }
 
 // Validate validates this locations list response

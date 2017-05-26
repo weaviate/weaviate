@@ -28,14 +28,14 @@ import (
 // swagger:model ThingsListResponse
 type ThingsListResponse struct {
 
-	// Identifies what kind of resource this is. Value: the fixed string "weave#thingsListResponse".
+	// Identifies what kind of resource this is. Value: the fixed string "weaviate#thingsListResponse".
 	Kind *string `json:"kind,omitempty"`
 
 	// Token corresponding to the next page of things.
 	NextPageToken string `json:"nextPageToken,omitempty"`
 
 	// The actual list of things.
-	Things []*Thing `json:"things"`
+	Things []*ThingGetResponse `json:"things"`
 
 	// The total number of things for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int32 `json:"totalResults,omitempty"`

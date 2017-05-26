@@ -41,6 +41,8 @@ func NewWeaviateLocationsUpdate(ctx *middleware.Context, handler WeaviateLocatio
 
 /*WeaviateLocationsUpdate swagger:route PUT /locations/{locationId} locations weaviateLocationsUpdate
 
+Update a location based on its uuid related to this key.
+
 Updates an location.
 
 */

@@ -19,29 +19,11 @@ import (
 	"errors"
 	"net/url"
 	golangswaggerpaths "path"
-
-	"github.com/go-openapi/swag"
 )
 
 // WeaviateCommandsListURL generates an URL for the weaviate commands list operation
 type WeaviateCommandsListURL struct {
-	Alt         *string
-	ByUser      *string
-	Fields      *string
-	Hl          *string
-	Key         *string
-	MaxResults  *int64
-	OauthToken  *string
-	PrettyPrint *bool
-	QuotaUser   *string
-	StartIndex  *int64
-	State       *string
-	Token       *string
-	UserIP      *string
-
 	_basePath string
-	// avoid unkeyed usage
-	_ struct{}
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
@@ -67,117 +49,9 @@ func (o *WeaviateCommandsListURL) Build() (*url.URL, error) {
 
 	_basePath := o._basePath
 	if _basePath == "" {
-		_basePath = "/weaviate/v1-alpha"
+		_basePath = "/weaviate/v1"
 	}
 	result.Path = golangswaggerpaths.Join(_basePath, _path)
-
-	qs := make(url.Values)
-
-	var alt string
-	if o.Alt != nil {
-		alt = *o.Alt
-	}
-	if alt != "" {
-		qs.Set("alt", alt)
-	}
-
-	var byUser string
-	if o.ByUser != nil {
-		byUser = *o.ByUser
-	}
-	if byUser != "" {
-		qs.Set("byUser", byUser)
-	}
-
-	var fields string
-	if o.Fields != nil {
-		fields = *o.Fields
-	}
-	if fields != "" {
-		qs.Set("fields", fields)
-	}
-
-	var hl string
-	if o.Hl != nil {
-		hl = *o.Hl
-	}
-	if hl != "" {
-		qs.Set("hl", hl)
-	}
-
-	var key string
-	if o.Key != nil {
-		key = *o.Key
-	}
-	if key != "" {
-		qs.Set("key", key)
-	}
-
-	var maxResults string
-	if o.MaxResults != nil {
-		maxResults = swag.FormatInt64(*o.MaxResults)
-	}
-	if maxResults != "" {
-		qs.Set("maxResults", maxResults)
-	}
-
-	var oauthToken string
-	if o.OauthToken != nil {
-		oauthToken = *o.OauthToken
-	}
-	if oauthToken != "" {
-		qs.Set("oauth_token", oauthToken)
-	}
-
-	var prettyPrint string
-	if o.PrettyPrint != nil {
-		prettyPrint = swag.FormatBool(*o.PrettyPrint)
-	}
-	if prettyPrint != "" {
-		qs.Set("prettyPrint", prettyPrint)
-	}
-
-	var quotaUser string
-	if o.QuotaUser != nil {
-		quotaUser = *o.QuotaUser
-	}
-	if quotaUser != "" {
-		qs.Set("quotaUser", quotaUser)
-	}
-
-	var startIndex string
-	if o.StartIndex != nil {
-		startIndex = swag.FormatInt64(*o.StartIndex)
-	}
-	if startIndex != "" {
-		qs.Set("startIndex", startIndex)
-	}
-
-	var state string
-	if o.State != nil {
-		state = *o.State
-	}
-	if state != "" {
-		qs.Set("state", state)
-	}
-
-	var token string
-	if o.Token != nil {
-		token = *o.Token
-	}
-	if token != "" {
-		qs.Set("token", token)
-	}
-
-	var userIP string
-	if o.UserIP != nil {
-		userIP = *o.UserIP
-	}
-	if userIP != "" {
-		qs.Set("userIp", userIP)
-	}
-
-	result.RawQuery = qs.Encode()
 
 	return &result, nil
 }

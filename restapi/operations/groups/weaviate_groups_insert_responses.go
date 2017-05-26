@@ -35,7 +35,7 @@ type WeaviateGroupsInsertAccepted struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.Group `json:"body,omitempty"`
+	Payload *models.GroupGetResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateGroupsInsertAccepted creates WeaviateGroupsInsertAccepted with default headers values
@@ -44,13 +44,13 @@ func NewWeaviateGroupsInsertAccepted() *WeaviateGroupsInsertAccepted {
 }
 
 // WithPayload adds the payload to the weaviate groups insert accepted response
-func (o *WeaviateGroupsInsertAccepted) WithPayload(payload *models.Group) *WeaviateGroupsInsertAccepted {
+func (o *WeaviateGroupsInsertAccepted) WithPayload(payload *models.GroupGetResponse) *WeaviateGroupsInsertAccepted {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate groups insert accepted response
-func (o *WeaviateGroupsInsertAccepted) SetPayload(payload *models.Group) {
+func (o *WeaviateGroupsInsertAccepted) SetPayload(payload *models.GroupGetResponse) {
 	o.Payload = payload
 }
 

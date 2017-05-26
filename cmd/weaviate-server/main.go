@@ -38,8 +38,8 @@ func main() {
 	defer server.Shutdown()
 
 	parser := flags.NewParser(server, flags.Default)
-	parser.ShortDescription = "Weaviate API"
-	parser.LongDescription = "Lets you register, view and manage cloud ready things."
+	parser.ShortDescription = "Weaviate API and MQTT Internet of Things platform."
+	parser.LongDescription = "Internet of Things platform that lets you register, view and manage cloud ready things."
 
 	server.ConfigureFlags()
 	for _, optsGroup := range api.CommandLineOptionsGroups {

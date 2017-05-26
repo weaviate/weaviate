@@ -41,6 +41,8 @@ func NewWeaviateGroupsGet(ctx *middleware.Context, handler WeaviateGroupsGetHand
 
 /*WeaviateGroupsGet swagger:route GET /groups/{groupId} groups weaviateGroupsGet
 
+Get a group based on its uuid related to this key.
+
 Get a group.
 
 */

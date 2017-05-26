@@ -10,20 +10,20 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- /*Package restapi Weaviate API
+ /*Package restapi Weaviate API and MQTT Internet of Things platform.
 
-Lets you register, view and manage cloud ready things.
+Internet of Things platform that lets you register, view and manage cloud ready things.
 
 
     Schemes:
       https
     Host: localhost
-    BasePath: /weaviate/v1-alpha
-    Version: v1-alpha
-    Contact: Weaviate https://github.com/weaviate/weaviate
+    BasePath: /weaviate/v1
+    Version: v1
+    Contact: Weaviate<bob@weaviate.com> https://github.com/weaviate/weaviate
 
     Consumes:
-    - application/json
+    - application/json-patch+json
 
     - application/octet-stream
 

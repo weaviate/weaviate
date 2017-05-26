@@ -41,6 +41,8 @@ func NewWeaviateCommandsList(ctx *middleware.Context, handler WeaviateCommandsLi
 
 /*WeaviateCommandsList swagger:route GET /commands commands weaviateCommandsList
 
+Get a list of commands related to this key.
+
 Lists all commands in reverse order of creation.
 
 */

@@ -41,6 +41,8 @@ func NewWeaviateCommandsDelete(ctx *middleware.Context, handler WeaviateCommands
 
 /*WeaviateCommandsDelete swagger:route DELETE /commands/{commandId} commands weaviateCommandsDelete
 
+Delete a command based on its uuid related to this key.
+
 Deletes a command.
 
 */

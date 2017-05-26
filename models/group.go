@@ -25,9 +25,6 @@ import (
 // swagger:model Group
 type Group struct {
 
-	// ID of the group.
-	ID string `json:"id,omitempty"`
-
 	// Name of the group.
 	Name string `json:"name,omitempty"`
 }
