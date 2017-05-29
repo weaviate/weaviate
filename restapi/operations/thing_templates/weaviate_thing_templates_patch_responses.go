@@ -35,7 +35,7 @@ type WeaviateThingTemplatesPatchOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.ThingTemplate `json:"body,omitempty"`
+	Payload *models.ThingTemplateGetResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateThingTemplatesPatchOK creates WeaviateThingTemplatesPatchOK with default headers values
@@ -44,13 +44,13 @@ func NewWeaviateThingTemplatesPatchOK() *WeaviateThingTemplatesPatchOK {
 }
 
 // WithPayload adds the payload to the weaviate thing templates patch o k response
-func (o *WeaviateThingTemplatesPatchOK) WithPayload(payload *models.ThingTemplate) *WeaviateThingTemplatesPatchOK {
+func (o *WeaviateThingTemplatesPatchOK) WithPayload(payload *models.ThingTemplateGetResponse) *WeaviateThingTemplatesPatchOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate thing templates patch o k response
-func (o *WeaviateThingTemplatesPatchOK) SetPayload(payload *models.ThingTemplate) {
+func (o *WeaviateThingTemplatesPatchOK) SetPayload(payload *models.ThingTemplateGetResponse) {
 	o.Payload = payload
 }
 

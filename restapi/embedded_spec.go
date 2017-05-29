@@ -316,7 +316,7 @@ func init() {
           "200": {
             "description": "Successful updated.",
             "schema": {
-              "$ref": "#/definitions/Command"
+              "$ref": "#/definitions/CommandGetResponse"
             }
           },
           "400": {
@@ -559,7 +559,7 @@ func init() {
           "200": {
             "description": "Successful updated.",
             "schema": {
-              "$ref": "#/definitions/Group"
+              "$ref": "#/definitions/GroupGetResponse"
             }
           },
           "400": {
@@ -1090,7 +1090,7 @@ func init() {
           "200": {
             "description": "Successful updated.",
             "schema": {
-              "$ref": "#/definitions/Location"
+              "$ref": "#/definitions/LocationGetResponse"
             }
           },
           "400": {
@@ -1372,7 +1372,7 @@ func init() {
           "200": {
             "description": "Successful updated.",
             "schema": {
-              "$ref": "#/definitions/ThingTemplate"
+              "$ref": "#/definitions/ThingTemplateGetResponse"
             }
           },
           "400": {
@@ -1616,7 +1616,7 @@ func init() {
           "200": {
             "description": "Successful update.",
             "schema": {
-              "$ref": "#/definitions/Thing"
+              "$ref": "#/definitions/ThingGetResponse"
             }
           },
           "400": {
@@ -2291,19 +2291,21 @@ func init() {
     },
     "LocationGetResponse": {
       "description": "Location on the world (inspired by Google Maps).",
-      "type": "object",
       "allOf": [
         {
           "$ref": "#/definitions/Location"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "ID of the location.",
+              "type": "string",
+              "format": "uuid"
+            }
+          }
         }
-      ],
-      "properties": {
-        "id": {
-          "description": "ID of the location.",
-          "type": "string",
-          "format": "uuid"
-        }
-      }
+      ]
     },
     "LocationUpdate": {
       "description": "Update location in the world (inspired by Google Maps).",
