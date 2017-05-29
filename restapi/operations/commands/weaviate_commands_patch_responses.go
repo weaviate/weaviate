@@ -35,7 +35,7 @@ type WeaviateCommandsPatchOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.Command `json:"body,omitempty"`
+	Payload *models.CommandGetResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateCommandsPatchOK creates WeaviateCommandsPatchOK with default headers values
@@ -44,13 +44,13 @@ func NewWeaviateCommandsPatchOK() *WeaviateCommandsPatchOK {
 }
 
 // WithPayload adds the payload to the weaviate commands patch o k response
-func (o *WeaviateCommandsPatchOK) WithPayload(payload *models.Command) *WeaviateCommandsPatchOK {
+func (o *WeaviateCommandsPatchOK) WithPayload(payload *models.CommandGetResponse) *WeaviateCommandsPatchOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate commands patch o k response
-func (o *WeaviateCommandsPatchOK) SetPayload(payload *models.Command) {
+func (o *WeaviateCommandsPatchOK) SetPayload(payload *models.CommandGetResponse) {
 	o.Payload = payload
 }
 

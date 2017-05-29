@@ -10,7 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-package models
+ package models
+
+
+
 
 import (
 	strfmt "github.com/go-openapi/strfmt"
