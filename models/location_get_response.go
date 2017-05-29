@@ -40,6 +40,15 @@ func (m *LocationGetResponse) UnmarshalJSON(raw []byte) error {
 	}
 	m.Location = aO0
 
+	var data struct {
+		ID strfmt.UUID `json:"id,omitempty"`
+	}
+	if err := swag.ReadJSON(raw, &data); err != nil {
+		return err
+	}
+
+	m.ID = data.ID
+
 	return nil
 }
 
@@ -52,6 +61,18 @@ func (m LocationGetResponse) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	_parts = append(_parts, aO0)
+
+	var data struct {
+		ID strfmt.UUID `json:"id,omitempty"`
+	}
+
+	data.ID = m.ID
+
+	jsonData, err := swag.WriteJSON(data)
+	if err != nil {
+		return nil, err
+	}
+	_parts = append(_parts, jsonData)
 
 	return swag.ConcatJSON(_parts...), nil
 }
