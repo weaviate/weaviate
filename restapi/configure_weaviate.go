@@ -28,6 +28,7 @@ import (
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/runtime/yamlpc"
+	"github.com/go-openapi/strfmt"
 	graceful "github.com/tylerb/graceful"
 
 	"github.com/weaviate/weaviate/mqtt"
@@ -253,6 +254,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Create object to return
 		object := &models.LocationGetResponse{}
 		json.Unmarshal([]byte(dbObject.Object), &object)
+		object.ID = strfmt.UUID(dbObject.Uuid)
 
 		// Get is successful
 		return locations.NewWeaviateLocationsGetOK().WithPayload(object)
@@ -279,6 +281,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Create response Object from create object.
 		locationResponseObject := &models.LocationGetResponse{}
 		json.Unmarshal([]byte(dbObject.Object), locationResponseObject)
+		locationResponseObject.ID = strfmt.UUID(dbObject.Uuid)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return locations.NewWeaviateLocationsInsertAccepted().WithPayload(locationResponseObject)
@@ -305,6 +308,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		for i, locationDatabaseObject := range locationDatabaseObjects {
 			locationObject := &models.LocationGetResponse{}
 			json.Unmarshal([]byte(locationDatabaseObject.Object), locationObject)
+			locationObject.ID = strfmt.UUID(locationDatabaseObject.Uuid)
 			locationsListResponse.Locations[i] = locationObject
 		}
 
@@ -347,8 +351,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.Add(dbObject)
 
 		// Create return Object
-		returnObject := &models.Location{}
+		returnObject := &models.LocationGetResponse{}
 		json.Unmarshal([]byte(updatedJSON), &returnObject)
+		returnObject.ID = strfmt.UUID(dbObject.Uuid)
 
 		return locations.NewWeaviateLocationsPatchOK().WithPayload(returnObject)
 	})
@@ -369,16 +374,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return locations.NewWeaviateLocationsUpdateNotFound()
 		}
 
-		// Create object to return
-		object := &models.LocationGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), &object)
-
 		// Set the body-id and generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
 		dbObject.SetCreateTimeMsToNow()
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
 		go databaseConnector.Add(dbObject)
+
+		// Create object to return
+		object := &models.LocationGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &object)
+		object.ID = strfmt.UUID(dbObject.Uuid)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return locations.NewWeaviateLocationsUpdateOK().WithPayload(object)

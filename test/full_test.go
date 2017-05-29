@@ -38,7 +38,7 @@ func doRequest(endpoint string, method string, accept string, body io.Reader, ap
 	}
 	client := &http.Client{Transport: tr}
 
-	req, _ := http.NewRequest(method, "http://localhost:8080/weaviate/v1-alpha"+endpoint, body)
+	req, _ := http.NewRequest(method, "http://localhost:8080/weaviate/v1"+endpoint, body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", accept)
 
@@ -88,11 +88,11 @@ func Test__weaviate_location_insert_JSON(t *testing.T) {
 
 	body := getResponseBody(response)
 
-	respObject := &models.Location{}
+	respObject := &models.LocationGetResponse{}
 	json.Unmarshal(body, respObject)
 
 	// Check whether generated UUID is added
-	locationId = respObject.ID
+	locationId = string(respObject.ID)
 
 	expLength := 36
 	if len(locationId) != expLength {
@@ -119,7 +119,7 @@ func Test__weaviate_location_list_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check most recent
-	if respObject.Locations[0].ID != locationId {
+	if string(respObject.Locations[0].ID) != locationId {
 		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.Locations[0].ID)
 	}
 }
@@ -136,11 +136,11 @@ func Test__weaviate_location_get_JSON(t *testing.T) {
 
 	body := getResponseBody(response)
 
-	respObject := &models.Location{}
+	respObject := &models.LocationGetResponse{}
 	json.Unmarshal(body, respObject)
 
 	// Check ID of object
-	if respObject.ID != locationId {
+	if string(respObject.ID) != locationId {
 		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.ID)
 	}
 
@@ -156,23 +156,23 @@ func Test__weaviate_location_get_JSON(t *testing.T) {
 // weaviate.location.update
 func Test__weaviate_location_update_JSON(t *testing.T) {
 	// Create update request
-	newPlaceID := "updated_place_id"
-	jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"TEST","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"` + newPlaceID + `","types":["UNDEFINED"]} `))
+	newLongName := "updated_name"
+	jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"` + newLongName + `","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"","types":["UNDEFINED"]} `))
 	response := doRequest("/locations/"+locationId, "PUT", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
 
-	respObject := &models.Location{}
+	respObject := &models.LocationGetResponse{}
 	json.Unmarshal(body, respObject)
 
 	// Check location ID is same
-	if respObject.ID != locationId {
+	if string(respObject.ID) != locationId {
 		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.ID)
 	}
 
-	// Check ID after update
-	if respObject.PlaceID != newPlaceID {
-		t.Errorf("Expected updated PlaceID %s. Got %s\n", newPlaceID, respObject.PlaceID)
+	// Check name after update
+	if respObject.AddressComponents[0].LongName != newLongName {
+		t.Errorf("Expected updated Long Name %s. Got %s\n", newLongName, respObject.AddressComponents[0].LongName)
 	}
 
 	// Test is faster than adding to DB.
@@ -186,9 +186,9 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 	respObjectGet := &models.Location{}
 	json.Unmarshal(bodyGet, respObjectGet)
 
-	// Check place after update and get
-	if respObjectGet.PlaceID != newPlaceID {
-		t.Errorf("Expected updated PlaceID after GET %s. Got %s\n", newPlaceID, respObject.PlaceID)
+	// Check name after update and get
+	if respObjectGet.AddressComponents[0].LongName != newLongName {
+		t.Errorf("Expected updated Long Name after GET %s. Got %s\n", newLongName, respObject.AddressComponents[0].LongName)
 	}
 
 	// Check put on non-existing ID
@@ -202,24 +202,24 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 // weaviate.location.patch
 func Test__weaviate_location_patch_JSON(t *testing.T) {
 	// Create patch request
-	newPlaceID := "patched_place_id"
+	newLongName := "patched_name"
 
-	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/place_id", "value": "` + newPlaceID + `"}]`))
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/address_components/0/long_name", "value": "` + newLongName + `"}]`))
 	response := doRequest("/locations/"+locationId, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
 
-	respObject := &models.Location{}
+	respObject := &models.LocationGetResponse{}
 	json.Unmarshal(body, respObject)
 
-	// Check ID is the same
-	if respObject.ID != locationId {
+	// Check name is the same
+	if string(respObject.ID) != locationId {
 		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.ID)
 	}
 
 	// Check ID after patch
-	if respObject.PlaceID != newPlaceID {
-		t.Errorf("Expected patched PlaceID %s. Got %s\n", newPlaceID, respObject.PlaceID)
+	if respObject.AddressComponents[0].LongName != newLongName {
+		t.Errorf("Expected patched Long Name %s. Got %s\n", newLongName, respObject.AddressComponents[0].LongName)
 	}
 
 	// Test is faster than adding to DB.
@@ -230,16 +230,16 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 
 	bodyGet := getResponseBody(responseGet)
 
-	respObjectGet := &models.Location{}
+	respObjectGet := &models.LocationGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
 
-	// Check place after patch and get
-	if respObjectGet.PlaceID != newPlaceID {
-		t.Errorf("Expected patched PlaceID after GET %s. Got %s\n", newPlaceID, respObject.PlaceID)
+	// Check name after patch and get
+	if respObjectGet.AddressComponents[0].LongName != newLongName {
+		t.Errorf("Expected patched Long Name after GET %s. Got %s\n", newLongName, respObject.AddressComponents[0].LongName)
 	}
 
 	// Check patch with incorrect contents
-	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/place_id", "value": "` + newPlaceID + `"}`))
+	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newLongName + `"}`))
 	responseError := doRequest("/locations/"+locationId, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
 
 	if responseError.StatusCode != http.StatusBadRequest {
@@ -282,101 +282,5 @@ func Test__weaviate_location_delete_JSON(t *testing.T) {
 	// Check response of non-existing location
 	if responseNotFound.StatusCode != http.StatusNotFound {
 		t.Errorf("Expected response code not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
-	}
-}
-
-// weaviate.adapters.list
-func Test__weaviate_adapters_list_JSON(t *testing.T) {
-	result := doRequest("/adapters", "GET", "application/json", nil, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
-	}
-}
-
-func Test__weaviate_adapters_list_XML(t *testing.T) {
-	result := doRequest("/adapters", "GET", "application/xml", nil, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
-	}
-}
-
-// weaviate.adapters.insert
-func Test__weaviate_adapters_insert_JSON(t *testing.T) {
-	jsonStr := bytes.NewBuffer([]byte(`{}`))
-	result := doRequest("/adapters", "POST", "application/json", jsonStr, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
-	}
-}
-
-func Test__weaviate_adapters_insert_XML(t *testing.T) {
-	jsonStr := bytes.NewBuffer([]byte(`{}`))
-	result := doRequest("/adapters", "POST", "application/xml", jsonStr, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
-	}
-}
-
-// weaviate.adapters.delete
-func Test__weaviate_adapters_delete_JSON(t *testing.T) {
-	result := doRequest("/adapters/1", "DELETE", "application/json", nil, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
-	}
-}
-
-func Test__weaviate_adapters_delete_XML(t *testing.T) {
-	result := doRequest("/adapters/1", "DELETE", "application/xml", nil, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
-	}
-}
-
-// weaviate.adapters.get
-func Test__weaviate_adapters_get_JSON(t *testing.T) {
-	result := doRequest("/adapters/1", "GET", "application/json", nil, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
-	}
-}
-
-func Test__weaviate_adapters_get_XML(t *testing.T) {
-	result := doRequest("/adapters/1", "GET", "application/xml", nil, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
-	}
-}
-
-// weaviate.adapters.update
-func Test__weaviate_adapters_update_JSON(t *testing.T) {
-	jsonStr := bytes.NewBuffer([]byte(`{ "activateUrl": "string", "activated": true, "deactivateUrl": "string", "displayName": "string", "iconUrl": "string", "id": "string", "manageUrl": "string" }`))
-	result := doRequest("/adapters/1", "PUT", "application/json", jsonStr, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
-	}
-}
-
-func Test__weaviate_adapters_update_XML(t *testing.T) {
-	jsonStr := bytes.NewBuffer([]byte(`{"activateUrl": "string"}`))
-	result := doRequest("/adapters/1", "PUT", "application/xml", jsonStr, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
-	}
-}
-
-// weaviate.adapters.patch
-func Test__weaviate_adapters_patch_JSON(t *testing.T) {
-	jsonStr := bytes.NewBuffer([]byte(`[]`))
-	result := doRequest("/adapters/1", "PATCH", "application/json", jsonStr, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
-	}
-}
-
-func Test__weaviate_adapters_patch_XML(t *testing.T) {
-	jsonStr := bytes.NewBuffer([]byte(`[]`))
-	result := doRequest("/adapters/1", "PATCH", "application/xml", jsonStr, apiKeyCmdLine)
-	if result.StatusCode != http.StatusNotImplemented {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotImplemented, result.StatusCode)
 	}
 }
