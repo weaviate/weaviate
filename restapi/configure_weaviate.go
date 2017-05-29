@@ -10,7 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package restapi
+package restapi
 
 import (
 	"crypto/tls"
@@ -270,15 +270,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Generate DatabaseObject without JSON-object in it.
 		dbObject := *dbconnector.NewDatabaseObject(UsersObject.Uuid, refTypeLocation)
 
-		// Set the body-id and generate JSON to save to the database
-		params.Body.ID = dbObject.Uuid
+		// Set the generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
 		go databaseConnector.Add(dbObject)
 
+		// Create response Object from create object.
+		locationResponseObject := &models.LocationGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), locationResponseObject)
+
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return locations.NewWeaviateLocationsInsertAccepted().WithPayload(params.Body)
+		return locations.NewWeaviateLocationsInsertAccepted().WithPayload(locationResponseObject)
 	})
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams, principal interface{}) middleware.Responder {
 
@@ -288,18 +291,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get limit
-		limit := getLimit(params.MaxResults)
+		//limit := getLimit(params.maxResults)
+		limit := int(maxResultsOverride)
 
 		// List all results
 		locationDatabaseObjects, _ := databaseConnector.List(refTypeLocation, limit)
 
 		// Convert to an response object
 		locationsListResponse := &models.LocationsListResponse{}
-		locationsListResponse.Locations = make([]*models.Location, limit)
+		locationsListResponse.Locations = make([]*models.LocationGetResponse, limit)
 
 		// Loop to fill response project
 		for i, locationDatabaseObject := range locationDatabaseObjects {
-			locationObject := &models.Location{}
+			locationObject := &models.LocationGetResponse{}
 			json.Unmarshal([]byte(locationDatabaseObject.Object), locationObject)
 			locationsListResponse.Locations[i] = locationObject
 		}
@@ -366,11 +370,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Create object to return
-		object := &models.Location{}
+		object := &models.LocationGetResponse{}
 		json.Unmarshal([]byte(dbObject.Object), &object)
-
-		// Overwrite body ID with UUID // TODO???
-		params.Body.ID = UUID
 
 		// Set the body-id and generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
@@ -380,7 +381,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.Add(dbObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return locations.NewWeaviateLocationsUpdateOK().WithPayload(params.Body)
+		return locations.NewWeaviateLocationsUpdateOK().WithPayload(object)
 	})
 
 	api.ThingTemplatesWeaviateThingTemplatesCreateHandler = thing_templates.WeaviateThingTemplatesCreateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesCreateParams, principal interface{}) middleware.Responder {
