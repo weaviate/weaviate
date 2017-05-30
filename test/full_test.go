@@ -351,6 +351,35 @@ func Test__weaviate_thing_templates_list_JSON(t *testing.T) {
 	}
 }
 
+// weaviate.thing_templates.get
+func Test__weaviate_thing_templates_get_JSON(t *testing.T) {
+	// Create get request
+	response := doRequest("/thingTemplates/"+thingTemplateID, "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	if response.StatusCode != http.StatusOK {
+		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
+	}
+
+	body := getResponseBody(response)
+
+	respObject := &models.ThingTemplateGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check ID of object
+	if string(respObject.ID) != thingTemplateID {
+		t.Errorf("Expected ID %s. Got %s\n", thingTemplateID, respObject.ID)
+	}
+
+	// Create get request with non-existing thingTemplate
+	responseNotFound := doRequest("/thingTemplates/11111111-1111-1111-1111-111111111111", "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check response of non-existing thingTemplate
+	if responseNotFound.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected response code %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
+	}
+}
+
 // weaviate.thing_template.patch
 func Test__weaviate_thing_template_patch_JSON(t *testing.T) {
 	// Create patch request

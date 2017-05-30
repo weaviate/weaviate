@@ -434,7 +434,26 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesDelete has not yet been implemented")
 	})
 	api.ThingTemplatesWeaviateThingTemplatesGetHandler = thing_templates.WeaviateThingTemplatesGetHandlerFunc(func(params thing_templates.WeaviateThingTemplatesGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesGet has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return thing_templates.NewWeaviateThingTemplatesGetForbidden()
+		}
+
+		// Get item from database
+		dbObject, err := databaseConnector.Get(params.ThingTemplateID)
+
+		// Object is deleted eleted
+		if dbObject.Deleted || err != nil {
+			return thing_templates.NewWeaviateThingTemplatesGetNotFound()
+		}
+
+		// Create object to return
+		object := &models.ThingTemplateGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &object)
+		object.ID = strfmt.UUID(dbObject.Uuid)
+
+		// Get is successful
+		return thing_templates.NewWeaviateThingTemplatesGetOK().WithPayload(object)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesListHandler = thing_templates.WeaviateThingTemplatesListHandlerFunc(func(params thing_templates.WeaviateThingTemplatesListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
