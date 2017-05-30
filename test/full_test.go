@@ -100,6 +100,13 @@ func Test__weaviate_location_insert_JSON(t *testing.T) {
 		t.Errorf("ID is not what expected. Got %s.\n", locationID)
 	}
 
+	// Check kind
+	kind := "weaviate#locationGetResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
+	}
+
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
 }
@@ -123,6 +130,14 @@ func Test__weaviate_location_list_JSON(t *testing.T) {
 	if string(respObject.Locations[0].ID) != locationID {
 		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.Locations[0].ID)
 	}
+
+	// Check kind
+	kind := "weaviate#locationsListResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
+	}
+
 }
 
 // weaviate.location.get
@@ -143,6 +158,13 @@ func Test__weaviate_location_get_JSON(t *testing.T) {
 	// Check ID of object
 	if string(respObject.ID) != locationID {
 		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.ID)
+	}
+
+	// Check kind
+	kind := "weaviate#locationGetResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
 	}
 
 	// Create get request with non-existing location
@@ -174,6 +196,13 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 	// Check name after update
 	if respObject.AddressComponents[0].LongName != newLongName {
 		t.Errorf("Expected updated Long Name %s. Got %s\n", newLongName, respObject.AddressComponents[0].LongName)
+	}
+
+	// Check kind
+	kind := "weaviate#locationGetResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
 	}
 
 	// Test is faster than adding to DB.
@@ -221,6 +250,13 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 	// Check name after patch
 	if respObject.AddressComponents[0].LongName != newLongName {
 		t.Errorf("Expected patched Long Name %s. Got %s\n", newLongName, respObject.AddressComponents[0].LongName)
+	}
+
+	// Check kind
+	kind := "weaviate#locationGetResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
 	}
 
 	// Test is faster than adding to DB.
@@ -326,6 +362,13 @@ func Test__weaviate_thing_template_create_JSON(t *testing.T) {
 		t.Errorf("ID is not what expected. Got %s.\n", thingTemplateID)
 	}
 
+	// Check kind
+	kind := "weaviate#thingTemplateGetResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
+	}
+
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
 }
@@ -349,6 +392,13 @@ func Test__weaviate_thing_template_list_JSON(t *testing.T) {
 	if string(respObject.ThingTemplates[0].ID) != thingTemplateID {
 		t.Errorf("Expected ID %s. Got %s\n", thingTemplateID, respObject.ThingTemplates[0].ID)
 	}
+
+	// Check kind
+	kind := "weaviate#thingTemplatesListResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
+	}
 }
 
 // weaviate.thing_template.get
@@ -369,6 +419,13 @@ func Test__weaviate_thing_template_get_JSON(t *testing.T) {
 	// Check ID of object
 	if string(respObject.ID) != thingTemplateID {
 		t.Errorf("Expected ID %s. Got %s\n", thingTemplateID, respObject.ID)
+	}
+
+	// Check kind
+	kind := "weaviate#thingTemplateGetResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
 	}
 
 	// Create get request with non-existing thingTemplate
@@ -419,6 +476,13 @@ func Test__weaviate_thing_template_update_JSON(t *testing.T) {
 		t.Errorf("Expected updated model name %s. Got %s\n", newValue, respObject.ThingModelTemplate.ModelName)
 	}
 
+	// Check kind
+	kind := "weaviate#thingTemplateGetResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
+	}
+
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
 
@@ -464,6 +528,13 @@ func Test__weaviate_thing_template_patch_JSON(t *testing.T) {
 	// Check name after patch
 	if respObject.ThingModelTemplate.ModelName != newValue {
 		t.Errorf("Expected patched model name %s. Got %s\n", newValue, respObject.ThingModelTemplate.ModelName)
+	}
+
+	// Check kind
+	kind := "weaviate#thingTemplateGetResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
 	}
 
 	// Test is faster than adding to DB.
