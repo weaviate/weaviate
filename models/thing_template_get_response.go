@@ -29,6 +29,9 @@ type ThingTemplateGetResponse struct {
 
 	// id
 	ID strfmt.UUID `json:"id,omitempty"`
+
+	// Identifies what kind of resource this is. Value: the fixed string "weaviate#thingTemplateGetResponse".
+	Kind *string `json:"kind,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -42,12 +45,16 @@ func (m *ThingTemplateGetResponse) UnmarshalJSON(raw []byte) error {
 
 	var data struct {
 		ID strfmt.UUID `json:"id,omitempty"`
+
+		Kind *string `json:"kind,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &data); err != nil {
 		return err
 	}
 
 	m.ID = data.ID
+
+	m.Kind = data.Kind
 
 	return nil
 }
@@ -64,9 +71,13 @@ func (m ThingTemplateGetResponse) MarshalJSON() ([]byte, error) {
 
 	var data struct {
 		ID strfmt.UUID `json:"id,omitempty"`
+
+		Kind *string `json:"kind,omitempty"`
 	}
 
 	data.ID = m.ID
+
+	data.Kind = m.Kind
 
 	jsonData, err := swag.WriteJSON(data)
 	if err != nil {

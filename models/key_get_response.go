@@ -33,6 +33,9 @@ type KeyGetResponse struct {
 	// Key for user to use.
 	Key string `json:"key,omitempty"`
 
+	// Identifies what kind of resource this is. Value: the fixed string "weaviate#keyGetResponse".
+	Kind *string `json:"kind,omitempty"`
+
 	// Parent key. A parent allways has access to a child. Root key has parent value 0. Only a user with a root of 0 can set a root key.
 	Parent string `json:"parent,omitempty"`
 }
@@ -51,6 +54,8 @@ func (m *KeyGetResponse) UnmarshalJSON(raw []byte) error {
 
 		Key string `json:"key,omitempty"`
 
+		Kind *string `json:"kind,omitempty"`
+
 		Parent string `json:"parent,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &data); err != nil {
@@ -60,6 +65,8 @@ func (m *KeyGetResponse) UnmarshalJSON(raw []byte) error {
 	m.ID = data.ID
 
 	m.Key = data.Key
+
+	m.Kind = data.Kind
 
 	m.Parent = data.Parent
 
@@ -81,12 +88,16 @@ func (m KeyGetResponse) MarshalJSON() ([]byte, error) {
 
 		Key string `json:"key,omitempty"`
 
+		Kind *string `json:"kind,omitempty"`
+
 		Parent string `json:"parent,omitempty"`
 	}
 
 	data.ID = m.ID
 
 	data.Key = m.Key
+
+	data.Kind = m.Kind
 
 	data.Parent = m.Parent
 

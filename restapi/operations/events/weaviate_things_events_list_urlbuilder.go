@@ -20,11 +20,16 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/swag"
 )
 
 // WeaviateThingsEventsListURL generates an URL for the weaviate things events list operation
 type WeaviateThingsEventsListURL struct {
 	ThingID string
+
+	MaxResults *int64
+	Page       *int64
 
 	_basePath string
 	// avoid unkeyed usage
@@ -63,6 +68,26 @@ func (o *WeaviateThingsEventsListURL) Build() (*url.URL, error) {
 		_basePath = "/weaviate/v1"
 	}
 	result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var maxResults string
+	if o.MaxResults != nil {
+		maxResults = swag.FormatInt64(*o.MaxResults)
+	}
+	if maxResults != "" {
+		qs.Set("maxResults", maxResults)
+	}
+
+	var page string
+	if o.Page != nil {
+		page = swag.FormatInt64(*o.Page)
+	}
+	if page != "" {
+		qs.Set("page", page)
+	}
+
+	result.RawQuery = qs.Encode()
 
 	return &result, nil
 }
