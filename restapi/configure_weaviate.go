@@ -80,7 +80,7 @@ func getKind(object interface{}) *string {
 		kind = string(unicode.ToLower(v)) + kind[i+1:]
 		break
 	}
-	kind = "#weaviate/" + kind
+	kind = "weaviate#" + kind
 
 	return &kind
 }
@@ -269,12 +269,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Create object to return
-		object := &models.LocationGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), &object)
-		object.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.LocationGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
 		// Get is successful
-		return locations.NewWeaviateLocationsGetOK().WithPayload(object)
+		return locations.NewWeaviateLocationsGetOK().WithPayload(responseObject)
 	})
 	api.LocationsWeaviateLocationsCreateHandler = locations.WeaviateLocationsCreateHandlerFunc(func(params locations.WeaviateLocationsCreateParams, principal interface{}) middleware.Responder {
 
@@ -293,12 +294,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.Add(dbObject)
 
 		// Create response Object from create object.
-		locationResponseObject := &models.LocationGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), locationResponseObject)
-		locationResponseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.LocationGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return locations.NewWeaviateLocationsCreateAccepted().WithPayload(locationResponseObject)
+		return locations.NewWeaviateLocationsCreateAccepted().WithPayload(responseObject)
 	})
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams, principal interface{}) middleware.Responder {
 
@@ -312,25 +314,25 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := int(maxResultsOverride)
 
 		// List all results
-		locationDatabaseObjects, _, _ := databaseConnector.List(refTypeLocation, limit)
+		locationDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeLocation, limit)
 
 		// Convert to an response object
-		locationsListResponse := &models.LocationsListResponse{}
-		locationsListResponse.Locations = make([]*models.LocationGetResponse, len(locationDatabaseObjects))
+		responseObject := &models.LocationsListResponse{}
+		responseObject.Locations = make([]*models.LocationGetResponse, len(locationDatabaseObjects))
 
 		// Loop to fill response project
 		for i, locationDatabaseObject := range locationDatabaseObjects {
 			locationObject := &models.LocationGetResponse{}
 			json.Unmarshal([]byte(locationDatabaseObject.Object), locationObject)
 			locationObject.ID = strfmt.UUID(locationDatabaseObject.Uuid)
-			locationsListResponse.Locations[i] = locationObject
+			responseObject.Locations[i] = locationObject
 		}
 
 		// Add totalResults to response object.
-		//locationsListResponse.TotalResults = int32(totalResults)
-		//locationsListResponse.Kind = getKind(locationsListResponse)
+		responseObject.TotalResults = int32(totalResults)
+		responseObject.Kind = getKind(responseObject)
 
-		return locations.NewWeaviateLocationsListOK().WithPayload(locationsListResponse)
+		return locations.NewWeaviateLocationsListOK().WithPayload(responseObject)
 	})
 	api.LocationsWeaviateLocationsPatchHandler = locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
@@ -369,11 +371,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.Add(dbObject)
 
 		// Create return Object
-		returnObject := &models.LocationGetResponse{}
-		json.Unmarshal([]byte(updatedJSON), &returnObject)
-		returnObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.LocationGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
-		return locations.NewWeaviateLocationsPatchOK().WithPayload(returnObject)
+		return locations.NewWeaviateLocationsPatchOK().WithPayload(responseObject)
 	})
 	api.LocationsWeaviateLocationsUpdateHandler = locations.WeaviateLocationsUpdateHandlerFunc(func(params locations.WeaviateLocationsUpdateParams, principal interface{}) middleware.Responder {
 
@@ -400,12 +403,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.Add(dbObject)
 
 		// Create object to return
-		object := &models.LocationGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), &object)
-		object.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.LocationGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return locations.NewWeaviateLocationsUpdateOK().WithPayload(object)
+		return locations.NewWeaviateLocationsUpdateOK().WithPayload(responseObject)
 	})
 
 	api.ThingTemplatesWeaviateThingTemplatesCreateHandler = thing_templates.WeaviateThingTemplatesCreateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesCreateParams, principal interface{}) middleware.Responder {
@@ -424,12 +428,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.Add(dbObject)
 
 		// Create response Object from create object.
-		thingTemplateResponseObject := &models.ThingTemplateGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), thingTemplateResponseObject)
-		thingTemplateResponseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.ThingTemplateGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return thing_templates.NewWeaviateThingTemplatesCreateAccepted().WithPayload(thingTemplateResponseObject)
+		return thing_templates.NewWeaviateThingTemplatesCreateAccepted().WithPayload(responseObject)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesDeleteHandler = thing_templates.WeaviateThingTemplatesDeleteHandlerFunc(func(params thing_templates.WeaviateThingTemplatesDeleteParams, principal interface{}) middleware.Responder {
 		// This is a delete function, validate if allowed to read?
@@ -469,12 +474,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Create object to return
-		object := &models.ThingTemplateGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), &object)
-		object.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.ThingTemplateGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
 		// Get is successful
-		return thing_templates.NewWeaviateThingTemplatesGetOK().WithPayload(object)
+		return thing_templates.NewWeaviateThingTemplatesGetOK().WithPayload(responseObject)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesListHandler = thing_templates.WeaviateThingTemplatesListHandlerFunc(func(params thing_templates.WeaviateThingTemplatesListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
@@ -490,22 +496,22 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingTemplatesDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThingTemplate, limit)
 
 		// Convert to an response object
-		thingTemplatesListResponse := &models.ThingTemplatesListResponse{}
-		thingTemplatesListResponse.ThingTemplates = make([]*models.ThingTemplateGetResponse, len(thingTemplatesDatabaseObjects))
+		responseObject := &models.ThingTemplatesListResponse{}
+		responseObject.ThingTemplates = make([]*models.ThingTemplateGetResponse, len(thingTemplatesDatabaseObjects))
 
 		// Loop to fill response project
 		for i, thingTemplatesDatabaseObject := range thingTemplatesDatabaseObjects {
 			thingTemplateObject := &models.ThingTemplateGetResponse{}
 			json.Unmarshal([]byte(thingTemplatesDatabaseObject.Object), thingTemplateObject)
 			thingTemplateObject.ID = strfmt.UUID(thingTemplatesDatabaseObject.Uuid)
-			thingTemplatesListResponse.ThingTemplates[i] = thingTemplateObject
+			responseObject.ThingTemplates[i] = thingTemplateObject
 		}
 
 		// Add totalResults to response object.
-		thingTemplatesListResponse.TotalResults = int32(totalResults)
-		thingTemplatesListResponse.Kind = getKind(thingTemplatesListResponse)
+		responseObject.TotalResults = int32(totalResults)
+		responseObject.Kind = getKind(responseObject)
 
-		return thing_templates.NewWeaviateThingTemplatesListOK().WithPayload(thingTemplatesListResponse)
+		return thing_templates.NewWeaviateThingTemplatesListOK().WithPayload(responseObject)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesPatchHandler = thing_templates.WeaviateThingTemplatesPatchHandlerFunc(func(params thing_templates.WeaviateThingTemplatesPatchParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
@@ -544,11 +550,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.Add(dbObject)
 
 		// Create return Object
-		returnObject := &models.ThingTemplateGetResponse{}
-		json.Unmarshal([]byte(updatedJSON), &returnObject)
-		returnObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.ThingTemplateGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
-		return thing_templates.NewWeaviateThingTemplatesPatchOK().WithPayload(returnObject)
+		return thing_templates.NewWeaviateThingTemplatesPatchOK().WithPayload(responseObject)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesUpdateHandler = thing_templates.WeaviateThingTemplatesUpdateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesUpdateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
@@ -574,12 +581,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.Add(dbObject)
 
 		// Create object to return
-		object := &models.ThingTemplateGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), &object)
-		object.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.ThingTemplateGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return thing_templates.NewWeaviateThingTemplatesUpdateOK().WithPayload(object)
+		return thing_templates.NewWeaviateThingTemplatesUpdateOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation things.WeaviateThingsCreate has not yet been implemented")
