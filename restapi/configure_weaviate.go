@@ -46,6 +46,9 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/locations"
 	"github.com/weaviate/weaviate/restapi/operations/thing_templates"
 	"github.com/weaviate/weaviate/restapi/operations/things"
+	"reflect"
+	"strings"
+	"unicode"
 )
 
 const refTypeLocation string = "#/paths/locations"
@@ -67,6 +70,18 @@ func getLimit(paramMaxResults *int64) int {
 
 	// Max results form URL, otherwise max = maxResultsOverride.
 	return int(math.Min(float64(maxResults), float64(maxResultsOverride)))
+}
+
+func getKind(object interface{}) *string {
+	kinds := strings.Split(reflect.TypeOf(object).String(), ".")
+	kind := kinds[len(kinds)-1]
+	for i, v := range kind {
+		kind = string(unicode.ToLower(v)) + kind[i+1:]
+		break
+	}
+	kind = "#weaviate/" + kind
+
+	return &kind
 }
 
 func configureFlags(api *operations.WeaviateAPI) {
@@ -296,11 +311,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := int(maxResultsOverride)
 
 		// List all results
-		locationDatabaseObjects, _ := databaseConnector.List(refTypeLocation, limit)
+		locationDatabaseObjects, _, _ := databaseConnector.List(refTypeLocation, limit)
 
 		// Convert to an response object
 		locationsListResponse := &models.LocationsListResponse{}
-		locationsListResponse.Locations = make([]*models.LocationGetResponse, limit)
+		locationsListResponse.Locations = make([]*models.LocationGetResponse, len(locationDatabaseObjects))
 
 		// Loop to fill response project
 		for i, locationDatabaseObject := range locationDatabaseObjects {
@@ -309,6 +324,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			locationObject.ID = strfmt.UUID(locationDatabaseObject.Uuid)
 			locationsListResponse.Locations[i] = locationObject
 		}
+
+		// Add totalResults to response object.
+		//locationsListResponse.TotalResults = int32(totalResults)
+		//locationsListResponse.Kind = getKind(locationsListResponse)
 
 		return locations.NewWeaviateLocationsListOK().WithPayload(locationsListResponse)
 	})
@@ -418,7 +437,35 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesGet has not yet been implemented")
 	})
 	api.ThingTemplatesWeaviateThingTemplatesListHandler = thing_templates.WeaviateThingTemplatesListHandlerFunc(func(params thing_templates.WeaviateThingTemplatesListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesList has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return thing_templates.NewWeaviateThingTemplatesListForbidden()
+		}
+
+		// Get limit
+		//limit := getLimit(params.maxResults)
+		limit := int(maxResultsOverride)
+
+		// List all results
+		thingTemplatesDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThingTemplate, limit)
+
+		// Convert to an response object
+		thingTemplatesListResponse := &models.ThingTemplatesListResponse{}
+		thingTemplatesListResponse.ThingTemplates = make([]*models.ThingTemplateGetResponse, len(thingTemplatesDatabaseObjects))
+
+		// Loop to fill response project
+		for i, thingTemplatesDatabaseObject := range thingTemplatesDatabaseObjects {
+			thingTemplateObject := &models.ThingTemplateGetResponse{}
+			json.Unmarshal([]byte(thingTemplatesDatabaseObject.Object), thingTemplateObject)
+			thingTemplateObject.ID = strfmt.UUID(thingTemplatesDatabaseObject.Uuid)
+			thingTemplatesListResponse.ThingTemplates[i] = thingTemplateObject
+		}
+
+		// Add totalResults to response object.
+		thingTemplatesListResponse.TotalResults = int32(totalResults)
+		thingTemplatesListResponse.Kind = getKind(thingTemplatesListResponse)
+
+		return thing_templates.NewWeaviateThingTemplatesListOK().WithPayload(thingTemplatesListResponse)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesPatchHandler = thing_templates.WeaviateThingTemplatesPatchHandlerFunc(func(params thing_templates.WeaviateThingTemplatesPatchParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesPatch has not yet been implemented")
