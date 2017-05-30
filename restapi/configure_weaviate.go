@@ -468,7 +468,47 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return thing_templates.NewWeaviateThingTemplatesListOK().WithPayload(thingTemplatesListResponse)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesPatchHandler = thing_templates.WeaviateThingTemplatesPatchHandlerFunc(func(params thing_templates.WeaviateThingTemplatesPatchParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesPatch has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return thing_templates.NewWeaviateThingTemplatesPatchForbidden()
+		}
+
+		// Get and transform object
+		UUID := params.ThingTemplateID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// Return error if UUID is not found.
+		if dbObject.Deleted || errGet != nil {
+			return thing_templates.NewWeaviateThingTemplatesPatchNotFound()
+		}
+
+		// Get PATCH params in format RFC 6902
+		jsonBody, marshalErr := json.Marshal(params.Body)
+		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
+
+		if marshalErr != nil || decodeErr != nil {
+			return thing_templates.NewWeaviateThingTemplatesPatchBadRequest()
+		}
+
+		// Apply the patch
+		updatedJSON, applyErr := patchObject.Apply([]byte(dbObject.Object))
+
+		if applyErr != nil {
+			return thing_templates.NewWeaviateThingTemplatesPatchUnprocessableEntity()
+		}
+
+		// Set patched JSON back in dbObject
+		dbObject.Object = string(updatedJSON)
+
+		dbObject.SetCreateTimeMsToNow()
+		go databaseConnector.Add(dbObject)
+
+		// Create return Object
+		returnObject := &models.ThingTemplateGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &returnObject)
+		returnObject.ID = strfmt.UUID(dbObject.Uuid)
+
+		return thing_templates.NewWeaviateThingTemplatesPatchOK().WithPayload(returnObject)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesUpdateHandler = thing_templates.WeaviateThingTemplatesUpdateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesUpdateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesUpdate has not yet been implemented")

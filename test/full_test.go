@@ -213,12 +213,12 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 	respObject := &models.LocationGetResponse{}
 	json.Unmarshal(body, respObject)
 
-	// Check name is the same
+	// Check ID is the same
 	if string(respObject.ID) != locationID {
 		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.ID)
 	}
 
-	// Check ID after patch
+	// Check name after patch
 	if respObject.AddressComponents[0].LongName != newLongName {
 		t.Errorf("Expected patched Long Name %s. Got %s\n", newLongName, respObject.AddressComponents[0].LongName)
 	}
@@ -236,7 +236,7 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 
 	// Check name after patch and get
 	if respObjectGet.AddressComponents[0].LongName != newLongName {
-		t.Errorf("Expected patched Long Name after GET %s. Got %s\n", newLongName, respObject.AddressComponents[0].LongName)
+		t.Errorf("Expected patched Long Name after GET %s. Got %s\n", newLongName, respObjectGet.AddressComponents[0].LongName)
 	}
 
 	// Check patch with incorrect contents
@@ -348,5 +348,61 @@ func Test__weaviate_thing_templates_list_JSON(t *testing.T) {
 	// Check most recent
 	if string(respObject.ThingTemplates[0].ID) != thingTemplateID {
 		t.Errorf("Expected ID %s. Got %s\n", thingTemplateID, respObject.ThingTemplates[0].ID)
+	}
+}
+
+// weaviate.thing_template.patch
+func Test__weaviate_thing_template_patch_JSON(t *testing.T) {
+	// Create patch request
+	newValue := "patched_name"
+
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/thingModelTemplate/modelName", "value": "` + newValue + `"}]`))
+	response := doRequest("/thingTemplates/"+thingTemplateID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
+
+	body := getResponseBody(response)
+
+	respObject := &models.ThingTemplateGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check ID is the same
+	if string(respObject.ID) != thingTemplateID {
+		t.Errorf("Expected ID %s. Got %s\n", thingTemplateID, respObject.ID)
+	}
+
+	// Check name after patch
+	if respObject.ThingModelTemplate.ModelName != newValue {
+		t.Errorf("Expected patched model name %s. Got %s\n", newValue, respObject.ThingModelTemplate.ModelName)
+	}
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Check if patch is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/thingTemplates/"+thingTemplateID, "GET", "application/json", nil, apiKeyCmdLine)
+
+	bodyGet := getResponseBody(responseGet)
+
+	respObjectGet := &models.ThingTemplateGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
+
+	// Check name after patch and get
+	if respObjectGet.ThingModelTemplate.ModelName != newValue {
+		t.Errorf("Expected patched model name after GET %s. Got %s\n", newValue, respObjectGet.ThingModelTemplate.ModelName)
+	}
+
+	// Check patch with incorrect contents
+	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newValue + `"}`))
+	responseError := doRequest("/thingTemplates/"+thingTemplateID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+
+	if responseError.StatusCode != http.StatusBadRequest {
+		t.Errorf("Expected response code for wrong input %d. Got %d\n", http.StatusBadRequest, responseError.StatusCode)
+	}
+
+	// Check patch on non-existing ID
+	emptyJSON := bytes.NewBuffer([]byte(`[{}]`))
+	responseNotFound := doRequest("/thingTemplates/11111111-1111-1111-1111-111111111111", "PATCH", "application/json", emptyJSON, apiKeyCmdLine)
+
+	if responseNotFound.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected response code for not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
 	}
 }
