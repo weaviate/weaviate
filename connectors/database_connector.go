@@ -137,7 +137,7 @@ type DatabaseConnector interface {
 	Init() error
 	Add(DatabaseObject) (string, error)
 	Get(string) (DatabaseObject, error)
-	List(string, int) ([]DatabaseObject, error)
+	List(string, int) ([]DatabaseObject, int, error)
 	ValidateKey(string) ([]DatabaseUsersObject, error)
 	AddKey(string, DatabaseUsersObject) (DatabaseUsersObject, error)
 }
