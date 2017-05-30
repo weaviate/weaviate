@@ -24,6 +24,7 @@ import (
 
 	// "github.com/weaviate/weaviate/connectors"
 	// "github.com/weaviate/weaviate/connectors/datastore"
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/models"
 )
 
@@ -94,9 +95,8 @@ func Test__weaviate_location_insert_JSON(t *testing.T) {
 	// Check whether generated UUID is added
 	locationId = string(respObject.ID)
 
-	expLength := 36
-	if len(locationId) != expLength {
-		t.Errorf("Expected length of ID %d. Got %d\n", expLength, len(locationId))
+	if strfmt.IsUUID4(locationId) {
+		t.Errorf("ID is not what expected. Got %s.\n", locationId)
 	}
 
 	// Test is faster than adding to DB.
@@ -283,4 +283,48 @@ func Test__weaviate_location_delete_JSON(t *testing.T) {
 	if responseNotFound.StatusCode != http.StatusNotFound {
 		t.Errorf("Expected response code not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
 	}
+}
+
+// weaviate.thing_template.create
+func Test__weaviate_thing_templates_create_JSON(t *testing.T) {
+	// Create create request
+	jsonStr := bytes.NewBuffer([]byte(`{
+		"commandsId": "11111111-1111-1111-1111-111111111111",
+		"thingModelTemplate": {
+			"modelName": "TEST name",
+			"oemNumber": "TEST number",
+			"oemAdditions": {
+				"testAdd": 1,
+				"testAdd2": "two",
+				"testAddObj": {
+					"testobj": "value"
+				}
+			},
+			"oemName": "TEST oemname",
+			"oemIcon": "TEST oemicon",
+			"oemContact": "TEST oemcontact"
+		},
+		"name": "TEST THING TEMPLATE"
+		}`))
+	response := doRequest("/thingTemplates", "POST", "application/json", jsonStr, apiKeyCmdLine)
+
+	// Check status code of create
+	if response.StatusCode != http.StatusAccepted {
+		t.Errorf("Expected response code %d. Got %d\n", http.StatusAccepted, response.StatusCode)
+	}
+
+	body := getResponseBody(response)
+
+	respObject := &models.ThingGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check whether generated UUID is added
+	thingTemplateID := string(respObject.ID)
+
+	if strfmt.IsUUID4(thingTemplateID) {
+		t.Errorf("ID is not what expected. Got %s.\n", thingTemplateID)
+	}
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 }
