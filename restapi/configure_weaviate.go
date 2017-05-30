@@ -431,7 +431,27 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return thing_templates.NewWeaviateThingTemplatesCreateAccepted().WithPayload(thingTemplateResponseObject)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesDeleteHandler = thing_templates.WeaviateThingTemplatesDeleteHandlerFunc(func(params thing_templates.WeaviateThingTemplatesDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesDelete has not yet been implemented")
+		// This is a delete function, validate if allowed to read?
+		if dbconnector.DeleteAllowed(principal) == false {
+			return thing_templates.NewWeaviateThingTemplatesDeleteForbidden()
+		}
+
+		// Get item from database
+		databaseObject, errGet := databaseConnector.Get(params.ThingTemplateID)
+
+		// Not found
+		if databaseObject.Deleted || errGet != nil {
+			return thing_templates.NewWeaviateThingTemplatesDeleteNotFound()
+		}
+
+		// Set deleted values
+		databaseObject.MakeObjectDeleted()
+
+		// Add new row as GO-routine
+		go databaseConnector.Add(databaseObject)
+
+		// Return 'No Content'
+		return thing_templates.NewWeaviateThingTemplatesDeleteNoContent()
 	})
 	api.ThingTemplatesWeaviateThingTemplatesGetHandler = thing_templates.WeaviateThingTemplatesGetHandlerFunc(func(params thing_templates.WeaviateThingTemplatesGetParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?

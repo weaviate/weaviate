@@ -380,8 +380,8 @@ func Test__weaviate_thing_templates_get_JSON(t *testing.T) {
 	}
 }
 
-// weaviate.thing_template.patch
-func Test__weaviate_thing_template_patch_JSON(t *testing.T) {
+// weaviate.thing_templates.patch
+func Test__weaviate_thing_templates_patch_JSON(t *testing.T) {
 	// Create patch request
 	newValue := "patched_name"
 
@@ -433,5 +433,35 @@ func Test__weaviate_thing_template_patch_JSON(t *testing.T) {
 
 	if responseNotFound.StatusCode != http.StatusNotFound {
 		t.Errorf("Expected response code for not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
+	}
+}
+
+// weaviate.thing_templates.delete
+func Test__weaviate_thing_templates_delete_JSON(t *testing.T) {
+	// Create delete request
+	response := doRequest("/thingTemplates/"+thingTemplateID, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	if response.StatusCode != http.StatusNoContent {
+		t.Errorf("Expected response code %d. Got %d\n", http.StatusNoContent, response.StatusCode)
+	}
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Create delete request
+	responseAlreadyDeleted := doRequest("/thingTemplates/"+thingTemplateID, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	if responseAlreadyDeleted.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected response code already deleted %d. Got %d\n", http.StatusNotFound, responseAlreadyDeleted.StatusCode)
+	}
+
+	// Create get request with non-existing thingTemplates
+	responseNotFound := doRequest("/thingTemplates/11111111-1111-1111-1111-111111111111", "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check response of non-existing thingTemplates
+	if responseNotFound.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected response code not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
 	}
 }
