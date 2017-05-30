@@ -66,6 +66,17 @@ func NewDatabaseObject(owner string, refType string) *DatabaseObject {
 	return dbo
 }
 
+// NewDatabaseObjectFromPrinciple creates a new object with default values, out of principle object
+func NewDatabaseObjectFromPrincipal(principal interface{}, refType string) *DatabaseObject {
+	// Get user object
+	UsersObject, _ := PrincipalMarshalling(principal)
+
+	// Generate DatabaseObject without JSON-object in it.
+	dbObject := NewDatabaseObject(UsersObject.Uuid, refType)
+
+	return dbObject
+}
+
 // SetCreateTimeMsToNow gives the Object the current time in mili seconds
 func (f *DatabaseObject) SetCreateTimeMsToNow() {
 	f.CreateTimeMs = time.Now().UnixNano() / int64(time.Millisecond)
