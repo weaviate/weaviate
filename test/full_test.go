@@ -65,7 +65,8 @@ func getResponseBody(response *http.Response) []byte {
 }
 
 var apiKeyCmdLine string
-var locationId string
+var locationID string
+var thingTemplateID string
 
 func init() {
 	flag.StringVar(&apiKeyCmdLine, "api-key", "", "API-KEY as used as haeder in the tests.")
@@ -93,10 +94,10 @@ func Test__weaviate_location_insert_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check whether generated UUID is added
-	locationId = string(respObject.ID)
+	locationID = string(respObject.ID)
 
-	if strfmt.IsUUID4(locationId) {
-		t.Errorf("ID is not what expected. Got %s.\n", locationId)
+	if !strfmt.IsUUID(locationID) {
+		t.Errorf("ID is not what expected. Got %s.\n", locationID)
 	}
 
 	// Test is faster than adding to DB.
@@ -119,15 +120,15 @@ func Test__weaviate_location_list_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check most recent
-	if string(respObject.Locations[0].ID) != locationId {
-		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.Locations[0].ID)
+	if string(respObject.Locations[0].ID) != locationID {
+		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.Locations[0].ID)
 	}
 }
 
 // weaviate.location.get
 func Test__weaviate_location_get_JSON(t *testing.T) {
 	// Create get request
-	response := doRequest("/locations/"+locationId, "GET", "application/json", nil, apiKeyCmdLine)
+	response := doRequest("/locations/"+locationID, "GET", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code get request
 	if response.StatusCode != http.StatusOK {
@@ -140,8 +141,8 @@ func Test__weaviate_location_get_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check ID of object
-	if string(respObject.ID) != locationId {
-		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.ID)
+	if string(respObject.ID) != locationID {
+		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.ID)
 	}
 
 	// Create get request with non-existing location
@@ -158,7 +159,7 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 	// Create update request
 	newLongName := "updated_name"
 	jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"` + newLongName + `","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"","types":["UNDEFINED"]} `))
-	response := doRequest("/locations/"+locationId, "PUT", "application/json", jsonStr, apiKeyCmdLine)
+	response := doRequest("/locations/"+locationID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
 
@@ -166,8 +167,8 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check location ID is same
-	if string(respObject.ID) != locationId {
-		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.ID)
+	if string(respObject.ID) != locationID {
+		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.ID)
 	}
 
 	// Check name after update
@@ -179,7 +180,7 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Check if update is also applied on object when using a new GET request on same object
-	responseGet := doRequest("/locations/"+locationId, "GET", "application/json", nil, apiKeyCmdLine)
+	responseGet := doRequest("/locations/"+locationID, "GET", "application/json", nil, apiKeyCmdLine)
 
 	bodyGet := getResponseBody(responseGet)
 
@@ -205,7 +206,7 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 	newLongName := "patched_name"
 
 	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/address_components/0/long_name", "value": "` + newLongName + `"}]`))
-	response := doRequest("/locations/"+locationId, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
+	response := doRequest("/locations/"+locationID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
 
@@ -213,8 +214,8 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check name is the same
-	if string(respObject.ID) != locationId {
-		t.Errorf("Expected ID %s. Got %s\n", locationId, respObject.ID)
+	if string(respObject.ID) != locationID {
+		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.ID)
 	}
 
 	// Check ID after patch
@@ -226,7 +227,7 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Check if patch is also applied on object when using a new GET request on same object
-	responseGet := doRequest("/locations/"+locationId, "GET", "application/json", nil, apiKeyCmdLine)
+	responseGet := doRequest("/locations/"+locationID, "GET", "application/json", nil, apiKeyCmdLine)
 
 	bodyGet := getResponseBody(responseGet)
 
@@ -240,7 +241,7 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 
 	// Check patch with incorrect contents
 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newLongName + `"}`))
-	responseError := doRequest("/locations/"+locationId, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+	responseError := doRequest("/locations/"+locationID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
 
 	if responseError.StatusCode != http.StatusBadRequest {
 		t.Errorf("Expected response code for wrong input %d. Got %d\n", http.StatusBadRequest, responseError.StatusCode)
@@ -258,7 +259,7 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 // weaviate.location.delete
 func Test__weaviate_location_delete_JSON(t *testing.T) {
 	// Create delete request
-	response := doRequest("/locations/"+locationId, "DELETE", "application/json", nil, apiKeyCmdLine)
+	response := doRequest("/locations/"+locationID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code get request
 	if response.StatusCode != http.StatusNoContent {
@@ -269,7 +270,7 @@ func Test__weaviate_location_delete_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Create delete request
-	responseAlreadyDeleted := doRequest("/locations/"+locationId, "DELETE", "application/json", nil, apiKeyCmdLine)
+	responseAlreadyDeleted := doRequest("/locations/"+locationID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code get request
 	if responseAlreadyDeleted.StatusCode != http.StatusNotFound {
@@ -319,12 +320,33 @@ func Test__weaviate_thing_templates_create_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check whether generated UUID is added
-	thingTemplateID := string(respObject.ID)
+	thingTemplateID = string(respObject.ID)
 
-	if strfmt.IsUUID4(thingTemplateID) {
+	if !strfmt.IsUUID(thingTemplateID) {
 		t.Errorf("ID is not what expected. Got %s.\n", thingTemplateID)
 	}
 
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
+}
+
+// weaviate.thing_templates.list
+func Test__weaviate_thing_templates_list_JSON(t *testing.T) {
+	// Create list request
+	response := doRequest("/thingTemplates", "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code of list
+	if response.StatusCode != http.StatusOK {
+		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
+	}
+
+	body := getResponseBody(response)
+
+	respObject := &models.ThingTemplatesListResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check most recent
+	if string(respObject.ThingTemplates[0].ID) != thingTemplateID {
+		t.Errorf("Expected ID %s. Got %s\n", thingTemplateID, respObject.ThingTemplates[0].ID)
+	}
 }
