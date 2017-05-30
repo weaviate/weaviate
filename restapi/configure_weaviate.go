@@ -550,7 +550,35 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return thing_templates.NewWeaviateThingTemplatesPatchOK().WithPayload(returnObject)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesUpdateHandler = thing_templates.WeaviateThingTemplatesUpdateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesUpdate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return thing_templates.NewWeaviateThingTemplatesUpdateForbidden()
+		}
+
+		// Get item from database
+		UUID := params.ThingTemplateID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// If there are no results, there is an error
+		if dbObject.Deleted || errGet != nil {
+			// Object not found response.
+			return thing_templates.NewWeaviateThingTemplatesUpdateNotFound()
+		}
+
+		// Set the body-id and generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+		dbObject.SetCreateTimeMsToNow()
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create object to return
+		object := &models.ThingTemplateGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &object)
+		object.ID = strfmt.UUID(dbObject.Uuid)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return thing_templates.NewWeaviateThingTemplatesUpdateOK().WithPayload(object)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesValidateHandler = thing_templates.WeaviateThingTemplatesValidateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesValidateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesValidate has not yet been implemented")
