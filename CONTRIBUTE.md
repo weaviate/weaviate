@@ -5,9 +5,10 @@ Contributing works pretty easy. You can do a pull request or you can commit if y
 How we use [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) and how you can contribute following a few steps.
 
 - The master branch is what is released.
-- You can create a feature-branch that is named: feature/YOUR-FEATURE-NAME.
+- You can fork the weaviate project and create a feature branch that is named: feature/YOUR-FEATURE-NAME.
 - Your feature branch always has the develop branch as a starting point.
-- When you are done you can merge your feature into the develop branch _or_ you can request a merge.
+- To keep up to date with the weaviate/weaviate develop branch, setup the weaviate/weaviate as a [remote tracking branch](https://help.github.com/articles/configuring-a-remote-for-a-fork/).
+- When you are done you can request a merge, via a pull request to develop. Make sure your work is rebased on top of develop so no merge commits can occur. If develop is updated before the PR can be merged, you may be asked to rebase again.
 - The master branch is protected.
 
 ### Tagging your commit
