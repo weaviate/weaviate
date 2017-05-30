@@ -129,6 +129,27 @@ func (o *WeaviateLocationsUpdateNotFound) WriteResponse(rw http.ResponseWriter, 
 	rw.WriteHeader(404)
 }
 
+// WeaviateLocationsUpdateUnprocessableEntityCode is the HTTP code returned for type WeaviateLocationsUpdateUnprocessableEntity
+const WeaviateLocationsUpdateUnprocessableEntityCode int = 422
+
+/*WeaviateLocationsUpdateUnprocessableEntity Can not validate, check the body.
+
+swagger:response weaviateLocationsUpdateUnprocessableEntity
+*/
+type WeaviateLocationsUpdateUnprocessableEntity struct {
+}
+
+// NewWeaviateLocationsUpdateUnprocessableEntity creates WeaviateLocationsUpdateUnprocessableEntity with default headers values
+func NewWeaviateLocationsUpdateUnprocessableEntity() *WeaviateLocationsUpdateUnprocessableEntity {
+	return &WeaviateLocationsUpdateUnprocessableEntity{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateLocationsUpdateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+}
+
 // WeaviateLocationsUpdateNotImplementedCode is the HTTP code returned for type WeaviateLocationsUpdateNotImplemented
 const WeaviateLocationsUpdateNotImplementedCode int = 501
 

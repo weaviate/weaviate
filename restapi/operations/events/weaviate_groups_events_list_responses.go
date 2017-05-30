@@ -129,27 +129,6 @@ func (o *WeaviateGroupsEventsListNotFound) WriteResponse(rw http.ResponseWriter,
 	rw.WriteHeader(404)
 }
 
-// WeaviateGroupsEventsListUnprocessableEntityCode is the HTTP code returned for type WeaviateGroupsEventsListUnprocessableEntity
-const WeaviateGroupsEventsListUnprocessableEntityCode int = 422
-
-/*WeaviateGroupsEventsListUnprocessableEntity Can not execute this command, because the commandParameters{} are set incorrectly.
-
-swagger:response weaviateGroupsEventsListUnprocessableEntity
-*/
-type WeaviateGroupsEventsListUnprocessableEntity struct {
-}
-
-// NewWeaviateGroupsEventsListUnprocessableEntity creates WeaviateGroupsEventsListUnprocessableEntity with default headers values
-func NewWeaviateGroupsEventsListUnprocessableEntity() *WeaviateGroupsEventsListUnprocessableEntity {
-	return &WeaviateGroupsEventsListUnprocessableEntity{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateGroupsEventsListUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(422)
-}
-
 // WeaviateGroupsEventsListNotImplementedCode is the HTTP code returned for type WeaviateGroupsEventsListNotImplemented
 const WeaviateGroupsEventsListNotImplementedCode int = 501
 

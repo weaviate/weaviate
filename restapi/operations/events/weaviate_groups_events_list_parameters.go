@@ -19,7 +19,9 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/swag"
 
 	strfmt "github.com/go-openapi/strfmt"
 )
@@ -45,6 +47,14 @@ type WeaviateGroupsEventsListParams struct {
 	  In: path
 	*/
 	GroupID string
+	/*The maximum number of items to be returned per page.
+	  In: query
+	*/
+	MaxResults *int64
+	/*The page number of the items to be returned.
+	  In: query
+	*/
+	Page *int64
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -53,8 +63,20 @@ func (o *WeaviateGroupsEventsListParams) BindRequest(r *http.Request, route *mid
 	var res []error
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
 	rGroupID, rhkGroupID, _ := route.Params.GetOK("groupId")
 	if err := o.bindGroupID(rGroupID, rhkGroupID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qMaxResults, qhkMaxResults, _ := qs.GetOK("maxResults")
+	if err := o.bindMaxResults(qMaxResults, qhkMaxResults, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qPage, qhkPage, _ := qs.GetOK("page")
+	if err := o.bindPage(qPage, qhkPage, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -71,6 +93,42 @@ func (o *WeaviateGroupsEventsListParams) bindGroupID(rawData []string, hasKey bo
 	}
 
 	o.GroupID = raw
+
+	return nil
+}
+
+func (o *WeaviateGroupsEventsListParams) bindMaxResults(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	value, err := swag.ConvertInt64(raw)
+	if err != nil {
+		return errors.InvalidType("maxResults", "query", "int64", raw)
+	}
+	o.MaxResults = &value
+
+	return nil
+}
+
+func (o *WeaviateGroupsEventsListParams) bindPage(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	value, err := swag.ConvertInt64(raw)
+	if err != nil {
+		return errors.InvalidType("page", "query", "int64", raw)
+	}
+	o.Page = &value
 
 	return nil
 }

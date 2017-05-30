@@ -108,6 +108,27 @@ func (o *WeaviateThingTemplatesCreateForbidden) WriteResponse(rw http.ResponseWr
 	rw.WriteHeader(403)
 }
 
+// WeaviateThingTemplatesCreateUnprocessableEntityCode is the HTTP code returned for type WeaviateThingTemplatesCreateUnprocessableEntity
+const WeaviateThingTemplatesCreateUnprocessableEntityCode int = 422
+
+/*WeaviateThingTemplatesCreateUnprocessableEntity Can not validate, check the body.
+
+swagger:response weaviateThingTemplatesCreateUnprocessableEntity
+*/
+type WeaviateThingTemplatesCreateUnprocessableEntity struct {
+}
+
+// NewWeaviateThingTemplatesCreateUnprocessableEntity creates WeaviateThingTemplatesCreateUnprocessableEntity with default headers values
+func NewWeaviateThingTemplatesCreateUnprocessableEntity() *WeaviateThingTemplatesCreateUnprocessableEntity {
+	return &WeaviateThingTemplatesCreateUnprocessableEntity{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateThingTemplatesCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+}
+
 // WeaviateThingTemplatesCreateNotImplementedCode is the HTTP code returned for type WeaviateThingTemplatesCreateNotImplemented
 const WeaviateThingTemplatesCreateNotImplementedCode int = 501
 

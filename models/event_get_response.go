@@ -35,6 +35,9 @@ type EventGetResponse struct {
 
 	// ID of the event.
 	ID strfmt.UUID `json:"id,omitempty"`
+
+	// Identifies what kind of resource this is. Value: the fixed string "weaviate#eventGetResponse".
+	Kind *string `json:"kind,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -52,6 +55,8 @@ func (m *EventGetResponse) UnmarshalJSON(raw []byte) error {
 		CommandResults *CommandResults `json:"commandResults,omitempty"`
 
 		ID strfmt.UUID `json:"id,omitempty"`
+
+		Kind *string `json:"kind,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &data); err != nil {
 		return err
@@ -62,6 +67,8 @@ func (m *EventGetResponse) UnmarshalJSON(raw []byte) error {
 	m.CommandResults = data.CommandResults
 
 	m.ID = data.ID
+
+	m.Kind = data.Kind
 
 	return nil
 }
@@ -82,6 +89,8 @@ func (m EventGetResponse) MarshalJSON() ([]byte, error) {
 		CommandResults *CommandResults `json:"commandResults,omitempty"`
 
 		ID strfmt.UUID `json:"id,omitempty"`
+
+		Kind *string `json:"kind,omitempty"`
 	}
 
 	data.CommandProgress = m.CommandProgress
@@ -89,6 +98,8 @@ func (m EventGetResponse) MarshalJSON() ([]byte, error) {
 	data.CommandResults = m.CommandResults
 
 	data.ID = m.ID
+
+	data.Kind = m.Kind
 
 	jsonData, err := swag.WriteJSON(data)
 	if err != nil {

@@ -31,9 +31,6 @@ type ThingTemplatesListResponse struct {
 	// Identifies what kind of resource this is. Value: the fixed string "weaviate#thingTemplatesListResponse".
 	Kind *string `json:"kind,omitempty"`
 
-	// Token corresponding to the next page of model manifests.
-	NextPageToken string `json:"nextPageToken,omitempty"`
-
 	// The actual list of model manifests.
 	ThingTemplates []*ThingTemplateGetResponse `json:"thingTemplates"`
 

@@ -23,7 +23,7 @@ Internet of Things platform that lets you register, view and manage cloud ready 
     Contact: Weaviate<bob@weaviate.com> https://github.com/weaviate/weaviate
 
     Consumes:
-    - application/json-patch+json
+    - application/json
 
     - application/octet-stream
 

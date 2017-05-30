@@ -38,6 +38,10 @@ import (
 	"github.com/weaviate/weaviate/connectors/mysql"
 	"github.com/weaviate/weaviate/models"
 
+	"reflect"
+	"strings"
+	"unicode"
+
 	"github.com/weaviate/weaviate/restapi/operations"
 	"github.com/weaviate/weaviate/restapi/operations/commands"
 	"github.com/weaviate/weaviate/restapi/operations/events"
@@ -49,6 +53,7 @@ import (
 )
 
 const refTypeLocation string = "#/paths/locations"
+const refTypeThingTemplate string = "#/paths/thingTemplates"
 const maxResultsOverride int64 = 100
 
 func init() {
@@ -66,6 +71,18 @@ func getLimit(paramMaxResults *int64) int {
 
 	// Max results form URL, otherwise max = maxResultsOverride.
 	return int(math.Min(float64(maxResults), float64(maxResultsOverride)))
+}
+
+func getKind(object interface{}) *string {
+	kinds := strings.Split(reflect.TypeOf(object).String(), ".")
+	kind := kinds[len(kinds)-1]
+	for i, v := range kind {
+		kind = string(unicode.ToLower(v)) + kind[i+1:]
+		break
+	}
+	kind = "weaviate#" + kind
+
+	return &kind
 }
 
 func configureFlags(api *operations.WeaviateAPI) {
@@ -148,14 +165,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	}
 
+	api.CommandsWeaviateCommandsCreateHandler = commands.WeaviateCommandsCreateHandlerFunc(func(params commands.WeaviateCommandsCreateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation commands.WeaviateCommandsCreate has not yet been implemented")
+	})
 	api.CommandsWeaviateCommandsDeleteHandler = commands.WeaviateCommandsDeleteHandlerFunc(func(params commands.WeaviateCommandsDeleteParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsDelete has not yet been implemented")
 	})
 	api.CommandsWeaviateCommandsGetHandler = commands.WeaviateCommandsGetHandlerFunc(func(params commands.WeaviateCommandsGetParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsGet has not yet been implemented")
-	})
-	api.CommandsWeaviateCommandsInsertHandler = commands.WeaviateCommandsInsertHandlerFunc(func(params commands.WeaviateCommandsInsertParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsInsert has not yet been implemented")
 	})
 	api.CommandsWeaviateCommandsListHandler = commands.WeaviateCommandsListHandlerFunc(func(params commands.WeaviateCommandsListParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsList has not yet been implemented")
@@ -168,6 +185,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.CommandsWeaviateCommandsValidateHandler = commands.WeaviateCommandsValidateHandlerFunc(func(params commands.WeaviateCommandsValidateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsValidate has not yet been implemented")
+	})
+	api.GroupsWeaviateGroupsCreateHandler = groups.WeaviateGroupsCreateHandlerFunc(func(params groups.WeaviateGroupsCreateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation groups.WeaviateGroupsCreate has not yet been implemented")
 	})
 	api.GroupsWeaviateGroupsDeleteHandler = groups.WeaviateGroupsDeleteHandlerFunc(func(params groups.WeaviateGroupsDeleteParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation groups.WeaviateGroupsDelete has not yet been implemented")
@@ -183,9 +203,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.GroupsWeaviateGroupsGetHandler = groups.WeaviateGroupsGetHandlerFunc(func(params groups.WeaviateGroupsGetParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation groups.WeaviateGroupsGet has not yet been implemented")
-	})
-	api.GroupsWeaviateGroupsInsertHandler = groups.WeaviateGroupsInsertHandlerFunc(func(params groups.WeaviateGroupsInsertParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsInsert has not yet been implemented")
 	})
 	api.GroupsWeaviateGroupsListHandler = groups.WeaviateGroupsListHandlerFunc(func(params groups.WeaviateGroupsListParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation groups.WeaviateGroupsList has not yet been implemented")
@@ -252,25 +269,23 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Create object to return
-		object := &models.LocationGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), &object)
-		object.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.LocationGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
 		// Get is successful
-		return locations.NewWeaviateLocationsGetOK().WithPayload(object)
+		return locations.NewWeaviateLocationsGetOK().WithPayload(responseObject)
 	})
-	api.LocationsWeaviateLocationsInsertHandler = locations.WeaviateLocationsInsertHandlerFunc(func(params locations.WeaviateLocationsInsertParams, principal interface{}) middleware.Responder {
+	api.LocationsWeaviateLocationsCreateHandler = locations.WeaviateLocationsCreateHandlerFunc(func(params locations.WeaviateLocationsCreateParams, principal interface{}) middleware.Responder {
 
 		// This is a write function, validate if allowed to read?
 		if dbconnector.WriteAllowed(principal) == false {
-			return locations.NewWeaviateLocationsInsertForbidden()
+			return locations.NewWeaviateLocationsCreateForbidden()
 		}
 
-		// Get user object
-		UsersObject, _ := dbconnector.PrincipalMarshalling(principal)
-
-		// Generate DatabaseObject without JSON-object in it.
-		dbObject := *dbconnector.NewDatabaseObject(UsersObject.Uuid, refTypeLocation)
+		// Create basic DataBase object
+		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeLocation)
 
 		// Set the generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
@@ -279,12 +294,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.Add(dbObject)
 
 		// Create response Object from create object.
-		locationResponseObject := &models.LocationGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), locationResponseObject)
-		locationResponseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.LocationGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return locations.NewWeaviateLocationsInsertAccepted().WithPayload(locationResponseObject)
+		return locations.NewWeaviateLocationsCreateAccepted().WithPayload(responseObject)
 	})
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams, principal interface{}) middleware.Responder {
 
@@ -298,21 +314,25 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := int(maxResultsOverride)
 
 		// List all results
-		locationDatabaseObjects, _ := databaseConnector.List(refTypeLocation, limit)
+		locationDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeLocation, limit)
 
 		// Convert to an response object
-		locationsListResponse := &models.LocationsListResponse{}
-		locationsListResponse.Locations = make([]*models.LocationGetResponse, limit)
+		responseObject := &models.LocationsListResponse{}
+		responseObject.Locations = make([]*models.LocationGetResponse, len(locationDatabaseObjects))
 
 		// Loop to fill response project
 		for i, locationDatabaseObject := range locationDatabaseObjects {
 			locationObject := &models.LocationGetResponse{}
 			json.Unmarshal([]byte(locationDatabaseObject.Object), locationObject)
 			locationObject.ID = strfmt.UUID(locationDatabaseObject.Uuid)
-			locationsListResponse.Locations[i] = locationObject
+			responseObject.Locations[i] = locationObject
 		}
 
-		return locations.NewWeaviateLocationsListOK().WithPayload(locationsListResponse)
+		// Add totalResults to response object.
+		responseObject.TotalResults = int32(totalResults)
+		responseObject.Kind = getKind(responseObject)
+
+		return locations.NewWeaviateLocationsListOK().WithPayload(responseObject)
 	})
 	api.LocationsWeaviateLocationsPatchHandler = locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
@@ -351,11 +371,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.Add(dbObject)
 
 		// Create return Object
-		returnObject := &models.LocationGetResponse{}
-		json.Unmarshal([]byte(updatedJSON), &returnObject)
-		returnObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.LocationGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
-		return locations.NewWeaviateLocationsPatchOK().WithPayload(returnObject)
+		return locations.NewWeaviateLocationsPatchOK().WithPayload(responseObject)
 	})
 	api.LocationsWeaviateLocationsUpdateHandler = locations.WeaviateLocationsUpdateHandlerFunc(func(params locations.WeaviateLocationsUpdateParams, principal interface{}) middleware.Responder {
 
@@ -382,34 +403,194 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.Add(dbObject)
 
 		// Create object to return
-		object := &models.LocationGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), &object)
-		object.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.LocationGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return locations.NewWeaviateLocationsUpdateOK().WithPayload(object)
+		return locations.NewWeaviateLocationsUpdateOK().WithPayload(responseObject)
 	})
 
 	api.ThingTemplatesWeaviateThingTemplatesCreateHandler = thing_templates.WeaviateThingTemplatesCreateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesCreate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return thing_templates.NewWeaviateThingTemplatesCreateForbidden()
+		}
+
+		// Create basic DataBase object
+		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeThingTemplate)
+
+		// Set the generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create response Object from create object.
+		responseObject := &models.ThingTemplateGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return thing_templates.NewWeaviateThingTemplatesCreateAccepted().WithPayload(responseObject)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesDeleteHandler = thing_templates.WeaviateThingTemplatesDeleteHandlerFunc(func(params thing_templates.WeaviateThingTemplatesDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesDelete has not yet been implemented")
+		// This is a delete function, validate if allowed to read?
+		if dbconnector.DeleteAllowed(principal) == false {
+			return thing_templates.NewWeaviateThingTemplatesDeleteForbidden()
+		}
+
+		// Get item from database
+		databaseObject, errGet := databaseConnector.Get(params.ThingTemplateID)
+
+		// Not found
+		if databaseObject.Deleted || errGet != nil {
+			return thing_templates.NewWeaviateThingTemplatesDeleteNotFound()
+		}
+
+		// Set deleted values
+		databaseObject.MakeObjectDeleted()
+
+		// Add new row as GO-routine
+		go databaseConnector.Add(databaseObject)
+
+		// Return 'No Content'
+		return thing_templates.NewWeaviateThingTemplatesDeleteNoContent()
 	})
 	api.ThingTemplatesWeaviateThingTemplatesGetHandler = thing_templates.WeaviateThingTemplatesGetHandlerFunc(func(params thing_templates.WeaviateThingTemplatesGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesGet has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return thing_templates.NewWeaviateThingTemplatesGetForbidden()
+		}
+
+		// Get item from database
+		dbObject, err := databaseConnector.Get(params.ThingTemplateID)
+
+		// Object is deleted eleted
+		if dbObject.Deleted || err != nil {
+			return thing_templates.NewWeaviateThingTemplatesGetNotFound()
+		}
+
+		// Create object to return
+		responseObject := &models.ThingTemplateGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Get is successful
+		return thing_templates.NewWeaviateThingTemplatesGetOK().WithPayload(responseObject)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesListHandler = thing_templates.WeaviateThingTemplatesListHandlerFunc(func(params thing_templates.WeaviateThingTemplatesListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesList has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return thing_templates.NewWeaviateThingTemplatesListForbidden()
+		}
+
+		// Get limit
+		//limit := getLimit(params.maxResults)
+		limit := int(maxResultsOverride)
+
+		// List all results
+		thingTemplatesDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThingTemplate, limit)
+
+		// Convert to an response object
+		responseObject := &models.ThingTemplatesListResponse{}
+		responseObject.ThingTemplates = make([]*models.ThingTemplateGetResponse, len(thingTemplatesDatabaseObjects))
+
+		// Loop to fill response project
+		for i, thingTemplatesDatabaseObject := range thingTemplatesDatabaseObjects {
+			thingTemplateObject := &models.ThingTemplateGetResponse{}
+			json.Unmarshal([]byte(thingTemplatesDatabaseObject.Object), thingTemplateObject)
+			thingTemplateObject.ID = strfmt.UUID(thingTemplatesDatabaseObject.Uuid)
+			responseObject.ThingTemplates[i] = thingTemplateObject
+		}
+
+		// Add totalResults to response object.
+		responseObject.TotalResults = int32(totalResults)
+		responseObject.Kind = getKind(responseObject)
+
+		return thing_templates.NewWeaviateThingTemplatesListOK().WithPayload(responseObject)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesPatchHandler = thing_templates.WeaviateThingTemplatesPatchHandlerFunc(func(params thing_templates.WeaviateThingTemplatesPatchParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesPatch has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return thing_templates.NewWeaviateThingTemplatesPatchForbidden()
+		}
+
+		// Get and transform object
+		UUID := params.ThingTemplateID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// Return error if UUID is not found.
+		if dbObject.Deleted || errGet != nil {
+			return thing_templates.NewWeaviateThingTemplatesPatchNotFound()
+		}
+
+		// Get PATCH params in format RFC 6902
+		jsonBody, marshalErr := json.Marshal(params.Body)
+		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
+
+		if marshalErr != nil || decodeErr != nil {
+			return thing_templates.NewWeaviateThingTemplatesPatchBadRequest()
+		}
+
+		// Apply the patch
+		updatedJSON, applyErr := patchObject.Apply([]byte(dbObject.Object))
+
+		if applyErr != nil {
+			return thing_templates.NewWeaviateThingTemplatesPatchUnprocessableEntity()
+		}
+
+		// Set patched JSON back in dbObject
+		dbObject.Object = string(updatedJSON)
+
+		dbObject.SetCreateTimeMsToNow()
+		go databaseConnector.Add(dbObject)
+
+		// Create return Object
+		responseObject := &models.ThingTemplateGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		return thing_templates.NewWeaviateThingTemplatesPatchOK().WithPayload(responseObject)
 	})
 	api.ThingTemplatesWeaviateThingTemplatesUpdateHandler = thing_templates.WeaviateThingTemplatesUpdateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesUpdate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return thing_templates.NewWeaviateThingTemplatesUpdateForbidden()
+		}
+
+		// Get item from database
+		UUID := params.ThingTemplateID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// If there are no results, there is an error
+		if dbObject.Deleted || errGet != nil {
+			// Object not found response.
+			return thing_templates.NewWeaviateThingTemplatesUpdateNotFound()
+		}
+
+		// Set the body-id and generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+		dbObject.SetCreateTimeMsToNow()
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create object to return
+		responseObject := &models.ThingTemplateGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return thing_templates.NewWeaviateThingTemplatesUpdateOK().WithPayload(responseObject)
 	})
-	api.ThingTemplatesWeaviateThingTemplatesValidateHandler = thing_templates.WeaviateThingTemplatesValidateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesValidateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesValidate has not yet been implemented")
+	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation things.WeaviateThingsCreate has not yet been implemented")
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation things.WeaviateThingsDelete has not yet been implemented")
@@ -425,9 +606,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation things.WeaviateThingsGet has not yet been implemented")
-	})
-	api.ThingsWeaviateThingsInsertHandler = things.WeaviateThingsInsertHandlerFunc(func(params things.WeaviateThingsInsertParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation things.WeaviateThingsInsert has not yet been implemented")
 	})
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation things.WeaviateThingsList has not yet been implemented")
