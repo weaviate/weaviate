@@ -276,11 +276,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get is successful
 		return locations.NewWeaviateLocationsGetOK().WithPayload(object)
 	})
-	api.LocationsWeaviateLocationsInsertHandler = locations.WeaviateLocationsInsertHandlerFunc(func(params locations.WeaviateLocationsInsertParams, principal interface{}) middleware.Responder {
+	api.LocationsWeaviateLocationsCreateHandler = locations.WeaviateLocationsCreateHandlerFunc(func(params locations.WeaviateLocationsCreateParams, principal interface{}) middleware.Responder {
 
 		// This is a write function, validate if allowed to read?
 		if dbconnector.WriteAllowed(principal) == false {
-			return locations.NewWeaviateLocationsInsertForbidden()
+			return locations.NewWeaviateLocationsCreateForbidden()
 		}
 
 		// Create basic DataBase object
@@ -580,25 +580,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return thing_templates.NewWeaviateThingTemplatesUpdateOK().WithPayload(object)
-	})
-
-	api.ThingTemplatesWeaviateThingTemplatesCreateHandler = thing_templates.WeaviateThingTemplatesCreateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesCreate has not yet been implemented")
-	})
-	api.ThingTemplatesWeaviateThingTemplatesDeleteHandler = thing_templates.WeaviateThingTemplatesDeleteHandlerFunc(func(params thing_templates.WeaviateThingTemplatesDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesDelete has not yet been implemented")
-	})
-	api.ThingTemplatesWeaviateThingTemplatesGetHandler = thing_templates.WeaviateThingTemplatesGetHandlerFunc(func(params thing_templates.WeaviateThingTemplatesGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesGet has not yet been implemented")
-	})
-	api.ThingTemplatesWeaviateThingTemplatesListHandler = thing_templates.WeaviateThingTemplatesListHandlerFunc(func(params thing_templates.WeaviateThingTemplatesListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesList has not yet been implemented")
-	})
-	api.ThingTemplatesWeaviateThingTemplatesPatchHandler = thing_templates.WeaviateThingTemplatesPatchHandlerFunc(func(params thing_templates.WeaviateThingTemplatesPatchParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesPatch has not yet been implemented")
-	})
-	api.ThingTemplatesWeaviateThingTemplatesUpdateHandler = thing_templates.WeaviateThingTemplatesUpdateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation thing_templates.WeaviateThingTemplatesUpdate has not yet been implemented")
 	})
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation things.WeaviateThingsCreate has not yet been implemented")
