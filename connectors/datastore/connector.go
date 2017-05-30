@@ -188,27 +188,29 @@ func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 }
 
 // List lists the items from Datastore by refType and limit
-func (f *Datastore) List(refType string, limit int) ([]dbconnector.DatabaseObject, error) {
+func (f *Datastore) List(refType string, limit int) ([]dbconnector.DatabaseObject, int, error) {
 	// Set ctx and kind.
 	ctx := context.Background()
 	f.kind = "weaviate"
 
 	// Make list query
 	query := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false).Order("-CreateTimeMs").Limit(limit)
+	totalResultsQuery := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false)
 
 	// Fill object with results
 	dbObjects := []dbconnector.DatabaseObject{}
 	_, err := f.client.GetAll(ctx, query, &dbObjects)
+	totalResults, errTotal := f.client.Count(ctx, totalResultsQuery)
 
 	// Return error and empty object
-	if err != nil {
+	if err != nil || errTotal != nil {
 		log.Fatalf("Failed to load task: %v", err)
 
-		return []dbconnector.DatabaseObject{}, err
+		return []dbconnector.DatabaseObject{}, 0, err
 	}
 
 	// Return list with objects
-	return dbObjects, nil
+	return dbObjects, totalResults, nil
 }
 
 // Validate if a user has access, returns permissions object
