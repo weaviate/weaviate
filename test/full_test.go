@@ -184,12 +184,12 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 
 	bodyGet := getResponseBody(responseGet)
 
-	respObjectGet := &models.Location{}
+	respObjectGet := &models.LocationGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
 
 	// Check name after update and get
 	if respObjectGet.AddressComponents[0].LongName != newLongName {
-		t.Errorf("Expected updated Long Name after GET %s. Got %s\n", newLongName, respObject.AddressComponents[0].LongName)
+		t.Errorf("Expected updated Long Name after GET %s. Got %s\n", newLongName, respObjectGet.AddressComponents[0].LongName)
 	}
 
 	// Check put on non-existing ID
@@ -287,7 +287,7 @@ func Test__weaviate_location_delete_JSON(t *testing.T) {
 }
 
 // weaviate.thing_template.create
-func Test__weaviate_thing_templates_create_JSON(t *testing.T) {
+func Test__weaviate_thing_template_create_JSON(t *testing.T) {
 	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(`{
 		"commandsId": "11111111-1111-1111-1111-111111111111",
@@ -330,8 +330,8 @@ func Test__weaviate_thing_templates_create_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 }
 
-// weaviate.thing_templates.list
-func Test__weaviate_thing_templates_list_JSON(t *testing.T) {
+// weaviate.thing_template.list
+func Test__weaviate_thing_template_list_JSON(t *testing.T) {
 	// Create list request
 	response := doRequest("/thingTemplates", "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -351,8 +351,8 @@ func Test__weaviate_thing_templates_list_JSON(t *testing.T) {
 	}
 }
 
-// weaviate.thing_templates.get
-func Test__weaviate_thing_templates_get_JSON(t *testing.T) {
+// weaviate.thing_template.get
+func Test__weaviate_thing_template_get_JSON(t *testing.T) {
 	// Create get request
 	response := doRequest("/thingTemplates/"+thingTemplateID, "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -380,8 +380,71 @@ func Test__weaviate_thing_templates_get_JSON(t *testing.T) {
 	}
 }
 
-// weaviate.thing_templates.patch
-func Test__weaviate_thing_templates_patch_JSON(t *testing.T) {
+// weaviate.thing_template.update
+func Test__weaviate_thing_template_update_JSON(t *testing.T) {
+	// Create update request
+	newValue := "updated_name"
+	jsonStr := bytes.NewBuffer([]byte(`{
+		"commandsId": "11111111-1111-1111-1111-111111111111",
+		"thingModelTemplate": {
+			"modelName": "` + newValue + `",
+			"oemNumber": "TEST number",
+			"oemAdditions": {
+				"testAdd": 1,
+				"testAdd2": "two",
+				"testAddObj": {
+					"testobj": "value"
+				}
+			},
+			"oemName": "TEST oemname",
+			"oemIcon": "TEST oemicon",
+			"oemContact": "TEST oemcontact"
+		},
+		"name": "TEST THING TEMPLATE"
+	}`))
+	response := doRequest("/thingTemplates/"+thingTemplateID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
+
+	body := getResponseBody(response)
+
+	respObject := &models.ThingTemplateGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check thingTemplate ID is same
+	if string(respObject.ID) != thingTemplateID {
+		t.Errorf("Expected ID %s. Got %s\n", thingTemplateID, respObject.ID)
+	}
+
+	// Check name after update
+	if respObject.ThingModelTemplate.ModelName != newValue {
+		t.Errorf("Expected updated model name %s. Got %s\n", newValue, respObject.ThingModelTemplate.ModelName)
+	}
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Check if update is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/thingTemplates/"+thingTemplateID, "GET", "application/json", nil, apiKeyCmdLine)
+
+	bodyGet := getResponseBody(responseGet)
+
+	respObjectGet := &models.ThingTemplateGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
+
+	// Check name after update and get
+	if respObjectGet.ThingModelTemplate.ModelName != newValue {
+		t.Errorf("Expected updated model name after GET %s. Got %s\n", newValue, respObjectGet.ThingModelTemplate.ModelName)
+	}
+
+	// Check put on non-existing ID
+	emptyJSON := bytes.NewBuffer([]byte(`{}`))
+	responseNotFound := doRequest("/thingTemplates/11111111-1111-1111-1111-111111111111", "PUT", "application/json", emptyJSON, apiKeyCmdLine)
+	if responseNotFound.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected response code for not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
+	}
+}
+
+// weaviate.thing_template.patch
+func Test__weaviate_thing_template_patch_JSON(t *testing.T) {
 	// Create patch request
 	newValue := "patched_name"
 
@@ -436,8 +499,8 @@ func Test__weaviate_thing_templates_patch_JSON(t *testing.T) {
 	}
 }
 
-// weaviate.thing_templates.delete
-func Test__weaviate_thing_templates_delete_JSON(t *testing.T) {
+// weaviate.thing_template.delete
+func Test__weaviate_thing_template_delete_JSON(t *testing.T) {
 	// Create delete request
 	response := doRequest("/thingTemplates/"+thingTemplateID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
