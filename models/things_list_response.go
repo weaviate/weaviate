@@ -31,9 +31,6 @@ type ThingsListResponse struct {
 	// Identifies what kind of resource this is. Value: the fixed string "weaviate#thingsListResponse".
 	Kind *string `json:"kind,omitempty"`
 
-	// Token corresponding to the next page of things.
-	NextPageToken string `json:"nextPageToken,omitempty"`
-
 	// The actual list of things.
 	Things []*ThingGetResponse `json:"things"`
 

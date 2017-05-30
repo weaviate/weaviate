@@ -30,6 +30,9 @@ type GroupsListResponse struct {
 
 	// The list of groups.
 	Groups []*GroupGetResponse `json:"groups"`
+
+	// Identifies what kind of resource this is. Value: the fixed string "weaviate#groupsListResponse".
+	Kind *string `json:"kind,omitempty"`
 }
 
 // Validate validates this groups list response

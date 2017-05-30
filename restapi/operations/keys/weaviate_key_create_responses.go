@@ -108,6 +108,27 @@ func (o *WeaviateKeyCreateForbidden) WriteResponse(rw http.ResponseWriter, produ
 	rw.WriteHeader(403)
 }
 
+// WeaviateKeyCreateUnprocessableEntityCode is the HTTP code returned for type WeaviateKeyCreateUnprocessableEntity
+const WeaviateKeyCreateUnprocessableEntityCode int = 422
+
+/*WeaviateKeyCreateUnprocessableEntity Can not validate, check the body.
+
+swagger:response weaviateKeyCreateUnprocessableEntity
+*/
+type WeaviateKeyCreateUnprocessableEntity struct {
+}
+
+// NewWeaviateKeyCreateUnprocessableEntity creates WeaviateKeyCreateUnprocessableEntity with default headers values
+func NewWeaviateKeyCreateUnprocessableEntity() *WeaviateKeyCreateUnprocessableEntity {
+	return &WeaviateKeyCreateUnprocessableEntity{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateKeyCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+}
+
 // WeaviateKeyCreateNotImplementedCode is the HTTP code returned for type WeaviateKeyCreateNotImplemented
 const WeaviateKeyCreateNotImplementedCode int = 501
 
