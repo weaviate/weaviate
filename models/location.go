@@ -40,8 +40,8 @@ type Location struct {
 	// The list of groups.
 	Groups []*Group `json:"groups"`
 
-	// The ID of the place corresponding the location.
-	PlaceID strfmt.UUID `json:"place_id,omitempty"`
+	// The ID of the place corresponding the location (optional Google Maps place_id).
+	PlaceID string `json:"place_id,omitempty"`
 
 	// Location type from list.
 	Types []LocationsAddressTypes `json:"types"`

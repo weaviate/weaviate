@@ -34,9 +34,6 @@ type EventsListResponse struct {
 	// Identifies what kind of resource this is. Value: the fixed string "weaviate#eventsListResponse".
 	Kind *string `json:"kind,omitempty"`
 
-	// Token for the next page of events.
-	NextPageToken string `json:"nextPageToken,omitempty"`
-
 	// The total number of events for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int32 `json:"totalResults,omitempty"`
 }

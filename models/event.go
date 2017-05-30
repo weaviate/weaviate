@@ -32,9 +32,6 @@ type Event struct {
 	// Command id.
 	CommandID strfmt.UUID `json:"commandId,omitempty"`
 
-	// Identifies what kind of resource this is. Value: the fixed string "weaviate#event".
-	Kind *string `json:"kind,omitempty"`
-
 	// Time the event was generated in milliseconds since epoch UTC.
 	TimeMs int64 `json:"timeMs,omitempty"`
 

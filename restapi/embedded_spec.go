@@ -67,6 +67,14 @@ func init() {
         ],
         "summary": "Get a list of commands related to this key.",
         "operationId": "weaviate.commands.list",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -90,12 +98,12 @@ func init() {
         "x-available-in-mqtt": false
       },
       "post": {
-        "description": "Inserts and sends a new command.",
+        "description": "Creates and sends a new command.",
         "tags": [
           "commands"
         ],
         "summary": "Create a new command related to this key related to this key.",
-        "operationId": "weaviate.commands.insert",
+        "operationId": "weaviate.commands.create",
         "parameters": [
           {
             "name": "body",
@@ -118,6 +126,9 @@ func init() {
           },
           "403": {
             "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Can not validate, check the body."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -243,6 +254,9 @@ func init() {
           "404": {
             "description": "Successful query result but no resource was found."
           },
+          "422": {
+            "description": "Can not validate, check the body."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -349,6 +363,14 @@ func init() {
         ],
         "summary": "Get a list of groups related to this key.",
         "operationId": "weaviate.groups.list",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -372,12 +394,12 @@ func init() {
         "x-available-in-mqtt": false
       },
       "post": {
-        "description": "Inserts group.",
+        "description": "Creates group.",
         "tags": [
           "groups"
         ],
         "summary": "Create a new group related to this key.",
-        "operationId": "weaviate.groups.insert",
+        "operationId": "weaviate.groups.create",
         "parameters": [
           {
             "name": "body",
@@ -400,6 +422,9 @@ func init() {
           },
           "403": {
             "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Can not validate, check the body."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -486,6 +511,9 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Can not validate, check the body."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -599,6 +627,12 @@ func init() {
             "name": "groupId",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
           }
         ],
         "responses": {
@@ -616,9 +650,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "422": {
-            "description": "Can not execute this command, because the commandParameters{} are set incorrectly."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -751,6 +782,9 @@ func init() {
           "403": {
             "description": "The used API-key has insufficient permissions."
           },
+          "422": {
+            "description": "Can not validate, check the body."
+          },
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -880,6 +914,14 @@ func init() {
         ],
         "summary": "Get a list of locations related to this key.",
         "operationId": "weaviate.locations.list",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -903,12 +945,12 @@ func init() {
         "x-available-in-mqtt": false
       },
       "post": {
-        "description": "Inserts location.",
+        "description": "Create location.",
         "tags": [
           "locations"
         ],
         "summary": "Create a new location related to this key.",
-        "operationId": "weaviate.locations.insert",
+        "operationId": "weaviate.locations.create",
         "parameters": [
           {
             "name": "body",
@@ -931,6 +973,9 @@ func init() {
           },
           "403": {
             "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Can not validate, check the body."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1017,6 +1062,9 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Can not validate, check the body."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1123,6 +1171,14 @@ func init() {
         ],
         "summary": "Get a list of thing template related to this key.",
         "operationId": "weaviate.thingTemplates.list",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -1146,7 +1202,7 @@ func init() {
         "x-available-in-mqtt": false
       },
       "post": {
-        "description": "Inserts a new thing template manifest.",
+        "description": "Creates a new thing template manifest.",
         "tags": [
           "thingTemplates"
         ],
@@ -1168,41 +1224,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ThingTemplateGetResponse"
             }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false
-      }
-    },
-    "/thingTemplates/validate": {
-      "post": {
-        "description": "Validates a template, will respond if it is a valid thing template.",
-        "tags": [
-          "thingTemplates"
-        ],
-        "summary": "Validate if a thing template is correct.",
-        "operationId": "weaviate.thingTemplates.validate",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/ThingTemplate"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful validated."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1298,6 +1319,9 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Can not validate, check the body."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1405,6 +1429,14 @@ func init() {
         ],
         "summary": "Get a list of things related to this key.",
         "operationId": "weaviate.things.list",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -1433,7 +1465,7 @@ func init() {
           "things"
         ],
         "summary": "Create a new thing based on a thing template related to this key.",
-        "operationId": "weaviate.things.insert",
+        "operationId": "weaviate.things.create",
         "parameters": [
           {
             "name": "body",
@@ -1456,6 +1488,9 @@ func init() {
           },
           "403": {
             "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Can not validate, check the body."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1542,6 +1577,9 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Can not validate, check the body."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1656,6 +1694,12 @@ func init() {
             "name": "thingId",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
           }
         ],
         "responses": {
@@ -1716,6 +1760,9 @@ func init() {
           },
           "403": {
             "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Can not validate, check the body."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1864,6 +1911,11 @@ func init() {
             "id": {
               "type": "string",
               "format": "uuid"
+            },
+            "kind": {
+              "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#commandGetResponse\".",
+              "type": "string",
+              "default": "weaviate#commandGetResponse"
             }
           }
         }
@@ -1933,10 +1985,6 @@ func init() {
           "type": "string",
           "default": "weaviate#commandsListResponse"
         },
-        "nextPageToken": {
-          "description": "Token for the next page of commands.",
-          "type": "string"
-        },
         "totalResults": {
           "description": "The total number of commands for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
@@ -1959,11 +2007,6 @@ func init() {
           "description": "Command id.",
           "type": "string",
           "format": "uuid"
-        },
-        "kind": {
-          "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#event\".",
-          "type": "string",
-          "default": "weaviate#event"
         },
         "timeMs": {
           "description": "Time the event was generated in milliseconds since epoch UTC.",
@@ -2002,6 +2045,11 @@ func init() {
               "description": "ID of the event.",
               "type": "string",
               "format": "uuid"
+            },
+            "kind": {
+              "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#eventGetResponse\".",
+              "type": "string",
+              "default": "weaviate#eventGetResponse"
             }
           }
         }
@@ -2022,10 +2070,6 @@ func init() {
           "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#eventsListResponse\".",
           "type": "string",
           "default": "weaviate#eventsListResponse"
-        },
-        "nextPageToken": {
-          "description": "Token for the next page of events.",
-          "type": "string"
         },
         "totalResults": {
           "description": "The total number of events for the query. The number of items in a response may be smaller due to paging.",
@@ -2064,6 +2108,11 @@ func init() {
               "description": "ID of the group.",
               "type": "string",
               "format": "uuid"
+            },
+            "kind": {
+              "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#groupGetResponse\".",
+              "type": "string",
+              "default": "weaviate#groupGetResponse"
             }
           }
         }
@@ -2086,6 +2135,11 @@ func init() {
           "items": {
             "$ref": "#/definitions/GroupGetResponse"
           }
+        },
+        "kind": {
+          "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#groupsListResponse\".",
+          "type": "string",
+          "default": "weaviate#groupsListResponse"
         }
       }
     },
@@ -2149,6 +2203,11 @@ func init() {
             "key": {
               "description": "Key for user to use.",
               "type": "string"
+            },
+            "kind": {
+              "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#keyGetResponse\".",
+              "type": "string",
+              "default": "weaviate#keyGetResponse"
             },
             "parent": {
               "description": "Parent key. A parent allways has access to a child. Root key has parent value 0. Only a user with a root of 0 can set a root key.",
@@ -2267,9 +2326,8 @@ func init() {
           }
         },
         "place_id": {
-          "description": "The ID of the place corresponding the location.",
-          "type": "string",
-          "format": "uuid"
+          "description": "The ID of the place corresponding the location (optional Google Maps place_id).",
+          "type": "string"
         },
         "types": {
           "description": "Location type from list.",
@@ -2302,6 +2360,11 @@ func init() {
               "description": "ID of the location.",
               "type": "string",
               "format": "uuid"
+            },
+            "kind": {
+              "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#locationGetResponse\".",
+              "type": "string",
+              "default": "weaviate#locationGetResponse"
             }
           }
         }
@@ -2454,12 +2517,22 @@ func init() {
     "LocationsListResponse": {
       "type": "object",
       "properties": {
+        "kind": {
+          "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#locationsListResponse\".",
+          "type": "string",
+          "default": "weaviate#locationsListResponse"
+        },
         "locations": {
           "description": "The list of locations.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/LocationGetResponse"
           }
+        },
+        "totalResults": {
+          "description": "The total number of locations for the query. The number of items in a response may be smaller due to paging.",
+          "type": "integer",
+          "format": "int32"
         }
       }
     },
@@ -2614,6 +2687,11 @@ func init() {
             "id": {
               "type": "string",
               "format": "uuid"
+            },
+            "kind": {
+              "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#thingGetResponse\".",
+              "type": "string",
+              "default": "weaviate#thingGetResponse"
             }
           }
         }
@@ -2679,6 +2757,11 @@ func init() {
             "id": {
               "type": "string",
               "format": "uuid"
+            },
+            "kind": {
+              "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#thingTemplateGetResponse\".",
+              "type": "string",
+              "default": "weaviate#thingTemplateGetResponse"
             }
           }
         }
@@ -2692,10 +2775,6 @@ func init() {
           "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#thingTemplatesListResponse\".",
           "type": "string",
           "default": "weaviate#thingTemplatesListResponse"
-        },
-        "nextPageToken": {
-          "description": "Token corresponding to the next page of model manifests.",
-          "type": "string"
         },
         "thingTemplates": {
           "description": "The actual list of model manifests.",
@@ -2728,10 +2807,6 @@ func init() {
           "type": "string",
           "default": "weaviate#thingsListResponse"
         },
-        "nextPageToken": {
-          "description": "Token corresponding to the next page of things.",
-          "type": "string"
-        },
         "things": {
           "description": "The actual list of things.",
           "type": "array",
@@ -2745,6 +2820,20 @@ func init() {
           "format": "int32"
         }
       }
+    }
+  },
+  "parameters": {
+    "CommonMaxResultsParameterQuery": {
+      "type": "integer",
+      "description": "The maximum number of items to be returned per page.",
+      "name": "maxResults",
+      "in": "query"
+    },
+    "CommonPageParameterQuery": {
+      "type": "integer",
+      "description": "The page number of the items to be returned.",
+      "name": "page",
+      "in": "query"
     }
   },
   "securityDefinitions": {

@@ -19,11 +19,18 @@ import (
 	"errors"
 	"net/url"
 	golangswaggerpaths "path"
+
+	"github.com/go-openapi/swag"
 )
 
 // WeaviateLocationsListURL generates an URL for the weaviate locations list operation
 type WeaviateLocationsListURL struct {
+	MaxResults *int64
+	Page       *int64
+
 	_basePath string
+	// avoid unkeyed usage
+	_ struct{}
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
@@ -52,6 +59,26 @@ func (o *WeaviateLocationsListURL) Build() (*url.URL, error) {
 		_basePath = "/weaviate/v1"
 	}
 	result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var maxResults string
+	if o.MaxResults != nil {
+		maxResults = swag.FormatInt64(*o.MaxResults)
+	}
+	if maxResults != "" {
+		qs.Set("maxResults", maxResults)
+	}
+
+	var page string
+	if o.Page != nil {
+		page = swag.FormatInt64(*o.Page)
+	}
+	if page != "" {
+		qs.Set("page", page)
+	}
+
+	result.RawQuery = qs.Encode()
 
 	return &result, nil
 }

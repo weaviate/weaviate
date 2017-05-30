@@ -129,6 +129,27 @@ func (o *WeaviateThingTemplatesUpdateNotFound) WriteResponse(rw http.ResponseWri
 	rw.WriteHeader(404)
 }
 
+// WeaviateThingTemplatesUpdateUnprocessableEntityCode is the HTTP code returned for type WeaviateThingTemplatesUpdateUnprocessableEntity
+const WeaviateThingTemplatesUpdateUnprocessableEntityCode int = 422
+
+/*WeaviateThingTemplatesUpdateUnprocessableEntity Can not validate, check the body.
+
+swagger:response weaviateThingTemplatesUpdateUnprocessableEntity
+*/
+type WeaviateThingTemplatesUpdateUnprocessableEntity struct {
+}
+
+// NewWeaviateThingTemplatesUpdateUnprocessableEntity creates WeaviateThingTemplatesUpdateUnprocessableEntity with default headers values
+func NewWeaviateThingTemplatesUpdateUnprocessableEntity() *WeaviateThingTemplatesUpdateUnprocessableEntity {
+	return &WeaviateThingTemplatesUpdateUnprocessableEntity{}
+}
+
+// WriteResponse to the client
+func (o *WeaviateThingTemplatesUpdateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(422)
+}
+
 // WeaviateThingTemplatesUpdateNotImplementedCode is the HTTP code returned for type WeaviateThingTemplatesUpdateNotImplemented
 const WeaviateThingTemplatesUpdateNotImplementedCode int = 501
 
