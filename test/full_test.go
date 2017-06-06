@@ -711,31 +711,31 @@ func Test__weaviate_command_patch_JSON(t *testing.T) {
 }
 
 // // weaviate.command.delete
-// func Test__weaviate_command_delete_JSON(t *testing.T) {
-// 	// Create delete request
-// 	response := doRequest("/commands/"+commandID, "DELETE", "application/json", nil, apiKeyCmdLine)
+func Test__weaviate_command_delete_JSON(t *testing.T) {
+	// Create delete request
+	response := doRequest("/commands/"+commandID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
-// 	// Check status code get request
-// 	if response.StatusCode != http.StatusNoContent {
-// 		t.Errorf("Expected response code %d. Got %d\n", http.StatusNoContent, response.StatusCode)
-// 	}
+	// Check status code get request
+	if response.StatusCode != http.StatusNoContent {
+		t.Errorf("Expected response code %d. Got %d\n", http.StatusNoContent, response.StatusCode)
+	}
 
-// 	// Test is faster than adding to DB.
-// 	time.Sleep(1 * time.Second)
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 
-// 	// Create delete request
-// 	responseAlreadyDeleted := doRequest("/commands/"+commandID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	// Create delete request
+	responseAlreadyDeleted := doRequest("/commands/"+commandID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
-// 	// Check status code get request
-// 	if responseAlreadyDeleted.StatusCode != http.StatusNotFound {
-// 		t.Errorf("Expected response code already deleted %d. Got %d\n", http.StatusNotFound, responseAlreadyDeleted.StatusCode)
-// 	}
+	// Check status code get request
+	if responseAlreadyDeleted.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected response code already deleted %d. Got %d\n", http.StatusNotFound, responseAlreadyDeleted.StatusCode)
+	}
 
-// 	// Create get request with non-existing location
-// 	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "DELETE", "application/json", nil, apiKeyCmdLine)
+	// Create get request with non-existing location
+	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "DELETE", "application/json", nil, apiKeyCmdLine)
 
-// 	// Check response of non-existing location
-// 	if responseNotFound.StatusCode != http.StatusNotFound {
-// 		t.Errorf("Expected response code not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
-// 	}
-// }
+	// Check response of non-existing location
+	if responseNotFound.StatusCode != http.StatusNotFound {
+		t.Errorf("Expected response code not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
+	}
+}

@@ -10,12 +10,13 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
+
+// Package restapi with all rest API functions.
 package restapi
 
 import (
 	"crypto/tls"
 	"encoding/json"
-	"io"
 	"io/ioutil"
 	"log"
 	"math"
@@ -58,8 +59,8 @@ const refTypeThingTemplate string = "#/paths/thingTemplates"
 const maxResultsOverride int64 = 100
 
 func init() {
-	var discard io.Writer = ioutil.Discard
-	var myGRPCLogger grpclog.Logger = log.New(discard, "", log.LstdFlags)
+	discard := ioutil.Discard
+	myGRPCLogger := log.New(discard, "", log.LstdFlags)
 	grpclog.SetLogger(myGRPCLogger)
 }
 
@@ -191,7 +192,27 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return commands.NewWeaviateCommandsCreateAccepted().WithPayload(responseObject)
 	})
 	api.CommandsWeaviateCommandsDeleteHandler = commands.WeaviateCommandsDeleteHandlerFunc(func(params commands.WeaviateCommandsDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsDelete has not yet been implemented")
+		// This is a delete function, validate if allowed to read?
+		if dbconnector.DeleteAllowed(principal) == false {
+			return commands.NewWeaviateCommandsDeleteForbidden()
+		}
+
+		// Get item from database
+		databaseObject, errGet := databaseConnector.Get(params.CommandID)
+
+		// Not found
+		if databaseObject.Deleted || errGet != nil {
+			return commands.NewWeaviateCommandsDeleteNotFound()
+		}
+
+		// Set deleted values
+		databaseObject.MakeObjectDeleted()
+
+		// Add new row as GO-routine
+		go databaseConnector.Add(databaseObject)
+
+		// Return 'No Content'
+		return commands.NewWeaviateCommandsDeleteNoContent()
 	})
 	api.CommandsWeaviateCommandsGetHandler = commands.WeaviateCommandsGetHandlerFunc(func(params commands.WeaviateCommandsGetParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
