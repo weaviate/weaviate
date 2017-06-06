@@ -326,6 +326,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			locationObject := &models.LocationGetResponse{}
 			json.Unmarshal([]byte(locationDatabaseObject.Object), locationObject)
 			locationObject.ID = strfmt.UUID(locationDatabaseObject.Uuid)
+			locationObject.Kind = getKind(locationObject)
 			responseObject.Locations[i] = locationObject
 		}
 
@@ -505,6 +506,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			thingTemplateObject := &models.ThingTemplateGetResponse{}
 			json.Unmarshal([]byte(thingTemplatesDatabaseObject.Object), thingTemplateObject)
 			thingTemplateObject.ID = strfmt.UUID(thingTemplatesDatabaseObject.Uuid)
+			thingTemplateObject.Kind = getKind(thingTemplateObject)
 			responseObject.ThingTemplates[i] = thingTemplateObject
 		}
 
