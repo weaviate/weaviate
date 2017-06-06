@@ -251,7 +251,36 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsPatch has not yet been implemented")
 	})
 	api.CommandsWeaviateCommandsUpdateHandler = commands.WeaviateCommandsUpdateHandlerFunc(func(params commands.WeaviateCommandsUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsUpdate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return commands.NewWeaviateCommandsUpdateForbidden()
+		}
+
+		// Get item from database
+		UUID := params.CommandID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// If there are no results, there is an error
+		if dbObject.Deleted || errGet != nil {
+			// Object not found response.
+			return commands.NewWeaviateCommandsUpdateNotFound()
+		}
+
+		// Set the body-id and generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+		dbObject.SetCreateTimeMsToNow()
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create object to return
+		responseObject := &models.CommandGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return commands.NewWeaviateCommandsUpdateOK().WithPayload(responseObject)
 	})
 	api.CommandsWeaviateCommandsValidateHandler = commands.WeaviateCommandsValidateHandlerFunc(func(params commands.WeaviateCommandsValidateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsValidate has not yet been implemented")
