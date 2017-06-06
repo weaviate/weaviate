@@ -194,7 +194,27 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsDelete has not yet been implemented")
 	})
 	api.CommandsWeaviateCommandsGetHandler = commands.WeaviateCommandsGetHandlerFunc(func(params commands.WeaviateCommandsGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsGet has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return commands.NewWeaviateCommandsGetForbidden()
+		}
+
+		// Get item from database
+		dbObject, err := databaseConnector.Get(params.CommandID)
+
+		// Object is deleted eleted
+		if dbObject.Deleted || err != nil {
+			return commands.NewWeaviateCommandsGetNotFound()
+		}
+
+		// Create object to return
+		responseObject := &models.CommandGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Get is successful
+		return commands.NewWeaviateCommandsGetOK().WithPayload(responseObject)
 	})
 	api.CommandsWeaviateCommandsListHandler = commands.WeaviateCommandsListHandlerFunc(func(params commands.WeaviateCommandsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
