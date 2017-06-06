@@ -54,6 +54,7 @@ import (
 )
 
 const refTypeCommand string = "#/paths/commands"
+const refTypeGroup string = "#/paths/groups"
 const refTypeLocation string = "#/paths/locations"
 const refTypeThingTemplate string = "#/paths/thingTemplates"
 const maxResultsOverride int64 = 100
@@ -348,10 +349,51 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsValidate has not yet been implemented")
 	})
 	api.GroupsWeaviateGroupsCreateHandler = groups.WeaviateGroupsCreateHandlerFunc(func(params groups.WeaviateGroupsCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsCreate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return groups.NewWeaviateGroupsCreateForbidden()
+		}
+
+		// Create basic DataBase object
+		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeGroup)
+
+		// Set the generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create response Object from create object.
+		responseObject := &models.GroupGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return groups.NewWeaviateGroupsCreateAccepted().WithPayload(responseObject)
 	})
 	api.GroupsWeaviateGroupsDeleteHandler = groups.WeaviateGroupsDeleteHandlerFunc(func(params groups.WeaviateGroupsDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsDelete has not yet been implemented")
+		// This is a delete function, validate if allowed to read?
+		if dbconnector.DeleteAllowed(principal) == false {
+			return groups.NewWeaviateGroupsDeleteForbidden()
+		}
+
+		// Get item from database
+		databaseObject, errGet := databaseConnector.Get(params.GroupID)
+
+		// Not found
+		if databaseObject.Deleted || errGet != nil {
+			return groups.NewWeaviateGroupsDeleteNotFound()
+		}
+
+		// Set deleted values
+		databaseObject.MakeObjectDeleted()
+
+		// Add new row as GO-routine
+		go databaseConnector.Add(databaseObject)
+
+		// Return 'No Content'
+		return groups.NewWeaviateGroupsDeleteNoContent()
 	})
 	api.EventsWeaviateGroupsEventsCreateHandler = events.WeaviateGroupsEventsCreateHandlerFunc(func(params events.WeaviateGroupsEventsCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation events.WeaviateGroupsEventsCreate has not yet been implemented")
@@ -363,16 +405,134 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation events.WeaviateGroupsEventsList has not yet been implemented")
 	})
 	api.GroupsWeaviateGroupsGetHandler = groups.WeaviateGroupsGetHandlerFunc(func(params groups.WeaviateGroupsGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsGet has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return groups.NewWeaviateGroupsGetForbidden()
+		}
+
+		// Get item from database
+		dbObject, err := databaseConnector.Get(params.GroupID)
+
+		// Object is deleted eleted
+		if dbObject.Deleted || err != nil {
+			return groups.NewWeaviateGroupsGetNotFound()
+		}
+
+		// Create object to return
+		responseObject := &models.GroupGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Get is successful
+		return groups.NewWeaviateGroupsGetOK().WithPayload(responseObject)
 	})
 	api.GroupsWeaviateGroupsListHandler = groups.WeaviateGroupsListHandlerFunc(func(params groups.WeaviateGroupsListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsList has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return groups.NewWeaviateGroupsListForbidden()
+		}
+
+		// Get limit
+		//limit := getLimit(params.maxResults)
+		limit := int(maxResultsOverride)
+
+		// List all results
+		groupsDatabaseObjects, _, _ := databaseConnector.List(refTypeGroup, limit)
+
+		// Convert to an response object
+		responseObject := &models.GroupsListResponse{}
+		responseObject.Groups = make([]*models.GroupGetResponse, len(groupsDatabaseObjects))
+
+		// Loop to fill response project
+		for i, groupsDatabaseObject := range groupsDatabaseObjects {
+			groupObject := &models.GroupGetResponse{}
+			json.Unmarshal([]byte(groupsDatabaseObject.Object), groupObject)
+			groupObject.ID = strfmt.UUID(groupsDatabaseObject.Uuid)
+			responseObject.Groups[i] = groupObject
+		}
+
+		// Add totalResults to response object.
+		//responseObject.TotalResults = int32(totalResults) TODO, https://github.com/weaviate/weaviate-swagger/issues/54
+		responseObject.Kind = getKind(responseObject)
+
+		return groups.NewWeaviateGroupsListOK().WithPayload(responseObject)
 	})
 	api.GroupsWeaviateGroupsPatchHandler = groups.WeaviateGroupsPatchHandlerFunc(func(params groups.WeaviateGroupsPatchParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsPatch has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return groups.NewWeaviateGroupsPatchForbidden()
+		}
+
+		// Get and transform object
+		UUID := params.GroupID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// Return error if UUID is not found.
+		if dbObject.Deleted || errGet != nil {
+			return groups.NewWeaviateGroupsPatchNotFound()
+		}
+
+		// Get PATCH params in format RFC 6902
+		jsonBody, marshalErr := json.Marshal(params.Body)
+		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
+
+		if marshalErr != nil || decodeErr != nil {
+			return groups.NewWeaviateGroupsPatchBadRequest()
+		}
+
+		// Apply the patch
+		updatedJSON, applyErr := patchObject.Apply([]byte(dbObject.Object))
+
+		if applyErr != nil {
+			return groups.NewWeaviateGroupsPatchUnprocessableEntity()
+		}
+
+		// Set patched JSON back in dbObject
+		dbObject.Object = string(updatedJSON)
+
+		dbObject.SetCreateTimeMsToNow()
+		go databaseConnector.Add(dbObject)
+
+		// Create return Object
+		responseObject := &models.GroupGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		return groups.NewWeaviateGroupsPatchOK().WithPayload(responseObject)
 	})
 	api.GroupsWeaviateGroupsUpdateHandler = groups.WeaviateGroupsUpdateHandlerFunc(func(params groups.WeaviateGroupsUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsUpdate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return groups.NewWeaviateGroupsUpdateForbidden()
+		}
+
+		// Get item from database
+		UUID := params.GroupID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// If there are no results, there is an error
+		if dbObject.Deleted || errGet != nil {
+			// Object not found response.
+			return groups.NewWeaviateGroupsUpdateNotFound()
+		}
+
+		// Set the body-id and generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+		dbObject.SetCreateTimeMsToNow()
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create object to return
+		responseObject := &models.GroupGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return groups.NewWeaviateGroupsUpdateOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation keys.WeaviateKeyCreate has not yet been implemented")
