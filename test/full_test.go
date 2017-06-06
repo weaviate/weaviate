@@ -665,63 +665,50 @@ func Test__weaviate_command_update_JSON(t *testing.T) {
 }
 
 // // weaviate.command.patch
-// func Test__weaviate_command_patch_JSON(t *testing.T) {
-// 	// Create patch request
-// 	newValue := "patched_name"
+func Test__weaviate_command_patch_JSON(t *testing.T) {
+	// Create patch request
+	newValue := "patched_name"
 
-// 	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/address_components/0/long_name", "value": "` + newValue + `"}]`))
-// 	response := doRequest("/commands/"+commandID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/name", "value": "` + newValue + `"}]`))
+	response := doRequest("/commands/"+commandID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
-// 	body := getResponseBody(response)
+	body := getResponseBody(response)
 
-// 	respObject := &models.CommandGetResponse{}
-// 	json.Unmarshal(body, respObject)
+	respObject := &models.CommandGetResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	// Check ID is the same
-// 	if string(respObject.ID) != commandID {
-// 		t.Errorf("Expected ID %s. Got %s\n", commandID, respObject.ID)
-// 	}
+	// Check ID is the same
+	testID(t, string(respObject.ID), commandID)
 
-// 	// Check name after patch
-// 	if respObject.AddressComponents[0].LongName != newValue {
-// 		t.Errorf("Expected patched Long Name %s. Got %s\n", newValue, respObject.AddressComponents[0].LongName)
-// 	}
+	// Check name after patch
+	testValues(t, newValue, respObject.Name)
 
-// 	// Check kind
-//
-//  testKind(t, string(*respObject.Kind), "weaviate#commandGetResponse")
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#commandGetResponse")
 
-// 	// Test is faster than adding to DB.
-// 	time.Sleep(1 * time.Second)
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 
-// 	// Check if patch is also applied on object when using a new GET request on same object
-// 	responseGet := doRequest("/commands/"+commandID, "GET", "application/json", nil, apiKeyCmdLine)
+	// Check if patch is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/commands/"+commandID, "GET", "application/json", nil, apiKeyCmdLine)
 
-// 	bodyGet := getResponseBody(responseGet)
+	bodyGet := getResponseBody(responseGet)
 
-// 	respObjectGet := &models.CommandGetResponse{}
-// 	json.Unmarshal(bodyGet, respObjectGet)
+	respObjectGet := &models.CommandGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
 
-// 	// Check name after patch and get
-// 	if respObjectGet.AddressComponents[0].LongName != newValue {
-// 		t.Errorf("Expected patched Long Name after GET %s. Got %s\n", newValue, respObjectGet.AddressComponents[0].LongName)
-// 	}
+	// Check name after patch and get
+	testValues(t, newValue, respObject.Name)
 
-// 	// Check patch with incorrect contents
-// 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newValue + `"}`))
-// 	responseError := doRequest("/commands/"+commandID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+	// Check patch with incorrect contents
+	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/name", "value": "` + newValue + `"}`))
+	responseError := doRequest("/commands/"+commandID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
 
-// 	if responseError.StatusCode != http.StatusBadRequest {
-// 		t.Errorf("Expected response code for wrong input %d. Got %d\n", http.StatusBadRequest, responseError.StatusCode)
-// 	}
-
-// 	// Check patch on non-existing ID
-// 	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "PATCH", "application/json", emptyPatchJSON, apiKeyCmdLine)
-
-// 	if responseNotFound.StatusCode != http.StatusNotFound {
-// 		t.Errorf("Expected response code for not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
-// 	}
-// }
+	// Check patch on non-existing ID
+	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "PATCH", "application/json", emptyPatchJSON, apiKeyCmdLine)
+	testStatusCode(t, responseNotFound.StatusCode, http.StatusNotFound)
+}
 
 // // weaviate.command.delete
 // func Test__weaviate_command_delete_JSON(t *testing.T) {
