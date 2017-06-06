@@ -53,6 +53,7 @@ import (
 )
 
 const refTypeLocation string = "#/paths/locations"
+const refTypeThing string = "#/paths/things"
 const refTypeThingTemplate string = "#/paths/thingTemplates"
 const maxResultsOverride int64 = 100
 
@@ -590,7 +591,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return thing_templates.NewWeaviateThingTemplatesUpdateOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation things.WeaviateThingsCreate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return things.NewWeaviateThingsCreateForbidden()
+		}
+
+		// Create basic DataBase object
+		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeThing)
+
+		// Set the generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create response Object from create object.
+		responseObject := &models.ThingGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation things.WeaviateThingsDelete has not yet been implemented")
