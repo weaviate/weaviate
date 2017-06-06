@@ -60,7 +60,7 @@ func doRequest(endpoint string, method string, accept string, body io.Reader, ap
 // testNotExistsRequest with starting endpoint
 func testNotExistsRequest(t *testing.T, endpointStartsWith string, method string, accept string, body io.Reader, apiKey string) {
 	// Create get request with non-existing ID
-	responseNotFound := doRequest(endpointStartsWith+"/11111111-1111-1111-1111-111111111111", "GET", "application/json", nil, apiKeyCmdLine)
+	responseNotFound := doRequest(endpointStartsWith+"/11111111-1111-1111-1111-111111111111", method, accept, body, apiKey)
 
 	// Check response of non-existing ID
 	testStatusCode(t, responseNotFound.StatusCode, http.StatusNotFound)
@@ -104,6 +104,7 @@ func testValues(t *testing.T, expected string, got string) {
 	}
 }
 
+// getResponseBody converts response body to bytes
 func getResponseBody(response *http.Response) []byte {
 	defer response.Body.Close()
 	body, _ := ioutil.ReadAll(response.Body)
@@ -111,13 +112,21 @@ func getResponseBody(response *http.Response) []byte {
 	return body
 }
 
+// getEmptyJSON returns a buffer with emtpy JSON
+func getEmptyJSON() io.Reader {
+	return bytes.NewBuffer([]byte(`{}`))
+}
+
+// getEmptyPatchJSON returns a buffer with emtpy Patch-JSON
+func getEmptyPatchJSON() io.Reader {
+	return bytes.NewBuffer([]byte(`[{}]`))
+}
+
 var apiKeyCmdLine string
 var commandID string
+var groupID string
 var locationID string
 var thingTemplateID string
-
-var emptyJSON = bytes.NewBuffer([]byte(`{}`))
-var emptyPatchJSON = bytes.NewBuffer([]byte(`[{}]`))
 
 func init() {
 	flag.StringVar(&apiKeyCmdLine, "api-key", "", "API-KEY as used as haeder in the tests.")
@@ -192,7 +201,7 @@ func Test__weaviate_location_get_JSON(t *testing.T) {
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#locationGetResponse")
 
-	// Create get request with non-existing location
+	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/locations", "GET", "application/json", nil, apiKeyCmdLine)
 }
 
@@ -208,7 +217,7 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 	respObject := &models.LocationGetResponse{}
 	json.Unmarshal(body, respObject)
 
-	// Check location ID is same
+	// Check ID is same
 	testID(t, string(respObject.ID), locationID)
 
 	// Check name after update
@@ -233,7 +242,7 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 	testValues(t, newValue, respObject.AddressComponents[0].LongName)
 
 	// Check put on non-existing ID
-	testNotExistsRequest(t, "/locations", "PUT", "application/json", emptyJSON, apiKeyCmdLine)
+	testNotExistsRequest(t, "/locations", "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
 }
 
 // weaviate.location.patch
@@ -279,7 +288,7 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
 
 	// Check patch on non-existing ID
-	testNotExistsRequest(t, "/locations", "PATCH", "application/json", emptyPatchJSON, apiKeyCmdLine)
+	testNotExistsRequest(t, "/locations", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
 }
 
 // weaviate.location.delete
@@ -296,10 +305,10 @@ func Test__weaviate_location_delete_JSON(t *testing.T) {
 	// Create delete request
 	responseAlreadyDeleted := doRequest("/locations/"+locationID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
-	// Check status code get request
+	// Check status already deleted
 	testStatusCode(t, responseAlreadyDeleted.StatusCode, http.StatusNotFound)
 
-	// Create get request with non-existing location
+	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/locations", "DELETE", "application/json", nil, apiKeyCmdLine)
 }
 
@@ -418,7 +427,6 @@ func Test__weaviate_thing_template_update_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check thingTemplate ID is same
-
 	testID(t, string(respObject.ID), thingTemplateID)
 
 	// Check name after update
@@ -427,7 +435,7 @@ func Test__weaviate_thing_template_update_JSON(t *testing.T) {
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#thingTemplateGetResponse")
 
-	//dTest is faster than adding to DB.
+	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
 
 	// Check if update is also applied on object when using a new GET request on same object
@@ -443,7 +451,7 @@ func Test__weaviate_thing_template_update_JSON(t *testing.T) {
 	testValues(t, newValue, respObject.ThingModelTemplate.ModelName)
 
 	// Check put on non-existing ID
-	testNotExistsRequest(t, "/thingTemplates", "PUT", "application/json", emptyJSON, apiKeyCmdLine)
+	testNotExistsRequest(t, "/thingTemplates", "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
 }
 
 // weaviate.thing_template.patch
@@ -460,7 +468,6 @@ func Test__weaviate_thing_template_patch_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check ID is the same
-
 	testID(t, string(respObject.ID), thingTemplateID)
 
 	// Check name after patch
@@ -477,7 +484,7 @@ func Test__weaviate_thing_template_patch_JSON(t *testing.T) {
 
 	bodyGet := getResponseBody(responseGet)
 
-	// Create response object
+	// Test response obj
 	respObjectGet := &models.ThingTemplateGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
 
@@ -490,7 +497,7 @@ func Test__weaviate_thing_template_patch_JSON(t *testing.T) {
 	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
 
 	// Check patch on non-existing ID
-	testNotExistsRequest(t, "/thingTemplates", "PATCH", "application/json", emptyPatchJSON, apiKeyCmdLine)
+	testNotExistsRequest(t, "/thingTemplates", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
 }
 
 // weaviate.thing_template.delete
@@ -507,7 +514,7 @@ func Test__weaviate_thing_template_delete_JSON(t *testing.T) {
 	// Create delete request
 	responseAlreadyDeleted := doRequest("/thingTemplates/"+thingTemplateID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
-	// Check status code get request
+	// Check status code already deleted
 	testStatusCode(t, responseAlreadyDeleted.StatusCode, http.StatusNotFound)
 
 	// Create get request with non-existing ID
@@ -603,7 +610,7 @@ func Test__weaviate_command_get_JSON(t *testing.T) {
 	testNotExistsRequest(t, "/commands", "GET", "application/json", nil, apiKeyCmdLine)
 }
 
-// // weaviate.command.update
+// weaviate.command.update
 func Test__weaviate_command_update_JSON(t *testing.T) {
 	// Create update request
 	newValue := "updated_name"
@@ -636,7 +643,7 @@ func Test__weaviate_command_update_JSON(t *testing.T) {
 	respObject := &models.CommandGetResponse{}
 	json.Unmarshal(body, respObject)
 
-	// Check location ID is same
+	// Check ID is same
 	testID(t, string(respObject.ID), commandID)
 
 	// Check name after update
@@ -653,6 +660,7 @@ func Test__weaviate_command_update_JSON(t *testing.T) {
 
 	bodyGet := getResponseBody(responseGet)
 
+	// Test response obj
 	respObjectGet := &models.CommandGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
 
@@ -660,11 +668,10 @@ func Test__weaviate_command_update_JSON(t *testing.T) {
 	testValues(t, newValue, respObject.Name)
 
 	// Check put on non-existing ID
-	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "PUT", "application/json", emptyJSON, apiKeyCmdLine)
-	testStatusCode(t, responseNotFound.StatusCode, http.StatusNotFound)
+	testNotExistsRequest(t, "/commands", "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
 }
 
-// // weaviate.command.patch
+// weaviate.command.patch
 func Test__weaviate_command_patch_JSON(t *testing.T) {
 	// Create patch request
 	newValue := "patched_name"
@@ -694,6 +701,7 @@ func Test__weaviate_command_patch_JSON(t *testing.T) {
 
 	bodyGet := getResponseBody(responseGet)
 
+	// Test response obj
 	respObjectGet := &models.CommandGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
 
@@ -706,19 +714,16 @@ func Test__weaviate_command_patch_JSON(t *testing.T) {
 	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
 
 	// Check patch on non-existing ID
-	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "PATCH", "application/json", emptyPatchJSON, apiKeyCmdLine)
-	testStatusCode(t, responseNotFound.StatusCode, http.StatusNotFound)
+	testNotExistsRequest(t, "/commands", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
 }
 
-// // weaviate.command.delete
+// weaviate.command.delete
 func Test__weaviate_command_delete_JSON(t *testing.T) {
 	// Create delete request
 	response := doRequest("/commands/"+commandID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code get request
-	if response.StatusCode != http.StatusNoContent {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusNoContent, response.StatusCode)
-	}
+	testStatusCode(t, response.StatusCode, http.StatusNoContent)
 
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
@@ -726,16 +731,192 @@ func Test__weaviate_command_delete_JSON(t *testing.T) {
 	// Create delete request
 	responseAlreadyDeleted := doRequest("/commands/"+commandID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
+	// Check status code already deleted
+	testStatusCode(t, responseAlreadyDeleted.StatusCode, http.StatusNotFound)
+
+	// Create get request with non-existing ID
+	testNotExistsRequest(t, "/commands", "DELETE", "application/json", nil, apiKeyCmdLine)
+}
+
+// weaviate.group.insert
+func Test__weaviate_group_insert_JSON(t *testing.T) {
+	// Create insert request
+	jsonStr := bytes.NewBuffer([]byte(`
+		{
+			"name": "Group 1"
+		}
+	`))
+	response := doRequest("/groups", "POST", "application/json", jsonStr, apiKeyCmdLine)
+
+	// Check status code of insert
+	testStatusCode(t, response.StatusCode, http.StatusAccepted)
+
+	body := getResponseBody(response)
+
+	respObject := &models.GroupGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check whether generated UUID is added
+	groupID = string(respObject.ID)
+	testIDFormat(t, groupID)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#groupGetResponse")
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+}
+
+// weaviate.group.list
+func Test__weaviate_group_list_JSON(t *testing.T) {
+	// Create list request
+	response := doRequest("/groups", "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code of list
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
+	body := getResponseBody(response)
+
+	respObject := &models.GroupsListResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check most recent
+	testID(t, string(respObject.Groups[0].ID), groupID)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#groupsListResponse")
+}
+
+// weaviate.group.get
+func Test__weaviate_group_get_JSON(t *testing.T) {
+	// Create get request
+	response := doRequest("/groups/"+groupID, "GET", "application/json", nil, apiKeyCmdLine)
+
 	// Check status code get request
-	if responseAlreadyDeleted.StatusCode != http.StatusNotFound {
-		t.Errorf("Expected response code already deleted %d. Got %d\n", http.StatusNotFound, responseAlreadyDeleted.StatusCode)
-	}
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
-	// Create get request with non-existing location
-	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "DELETE", "application/json", nil, apiKeyCmdLine)
+	body := getResponseBody(response)
 
-	// Check response of non-existing location
-	if responseNotFound.StatusCode != http.StatusNotFound {
-		t.Errorf("Expected response code not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
-	}
+	respObject := &models.GroupGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check ID of object
+	testID(t, string(respObject.ID), groupID)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#groupGetResponse")
+
+	// Create get request with non-existing ID
+	testNotExistsRequest(t, "/groups", "GET", "application/json", nil, apiKeyCmdLine)
+}
+
+// weaviate.group.update
+func Test__weaviate_group_update_JSON(t *testing.T) {
+	// Create update request
+	newValue := "updated_group_name"
+	jsonStr := bytes.NewBuffer([]byte(`
+		{
+			"name": "` + newValue + `"
+		}
+	`))
+	response := doRequest("/groups/"+groupID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
+
+	body := getResponseBody(response)
+
+	respObject := &models.GroupGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check ID is same
+	testID(t, string(respObject.ID), groupID)
+
+	// Check name after update
+	testValues(t, newValue, respObject.Name)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#groupGetResponse")
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Check if update is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/groups/"+groupID, "GET", "application/json", nil, apiKeyCmdLine)
+
+	bodyGet := getResponseBody(responseGet)
+
+	// Test response obj
+	respObjectGet := &models.GroupGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
+
+	// Check name after update and get
+	testValues(t, newValue, respObject.Name)
+
+	// Check put on non-existing ID
+	testNotExistsRequest(t, "/groups", "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
+}
+
+// weaviate.group.patch
+func Test__weaviate_group_patch_JSON(t *testing.T) {
+	// Create patch request
+	newValue := "patched_group_name"
+
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/name", "value": "` + newValue + `"}]`))
+	response := doRequest("/groups/"+groupID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
+
+	body := getResponseBody(response)
+
+	respObject := &models.GroupGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check ID is the same
+	testID(t, string(respObject.ID), groupID)
+
+	// Check name after patch
+	testValues(t, newValue, respObject.Name)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#groupGetResponse")
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Check if patch is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/groups/"+groupID, "GET", "application/json", nil, apiKeyCmdLine)
+
+	bodyGet := getResponseBody(responseGet)
+
+	// Test response obj
+	respObjectGet := &models.GroupGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
+
+	// Check name after patch and get
+	testValues(t, newValue, respObject.Name)
+
+	// Check patch with incorrect contents
+	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/name", "value": "` + newValue + `"}`))
+	responseError := doRequest("/groups/"+groupID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
+
+	// Check patch on non-existing ID
+	testNotExistsRequest(t, "/groups", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
+}
+
+// weaviate.group.delete
+func Test__weaviate_group_delete_JSON(t *testing.T) {
+	// Create delete request
+	response := doRequest("/groups/"+groupID, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusNoContent)
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Create delete request
+	responseAlreadyDeleted := doRequest("/groups/"+groupID, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code already deleted
+	testStatusCode(t, responseAlreadyDeleted.StatusCode, http.StatusNotFound)
+
+	// Create get request with non-existing ID
+	testNotExistsRequest(t, "/groups", "DELETE", "application/json", nil, apiKeyCmdLine)
 }
