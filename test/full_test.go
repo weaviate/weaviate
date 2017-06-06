@@ -199,8 +199,8 @@ func Test__weaviate_location_get_JSON(t *testing.T) {
 // weaviate.location.update
 func Test__weaviate_location_update_JSON(t *testing.T) {
 	// Create update request
-	newLongName := "updated_name"
-	jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"` + newLongName + `","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"","types":["UNDEFINED"]} `))
+	newValue := "updated_name"
+	jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"` + newValue + `","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"","types":["UNDEFINED"]} `))
 	response := doRequest("/locations/"+locationID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
@@ -212,7 +212,7 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 	testID(t, string(respObject.ID), locationID)
 
 	// Check name after update
-	testValues(t, newLongName, respObject.AddressComponents[0].LongName)
+	testValues(t, newValue, respObject.AddressComponents[0].LongName)
 
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#locationGetResponse")
@@ -230,7 +230,7 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 	json.Unmarshal(bodyGet, respObjectGet)
 
 	// Check name after update and get
-	testValues(t, newLongName, respObject.AddressComponents[0].LongName)
+	testValues(t, newValue, respObject.AddressComponents[0].LongName)
 
 	// Check put on non-existing ID
 	testNotExistsRequest(t, "/locations", "PUT", "application/json", emptyJSON, apiKeyCmdLine)
@@ -239,9 +239,9 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 // weaviate.location.patch
 func Test__weaviate_location_patch_JSON(t *testing.T) {
 	// Create patch request
-	newLongName := "patched_name"
+	newValue := "patched_name"
 
-	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/address_components/0/long_name", "value": "` + newLongName + `"}]`))
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/address_components/0/long_name", "value": "` + newValue + `"}]`))
 	response := doRequest("/locations/"+locationID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
@@ -253,7 +253,7 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 	testID(t, string(respObject.ID), locationID)
 
 	// Check name after patch
-	testValues(t, newLongName, respObject.AddressComponents[0].LongName)
+	testValues(t, newValue, respObject.AddressComponents[0].LongName)
 
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#locationGetResponse")
@@ -271,10 +271,10 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 	json.Unmarshal(bodyGet, respObjectGet)
 
 	// Check name after patch and get
-	testValues(t, newLongName, respObject.AddressComponents[0].LongName)
+	testValues(t, newValue, respObject.AddressComponents[0].LongName)
 
 	// Check patch with incorrect contents
-	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newLongName + `"}`))
+	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newValue + `"}`))
 	responseError := doRequest("/locations/"+locationID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
 	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
 
@@ -604,60 +604,72 @@ func Test__weaviate_command_get_JSON(t *testing.T) {
 }
 
 // // weaviate.command.update
-// func Test__weaviate_command_update_JSON(t *testing.T) {
-// 	// Create update request
-// 	newLongName := "updated_name"
-// 	jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"` + newLongName + `","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"","types":["UNDEFINED"]} `))
-// 	response := doRequest("/commands/"+commandID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
+func Test__weaviate_command_update_JSON(t *testing.T) {
+	// Create update request
+	newValue := "updated_name"
+	jsonStr := bytes.NewBuffer([]byte(`
+		{
+			"creationTimeMs": 123,
+			"creatorKey": "string",
+			"thingTemplateId": "` + thingTemplateID + `",
+			"error": {
+				"arguments": [
+				"string"
+				],
+				"code": "string",
+				"message": "string"
+			},
+			"expirationTimeMs": 123,
+			"expirationTimeoutMs": 123,
+			"lastUpdateTimeMs": 123,
+			"name": "` + newValue + `",
+			"parameters": {},
+			"progress": "aborted",
+			"results": {},
+			"userAction": "string"
+		}
+	`))
+	response := doRequest("/commands/"+commandID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
 
-// 	body := getResponseBody(response)
+	body := getResponseBody(response)
 
-// 	respObject := &models.CommandGetResponse{}
-// 	json.Unmarshal(body, respObject)
+	respObject := &models.CommandGetResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	// Check location ID is same
-// 	if string(respObject.ID) != commandID {
-// 		t.Errorf("Expected ID %s. Got %s\n", commandID, respObject.ID)
-// 	}
+	// Check location ID is same
+	testID(t, string(respObject.ID), commandID)
 
-// 	// Check name after update
-// 	if respObject.AddressComponents[0].LongName != newLongName {
-// 		t.Errorf("Expected updated Long Name %s. Got %s\n", newLongName, respObject.AddressComponents[0].LongName)
-// 	}
+	// Check name after update
+	testValues(t, newValue, respObject.Name)
 
-// 	// Check kind
-//
-// 	testKind(t, string(*respObject.Kind), "weaviate#commandGetResponse")
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#commandGetResponse")
 
-// 	// Test is faster than adding to DB.
-// 	time.Sleep(1 * time.Second)
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 
-// 	// Check if update is also applied on object when using a new GET request on same object
-// 	responseGet := doRequest("/commands/"+commandID, "GET", "application/json", nil, apiKeyCmdLine)
+	// Check if update is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/commands/"+commandID, "GET", "application/json", nil, apiKeyCmdLine)
 
-// 	bodyGet := getResponseBody(responseGet)
+	bodyGet := getResponseBody(responseGet)
 
-// 	respObjectGet := &models.CommandGetResponse{}
-// 	json.Unmarshal(bodyGet, respObjectGet)
+	respObjectGet := &models.CommandGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
 
-// 	// Check name after update and get
-// 	if respObjectGet.AddressComponents[0].LongName != newLongName {
-// 		t.Errorf("Expected updated Long Name after GET %s. Got %s\n", newLongName, respObjectGet.AddressComponents[0].LongName)
-// 	}
+	// Check name after update and get
+	testValues(t, newValue, respObject.Name)
 
-// 	// Check put on non-existing ID
-// 	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "PUT", "application/json", emptyJSON, apiKeyCmdLine)
-// 	if responseNotFound.StatusCode != http.StatusNotFound {
-// 		t.Errorf("Expected response code for not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
-// 	}
-// }
+	// Check put on non-existing ID
+	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "PUT", "application/json", emptyJSON, apiKeyCmdLine)
+	testStatusCode(t, responseNotFound.StatusCode, http.StatusNotFound)
+}
 
 // // weaviate.command.patch
 // func Test__weaviate_command_patch_JSON(t *testing.T) {
 // 	// Create patch request
-// 	newLongName := "patched_name"
+// 	newValue := "patched_name"
 
-// 	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/address_components/0/long_name", "value": "` + newLongName + `"}]`))
+// 	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/address_components/0/long_name", "value": "` + newValue + `"}]`))
 // 	response := doRequest("/commands/"+commandID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
 // 	body := getResponseBody(response)
@@ -671,8 +683,8 @@ func Test__weaviate_command_get_JSON(t *testing.T) {
 // 	}
 
 // 	// Check name after patch
-// 	if respObject.AddressComponents[0].LongName != newLongName {
-// 		t.Errorf("Expected patched Long Name %s. Got %s\n", newLongName, respObject.AddressComponents[0].LongName)
+// 	if respObject.AddressComponents[0].LongName != newValue {
+// 		t.Errorf("Expected patched Long Name %s. Got %s\n", newValue, respObject.AddressComponents[0].LongName)
 // 	}
 
 // 	// Check kind
@@ -691,12 +703,12 @@ func Test__weaviate_command_get_JSON(t *testing.T) {
 // 	json.Unmarshal(bodyGet, respObjectGet)
 
 // 	// Check name after patch and get
-// 	if respObjectGet.AddressComponents[0].LongName != newLongName {
-// 		t.Errorf("Expected patched Long Name after GET %s. Got %s\n", newLongName, respObjectGet.AddressComponents[0].LongName)
+// 	if respObjectGet.AddressComponents[0].LongName != newValue {
+// 		t.Errorf("Expected patched Long Name after GET %s. Got %s\n", newValue, respObjectGet.AddressComponents[0].LongName)
 // 	}
 
 // 	// Check patch with incorrect contents
-// 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newLongName + `"}`))
+// 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newValue + `"}`))
 // 	responseError := doRequest("/commands/"+commandID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
 
 // 	if responseError.StatusCode != http.StatusBadRequest {
