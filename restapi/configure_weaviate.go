@@ -197,7 +197,35 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsGet has not yet been implemented")
 	})
 	api.CommandsWeaviateCommandsListHandler = commands.WeaviateCommandsListHandlerFunc(func(params commands.WeaviateCommandsListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsList has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return commands.NewWeaviateCommandsListForbidden()
+		}
+
+		// Get limit
+		//limit := getLimit(params.maxResults)
+		limit := int(maxResultsOverride)
+
+		// List all results
+		commandsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeCommand, limit)
+
+		// Convert to an response object
+		responseObject := &models.CommandsListResponse{}
+		responseObject.Commands = make([]*models.CommandGetResponse, len(commandsDatabaseObjects))
+
+		// Loop to fill response project
+		for i, commandDatabaseObject := range commandsDatabaseObjects {
+			commandObject := &models.CommandGetResponse{}
+			json.Unmarshal([]byte(commandDatabaseObject.Object), commandObject)
+			commandObject.ID = strfmt.UUID(commandDatabaseObject.Uuid)
+			responseObject.Commands[i] = commandObject
+		}
+
+		// Add totalResults to response object.
+		responseObject.TotalResults = int32(totalResults)
+		responseObject.Kind = getKind(responseObject)
+
+		return commands.NewWeaviateCommandsListOK().WithPayload(responseObject)
 	})
 	api.CommandsWeaviateCommandsPatchHandler = commands.WeaviateCommandsPatchHandlerFunc(func(params commands.WeaviateCommandsPatchParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsPatch has not yet been implemented")

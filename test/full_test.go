@@ -657,38 +657,38 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 }
 
 // weaviate.command.list
-// func Test__weaviate_command_list_JSON(t *testing.T) {
-// 	// Create list request
-// 	response := doRequest("/locations", "GET", "application/json", nil, apiKeyCmdLine)
+func Test__weaviate_command_list_JSON(t *testing.T) {
+	// Create list request
+	response := doRequest("/commands", "GET", "application/json", nil, apiKeyCmdLine)
 
-// 	// Check status code of list
-// 	if response.StatusCode != http.StatusOK {
-// 		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-// 	}
+	// Check status code of list
+	if response.StatusCode != http.StatusOK {
+		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
+	}
 
-// 	body := getResponseBody(response)
+	body := getResponseBody(response)
 
-// 	respObject := &models.LocationsListResponse{}
-// 	json.Unmarshal(body, respObject)
+	respObject := &models.CommandsListResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	// Check most recent
-// 	if string(respObject.Locations[0].ID) != locationID {
-// 		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.Locations[0].ID)
-// 	}
+	// Check most recent
+	if string(respObject.Commands[0].ID) != commandID {
+		t.Errorf("Expected ID %s. Got %s\n", commandID, respObject.Commands[0].ID)
+	}
 
-// 	// Check kind
-// 	kind := "weaviate#locationsListResponse"
-// 	respKind := string(*respObject.Kind)
-// 	if kind != respKind {
-// 		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
-// 	}
+	// Check kind
+	kind := "weaviate#commandsListResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
+	}
 
-// }
+}
 
 // // weaviate.command.get
 // func Test__weaviate_command_get_JSON(t *testing.T) {
 // 	// Create get request
-// 	response := doRequest("/locations/"+locationID, "GET", "application/json", nil, apiKeyCmdLine)
+// 	response := doRequest("/commands/"+commandID, "GET", "application/json", nil, apiKeyCmdLine)
 
 // 	// Check status code get request
 // 	if response.StatusCode != http.StatusOK {
@@ -701,8 +701,8 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 // 	json.Unmarshal(body, respObject)
 
 // 	// Check ID of object
-// 	if string(respObject.ID) != locationID {
-// 		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.ID)
+// 	if string(respObject.ID) != commandID {
+// 		t.Errorf("Expected ID %s. Got %s\n", commandID, respObject.ID)
 // 	}
 
 // 	// Check kind
@@ -713,7 +713,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 // 	}
 
 // 	// Create get request with non-existing location
-// 	responseNotFound := doRequest("/locations/11111111-1111-1111-1111-111111111111", "GET", "application/json", nil, apiKeyCmdLine)
+// 	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "GET", "application/json", nil, apiKeyCmdLine)
 
 // 	// Check response of non-existing location
 // 	if responseNotFound.StatusCode != http.StatusNotFound {
@@ -726,7 +726,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 // 	// Create update request
 // 	newLongName := "updated_name"
 // 	jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"` + newLongName + `","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"","types":["UNDEFINED"]} `))
-// 	response := doRequest("/locations/"+locationID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
+// 	response := doRequest("/commands/"+commandID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
 
 // 	body := getResponseBody(response)
 
@@ -734,8 +734,8 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 // 	json.Unmarshal(body, respObject)
 
 // 	// Check location ID is same
-// 	if string(respObject.ID) != locationID {
-// 		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.ID)
+// 	if string(respObject.ID) != commandID {
+// 		t.Errorf("Expected ID %s. Got %s\n", commandID, respObject.ID)
 // 	}
 
 // 	// Check name after update
@@ -754,7 +754,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 // 	time.Sleep(1 * time.Second)
 
 // 	// Check if update is also applied on object when using a new GET request on same object
-// 	responseGet := doRequest("/locations/"+locationID, "GET", "application/json", nil, apiKeyCmdLine)
+// 	responseGet := doRequest("/commands/"+commandID, "GET", "application/json", nil, apiKeyCmdLine)
 
 // 	bodyGet := getResponseBody(responseGet)
 
@@ -768,7 +768,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 
 // 	// Check put on non-existing ID
 // 	emptyJSON := bytes.NewBuffer([]byte(`{}`))
-// 	responseNotFound := doRequest("/locations/11111111-1111-1111-1111-111111111111", "PUT", "application/json", emptyJSON, apiKeyCmdLine)
+// 	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "PUT", "application/json", emptyJSON, apiKeyCmdLine)
 // 	if responseNotFound.StatusCode != http.StatusNotFound {
 // 		t.Errorf("Expected response code for not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
 // 	}
@@ -780,7 +780,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 // 	newLongName := "patched_name"
 
 // 	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/address_components/0/long_name", "value": "` + newLongName + `"}]`))
-// 	response := doRequest("/locations/"+locationID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
+// 	response := doRequest("/commands/"+commandID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
 // 	body := getResponseBody(response)
 
@@ -788,8 +788,8 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 // 	json.Unmarshal(body, respObject)
 
 // 	// Check ID is the same
-// 	if string(respObject.ID) != locationID {
-// 		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.ID)
+// 	if string(respObject.ID) != commandID {
+// 		t.Errorf("Expected ID %s. Got %s\n", commandID, respObject.ID)
 // 	}
 
 // 	// Check name after patch
@@ -808,7 +808,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 // 	time.Sleep(1 * time.Second)
 
 // 	// Check if patch is also applied on object when using a new GET request on same object
-// 	responseGet := doRequest("/locations/"+locationID, "GET", "application/json", nil, apiKeyCmdLine)
+// 	responseGet := doRequest("/commands/"+commandID, "GET", "application/json", nil, apiKeyCmdLine)
 
 // 	bodyGet := getResponseBody(responseGet)
 
@@ -822,7 +822,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 
 // 	// Check patch with incorrect contents
 // 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newLongName + `"}`))
-// 	responseError := doRequest("/locations/"+locationID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+// 	responseError := doRequest("/commands/"+commandID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
 
 // 	if responseError.StatusCode != http.StatusBadRequest {
 // 		t.Errorf("Expected response code for wrong input %d. Got %d\n", http.StatusBadRequest, responseError.StatusCode)
@@ -830,7 +830,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 
 // 	// Check patch on non-existing ID
 // 	emptyJSON := bytes.NewBuffer([]byte(`[{}]`))
-// 	responseNotFound := doRequest("/locations/11111111-1111-1111-1111-111111111111", "PATCH", "application/json", emptyJSON, apiKeyCmdLine)
+// 	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "PATCH", "application/json", emptyJSON, apiKeyCmdLine)
 
 // 	if responseNotFound.StatusCode != http.StatusNotFound {
 // 		t.Errorf("Expected response code for not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
@@ -840,7 +840,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 // // weaviate.command.delete
 // func Test__weaviate_command_delete_JSON(t *testing.T) {
 // 	// Create delete request
-// 	response := doRequest("/locations/"+locationID, "DELETE", "application/json", nil, apiKeyCmdLine)
+// 	response := doRequest("/commands/"+commandID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
 // 	// Check status code get request
 // 	if response.StatusCode != http.StatusNoContent {
@@ -851,7 +851,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 // 	time.Sleep(1 * time.Second)
 
 // 	// Create delete request
-// 	responseAlreadyDeleted := doRequest("/locations/"+locationID, "DELETE", "application/json", nil, apiKeyCmdLine)
+// 	responseAlreadyDeleted := doRequest("/commands/"+commandID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
 // 	// Check status code get request
 // 	if responseAlreadyDeleted.StatusCode != http.StatusNotFound {
@@ -859,7 +859,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 // 	}
 
 // 	// Create get request with non-existing location
-// 	responseNotFound := doRequest("/locations/11111111-1111-1111-1111-111111111111", "DELETE", "application/json", nil, apiKeyCmdLine)
+// 	responseNotFound := doRequest("/commands/11111111-1111-1111-1111-111111111111", "DELETE", "application/json", nil, apiKeyCmdLine)
 
 // 	// Check response of non-existing location
 // 	if responseNotFound.StatusCode != http.StatusNotFound {
