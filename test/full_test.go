@@ -66,6 +66,7 @@ func getResponseBody(response *http.Response) []byte {
 
 var apiKeyCmdLine string
 var locationID string
+var thingID string
 var thingTemplateID string
 
 func init() {
@@ -77,13 +78,13 @@ func init() {
  * START TESTS
  ******************/
 
-// weaviate.location.insert
-func Test__weaviate_location_insert_JSON(t *testing.T) {
-	// Create insert request
+// weaviate.location.create
+func Test__weaviate_location_create_JSON(t *testing.T) {
+	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"TEST","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"string","types":["UNDEFINED"]} `))
 	response := doRequest("/locations", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
-	// Check status code of insert
+	// Check status code of create
 	if response.StatusCode != http.StatusAccepted {
 		t.Errorf("Expected response code %d. Got %d\n", http.StatusAccepted, response.StatusCode)
 	}
@@ -598,4 +599,50 @@ func Test__weaviate_thing_template_delete_JSON(t *testing.T) {
 	if responseNotFound.StatusCode != http.StatusNotFound {
 		t.Errorf("Expected response code not found %d. Got %d\n", http.StatusNotFound, responseNotFound.StatusCode)
 	}
+}
+
+// weaviate.thing.create
+func Test__weaviate_thing_create_JSON(t *testing.T) {
+	// Create create request
+	jsonStr := bytes.NewBuffer([]byte(`{
+		"commandsId": "string",
+		"description": "string",
+		"groups": "string",
+		"locationId": "` + locationID + `",
+		"name": "string",
+		"owner": "string",
+		"serialNumber": "string",
+		"tags": [
+			null
+		],
+		"thingTemplateId": "` + thingTemplateID + `"
+	}`))
+	response := doRequest("/things", "POST", "application/json", jsonStr, apiKeyCmdLine)
+
+	// Check status code of create
+	if response.StatusCode != http.StatusAccepted {
+		t.Errorf("Expected response code %d. Got %d\n", http.StatusAccepted, response.StatusCode)
+	}
+
+	body := getResponseBody(response)
+
+	respObject := &models.ThingGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check whether generated UUID is added
+	thingID = string(respObject.ID)
+
+	if !strfmt.IsUUID(thingID) {
+		t.Errorf("ID is not what expected. Got %s.\n", thingID)
+	}
+
+	// Check kind
+	kind := "weaviate#thingGetResponse"
+	respKind := string(*respObject.Kind)
+	if kind != respKind {
+		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
+	}
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 }
