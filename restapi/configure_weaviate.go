@@ -55,6 +55,7 @@ import (
 const refTypeLocation string = "#/paths/locations"
 const refTypeThingTemplate string = "#/paths/thingTemplates"
 const maxResultsOverride int64 = 100
+const pageOverride int64 = 1
 
 func init() {
 	var discard io.Writer = ioutil.Discard
@@ -62,15 +63,28 @@ func init() {
 	grpclog.SetLogger(myGRPCLogger)
 }
 
+// getLimit returns the maximized limit
 func getLimit(paramMaxResults *int64) int {
-	// Get the max results from params, if exists
 	maxResults := maxResultsOverride
+	// Get the max results from params, if exists
 	if paramMaxResults != nil {
 		maxResults = *paramMaxResults
 	}
 
 	// Max results form URL, otherwise max = maxResultsOverride.
 	return int(math.Min(float64(maxResults), float64(maxResultsOverride)))
+}
+
+// getPage returns the page if set
+func getPage(paramPage *int64) int {
+	page := pageOverride
+	// Get the page from params, if exists
+	if paramPage != nil {
+		page = *paramPage
+	}
+
+	// Page form URL, otherwise max = maxResultsOverride.
+	return int(page)
 }
 
 func getKind(object interface{}) *string {
@@ -309,12 +323,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return locations.NewWeaviateLocationsListForbidden()
 		}
 
-		// Get limit
-		//limit := getLimit(params.maxResults)
-		limit := int(maxResultsOverride)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 
 		// List all results
-		locationDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeLocation, limit)
+		locationDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeLocation, limit, page)
 
 		// Convert to an response object
 		responseObject := &models.LocationsListResponse{}
@@ -488,12 +502,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return thing_templates.NewWeaviateThingTemplatesListForbidden()
 		}
 
-		// Get limit
-		//limit := getLimit(params.maxResults)
-		limit := int(maxResultsOverride)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 
 		// List all results
-		thingTemplatesDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThingTemplate, limit)
+		thingTemplatesDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThingTemplate, limit, page)
 
 		// Convert to an response object
 		responseObject := &models.ThingTemplatesListResponse{}
