@@ -140,6 +140,67 @@ func Test__weaviate_location_list_JSON(t *testing.T) {
 
 }
 
+// weaviate.location.list.offset
+func Test__weaviate_location_list_offset_JSON(t *testing.T) {
+	// Init variables
+	var ids [10]string
+	ids[9] = locationID
+
+	// Fill database with locations and array with ID's
+	for i := 1; i < 10; i++ {
+		// Handle request
+		jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"TEST","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"string","types":["UNDEFINED"]} `))
+		response := doRequest("/locations", "POST", "application/json", jsonStr, apiKeyCmdLine)
+		body := getResponseBody(response)
+		respObject := &models.LocationGetResponse{}
+		json.Unmarshal(body, respObject)
+
+		// Fill array and time out for unlucky sorting issues
+		ids[9-i] = string(respObject.ID)
+		time.Sleep(1 * time.Second)
+	}
+
+	// Query whole list just created
+	listResponse := doRequest("/locations?maxResults=3", "GET", "application/json", nil, apiKeyCmdLine)
+	listResponseObject := &models.LocationsListResponse{}
+	json.Unmarshal(getResponseBody(listResponse), listResponseObject)
+
+	// Test total results
+	if 10 != listResponseObject.TotalResults {
+		t.Errorf("Expected total results '%d'. Got '%d'.\n", 10, listResponseObject.TotalResults)
+	}
+
+	// Test amount in current response
+	if 3 != len(listResponseObject.Locations) {
+		t.Errorf("Expected page results '%d'. Got '%d'.\n", 3, len(listResponseObject.Locations))
+	}
+
+	// Test ID in the middle
+	if ids[1] != string(listResponseObject.Locations[1].ID) {
+		t.Errorf("Expected ID '%s'. Got '%s'.\n", ids[1], string(listResponseObject.Locations[1].ID))
+	}
+
+	// Query whole list just created
+	listResponse2 := doRequest("/locations?maxResults=5&page=2", "GET", "application/json", nil, apiKeyCmdLine)
+	listResponseObject2 := &models.LocationsListResponse{}
+	json.Unmarshal(getResponseBody(listResponse2), listResponseObject2)
+
+	// Test total results
+	if 10 != listResponseObject2.TotalResults {
+		t.Errorf("Expected total results '%d'. Got '%d'.\n", 10, listResponseObject2.TotalResults)
+	}
+
+	// Test amount in current response
+	if 5 != len(listResponseObject2.Locations) {
+		t.Errorf("Expected page results '%d'. Got '%d'.\n", 5, len(listResponseObject2.Locations))
+	}
+
+	// Test ID in the middle
+	if ids[7] != string(listResponseObject2.Locations[2].ID) {
+		t.Errorf("Expected ID '%s'. Got '%s'.\n", ids[7], string(listResponseObject2.Locations[2].ID))
+	}
+}
+
 // weaviate.location.get
 func Test__weaviate_location_get_JSON(t *testing.T) {
 	// Create get request

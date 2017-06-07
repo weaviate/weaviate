@@ -188,13 +188,16 @@ func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 }
 
 // List lists the items from Datastore by refType and limit
-func (f *Datastore) List(refType string, limit int) ([]dbconnector.DatabaseObject, int, error) {
+func (f *Datastore) List(refType string, limit int, page int) ([]dbconnector.DatabaseObject, int, error) {
 	// Set ctx and kind.
 	ctx := context.Background()
 	f.kind = "weaviate"
 
+	// Calculate offset
+	offset := (page - 1) * limit
+
 	// Make list query
-	query := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false).Order("-CreateTimeMs").Limit(limit)
+	query := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false).Order("-CreateTimeMs").Limit(limit).Offset(offset)
 	totalResultsQuery := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false)
 
 	// Fill object with results
