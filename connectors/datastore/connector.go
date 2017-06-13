@@ -31,14 +31,12 @@ import (
 // Datastore has some basic variables.
 type Datastore struct {
 	client *datastore.Client
-	kind   string
 }
 
 // Connect to datastore
 func (f *Datastore) Connect() error {
 	// Set ctx, your Google Cloud Platform project ID and kind.
 	ctx := context.Background()
-	f.kind = "weaviate"
 	projectID := "weaviate-dev-001"
 
 	// Create new client
@@ -58,10 +56,10 @@ func (f *Datastore) Init() error {
 
 	ctx := context.Background()
 
-	f.kind = "weaviate_users"
+	kind := "weaviate_users"
 
 	// create query to check for root key
-	query := datastore.NewQuery(f.kind).Filter("Parent =", "*").Limit(1)
+	query := datastore.NewQuery(kind).Filter("Parent =", "*").Limit(1)
 
 	dbKeyObjects := []dbconnector.DatabaseUsersObject{}
 
@@ -83,7 +81,7 @@ func (f *Datastore) Init() error {
 		uuid := fmt.Sprintf("%v", gouuid.NewV4())
 
 		// Creates a Key instance.
-		taskKey := datastore.NameKey(f.kind, uuid, nil)
+		taskKey := datastore.NameKey(kind, uuid, nil)
 
 		// Auto set the parent ID to root *
 		dbObject.Parent = "*"
@@ -138,15 +136,54 @@ func (f *Datastore) Init() error {
 
 // Add item to DB
 func (f *Datastore) Add(dbObject dbconnector.DatabaseObject) (string, error) {
+	// Move all other objects to history
+	f.MoveToHistory(dbObject.Uuid)
+
+	// Add item to Datastore
+	newUUID, _ := f.AddByKind(dbObject, "weaviate")
+
+	// Return the ID that is used to create.
+	return newUUID, nil
+}
+
+// AddHistory adds an item to the history kind
+func (f *Datastore) MoveToHistory(UUIDToMove string) (bool, error) {
 	// Set ctx and kind.
 	ctx := context.Background()
-	f.kind = "weaviate"
+
+	// Make list query with all items
+	query := datastore.NewQuery("weaviate").Filter("Uuid =", UUIDToMove)
+
+	// Fill object with results
+	dbObjectsToMove := []dbconnector.DatabaseObject{}
+	keys, err := f.client.GetAll(ctx, query, &dbObjectsToMove)
+
+	for index, dbObjectToMove := range dbObjectsToMove {
+		// Add item to Datastore
+		if _, errAdd := f.AddByKind(dbObjectToMove, "weaviate_history"); errAdd != nil {
+			log.Fatalf("Failed to add history task: %v", errAdd)
+		}
+
+		// Deletes the old entity.
+		if err := f.client.Delete(ctx, keys[index]); err != nil {
+			log.Fatalf("Failed to delete task: %v", err)
+		}
+	}
+
+	// Return true
+	return true, err
+}
+
+// AddByKind adds using a kind
+func (f *Datastore) AddByKind(dbObject dbconnector.DatabaseObject, kind string) (string, error) {
+	// Set ctx and kind.
+	ctx := context.Background()
 
 	// Generate an UUID
 	nameUUID := fmt.Sprintf("%v", gouuid.NewV4())
 
 	// Creates a Key instance.
-	taskKey := datastore.NameKey(f.kind, nameUUID, nil)
+	taskKey := datastore.NameKey(kind, nameUUID, nil)
 
 	// Saves the new entity.
 	if _, err := f.client.Put(ctx, taskKey, &dbObject); err != nil {
@@ -162,10 +199,10 @@ func (f *Datastore) Add(dbObject dbconnector.DatabaseObject) (string, error) {
 func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 	// Set ctx and kind.
 	ctx := context.Background()
-	f.kind = "weaviate"
+	kind := "weaviate"
 
 	// Make get Query
-	query := datastore.NewQuery(f.kind).Filter("Uuid =", uuid).Order("-CreateTimeMs").Limit(1)
+	query := datastore.NewQuery(kind).Filter("Uuid =", uuid).Order("-CreateTimeMs").Limit(1)
 
 	// Fill object
 	object := []dbconnector.DatabaseObject{}
@@ -191,14 +228,14 @@ func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 func (f *Datastore) List(refType string, limit int, page int) ([]dbconnector.DatabaseObject, int, error) {
 	// Set ctx and kind.
 	ctx := context.Background()
-	f.kind = "weaviate"
+	kind := "weaviate"
 
 	// Calculate offset
 	offset := (page - 1) * limit
 
 	// Make list query
-	query := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false).Order("-CreateTimeMs").Limit(limit).Offset(offset)
-	totalResultsQuery := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false)
+	query := datastore.NewQuery(kind).Filter("RefType =", refType).Filter("Deleted =", false).Order("-CreateTimeMs").Limit(limit).Offset(offset)
+	totalResultsQuery := datastore.NewQuery(kind).Filter("RefType =", refType).Filter("Deleted =", false)
 
 	// Fill object with results
 	dbObjects := []dbconnector.DatabaseObject{}
@@ -221,9 +258,9 @@ func (f *Datastore) ValidateKey(token string) ([]dbconnector.DatabaseUsersObject
 
 	ctx := context.Background()
 
-	f.kind = "weaviate_users"
+	kind := "weaviate_users"
 
-	query := datastore.NewQuery(f.kind).Filter("KeyToken =", token).Limit(1)
+	query := datastore.NewQuery(kind).Filter("KeyToken =", token).Limit(1)
 
 	dbUsersObjects := []dbconnector.DatabaseUsersObject{}
 
@@ -241,7 +278,7 @@ func (f *Datastore) ValidateKey(token string) ([]dbconnector.DatabaseUsersObject
 func (f *Datastore) AddKey(parentUuid string, dbObject dbconnector.DatabaseUsersObject) (dbconnector.DatabaseUsersObject, error) {
 	ctx := context.Background()
 
-	f.kind = "weaviate_users"
+	kind := "weaviate_users"
 
 	nameUUID := fmt.Sprintf("%v", gouuid.NewV4())
 
@@ -249,7 +286,7 @@ func (f *Datastore) AddKey(parentUuid string, dbObject dbconnector.DatabaseUsers
 	dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
 
 	// Creates a Key instance.
-	taskKey := datastore.NameKey(f.kind, nameUUID, nil)
+	taskKey := datastore.NameKey(kind, nameUUID, nil)
 
 	// Auto set the parent ID
 	dbObject.Parent = parentUuid
