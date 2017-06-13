@@ -338,9 +338,7 @@ func Test__weaviate_location_list_JSON(t *testing.T) {
 	response := doRequest("/locations", "GET", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code of list
-	if response.StatusCode != http.StatusOK {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusOK, response.StatusCode)
-	}
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
 	body := getResponseBody(response)
 
@@ -348,16 +346,10 @@ func Test__weaviate_location_list_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check most recent
-	if string(respObject.Locations[9].ID) != locationID {
-		t.Errorf("Expected ID %s. Got %s\n", locationID, respObject.Locations[9].ID)
-	}
+	testID(t, string(respObject.Locations[9].ID), locationID)
 
 	// Check kind
-	kind := "weaviate#locationsListResponse"
-	respKind := string(*respObject.Kind)
-	if kind != respKind {
-		t.Errorf("Expected kind '%s'. Got '%s'.\n", kind, respKind)
-	}
+	testKind(t, string(*respObject.Kind), "weaviate#locationsListResponse")
 }
 
 // weaviate.location.delete
