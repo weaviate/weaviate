@@ -10,12 +10,13 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
+
+// Package restapi with all rest API functions.
 package restapi
 
 import (
 	"crypto/tls"
 	"encoding/json"
-	"io"
 	"io/ioutil"
 	"log"
 	"math"
@@ -52,26 +53,42 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/things"
 )
 
+const refTypeCommand string = "#/paths/commands"
+const refTypeGroup string = "#/paths/groups"
 const refTypeLocation string = "#/paths/locations"
 const refTypeThing string = "#/paths/things"
 const refTypeThingTemplate string = "#/paths/thingTemplates"
 const maxResultsOverride int64 = 100
+const pageOverride int64 = 1
 
 func init() {
-	var discard io.Writer = ioutil.Discard
-	var myGRPCLogger grpclog.Logger = log.New(discard, "", log.LstdFlags)
+	discard := ioutil.Discard
+	myGRPCLogger := log.New(discard, "", log.LstdFlags)
 	grpclog.SetLogger(myGRPCLogger)
 }
 
+// getLimit returns the maximized limit
 func getLimit(paramMaxResults *int64) int {
-	// Get the max results from params, if exists
 	maxResults := maxResultsOverride
+	// Get the max results from params, if exists
 	if paramMaxResults != nil {
 		maxResults = *paramMaxResults
 	}
 
 	// Max results form URL, otherwise max = maxResultsOverride.
 	return int(math.Min(float64(maxResults), float64(maxResultsOverride)))
+}
+
+// getPage returns the page if set
+func getPage(paramPage *int64) int {
+	page := pageOverride
+	// Get the page from params, if exists
+	if paramPage != nil {
+		page = *paramPage
+	}
+
+	// Page form URL, otherwise max = maxResultsOverride.
+	return int(page)
 }
 
 func getKind(object interface{}) *string {
@@ -167,31 +184,231 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	api.CommandsWeaviateCommandsCreateHandler = commands.WeaviateCommandsCreateHandlerFunc(func(params commands.WeaviateCommandsCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsCreate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return commands.NewWeaviateCommandsCreateForbidden()
+		}
+
+		// Create basic DataBase object
+		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeCommand)
+
+		// Set the generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create response Object from create object.
+		responseObject := &models.CommandGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return commands.NewWeaviateCommandsCreateAccepted().WithPayload(responseObject)
 	})
 	api.CommandsWeaviateCommandsDeleteHandler = commands.WeaviateCommandsDeleteHandlerFunc(func(params commands.WeaviateCommandsDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsDelete has not yet been implemented")
+		// This is a delete function, validate if allowed to read?
+		if dbconnector.DeleteAllowed(principal) == false {
+			return commands.NewWeaviateCommandsDeleteForbidden()
+		}
+
+		// Get item from database
+		databaseObject, errGet := databaseConnector.Get(params.CommandID)
+
+		// Not found
+		if databaseObject.Deleted || errGet != nil {
+			return commands.NewWeaviateCommandsDeleteNotFound()
+		}
+
+		// Set deleted values
+		databaseObject.MakeObjectDeleted()
+
+		// Add new row as GO-routine
+		go databaseConnector.Add(databaseObject)
+
+		// Return 'No Content'
+		return commands.NewWeaviateCommandsDeleteNoContent()
 	})
 	api.CommandsWeaviateCommandsGetHandler = commands.WeaviateCommandsGetHandlerFunc(func(params commands.WeaviateCommandsGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsGet has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return commands.NewWeaviateCommandsGetForbidden()
+		}
+
+		// Get item from database
+		dbObject, err := databaseConnector.Get(params.CommandID)
+
+		// Object is deleted eleted
+		if dbObject.Deleted || err != nil {
+			return commands.NewWeaviateCommandsGetNotFound()
+		}
+
+		// Create object to return
+		responseObject := &models.CommandGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Get is successful
+		return commands.NewWeaviateCommandsGetOK().WithPayload(responseObject)
 	})
 	api.CommandsWeaviateCommandsListHandler = commands.WeaviateCommandsListHandlerFunc(func(params commands.WeaviateCommandsListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsList has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return commands.NewWeaviateCommandsListForbidden()
+		}
+
+		// Get limit
+		//limit := getLimit(params.maxResults)
+		limit := int(maxResultsOverride)
+
+		// List all results
+		commandsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeCommand, limit)
+
+		// Convert to an response object
+		responseObject := &models.CommandsListResponse{}
+		responseObject.Commands = make([]*models.CommandGetResponse, len(commandsDatabaseObjects))
+
+		// Loop to fill response project
+		for i, commandDatabaseObject := range commandsDatabaseObjects {
+			commandObject := &models.CommandGetResponse{}
+			json.Unmarshal([]byte(commandDatabaseObject.Object), commandObject)
+			commandObject.ID = strfmt.UUID(commandDatabaseObject.Uuid)
+			responseObject.Commands[i] = commandObject
+		}
+
+		// Add totalResults to response object.
+		responseObject.TotalResults = int32(totalResults)
+		responseObject.Kind = getKind(responseObject)
+
+		return commands.NewWeaviateCommandsListOK().WithPayload(responseObject)
 	})
 	api.CommandsWeaviateCommandsPatchHandler = commands.WeaviateCommandsPatchHandlerFunc(func(params commands.WeaviateCommandsPatchParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsPatch has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return commands.NewWeaviateCommandsPatchForbidden()
+		}
+
+		// Get and transform object
+		UUID := params.CommandID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// Return error if UUID is not found.
+		if dbObject.Deleted || errGet != nil {
+			return commands.NewWeaviateCommandsPatchNotFound()
+		}
+
+		// Get PATCH params in format RFC 6902
+		jsonBody, marshalErr := json.Marshal(params.Body)
+		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
+
+		if marshalErr != nil || decodeErr != nil {
+			return commands.NewWeaviateCommandsPatchBadRequest()
+		}
+
+		// Apply the patch
+		updatedJSON, applyErr := patchObject.Apply([]byte(dbObject.Object))
+
+		if applyErr != nil {
+			return commands.NewWeaviateCommandsPatchUnprocessableEntity()
+		}
+
+		// Set patched JSON back in dbObject
+		dbObject.Object = string(updatedJSON)
+
+		dbObject.SetCreateTimeMsToNow()
+		go databaseConnector.Add(dbObject)
+
+		// Create return Object
+		responseObject := &models.CommandGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		return commands.NewWeaviateCommandsPatchOK().WithPayload(responseObject)
 	})
 	api.CommandsWeaviateCommandsUpdateHandler = commands.WeaviateCommandsUpdateHandlerFunc(func(params commands.WeaviateCommandsUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsUpdate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return commands.NewWeaviateCommandsUpdateForbidden()
+		}
+
+		// Get item from database
+		UUID := params.CommandID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// If there are no results, there is an error
+		if dbObject.Deleted || errGet != nil {
+			// Object not found response.
+			return commands.NewWeaviateCommandsUpdateNotFound()
+		}
+
+		// Set the body-id and generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+		dbObject.SetCreateTimeMsToNow()
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create object to return
+		responseObject := &models.CommandGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return commands.NewWeaviateCommandsUpdateOK().WithPayload(responseObject)
 	})
 	api.CommandsWeaviateCommandsValidateHandler = commands.WeaviateCommandsValidateHandlerFunc(func(params commands.WeaviateCommandsValidateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation commands.WeaviateCommandsValidate has not yet been implemented")
 	})
 	api.GroupsWeaviateGroupsCreateHandler = groups.WeaviateGroupsCreateHandlerFunc(func(params groups.WeaviateGroupsCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsCreate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return groups.NewWeaviateGroupsCreateForbidden()
+		}
+
+		// Create basic DataBase object
+		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeGroup)
+
+		// Set the generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create response Object from create object.
+		responseObject := &models.GroupGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return groups.NewWeaviateGroupsCreateAccepted().WithPayload(responseObject)
 	})
 	api.GroupsWeaviateGroupsDeleteHandler = groups.WeaviateGroupsDeleteHandlerFunc(func(params groups.WeaviateGroupsDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsDelete has not yet been implemented")
+		// This is a delete function, validate if allowed to read?
+		if dbconnector.DeleteAllowed(principal) == false {
+			return groups.NewWeaviateGroupsDeleteForbidden()
+		}
+
+		// Get item from database
+		databaseObject, errGet := databaseConnector.Get(params.GroupID)
+
+		// Not found
+		if databaseObject.Deleted || errGet != nil {
+			return groups.NewWeaviateGroupsDeleteNotFound()
+		}
+
+		// Set deleted values
+		databaseObject.MakeObjectDeleted()
+
+		// Add new row as GO-routine
+		go databaseConnector.Add(databaseObject)
+
+		// Return 'No Content'
+		return groups.NewWeaviateGroupsDeleteNoContent()
 	})
 	api.EventsWeaviateGroupsEventsCreateHandler = events.WeaviateGroupsEventsCreateHandlerFunc(func(params events.WeaviateGroupsEventsCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation events.WeaviateGroupsEventsCreate has not yet been implemented")
@@ -203,16 +420,134 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation events.WeaviateGroupsEventsList has not yet been implemented")
 	})
 	api.GroupsWeaviateGroupsGetHandler = groups.WeaviateGroupsGetHandlerFunc(func(params groups.WeaviateGroupsGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsGet has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return groups.NewWeaviateGroupsGetForbidden()
+		}
+
+		// Get item from database
+		dbObject, err := databaseConnector.Get(params.GroupID)
+
+		// Object is deleted eleted
+		if dbObject.Deleted || err != nil {
+			return groups.NewWeaviateGroupsGetNotFound()
+		}
+
+		// Create object to return
+		responseObject := &models.GroupGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Get is successful
+		return groups.NewWeaviateGroupsGetOK().WithPayload(responseObject)
 	})
 	api.GroupsWeaviateGroupsListHandler = groups.WeaviateGroupsListHandlerFunc(func(params groups.WeaviateGroupsListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsList has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return groups.NewWeaviateGroupsListForbidden()
+		}
+
+		// Get limit
+		//limit := getLimit(params.maxResults)
+		limit := int(maxResultsOverride)
+
+		// List all results
+		groupsDatabaseObjects, _, _ := databaseConnector.List(refTypeGroup, limit)
+
+		// Convert to an response object
+		responseObject := &models.GroupsListResponse{}
+		responseObject.Groups = make([]*models.GroupGetResponse, len(groupsDatabaseObjects))
+
+		// Loop to fill response project
+		for i, groupsDatabaseObject := range groupsDatabaseObjects {
+			groupObject := &models.GroupGetResponse{}
+			json.Unmarshal([]byte(groupsDatabaseObject.Object), groupObject)
+			groupObject.ID = strfmt.UUID(groupsDatabaseObject.Uuid)
+			responseObject.Groups[i] = groupObject
+		}
+
+		// Add totalResults to response object.
+		//responseObject.TotalResults = int32(totalResults) TODO, https://github.com/weaviate/weaviate-swagger/issues/54
+		responseObject.Kind = getKind(responseObject)
+
+		return groups.NewWeaviateGroupsListOK().WithPayload(responseObject)
 	})
 	api.GroupsWeaviateGroupsPatchHandler = groups.WeaviateGroupsPatchHandlerFunc(func(params groups.WeaviateGroupsPatchParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsPatch has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return groups.NewWeaviateGroupsPatchForbidden()
+		}
+
+		// Get and transform object
+		UUID := params.GroupID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// Return error if UUID is not found.
+		if dbObject.Deleted || errGet != nil {
+			return groups.NewWeaviateGroupsPatchNotFound()
+		}
+
+		// Get PATCH params in format RFC 6902
+		jsonBody, marshalErr := json.Marshal(params.Body)
+		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
+
+		if marshalErr != nil || decodeErr != nil {
+			return groups.NewWeaviateGroupsPatchBadRequest()
+		}
+
+		// Apply the patch
+		updatedJSON, applyErr := patchObject.Apply([]byte(dbObject.Object))
+
+		if applyErr != nil {
+			return groups.NewWeaviateGroupsPatchUnprocessableEntity()
+		}
+
+		// Set patched JSON back in dbObject
+		dbObject.Object = string(updatedJSON)
+
+		dbObject.SetCreateTimeMsToNow()
+		go databaseConnector.Add(dbObject)
+
+		// Create return Object
+		responseObject := &models.GroupGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		return groups.NewWeaviateGroupsPatchOK().WithPayload(responseObject)
 	})
 	api.GroupsWeaviateGroupsUpdateHandler = groups.WeaviateGroupsUpdateHandlerFunc(func(params groups.WeaviateGroupsUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation groups.WeaviateGroupsUpdate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return groups.NewWeaviateGroupsUpdateForbidden()
+		}
+
+		// Get item from database
+		UUID := params.GroupID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// If there are no results, there is an error
+		if dbObject.Deleted || errGet != nil {
+			// Object not found response.
+			return groups.NewWeaviateGroupsUpdateNotFound()
+		}
+
+		// Set the body-id and generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+		dbObject.SetCreateTimeMsToNow()
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create object to return
+		responseObject := &models.GroupGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return groups.NewWeaviateGroupsUpdateOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation keys.WeaviateKeyCreate has not yet been implemented")
@@ -310,12 +645,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return locations.NewWeaviateLocationsListForbidden()
 		}
 
-		// Get limit
-		//limit := getLimit(params.maxResults)
-		limit := int(maxResultsOverride)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 
 		// List all results
-		locationDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeLocation, limit)
+		locationDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeLocation, limit, page)
 
 		// Convert to an response object
 		responseObject := &models.LocationsListResponse{}
@@ -490,12 +825,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return thing_templates.NewWeaviateThingTemplatesListForbidden()
 		}
 
-		// Get limit
-		//limit := getLimit(params.maxResults)
-		limit := int(maxResultsOverride)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 
 		// List all results
-		thingTemplatesDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThingTemplate, limit)
+		thingTemplatesDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThingTemplate, limit, page)
 
 		// Convert to an response object
 		responseObject := &models.ThingTemplatesListResponse{}
