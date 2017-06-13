@@ -259,12 +259,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return commands.NewWeaviateCommandsListForbidden()
 		}
 
-		// Get limit
-		//limit := getLimit(params.maxResults)
-		limit := int(maxResultsOverride)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 
 		// List all results
-		commandsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeCommand, limit)
+		commandsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeCommand, limit, page)
 
 		// Convert to an response object
 		responseObject := &models.CommandsListResponse{}
@@ -448,12 +448,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return groups.NewWeaviateGroupsListForbidden()
 		}
 
-		// Get limit
-		//limit := getLimit(params.maxResults)
-		limit := int(maxResultsOverride)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 
 		// List all results
-		groupsDatabaseObjects, _, _ := databaseConnector.List(refTypeGroup, limit)
+		groupsDatabaseObjects, _, _ := databaseConnector.List(refTypeGroup, limit, page)
 
 		// Convert to an response object
 		responseObject := &models.GroupsListResponse{}
