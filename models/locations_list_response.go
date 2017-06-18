@@ -35,7 +35,7 @@ type LocationsListResponse struct {
 	Locations []*LocationGetResponse `json:"locations"`
 
 	// The total number of locations for the query. The number of items in a response may be smaller due to paging.
-	TotalResults int32 `json:"totalResults,omitempty"`
+	TotalResults int64 `json:"totalResults,omitempty"`
 }
 
 // Validate validates this locations list response

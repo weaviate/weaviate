@@ -46,7 +46,7 @@ type WeaviateGroupsEventsListParams struct {
 	  Required: true
 	  In: path
 	*/
-	GroupID string
+	GroupID strfmt.UUID
 	/*The maximum number of items to be returned per page.
 	  In: query
 	*/
@@ -92,7 +92,11 @@ func (o *WeaviateGroupsEventsListParams) bindGroupID(rawData []string, hasKey bo
 		raw = rawData[len(rawData)-1]
 	}
 
-	o.GroupID = raw
+	value, err := formats.Parse("uuid", raw)
+	if err != nil {
+		return errors.InvalidType("groupId", "path", "strfmt.UUID", raw)
+	}
+	o.GroupID = *(value.(*strfmt.UUID))
 
 	return nil
 }

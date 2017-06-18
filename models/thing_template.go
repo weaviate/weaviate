@@ -27,7 +27,7 @@ import (
 type ThingTemplate struct {
 
 	// The id of the commands that this device is able to execute.
-	CommandsID strfmt.UUID `json:"commandsId,omitempty"`
+	CommandsIds []strfmt.UUID `json:"commandsIds"`
 
 	// Name of this thing provided by the manufacturer.
 	Name string `json:"name,omitempty"`
@@ -40,6 +40,11 @@ type ThingTemplate struct {
 func (m *ThingTemplate) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateCommandsIds(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
 	if err := m.validateThingModelTemplate(formats); err != nil {
 		// prop
 		res = append(res, err)
@@ -48,6 +53,15 @@ func (m *ThingTemplate) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ThingTemplate) validateCommandsIds(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.CommandsIds) { // not required
+		return nil
+	}
+
 	return nil
 }
 

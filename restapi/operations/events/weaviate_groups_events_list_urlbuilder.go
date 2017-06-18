@@ -21,12 +21,13 @@ import (
 	golangswaggerpaths "path"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // WeaviateGroupsEventsListURL generates an URL for the weaviate groups events list operation
 type WeaviateGroupsEventsListURL struct {
-	GroupID string
+	GroupID strfmt.UUID
 
 	MaxResults *int64
 	Page       *int64
@@ -57,7 +58,7 @@ func (o *WeaviateGroupsEventsListURL) Build() (*url.URL, error) {
 
 	var _path = "/groups/{groupId}/events"
 
-	groupID := o.GroupID
+	groupID := o.GroupID.String()
 	if groupID != "" {
 		_path = strings.Replace(_path, "{groupId}", groupID, -1)
 	} else {

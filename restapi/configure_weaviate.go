@@ -267,7 +267,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Add totalResults to response object.
-		responseObject.TotalResults = int32(totalResults)
+		responseObject.TotalResults = int64(totalResults)
 		responseObject.Kind = getKind(responseObject)
 
 		return commands.NewWeaviateCommandsListOK().WithPayload(responseObject)
@@ -347,9 +347,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return commands.NewWeaviateCommandsUpdateOK().WithPayload(responseObject)
-	})
-	api.CommandsWeaviateCommandsValidateHandler = commands.WeaviateCommandsValidateHandlerFunc(func(params commands.WeaviateCommandsValidateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsValidate has not yet been implemented")
 	})
 	api.GroupsWeaviateGroupsCreateHandler = groups.WeaviateGroupsCreateHandlerFunc(func(params groups.WeaviateGroupsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
@@ -657,7 +654,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Add totalResults to response object.
-		responseObject.TotalResults = int32(totalResults)
+		responseObject.TotalResults = int64(totalResults)
 		responseObject.Kind = getKind(responseObject)
 
 		return locations.NewWeaviateLocationsListOK().WithPayload(responseObject)
@@ -836,7 +833,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Add totalResults to response object.
-		responseObject.TotalResults = int32(totalResults)
+		responseObject.TotalResults = int64(totalResults)
 		responseObject.Kind = getKind(responseObject)
 
 		return thing_templates.NewWeaviateThingTemplatesListOK().WithPayload(responseObject)
