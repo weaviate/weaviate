@@ -36,7 +36,7 @@ import (
 
 	"github.com/weaviate/weaviate/connectors"
 	"github.com/weaviate/weaviate/connectors/datastore"
-	"github.com/weaviate/weaviate/connectors/mysql"
+	"github.com/weaviate/weaviate/connectors/memory"
 	"github.com/weaviate/weaviate/models"
 
 	"reflect"
@@ -97,12 +97,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// configure database connection
 	var databaseConnector dbconnector.DatabaseConnector
 
-	commandLineInput := "datastore"
+	// this is a temp commandline input, needs to change to actual commandline
+	commandLineInput := "datastore_notnow"
 
 	if commandLineInput == "datastore" {
+		// run Google Datastore
 		databaseConnector = &datastore.Datastore{}
 	} else {
-		databaseConnector = &mysql.Mysql{}
+		// when nothing is set as DB, always run in memory
+		databaseConnector = &memory.Memory{}
 	}
 
 	// connect the database
@@ -534,6 +537,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return groups.NewWeaviateGroupsUpdateOK().WithPayload(responseObject)
 	})
+
+	/*
+	 * HANDLE KEYS
+	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation keys.WeaviateKeyCreate has not yet been implemented")
 	})

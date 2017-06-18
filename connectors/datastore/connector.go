@@ -230,7 +230,7 @@ func (f *Datastore) ValidateKey(token string) ([]dbconnector.DatabaseUsersObject
 		return dbUsersObjects, err
 	}
 
-	// keys are found, return true
+	// keys are found, return them
 	return dbUsersObjects, nil
 }
 
