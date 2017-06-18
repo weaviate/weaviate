@@ -55,7 +55,7 @@ func init() {
       "url": "https://github.com/weaviate/weaviate",
       "email": "bob@weaviate.com"
     },
-    "version": "v1"
+    "version": "v0.2.4"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -120,44 +120,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/CommandGetResponse"
             }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "422": {
-            "description": "Can not validate, check the body."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false
-      }
-    },
-    "/commands/validate": {
-      "post": {
-        "description": "Validate a command.",
-        "tags": [
-          "commands"
-        ],
-        "summary": "Validate a command object.",
-        "operationId": "weaviate.commands.validate",
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/CommandValidate"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful validated."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -273,6 +235,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique command ID.",
             "name": "commandId",
             "in": "path",
@@ -347,6 +310,44 @@ func init() {
           },
           "422": {
             "description": "The patch-JSON is valid but unprocessable."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false
+      }
+    },
+    "/events/validate": {
+      "post": {
+        "description": "Validate a event object. It has to be based on a command, which is related to the given Thing(Template) to be accepted by this validation.",
+        "tags": [
+          "events"
+        ],
+        "summary": "Validate a event based on a command.",
+        "operationId": "weaviate.events.validate",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/EventValidate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful validated."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Can not validate, check the body."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -531,6 +532,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "name": "groupId",
             "in": "path",
             "required": true
@@ -623,6 +625,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique ID of the group.",
             "name": "groupId",
             "in": "path",
@@ -715,6 +718,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique ID of the thing.",
             "name": "groupId",
             "in": "path",
@@ -722,6 +726,7 @@ func init() {
           },
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique ID of the event.",
             "name": "eventId",
             "in": "path",
@@ -841,6 +846,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "name": "keyId",
             "in": "path",
             "required": true
@@ -877,6 +883,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique ID of the key.",
             "name": "keyId",
             "in": "path",
@@ -1082,6 +1089,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "name": "locationId",
             "in": "path",
             "required": true
@@ -1339,6 +1347,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique ID of the model manifest.",
             "name": "thingTemplateId",
             "in": "path",
@@ -1597,6 +1606,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique ID of the thing.",
             "name": "thingId",
             "in": "path",
@@ -1690,6 +1700,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique ID of the thing.",
             "name": "thingId",
             "in": "path",
@@ -1782,6 +1793,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique ID of the thing.",
             "name": "thingId",
             "in": "path",
@@ -1789,6 +1801,7 @@ func init() {
           },
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique ID of the event.",
             "name": "eventId",
             "in": "path",
@@ -1825,7 +1838,7 @@ func init() {
       "properties": {
         "creationTimeMs": {
           "description": "Timestamp since epoch of a creation of a command.",
-          "type": "string",
+          "type": "integer",
           "format": "int64"
         },
         "creatorKey": {
@@ -1855,17 +1868,17 @@ func init() {
         },
         "expirationTimeMs": {
           "description": "Timestamp since epoch of command expiration.",
-          "type": "string",
+          "type": "integer",
           "format": "int64"
         },
         "expirationTimeoutMs": {
           "description": "Expiration timeout for the command since its creation, 10 seconds min, 30 days max.",
-          "type": "string",
+          "type": "integer",
           "format": "int64"
         },
         "lastUpdateTimeMs": {
           "description": "Timestamp since epoch of last update made to the command.",
-          "type": "string",
+          "type": "integer",
           "format": "int64"
         },
         "name": {
@@ -1880,11 +1893,6 @@ func init() {
         },
         "results": {
           "$ref": "#/definitions/CommandResults"
-        },
-        "thingTemplateId": {
-          "description": "ThingTemplate ID that this command belongs to.",
-          "type": "string",
-          "format": "uuid"
         },
         "userAction": {
           "description": "Pending command state that is not acknowledged by the thing yet.",
@@ -1958,17 +1966,6 @@ func init() {
         }
       ]
     },
-    "CommandValidate": {
-      "type": "object",
-      "properties": {
-        "parameters": {
-          "$ref": "#/definitions/JsonObject"
-        },
-        "results": {
-          "$ref": "#/definitions/JsonObject"
-        }
-      }
-    },
     "CommandsListResponse": {
       "description": "List of commands.",
       "type": "object",
@@ -1988,7 +1985,7 @@ func init() {
         "totalResults": {
           "description": "The total number of commands for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         }
       }
     },
@@ -2008,9 +2005,14 @@ func init() {
           "type": "string",
           "format": "uuid"
         },
+        "thingId": {
+          "description": "Thing id.",
+          "type": "string",
+          "format": "uuid"
+        },
         "timeMs": {
           "description": "Time the event was generated in milliseconds since epoch UTC.",
-          "type": "string",
+          "type": "integer",
           "format": "int64"
         },
         "userkey": {
@@ -2041,6 +2043,11 @@ func init() {
             "commandResults": {
               "$ref": "#/definitions/CommandResults"
             },
+            "eventId": {
+              "description": "UUID of this event",
+              "type": "string",
+              "format": "uuid"
+            },
             "id": {
               "description": "ID of the event.",
               "type": "string",
@@ -2052,6 +2059,14 @@ func init() {
               "default": "weaviate#eventGetResponse"
             }
           }
+        }
+      ]
+    },
+    "EventValidate": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/EventCreate"
         }
       ]
     },
@@ -2074,7 +2089,7 @@ func init() {
         "totalResults": {
           "description": "The total number of events for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         }
       }
     },
@@ -2082,6 +2097,14 @@ func init() {
       "description": "Group.",
       "type": "object",
       "properties": {
+        "ids": {
+          "description": "The items in the group.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
         "name": {
           "description": "Name of the group.",
           "type": "string"
@@ -2140,6 +2163,11 @@ func init() {
           "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#groupsListResponse\".",
           "type": "string",
           "default": "weaviate#groupsListResponse"
+        },
+        "totalResults": {
+          "description": "The total number of groups for the query. The number of items in a response may be smaller due to paging.",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -2532,7 +2560,7 @@ func init() {
         "totalResults": {
           "description": "The total number of locations for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         }
       }
     },
@@ -2583,7 +2611,7 @@ func init() {
             },
             "creationTimeMs": {
               "description": "Timestamp of creation of this thing in milliseconds since epoch UTC.",
-              "type": "string",
+              "type": "integer",
               "format": "int64"
             },
             "description": {
@@ -2600,23 +2628,23 @@ func init() {
             },
             "lastSeenTimeMs": {
               "description": "Timestamp of the last request from this thing in milliseconds since epoch UTC. Supported only for things with XMPP channel type.",
-              "type": "string",
+              "type": "integer",
               "format": "int64"
             },
             "lastUpdateTimeMs": {
               "description": "Timestamp of the last thing update in milliseconds since epoch UTC.",
-              "type": "string",
+              "type": "integer",
               "format": "int64"
             },
             "lastUseTimeMs": {
               "description": "Timestamp of the last thing usage in milliseconds since epoch UTC.",
-              "type": "string",
+              "type": "integer",
               "format": "int64"
             },
             "locationId": {
               "description": "ID of the location of this thing.",
               "type": "string",
-              "format": "int64"
+              "format": "uuid"
             },
             "owner": {
               "description": "E-mail address of the thing owner.",
@@ -2635,7 +2663,8 @@ func init() {
             },
             "thingTemplateId": {
               "description": "Model manifest ID of this thing.",
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             }
           }
         }
@@ -2700,10 +2729,13 @@ func init() {
     "ThingTemplate": {
       "type": "object",
       "properties": {
-        "commandsId": {
+        "commandsIds": {
           "description": "The id of the commands that this device is able to execute.",
-          "type": "string",
-          "format": "uuid"
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
         },
         "name": {
           "description": "Name of this thing provided by the manufacturer.",
@@ -2786,7 +2818,7 @@ func init() {
         "totalResults": {
           "description": "The total number of model manifests for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         }
       }
     },
@@ -2817,7 +2849,7 @@ func init() {
         "totalResults": {
           "description": "The total number of things for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
-          "format": "int32"
+          "format": "int64"
         }
       }
     }
@@ -2825,12 +2857,14 @@ func init() {
   "parameters": {
     "CommonMaxResultsParameterQuery": {
       "type": "integer",
+      "format": "int64",
       "description": "The maximum number of items to be returned per page.",
       "name": "maxResults",
       "in": "query"
     },
     "CommonPageParameterQuery": {
       "type": "integer",
+      "format": "int64",
       "description": "The page number of the items to be returned.",
       "name": "page",
       "in": "query"

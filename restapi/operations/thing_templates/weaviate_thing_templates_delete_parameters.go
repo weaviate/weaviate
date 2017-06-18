@@ -44,7 +44,7 @@ type WeaviateThingTemplatesDeleteParams struct {
 	  Required: true
 	  In: path
 	*/
-	ThingTemplateID string
+	ThingTemplateID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -70,7 +70,11 @@ func (o *WeaviateThingTemplatesDeleteParams) bindThingTemplateID(rawData []strin
 		raw = rawData[len(rawData)-1]
 	}
 
-	o.ThingTemplateID = raw
+	value, err := formats.Parse("uuid", raw)
+	if err != nil {
+		return errors.InvalidType("thingTemplateId", "path", "strfmt.UUID", raw)
+	}
+	o.ThingTemplateID = *(value.(*strfmt.UUID))
 
 	return nil
 }

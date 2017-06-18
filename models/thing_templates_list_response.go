@@ -35,7 +35,7 @@ type ThingTemplatesListResponse struct {
 	ThingTemplates []*ThingTemplateGetResponse `json:"thingTemplates"`
 
 	// The total number of model manifests for the query. The number of items in a response may be smaller due to paging.
-	TotalResults int32 `json:"totalResults,omitempty"`
+	TotalResults int64 `json:"totalResults,omitempty"`
 }
 
 // Validate validates this thing templates list response

@@ -44,7 +44,7 @@ type WeaviateLocationsDeleteParams struct {
 	  Required: true
 	  In: path
 	*/
-	LocationID string
+	LocationID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -70,7 +70,11 @@ func (o *WeaviateLocationsDeleteParams) bindLocationID(rawData []string, hasKey 
 		raw = rawData[len(rawData)-1]
 	}
 
-	o.LocationID = raw
+	value, err := formats.Parse("uuid", raw)
+	if err != nil {
+		return errors.InvalidType("locationId", "path", "strfmt.UUID", raw)
+	}
+	o.LocationID = *(value.(*strfmt.UUID))
 
 	return nil
 }

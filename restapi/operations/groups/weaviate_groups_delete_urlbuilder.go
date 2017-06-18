@@ -20,11 +20,13 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/strfmt"
 )
 
 // WeaviateGroupsDeleteURL generates an URL for the weaviate groups delete operation
 type WeaviateGroupsDeleteURL struct {
-	GroupID string
+	GroupID strfmt.UUID
 
 	_basePath string
 	// avoid unkeyed usage
@@ -52,7 +54,7 @@ func (o *WeaviateGroupsDeleteURL) Build() (*url.URL, error) {
 
 	var _path = "/groups/{groupId}"
 
-	groupID := o.GroupID
+	groupID := o.GroupID.String()
 	if groupID != "" {
 		_path = strings.Replace(_path, "{groupId}", groupID, -1)
 	} else {

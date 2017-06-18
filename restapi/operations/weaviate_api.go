@@ -81,8 +81,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		CommandsWeaviateCommandsUpdateHandler: commands.WeaviateCommandsUpdateHandlerFunc(func(params commands.WeaviateCommandsUpdateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation CommandsWeaviateCommandsUpdate has not yet been implemented")
 		}),
-		CommandsWeaviateCommandsValidateHandler: commands.WeaviateCommandsValidateHandlerFunc(func(params commands.WeaviateCommandsValidateParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation CommandsWeaviateCommandsValidate has not yet been implemented")
+		EventsWeaviateEventsValidateHandler: events.WeaviateEventsValidateHandlerFunc(func(params events.WeaviateEventsValidateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation EventsWeaviateEventsValidate has not yet been implemented")
 		}),
 		GroupsWeaviateGroupsCreateHandler: groups.WeaviateGroupsCreateHandlerFunc(func(params groups.WeaviateGroupsCreateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation GroupsWeaviateGroupsCreate has not yet been implemented")
@@ -249,8 +249,8 @@ type WeaviateAPI struct {
 	CommandsWeaviateCommandsPatchHandler commands.WeaviateCommandsPatchHandler
 	// CommandsWeaviateCommandsUpdateHandler sets the operation handler for the weaviate commands update operation
 	CommandsWeaviateCommandsUpdateHandler commands.WeaviateCommandsUpdateHandler
-	// CommandsWeaviateCommandsValidateHandler sets the operation handler for the weaviate commands validate operation
-	CommandsWeaviateCommandsValidateHandler commands.WeaviateCommandsValidateHandler
+	// EventsWeaviateEventsValidateHandler sets the operation handler for the weaviate events validate operation
+	EventsWeaviateEventsValidateHandler events.WeaviateEventsValidateHandler
 	// GroupsWeaviateGroupsCreateHandler sets the operation handler for the weaviate groups create operation
 	GroupsWeaviateGroupsCreateHandler groups.WeaviateGroupsCreateHandler
 	// GroupsWeaviateGroupsDeleteHandler sets the operation handler for the weaviate groups delete operation
@@ -458,8 +458,8 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "commands.WeaviateCommandsUpdateHandler")
 	}
 
-	if o.CommandsWeaviateCommandsValidateHandler == nil {
-		unregistered = append(unregistered, "commands.WeaviateCommandsValidateHandler")
+	if o.EventsWeaviateEventsValidateHandler == nil {
+		unregistered = append(unregistered, "events.WeaviateEventsValidateHandler")
 	}
 
 	if o.GroupsWeaviateGroupsCreateHandler == nil {
@@ -763,7 +763,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/commands/validate"] = commands.NewWeaviateCommandsValidate(o.context, o.CommandsWeaviateCommandsValidateHandler)
+	o.handlers["POST"]["/events/validate"] = events.NewWeaviateEventsValidate(o.context, o.EventsWeaviateEventsValidateHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

@@ -32,6 +32,9 @@ type Event struct {
 	// Command id.
 	CommandID strfmt.UUID `json:"commandId,omitempty"`
 
+	// Thing id.
+	ThingID strfmt.UUID `json:"thingId,omitempty"`
+
 	// Time the event was generated in milliseconds since epoch UTC.
 	TimeMs int64 `json:"timeMs,omitempty"`
 

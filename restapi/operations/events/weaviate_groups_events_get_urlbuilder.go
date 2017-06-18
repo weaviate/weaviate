@@ -20,12 +20,14 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/strfmt"
 )
 
 // WeaviateGroupsEventsGetURL generates an URL for the weaviate groups events get operation
 type WeaviateGroupsEventsGetURL struct {
-	EventID string
-	GroupID string
+	EventID strfmt.UUID
+	GroupID strfmt.UUID
 
 	_basePath string
 	// avoid unkeyed usage
@@ -53,13 +55,13 @@ func (o *WeaviateGroupsEventsGetURL) Build() (*url.URL, error) {
 
 	var _path = "/groups/{groupId}/events/{eventId}"
 
-	eventID := o.EventID
+	eventID := o.EventID.String()
 	if eventID != "" {
 		_path = strings.Replace(_path, "{eventId}", eventID, -1)
 	} else {
 		return nil, errors.New("EventID is required on WeaviateGroupsEventsGetURL")
 	}
-	groupID := o.GroupID
+	groupID := o.GroupID.String()
 	if groupID != "" {
 		_path = strings.Replace(_path, "{groupId}", groupID, -1)
 	} else {
