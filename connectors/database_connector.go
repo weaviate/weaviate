@@ -17,17 +17,24 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	gouuid "github.com/satori/go.uuid"
 )
 
 // DatabaseObject for a new row in de database
 type DatabaseObject struct {
-	Uuid         string // uuid, also used in Object's id
-	Owner        string // uuid of the owner
-	RefType      string // type, as defined
-	CreateTimeMs int64  // creation time in ms
-	Object       string // the JSON object, id will be collected from current uuid
-	Deleted      bool   // if true, it does not exsist anymore
+	Uuid           string           // uuid, also used in Object's id
+	Owner          string           // uuid of the owner
+	RefType        string           // type, as defined
+	CreateTimeMs   int64            // creation time in ms
+	Object         string           // the JSON object, id will be collected from current uuid
+	Deleted        bool             // if true, it does not exsist anymore
+	RelatedObjects ObjectReferences // references to other objects
+}
+
+// ObjectReferences contains IDs that link to other objects
+type ObjectReferences struct {
+	ThingID strfmt.UUID `json:"thingID,omitempty"`
 }
 
 // DatabaseUsersObject for a new row in de database
@@ -137,7 +144,7 @@ type DatabaseConnector interface {
 	Init() error
 	Add(DatabaseObject) (string, error)
 	Get(string) (DatabaseObject, error)
-	List(string, int) ([]DatabaseObject, int, error)
+	List(string, int, *ObjectReferences) ([]DatabaseObject, int64, error)
 	ValidateKey(string) ([]DatabaseUsersObject, error)
 	AddKey(string, DatabaseUsersObject) (DatabaseUsersObject, error)
 }

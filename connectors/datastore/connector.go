@@ -188,14 +188,26 @@ func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 }
 
 // List lists the items from Datastore by refType and limit
-func (f *Datastore) List(refType string, limit int) ([]dbconnector.DatabaseObject, int, error) {
+func (f *Datastore) List(refType string, limit int, referenceFilter *dbconnector.ObjectReferences) ([]dbconnector.DatabaseObject, int64, error) {
 	// Set ctx and kind.
 	ctx := context.Background()
 	f.kind = "weaviate"
 
-	// Make list query
-	query := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false).Order("-CreateTimeMs").Limit(limit)
-	totalResultsQuery := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false)
+	// Make list queries
+	query := datastore.NewQuery(f.kind).Filter("RefType =", refType).Filter("Deleted =", false).Order("-CreateTimeMs")
+
+	// Add more to queries for reference filters
+	if referenceFilter != nil {
+		if referenceFilter.ThingID != "" {
+			query = query.Filter("RelatedObjects.ThingID = ", string(referenceFilter.ThingID))
+		}
+	}
+
+	// Make total results query
+	totalResultsQuery := query
+
+	// finish query
+	query = query.Limit(limit)
 
 	// Fill object with results
 	dbObjects := []dbconnector.DatabaseObject{}
@@ -210,7 +222,7 @@ func (f *Datastore) List(refType string, limit int) ([]dbconnector.DatabaseObjec
 	}
 
 	// Return list with objects
-	return dbObjects, totalResults, nil
+	return dbObjects, int64(totalResults), nil
 }
 
 // Validate if a user has access, returns permissions object

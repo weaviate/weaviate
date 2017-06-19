@@ -283,7 +283,7 @@ func (f *Memory) Get(Uuid string) (dbconnector.DatabaseObject, error) {
 }
 
 // return a list
-func (f *Memory) List(refType string, limit int) ([]dbconnector.DatabaseObject, int, error) {
+func (f *Memory) List(refType string, limit int, referenceFilter *dbconnector.ObjectReferences) ([]dbconnector.DatabaseObject, int64, error) {
 	dataObjs := []dbconnector.DatabaseObject{}
 
 	// Create read-only transaction
@@ -327,7 +327,7 @@ func (f *Memory) List(refType string, limit int) ([]dbconnector.DatabaseObject, 
 		}
 
 		// return found set
-		return dataObjs, totalResults, err
+		return dataObjs, int64(totalResults), err
 	}
 
 	// nothing found
