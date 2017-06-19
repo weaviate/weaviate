@@ -20,11 +20,13 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/strfmt"
 )
 
 // WeaviateKeysDeleteURL generates an URL for the weaviate keys delete operation
 type WeaviateKeysDeleteURL struct {
-	KeyID string
+	KeyID strfmt.UUID
 
 	_basePath string
 	// avoid unkeyed usage
@@ -52,7 +54,7 @@ func (o *WeaviateKeysDeleteURL) Build() (*url.URL, error) {
 
 	var _path = "/keys/{keyId}"
 
-	keyID := o.KeyID
+	keyID := o.KeyID.String()
 	if keyID != "" {
 		_path = strings.Replace(_path, "{keyId}", keyID, -1)
 	} else {

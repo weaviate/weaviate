@@ -56,9 +56,6 @@ type Command struct {
 	// results
 	Results *CommandResults `json:"results,omitempty"`
 
-	// ThingTemplate ID that this command belongs to.
-	ThingTemplateID strfmt.UUID `json:"thingTemplateId,omitempty"`
-
 	// Pending command state that is not acknowledged by the thing yet.
 	UserAction string `json:"userAction,omitempty"`
 }

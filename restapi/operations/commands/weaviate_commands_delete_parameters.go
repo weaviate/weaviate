@@ -44,7 +44,7 @@ type WeaviateCommandsDeleteParams struct {
 	  Required: true
 	  In: path
 	*/
-	CommandID string
+	CommandID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -70,7 +70,11 @@ func (o *WeaviateCommandsDeleteParams) bindCommandID(rawData []string, hasKey bo
 		raw = rawData[len(rawData)-1]
 	}
 
-	o.CommandID = raw
+	value, err := formats.Parse("uuid", raw)
+	if err != nil {
+		return errors.InvalidType("commandId", "path", "strfmt.UUID", raw)
+	}
+	o.CommandID = *(value.(*strfmt.UUID))
 
 	return nil
 }

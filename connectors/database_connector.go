@@ -30,6 +30,21 @@ type DatabaseObject struct {
 	Deleted      bool   // if true, it does not exsist anymore
 }
 
+// DatabaseObjects type that is reused a lot
+type DatabaseObjects []DatabaseObject
+
+func (slice DatabaseObjects) Len() int {
+	return len(slice)
+}
+
+func (slice DatabaseObjects) Less(i, j int) bool {
+	return slice[i].CreateTimeMs > slice[j].CreateTimeMs
+}
+
+func (slice DatabaseObjects) Swap(i, j int) {
+	slice[i], slice[j] = slice[j], slice[i]
+}
+
 // DatabaseUsersObject for a new row in de database
 type DatabaseUsersObject struct {
 	Uuid         string // uuid, also used in Object's id
@@ -39,7 +54,7 @@ type DatabaseUsersObject struct {
 	Parent       string // Parent Uuid (not key)
 }
 
-// Object of DatabaseUsersObject
+// DatabaseUsersObjectsObject is an Object of DatabaseUsersObject
 type DatabaseUsersObjectsObject struct {
 	Delete   bool     `json:"Delete"`
 	Email    string   `json:"Email"`
@@ -66,7 +81,7 @@ func NewDatabaseObject(owner string, refType string) *DatabaseObject {
 	return dbo
 }
 
-// NewDatabaseObjectFromPrinciple creates a new object with default values, out of principle object
+// NewDatabaseObjectFromPrincipal creates a new object with default values, out of principle object
 func NewDatabaseObjectFromPrincipal(principal interface{}, refType string) *DatabaseObject {
 	// Get user object
 	UsersObject, _ := PrincipalMarshalling(principal)
@@ -99,7 +114,7 @@ func (f *DatabaseObject) MergeRequestBodyIntoObject(body interface{}) {
 	f.Object = string(databaseBody)
 }
 
-// Marhshall and Unmarshall Principal and Principals Objects
+// PrincipalMarshalling Marhshall and Unmarshall Principal and Principals Objects
 func PrincipalMarshalling(Object interface{}) (DatabaseUsersObject, DatabaseUsersObjectsObject) {
 	// marshall principal
 	principalMarshall, _ := json.Marshal(Object)
@@ -113,19 +128,19 @@ func PrincipalMarshalling(Object interface{}) (DatabaseUsersObject, DatabaseUser
 	return Principal, ObjectsObject
 }
 
-// check if reading is allowed
+// ReadAllowed checks if reading is allowed
 func ReadAllowed(validateObject interface{}) bool {
 	_, ObjectsObject := PrincipalMarshalling(validateObject)
 	return ObjectsObject.Read
 }
 
-// check if writing is allowed
+// WriteAllowed checks if writing is allowed
 func WriteAllowed(validateObject interface{}) bool {
 	_, ObjectsObject := PrincipalMarshalling(validateObject)
 	return ObjectsObject.Write
 }
 
-// check if deleting is allowed
+// DeleteAllowed checks if deleting is allowed
 func DeleteAllowed(validateObject interface{}) bool {
 	_, ObjectsObject := PrincipalMarshalling(validateObject)
 	return ObjectsObject.Delete
@@ -137,7 +152,7 @@ type DatabaseConnector interface {
 	Init() error
 	Add(DatabaseObject) (string, error)
 	Get(string) (DatabaseObject, error)
-	List(string, int, int) ([]DatabaseObject, int, error)
+	List(string, int, int) (DatabaseObjects, int, error)
 	ValidateKey(string) ([]DatabaseUsersObject, error)
 	AddKey(string, DatabaseUsersObject) (DatabaseUsersObject, error)
 }

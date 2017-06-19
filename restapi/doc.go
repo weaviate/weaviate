@@ -19,7 +19,7 @@ Internet of Things platform that lets you register, view and manage cloud ready 
       https
     Host: localhost
     BasePath: /weaviate/v1
-    Version: v1
+    Version: v0.2.4
     Contact: Weaviate<bob@weaviate.com> https://github.com/weaviate/weaviate
 
     Consumes:

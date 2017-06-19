@@ -36,7 +36,7 @@ import (
 
 	"github.com/weaviate/weaviate/connectors"
 	"github.com/weaviate/weaviate/connectors/datastore"
-	"github.com/weaviate/weaviate/connectors/mysql"
+	"github.com/weaviate/weaviate/connectors/memory"
 	"github.com/weaviate/weaviate/models"
 
 	"reflect"
@@ -112,12 +112,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// configure database connection
 	var databaseConnector dbconnector.DatabaseConnector
 
-	commandLineInput := "datastore"
+	// this is a temp commandline input, needs to change to actual commandline
+	commandLineInput := "datastore_notnow"
 
 	if commandLineInput == "datastore" {
+		// run Google Datastore
 		databaseConnector = &datastore.Datastore{}
 	} else {
-		databaseConnector = &mysql.Mysql{}
+		// when nothing is set as DB, always run in memory
+		databaseConnector = &memory.Memory{}
 	}
 
 	// connect the database
@@ -214,7 +217,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get item from database
-		databaseObject, errGet := databaseConnector.Get(params.CommandID)
+		databaseObject, errGet := databaseConnector.Get(string(params.CommandID))
 
 		// Not found
 		if databaseObject.Deleted || errGet != nil {
@@ -279,7 +282,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Add totalResults to response object.
-		responseObject.TotalResults = int32(totalResults)
+		responseObject.TotalResults = int64(totalResults)
 		responseObject.Kind = getKind(responseObject)
 
 		return commands.NewWeaviateCommandsListOK().WithPayload(responseObject)
@@ -360,9 +363,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return commands.NewWeaviateCommandsUpdateOK().WithPayload(responseObject)
 	})
-	api.CommandsWeaviateCommandsValidateHandler = commands.WeaviateCommandsValidateHandlerFunc(func(params commands.WeaviateCommandsValidateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation commands.WeaviateCommandsValidate has not yet been implemented")
-	})
 	api.GroupsWeaviateGroupsCreateHandler = groups.WeaviateGroupsCreateHandlerFunc(func(params groups.WeaviateGroupsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
 		if dbconnector.WriteAllowed(principal) == false {
@@ -394,7 +394,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get item from database
-		databaseObject, errGet := databaseConnector.Get(params.GroupID)
+		databaseObject, errGet := databaseConnector.Get(string(params.GroupID))
 
 		// Not found
 		if databaseObject.Deleted || errGet != nil {
@@ -549,6 +549,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return groups.NewWeaviateGroupsUpdateOK().WithPayload(responseObject)
 	})
+
+	/*
+	 * HANDLE KEYS
+	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation keys.WeaviateKeyCreate has not yet been implemented")
 	})
@@ -573,7 +577,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get item from database
-		databaseObject, errGet := databaseConnector.Get(params.LocationID)
+		databaseObject, errGet := databaseConnector.Get(string(params.LocationID))
 
 		// Not found
 		if databaseObject.Deleted || errGet != nil {
@@ -666,7 +670,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Add totalResults to response object.
-		responseObject.TotalResults = int32(totalResults)
+		responseObject.TotalResults = int64(totalResults)
 		responseObject.Kind = getKind(responseObject)
 
 		return locations.NewWeaviateLocationsListOK().WithPayload(responseObject)
@@ -780,7 +784,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get item from database
-		databaseObject, errGet := databaseConnector.Get(params.ThingTemplateID)
+		databaseObject, errGet := databaseConnector.Get(string(params.ThingTemplateID))
 
 		// Not found
 		if databaseObject.Deleted || errGet != nil {
@@ -846,7 +850,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Add totalResults to response object.
-		responseObject.TotalResults = int32(totalResults)
+		responseObject.TotalResults = int64(totalResults)
 		responseObject.Kind = getKind(responseObject)
 
 		return thing_templates.NewWeaviateThingTemplatesListOK().WithPayload(responseObject)
@@ -958,7 +962,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get item from database
-		databaseObject, errGet := databaseConnector.Get(params.ThingID)
+		databaseObject, errGet := databaseConnector.Get(string(params.ThingID))
 
 		// Not found
 		if databaseObject.Deleted || errGet != nil {
@@ -1033,7 +1037,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Add totalResults to response object.
-		responseObject.TotalResults = int32(totalResults)
+		responseObject.TotalResults = int64(totalResults)
 		responseObject.Kind = getKind(responseObject)
 
 		return things.NewWeaviateThingsListOK().WithPayload(responseObject)

@@ -33,6 +33,9 @@ type GroupsListResponse struct {
 
 	// Identifies what kind of resource this is. Value: the fixed string "weaviate#groupsListResponse".
 	Kind *string `json:"kind,omitempty"`
+
+	// The total number of groups for the query. The number of items in a response may be smaller due to paging.
+	TotalResults int64 `json:"totalResults,omitempty"`
 }
 
 // Validate validates this groups list response

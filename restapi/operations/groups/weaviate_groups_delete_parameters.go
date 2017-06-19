@@ -44,7 +44,7 @@ type WeaviateGroupsDeleteParams struct {
 	  Required: true
 	  In: path
 	*/
-	GroupID string
+	GroupID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -70,7 +70,11 @@ func (o *WeaviateGroupsDeleteParams) bindGroupID(rawData []string, hasKey bool, 
 		raw = rawData[len(rawData)-1]
 	}
 
-	o.GroupID = raw
+	value, err := formats.Parse("uuid", raw)
+	if err != nil {
+		return errors.InvalidType("groupId", "path", "strfmt.UUID", raw)
+	}
+	o.GroupID = *(value.(*strfmt.UUID))
 
 	return nil
 }

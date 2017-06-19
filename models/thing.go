@@ -49,7 +49,7 @@ type Thing struct {
 	LastUseTimeMs int64 `json:"lastUseTimeMs,omitempty"`
 
 	// ID of the location of this thing.
-	LocationID int64 `json:"locationId,omitempty"`
+	LocationID strfmt.UUID `json:"locationId,omitempty"`
 
 	// E-mail address of the thing owner.
 	Owner string `json:"owner,omitempty"`
@@ -61,7 +61,7 @@ type Thing struct {
 	Tags []string `json:"tags"`
 
 	// Model manifest ID of this thing.
-	ThingTemplateID string `json:"thingTemplateId,omitempty"`
+	ThingTemplateID strfmt.UUID `json:"thingTemplateId,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -88,7 +88,7 @@ func (m *Thing) UnmarshalJSON(raw []byte) error {
 
 		LastUseTimeMs int64 `json:"lastUseTimeMs,omitempty"`
 
-		LocationID int64 `json:"locationId,omitempty"`
+		LocationID strfmt.UUID `json:"locationId,omitempty"`
 
 		Owner string `json:"owner,omitempty"`
 
@@ -96,7 +96,7 @@ func (m *Thing) UnmarshalJSON(raw []byte) error {
 
 		Tags []string `json:"tags,omitempty"`
 
-		ThingTemplateID string `json:"thingTemplateId,omitempty"`
+		ThingTemplateID strfmt.UUID `json:"thingTemplateId,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &data); err != nil {
 		return err
@@ -154,7 +154,7 @@ func (m Thing) MarshalJSON() ([]byte, error) {
 
 		LastUseTimeMs int64 `json:"lastUseTimeMs,omitempty"`
 
-		LocationID int64 `json:"locationId,omitempty"`
+		LocationID strfmt.UUID `json:"locationId,omitempty"`
 
 		Owner string `json:"owner,omitempty"`
 
@@ -162,7 +162,7 @@ func (m Thing) MarshalJSON() ([]byte, error) {
 
 		Tags []string `json:"tags,omitempty"`
 
-		ThingTemplateID string `json:"thingTemplateId,omitempty"`
+		ThingTemplateID strfmt.UUID `json:"thingTemplateId,omitempty"`
 	}
 
 	data.ConnectionStatus = m.ConnectionStatus

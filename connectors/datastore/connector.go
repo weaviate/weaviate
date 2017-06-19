@@ -155,7 +155,7 @@ func (f *Datastore) MoveToHistory(UUIDToMove string) (bool, error) {
 	query := datastore.NewQuery("weaviate").Filter("Uuid =", UUIDToMove)
 
 	// Fill object with results
-	dbObjectsToMove := []dbconnector.DatabaseObject{}
+	dbObjectsToMove := dbconnector.DatabaseObjects{}
 	keys, err := f.client.GetAll(ctx, query, &dbObjectsToMove)
 
 	for index, dbObjectToMove := range dbObjectsToMove {
@@ -205,7 +205,7 @@ func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 	query := datastore.NewQuery(kind).Filter("Uuid =", uuid).Order("-CreateTimeMs").Limit(1)
 
 	// Fill object
-	object := []dbconnector.DatabaseObject{}
+	object := dbconnector.DatabaseObjects{}
 	keys, err := f.client.GetAll(ctx, query, &object)
 
 	// Return error
@@ -225,7 +225,7 @@ func (f *Datastore) Get(uuid string) (dbconnector.DatabaseObject, error) {
 }
 
 // List lists the items from Datastore by refType and limit
-func (f *Datastore) List(refType string, limit int, page int) ([]dbconnector.DatabaseObject, int, error) {
+func (f *Datastore) List(refType string, limit int, page int) (dbconnector.DatabaseObjects, int, error) {
 	// Set ctx and kind.
 	ctx := context.Background()
 	kind := "weaviate"
@@ -238,7 +238,7 @@ func (f *Datastore) List(refType string, limit int, page int) ([]dbconnector.Dat
 	totalResultsQuery := datastore.NewQuery(kind).Filter("RefType =", refType).Filter("Deleted =", false)
 
 	// Fill object with results
-	dbObjects := []dbconnector.DatabaseObject{}
+	dbObjects := dbconnector.DatabaseObjects{}
 	_, err := f.client.GetAll(ctx, query, &dbObjects)
 	totalResults, errTotal := f.client.Count(ctx, totalResultsQuery)
 
@@ -246,7 +246,7 @@ func (f *Datastore) List(refType string, limit int, page int) ([]dbconnector.Dat
 	if err != nil || errTotal != nil {
 		log.Fatalf("Failed to load task: %v", err)
 
-		return []dbconnector.DatabaseObject{}, 0, err
+		return dbconnector.DatabaseObjects{}, 0, err
 	}
 
 	// Return list with objects
@@ -270,7 +270,7 @@ func (f *Datastore) ValidateKey(token string) ([]dbconnector.DatabaseUsersObject
 		return dbUsersObjects, err
 	}
 
-	// keys are found, return true
+	// keys are found, return them
 	return dbUsersObjects, nil
 }
 
