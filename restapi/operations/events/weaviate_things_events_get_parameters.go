@@ -44,12 +44,12 @@ type WeaviateThingsEventsGetParams struct {
 	  Required: true
 	  In: path
 	*/
-	EventID string
+	EventID strfmt.UUID
 	/*Unique ID of the thing.
 	  Required: true
 	  In: path
 	*/
-	ThingID string
+	ThingID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -80,7 +80,11 @@ func (o *WeaviateThingsEventsGetParams) bindEventID(rawData []string, hasKey boo
 		raw = rawData[len(rawData)-1]
 	}
 
-	o.EventID = raw
+	value, err := formats.Parse("uuid", raw)
+	if err != nil {
+		return errors.InvalidType("eventId", "path", "strfmt.UUID", raw)
+	}
+	o.EventID = *(value.(*strfmt.UUID))
 
 	return nil
 }
@@ -91,7 +95,11 @@ func (o *WeaviateThingsEventsGetParams) bindThingID(rawData []string, hasKey boo
 		raw = rawData[len(rawData)-1]
 	}
 
-	o.ThingID = raw
+	value, err := formats.Parse("uuid", raw)
+	if err != nil {
+		return errors.InvalidType("thingId", "path", "strfmt.UUID", raw)
+	}
+	o.ThingID = *(value.(*strfmt.UUID))
 
 	return nil
 }

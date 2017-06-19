@@ -35,7 +35,7 @@ type CommandsListResponse struct {
 	Kind *string `json:"kind,omitempty"`
 
 	// The total number of commands for the query. The number of items in a response may be smaller due to paging.
-	TotalResults int32 `json:"totalResults,omitempty"`
+	TotalResults int64 `json:"totalResults,omitempty"`
 }
 
 // Validate validates this commands list response

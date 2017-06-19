@@ -20,11 +20,13 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/strfmt"
 )
 
 // WeaviateThingsDeleteURL generates an URL for the weaviate things delete operation
 type WeaviateThingsDeleteURL struct {
-	ThingID string
+	ThingID strfmt.UUID
 
 	_basePath string
 	// avoid unkeyed usage
@@ -52,7 +54,7 @@ func (o *WeaviateThingsDeleteURL) Build() (*url.URL, error) {
 
 	var _path = "/things/{thingId}"
 
-	thingID := o.ThingID
+	thingID := o.ThingID.String()
 	if thingID != "" {
 		_path = strings.Replace(_path, "{thingId}", thingID, -1)
 	} else {

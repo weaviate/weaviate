@@ -19,11 +19,15 @@ import (
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/swag"
 )
 
 // Group Group.
 // swagger:model Group
 type Group struct {
+
+	// The items in the group.
+	Ids []strfmt.UUID `json:"ids"`
 
 	// Name of the group.
 	Name string `json:"name,omitempty"`
@@ -33,8 +37,22 @@ type Group struct {
 func (m *Group) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateIds(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Group) validateIds(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Ids) { // not required
+		return nil
+	}
+
 	return nil
 }

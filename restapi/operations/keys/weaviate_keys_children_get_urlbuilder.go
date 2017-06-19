@@ -20,11 +20,13 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/strfmt"
 )
 
 // WeaviateKeysChildrenGetURL generates an URL for the weaviate keys children get operation
 type WeaviateKeysChildrenGetURL struct {
-	KeyID string
+	KeyID strfmt.UUID
 
 	_basePath string
 	// avoid unkeyed usage
@@ -52,7 +54,7 @@ func (o *WeaviateKeysChildrenGetURL) Build() (*url.URL, error) {
 
 	var _path = "/keys/{keyId}/children"
 
-	keyID := o.KeyID
+	keyID := o.KeyID.String()
 	if keyID != "" {
 		_path = strings.Replace(_path, "{keyId}", keyID, -1)
 	} else {

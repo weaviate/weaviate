@@ -33,6 +33,9 @@ type EventGetResponse struct {
 	// command results
 	CommandResults *CommandResults `json:"commandResults,omitempty"`
 
+	// UUID of this event
+	EventID strfmt.UUID `json:"eventId,omitempty"`
+
 	// ID of the event.
 	ID strfmt.UUID `json:"id,omitempty"`
 
@@ -54,6 +57,8 @@ func (m *EventGetResponse) UnmarshalJSON(raw []byte) error {
 
 		CommandResults *CommandResults `json:"commandResults,omitempty"`
 
+		EventID strfmt.UUID `json:"eventId,omitempty"`
+
 		ID strfmt.UUID `json:"id,omitempty"`
 
 		Kind *string `json:"kind,omitempty"`
@@ -65,6 +70,8 @@ func (m *EventGetResponse) UnmarshalJSON(raw []byte) error {
 	m.CommandProgress = data.CommandProgress
 
 	m.CommandResults = data.CommandResults
+
+	m.EventID = data.EventID
 
 	m.ID = data.ID
 
@@ -88,6 +95,8 @@ func (m EventGetResponse) MarshalJSON() ([]byte, error) {
 
 		CommandResults *CommandResults `json:"commandResults,omitempty"`
 
+		EventID strfmt.UUID `json:"eventId,omitempty"`
+
 		ID strfmt.UUID `json:"id,omitempty"`
 
 		Kind *string `json:"kind,omitempty"`
@@ -96,6 +105,8 @@ func (m EventGetResponse) MarshalJSON() ([]byte, error) {
 	data.CommandProgress = m.CommandProgress
 
 	data.CommandResults = m.CommandResults
+
+	data.EventID = m.EventID
 
 	data.ID = m.ID
 
