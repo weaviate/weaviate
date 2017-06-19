@@ -1115,7 +1115,7 @@ func Test__weaviate_thing_update_JSON(t *testing.T) {
 			"lastSeenTimeMs": 0,
 			"lastUpdateTimeMs": 0,
 			"lastUseTimeMs": 0,
-			"locationId": 0,
+			"locationId": "` + locationID + `",
 			"thingTemplateId": "` + thingTemplateID + `",
 			"owner": "string",
 			"serialNumber": "string",
