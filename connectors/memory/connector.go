@@ -23,6 +23,8 @@ import (
 
 	"github.com/hashicorp/go-memdb"
 	"github.com/weaviate/weaviate/connectors"
+	"math"
+	"sort"
 )
 
 // Datastore has some basic variables.
@@ -283,8 +285,8 @@ func (f *Memory) Get(Uuid string) (dbconnector.DatabaseObject, error) {
 }
 
 // return a list
-func (f *Memory) List(refType string, limit int, referenceFilter *dbconnector.ObjectReferences) ([]dbconnector.DatabaseObject, int64, error) {
-	dataObjs := []dbconnector.DatabaseObject{}
+func (f *Memory) List(refType string, limit int, page int, referenceFilter *dbconnector.ObjectReferences) (dbconnector.DatabaseObjects, int64, error) {
+	dataObjs := dbconnector.DatabaseObjects{}
 
 	// Create read-only transaction
 	txn := f.client.Txn(false)
@@ -309,22 +311,22 @@ func (f *Memory) List(refType string, limit int, referenceFilter *dbconnector.Ob
 				loopResults = false
 			} else {
 				// only store if refType is correct
-				if singleResult.(dbconnector.DatabaseObject).RefType == refType {
+				if singleResult.(dbconnector.DatabaseObject).RefType == refType && !singleResult.(dbconnector.DatabaseObject).Deleted {
 					// append array
 					dataObjs = append(dataObjs, singleResult.(dbconnector.DatabaseObject))
 				}
 			}
 		}
 
+		sort.Sort(dataObjs)
+
 		// count total
 		totalResults := len(dataObjs)
 
-		// chop off based on limit
-		if totalResults > limit {
-
-			// calculate the amount to chop off totalResults-limit
-			dataObjs = dataObjs[:len(dataObjs)-(totalResults-limit)]
-		}
+		// calculate the amount to chop off totalResults-limit
+		offset := (limit * (page - 1))
+		end := int(math.Min(float64(limit*(page)), float64(totalResults)))
+		dataObjs := dataObjs[offset:end]
 
 		// return found set
 		return dataObjs, int64(totalResults), err
