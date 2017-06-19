@@ -57,8 +57,10 @@ const refTypeCommand string = "#/paths/commands"
 const refTypeEvent string = "#/paths/events"
 const refTypeGroup string = "#/paths/groups"
 const refTypeLocation string = "#/paths/locations"
+const refTypeThing string = "#/paths/things"
 const refTypeThingTemplate string = "#/paths/thingTemplates"
 const maxResultsOverride int64 = 100
+const pageOverride int64 = 1
 
 func init() {
 	discard := ioutil.Discard
@@ -66,15 +68,28 @@ func init() {
 	grpclog.SetLogger(myGRPCLogger)
 }
 
+// getLimit returns the maximized limit
 func getLimit(paramMaxResults *int64) int {
-	// Get the max results from params, if exists
 	maxResults := maxResultsOverride
+	// Get the max results from params, if exists
 	if paramMaxResults != nil {
 		maxResults = *paramMaxResults
 	}
 
 	// Max results form URL, otherwise max = maxResultsOverride.
 	return int(math.Min(float64(maxResults), float64(maxResultsOverride)))
+}
+
+// getPage returns the page if set
+func getPage(paramPage *int64) int {
+	page := pageOverride
+	// Get the page from params, if exists
+	if paramPage != nil {
+		page = *paramPage
+	}
+
+	// Page form URL, otherwise max = maxResultsOverride.
+	return int(page)
 }
 
 func getKind(object interface{}) *string {
@@ -99,7 +114,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var databaseConnector dbconnector.DatabaseConnector
 
 	// this is a temp commandline input, needs to change to actual commandline
-	commandLineInput := "datastore"
+	commandLineInput := "datastore_notnow"
 
 	if commandLineInput == "datastore" {
 		// run Google Datastore
@@ -248,12 +263,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return commands.NewWeaviateCommandsListForbidden()
 		}
 
-		// Get limit
-		//limit := getLimit(params.maxResults)
-		limit := int(maxResultsOverride)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 
 		// List all results
-		commandsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeCommand, limit, nil)
+		commandsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeCommand, limit, page, nil)
 
 		// Convert to an response object
 		responseObject := &models.CommandsListResponse{}
@@ -396,13 +411,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return events.NewWeaviateThingsEventsGetForbidden()
 		}
 
-		// Get limit
-		//limit := getLimit(params.maxResults) TODO
-		limit := int(maxResultsOverride)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 		referenceFilter := &dbconnector.ObjectReferences{ThingID: params.ThingID}
 
 		// List all results
-		eventsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeEvent, limit, referenceFilter)
+		eventsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeEvent, limit, page, referenceFilter)
 
 		// Convert to an response object
 		responseObject := &models.EventsListResponse{}
@@ -498,12 +513,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return groups.NewWeaviateGroupsListForbidden()
 		}
 
-		// Get limit
-		//limit := getLimit(params.maxResults)
-		limit := int(maxResultsOverride)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 
 		// List all results
-		groupsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeGroup, limit, nil)
+		groupsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeGroup, limit, page, nil)
 
 		// Convert to an response object
 		responseObject := &models.GroupsListResponse{}
@@ -699,12 +714,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return locations.NewWeaviateLocationsListForbidden()
 		}
 
-		// Get limit
-		//limit := getLimit(params.maxResults)
-		limit := int(maxResultsOverride)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 
 		// List all results
-		locationDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeLocation, limit, nil)
+		locationDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeLocation, limit, page, nil)
 
 		// Convert to an response object
 		responseObject := &models.LocationsListResponse{}
@@ -715,6 +730,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			locationObject := &models.LocationGetResponse{}
 			json.Unmarshal([]byte(locationDatabaseObject.Object), locationObject)
 			locationObject.ID = strfmt.UUID(locationDatabaseObject.Uuid)
+			locationObject.Kind = getKind(locationObject)
 			responseObject.Locations[i] = locationObject
 		}
 
@@ -878,12 +894,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return thing_templates.NewWeaviateThingTemplatesListForbidden()
 		}
 
-		// Get limit
-		//limit := getLimit(params.maxResults)
-		limit := int(maxResultsOverride)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 
 		// List all results
-		thingTemplatesDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThingTemplate, limit, nil)
+		thingTemplatesDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThingTemplate, limit, page, nil)
 
 		// Convert to an response object
 		responseObject := &models.ThingTemplatesListResponse{}
@@ -894,6 +910,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			thingTemplateObject := &models.ThingTemplateGetResponse{}
 			json.Unmarshal([]byte(thingTemplatesDatabaseObject.Object), thingTemplateObject)
 			thingTemplateObject.ID = strfmt.UUID(thingTemplatesDatabaseObject.Uuid)
+			thingTemplateObject.Kind = getKind(thingTemplateObject)
 			responseObject.ThingTemplates[i] = thingTemplateObject
 		}
 
@@ -980,22 +997,182 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return thing_templates.NewWeaviateThingTemplatesUpdateOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation things.WeaviateThingsCreate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return things.NewWeaviateThingsCreateForbidden()
+		}
+
+		// Create basic DataBase object
+		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeThing)
+
+		// Set the generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create response Object from create object.
+		responseObject := &models.ThingGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation things.WeaviateThingsDelete has not yet been implemented")
+		// This is a delete function, validate if allowed to read?
+		if dbconnector.DeleteAllowed(principal) == false {
+			return things.NewWeaviateThingsDeleteForbidden()
+		}
+
+		// Get item from database
+		databaseObject, errGet := databaseConnector.Get(string(params.ThingID))
+
+		// Not found
+		if databaseObject.Deleted || errGet != nil {
+			return things.NewWeaviateThingsDeleteNotFound()
+		}
+
+		// Set deleted values
+		databaseObject.MakeObjectDeleted()
+
+		// Add new row as GO-routine
+		go databaseConnector.Add(databaseObject)
+
+		// Return 'No Content'
+		return things.NewWeaviateThingsDeleteNoContent()
 	})
 	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation things.WeaviateThingsGet has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return things.NewWeaviateThingsGetForbidden()
+		}
+
+		// Get item from database
+		dbObject, err := databaseConnector.Get(params.ThingID)
+
+		// Object is deleted eleted
+		if dbObject.Deleted || err != nil {
+			return things.NewWeaviateThingsGetNotFound()
+		}
+
+		// Create object to return
+		responseObject := &models.ThingGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Get is successful
+		return things.NewWeaviateThingsGetOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation things.WeaviateThingsList has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return things.NewWeaviateThingsListForbidden()
+		}
+
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
+
+		// List all results
+		thingDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThing, limit, page, nil)
+
+		// Convert to an response object
+		responseObject := &models.ThingsListResponse{}
+		responseObject.Things = make([]*models.ThingGetResponse, len(thingDatabaseObjects))
+
+		// Loop to fill response project
+		for i, thingDatabaseObject := range thingDatabaseObjects {
+			thingObject := &models.ThingGetResponse{}
+			json.Unmarshal([]byte(thingDatabaseObject.Object), thingObject)
+			thingObject.ID = strfmt.UUID(thingDatabaseObject.Uuid)
+			thingObject.Kind = getKind(thingObject)
+			responseObject.Things[i] = thingObject
+		}
+
+		// Add totalResults to response object.
+		responseObject.TotalResults = int64(totalResults)
+		responseObject.Kind = getKind(responseObject)
+
+		return things.NewWeaviateThingsListOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation things.WeaviateThingsPatch has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return things.NewWeaviateThingsPatchForbidden()
+		}
+
+		// Get and transform object
+		UUID := params.ThingID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// Return error if UUID is not found.
+		if dbObject.Deleted || errGet != nil {
+			return things.NewWeaviateThingsPatchNotFound()
+		}
+
+		// Get PATCH params in format RFC 6902
+		jsonBody, marshalErr := json.Marshal(params.Body)
+		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
+
+		if marshalErr != nil || decodeErr != nil {
+			return things.NewWeaviateThingsPatchBadRequest()
+		}
+
+		// Apply the patch
+		updatedJSON, applyErr := patchObject.Apply([]byte(dbObject.Object))
+
+		if applyErr != nil {
+			return things.NewWeaviateThingsPatchUnprocessableEntity()
+		}
+
+		// Set patched JSON back in dbObject
+		dbObject.Object = string(updatedJSON)
+
+		dbObject.SetCreateTimeMsToNow()
+		go databaseConnector.Add(dbObject)
+
+		// Create return Object
+		responseObject := &models.ThingGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		return things.NewWeaviateThingsPatchOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation things.WeaviateThingsUpdate has not yet been implemented")
+		// This is a write function, validate if allowed to read?
+		if dbconnector.WriteAllowed(principal) == false {
+			return things.NewWeaviateThingsUpdateForbidden()
+		}
+
+		// Get item from database
+		UUID := params.ThingID
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// If there are no results, there is an error
+		if dbObject.Deleted || errGet != nil {
+			// Object not found response.
+			return things.NewWeaviateThingsUpdateNotFound()
+		}
+
+		// Set the body-id and generate JSON to save to the database
+		dbObject.MergeRequestBodyIntoObject(params.Body)
+		dbObject.SetCreateTimeMsToNow()
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
+
+		// Create object to return
+		responseObject := &models.ThingGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return things.NewWeaviateThingsUpdateOK().WithPayload(responseObject)
 	})
 
 	api.ServerShutdown = func() {}
