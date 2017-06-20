@@ -163,4 +163,5 @@ type DatabaseConnector interface {
 	List(string, int, int, *ObjectReferences) (DatabaseObjects, int64, error)
 	ValidateKey(string) ([]DatabaseUsersObject, error)
 	AddKey(string, DatabaseUsersObject) (DatabaseUsersObject, error)
+	GetName() string
 }

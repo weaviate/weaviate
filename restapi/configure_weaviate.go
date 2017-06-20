@@ -43,6 +43,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/go-openapi/swag"
 	"github.com/weaviate/weaviate/restapi/operations"
 	"github.com/weaviate/weaviate/restapi/operations/commands"
 	"github.com/weaviate/weaviate/restapi/operations/events"
@@ -61,6 +62,8 @@ const refTypeThing string = "#/paths/things"
 const refTypeThingTemplate string = "#/paths/thingTemplates"
 const maxResultsOverride int64 = 100
 const pageOverride int64 = 1
+
+var connectorOptionGroup *swag.CommandLineOptionsGroup
 
 func init() {
 	discard := ioutil.Discard
@@ -92,6 +95,7 @@ func getPage(paramPage *int64) int {
 	return int(page)
 }
 
+// getKind generates a kind out of an object
 func getKind(object interface{}) *string {
 	kinds := strings.Split(reflect.TypeOf(object).String(), ".")
 	kind := kinds[len(kinds)-1]
@@ -105,7 +109,11 @@ func getKind(object interface{}) *string {
 }
 
 func configureFlags(api *operations.WeaviateAPI) {
-	// api.CommandLineOptionsGroups = []swag.CommandLineOptionsGroup{ ... }
+	connectorOptionGroup = dbconnector.GetConfigOptionGroup()
+
+	api.CommandLineOptionsGroups = []swag.CommandLineOptionsGroup{
+		*connectorOptionGroup,
+	}
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
@@ -113,15 +121,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// configure database connection
 	var databaseConnector dbconnector.DatabaseConnector
 
-	// this is a temp commandline input, needs to change to actual commandline
-	commandLineInput := "datastore_notnow"
+	commandLineInput := dbconnector.GetDatabaseConnector(connectorOptionGroup)
 
-	if commandLineInput == "datastore" {
-		// run Google Datastore
-		databaseConnector = &datastore.Datastore{}
-	} else {
-		// when nothing is set as DB, always run in memory
-		databaseConnector = &memory.Memory{}
+	connectors := []dbconnector.DatabaseConnector{
+		&datastore.Datastore{},
+		&memory.Memory{},
+	}
+
+	for _, connector := range connectors {
+		if connector.GetName() == commandLineInput {
+			databaseConnector = connector
+		}
 	}
 
 	// connect the database

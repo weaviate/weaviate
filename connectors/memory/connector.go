@@ -34,6 +34,10 @@ type Memory struct {
 	kind   string
 }
 
+func (f *Memory) GetName() string {
+	return "memory"
+}
+
 // Creates connection and tables if not already available (which is never because it is in memory)
 func (f *Memory) Connect() error {
 

@@ -33,6 +33,10 @@ type Datastore struct {
 	client *datastore.Client
 }
 
+func (f *Datastore) GetName() string {
+	return "datastore"
+}
+
 // Connect to datastore
 func (f *Datastore) Connect() error {
 	// Set ctx, your Google Cloud Platform project ID and kind.
