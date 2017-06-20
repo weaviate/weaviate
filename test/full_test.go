@@ -1308,3 +1308,26 @@ func Test__weaviate_event_things_list_JSON(t *testing.T) {
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#eventsListResponse")
 }
+
+// weaviate.event.get
+func Test__weaviate_event_get_JSON(t *testing.T) {
+	// Create get request
+	response := doRequest("/events/"+eventID, "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
+	body := getResponseBody(response)
+
+	respObject := &models.EventGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check ID of object
+	testID(t, string(respObject.ID), eventID)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#eventGetResponse")
+
+	// Create get request with non-existing ID
+	testNotExistsRequest(t, "/events", "GET", "application/json", nil, apiKeyCmdLine)
+}
