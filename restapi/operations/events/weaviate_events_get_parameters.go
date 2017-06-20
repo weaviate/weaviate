@@ -24,18 +24,18 @@ import (
 	strfmt "github.com/go-openapi/strfmt"
 )
 
-// NewWeaviateGroupsEventsGetParams creates a new WeaviateGroupsEventsGetParams object
+// NewWeaviateEventsGetParams creates a new WeaviateEventsGetParams object
 // with the default values initialized.
-func NewWeaviateGroupsEventsGetParams() WeaviateGroupsEventsGetParams {
+func NewWeaviateEventsGetParams() WeaviateEventsGetParams {
 	var ()
-	return WeaviateGroupsEventsGetParams{}
+	return WeaviateEventsGetParams{}
 }
 
-// WeaviateGroupsEventsGetParams contains all the bound params for the weaviate groups events get operation
+// WeaviateEventsGetParams contains all the bound params for the weaviate events get operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters weaviate.groups.events.get
-type WeaviateGroupsEventsGetParams struct {
+// swagger:parameters weaviate.events.get
+type WeaviateEventsGetParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request
@@ -45,26 +45,16 @@ type WeaviateGroupsEventsGetParams struct {
 	  In: path
 	*/
 	EventID strfmt.UUID
-	/*Unique ID of the thing.
-	  Required: true
-	  In: path
-	*/
-	GroupID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls
-func (o *WeaviateGroupsEventsGetParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+func (o *WeaviateEventsGetParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 	o.HTTPRequest = r
 
 	rEventID, rhkEventID, _ := route.Params.GetOK("eventId")
 	if err := o.bindEventID(rEventID, rhkEventID, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
-	rGroupID, rhkGroupID, _ := route.Params.GetOK("groupId")
-	if err := o.bindGroupID(rGroupID, rhkGroupID, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -74,7 +64,7 @@ func (o *WeaviateGroupsEventsGetParams) BindRequest(r *http.Request, route *midd
 	return nil
 }
 
-func (o *WeaviateGroupsEventsGetParams) bindEventID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *WeaviateEventsGetParams) bindEventID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -85,21 +75,6 @@ func (o *WeaviateGroupsEventsGetParams) bindEventID(rawData []string, hasKey boo
 		return errors.InvalidType("eventId", "path", "strfmt.UUID", raw)
 	}
 	o.EventID = *(value.(*strfmt.UUID))
-
-	return nil
-}
-
-func (o *WeaviateGroupsEventsGetParams) bindGroupID(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	value, err := formats.Parse("uuid", raw)
-	if err != nil {
-		return errors.InvalidType("groupId", "path", "strfmt.UUID", raw)
-	}
-	o.GroupID = *(value.(*strfmt.UUID))
 
 	return nil
 }

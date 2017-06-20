@@ -48,14 +48,14 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Internet of Things platform that lets you register, view and manage cloud ready things.",
-    "title": "Weaviate API and MQTT Internet of Things platform.",
+    "description": "Ubiquitous Computing (\u0026 Internet of Things) platform that lets you manage cloud ready things directly or by proxy. More info: https://github.com/weaviate/weaviate",
+    "title": "Weaviate API and MQTT Ubiquitous Computing platform.",
     "contact": {
       "name": "Weaviate",
       "url": "https://github.com/weaviate/weaviate",
       "email": "bob@weaviate.com"
     },
-    "version": "v0.2.4"
+    "version": "v0.2.5"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -348,6 +348,47 @@ func init() {
           },
           "422": {
             "description": "Can not validate, check the body."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false
+      }
+    },
+    "/events/{eventId}": {
+      "get": {
+        "description": "Lists events.",
+        "tags": [
+          "events"
+        ],
+        "summary": "Get a specific event based on its uuid and a thing uuid related to this key.",
+        "operationId": "weaviate.events.get",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the event.",
+            "name": "eventId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/EventGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -699,55 +740,6 @@ func init() {
           },
           "422": {
             "description": "Can not execute this command, because the commandParameters{} are set incorrectly."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": true
-      }
-    },
-    "/groups/{groupId}/events/{eventId}": {
-      "get": {
-        "description": "Lists events.",
-        "tags": [
-          "events"
-        ],
-        "summary": "Get a specific event based on its uuid and a group uuid related to this key.",
-        "operationId": "weaviate.groups.events.get",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the thing.",
-            "name": "groupId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the event.",
-            "name": "eventId",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/EventGetResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1545,7 +1537,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": true
+        "x-available-in-mqtt": false
       },
       "put": {
         "description": "Updates a thing data.",
@@ -1686,7 +1678,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": true
+        "x-available-in-mqtt": false
       }
     },
     "/things/{thingId}/events": {
@@ -1774,55 +1766,6 @@ func init() {
           },
           "422": {
             "description": "Can not validate, check the body."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": true
-      }
-    },
-    "/things/{thingId}/events/{eventId}": {
-      "get": {
-        "description": "Lists events.",
-        "tags": [
-          "events"
-        ],
-        "summary": "Get a specific event based on its uuid and a thing uuid related to this key.",
-        "operationId": "weaviate.things.events.get",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the thing.",
-            "name": "thingId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the event.",
-            "name": "eventId",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/EventGetResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
           },
           "501": {
             "description": "Not (yet) implemented."

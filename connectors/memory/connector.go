@@ -21,10 +21,11 @@ import (
 
 	gouuid "github.com/satori/go.uuid"
 
-	"github.com/hashicorp/go-memdb"
-	"github.com/weaviate/weaviate/connectors"
 	"math"
 	"sort"
+
+	"github.com/hashicorp/go-memdb"
+	"github.com/weaviate/weaviate/connectors"
 )
 
 // Datastore has some basic variables.

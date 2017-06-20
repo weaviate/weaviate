@@ -364,9 +364,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return commands.NewWeaviateCommandsUpdateOK().WithPayload(responseObject)
 	})
-	// api.EventsWeaviateEventsGetHandler = events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams, principal interface{}) middleware.Responder {
-	// 	return middleware.NotImplemented("operation events.WeaviateEventsGet has not yet been implemented")
-	// })
+	api.EventsWeaviateEventsGetHandler = events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation events.WeaviateEventsGet has not yet been implemented")
+	})
 	api.EventsWeaviateEventsValidateHandler = events.WeaviateEventsValidateHandlerFunc(func(params events.WeaviateEventsValidateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation events.WeaviateEventsValidate has not yet been implemented")
 	})
@@ -408,7 +408,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.EventsWeaviateThingsEventsListHandler = events.WeaviateThingsEventsListHandlerFunc(func(params events.WeaviateThingsEventsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
 		if dbconnector.ReadAllowed(principal) == false {
-			return events.NewWeaviateThingsEventsGetForbidden()
+			return events.NewWeaviateThingsEventsListForbidden()
 		}
 
 		// Get limit and page
