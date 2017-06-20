@@ -21,39 +21,39 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-// WeaviateThingsEventsGetHandlerFunc turns a function with the right signature into a weaviate things events get handler
-type WeaviateThingsEventsGetHandlerFunc func(WeaviateThingsEventsGetParams, interface{}) middleware.Responder
+// WeaviateEventsGetHandlerFunc turns a function with the right signature into a weaviate events get handler
+type WeaviateEventsGetHandlerFunc func(WeaviateEventsGetParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsEventsGetHandlerFunc) Handle(params WeaviateThingsEventsGetParams, principal interface{}) middleware.Responder {
+func (fn WeaviateEventsGetHandlerFunc) Handle(params WeaviateEventsGetParams, principal interface{}) middleware.Responder {
 	return fn(params, principal)
 }
 
-// WeaviateThingsEventsGetHandler interface for that can handle valid weaviate things events get params
-type WeaviateThingsEventsGetHandler interface {
-	Handle(WeaviateThingsEventsGetParams, interface{}) middleware.Responder
+// WeaviateEventsGetHandler interface for that can handle valid weaviate events get params
+type WeaviateEventsGetHandler interface {
+	Handle(WeaviateEventsGetParams, interface{}) middleware.Responder
 }
 
-// NewWeaviateThingsEventsGet creates a new http.Handler for the weaviate things events get operation
-func NewWeaviateThingsEventsGet(ctx *middleware.Context, handler WeaviateThingsEventsGetHandler) *WeaviateThingsEventsGet {
-	return &WeaviateThingsEventsGet{Context: ctx, Handler: handler}
+// NewWeaviateEventsGet creates a new http.Handler for the weaviate events get operation
+func NewWeaviateEventsGet(ctx *middleware.Context, handler WeaviateEventsGetHandler) *WeaviateEventsGet {
+	return &WeaviateEventsGet{Context: ctx, Handler: handler}
 }
 
-/*WeaviateThingsEventsGet swagger:route GET /things/{thingId}/events/{eventId} events weaviateThingsEventsGet
+/*WeaviateEventsGet swagger:route GET /events/{eventId} events weaviateEventsGet
 
 Get a specific event based on its uuid and a thing uuid related to this key.
 
 Lists events.
 
 */
-type WeaviateThingsEventsGet struct {
+type WeaviateEventsGet struct {
 	Context *middleware.Context
-	Handler WeaviateThingsEventsGetHandler
+	Handler WeaviateEventsGetHandler
 }
 
-func (o *WeaviateThingsEventsGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *WeaviateEventsGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, _ := o.Context.RouteInfo(r)
-	var Params = NewWeaviateThingsEventsGetParams()
+	var Params = NewWeaviateEventsGetParams()
 
 	uprinc, err := o.Context.Authorize(r, route)
 	if err != nil {
