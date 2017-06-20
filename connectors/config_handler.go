@@ -22,6 +22,7 @@ import (
 
 const defaultConfigFile string = "~/weaviate.conf.json"
 const defaultEnvironment string = "development"
+const defaultDatabase string = "memory"
 
 // ConfigFlags are input options
 type ConfigFlags struct {
@@ -90,6 +91,6 @@ func GetDatabaseConnector(flags *swag.CommandLineOptionsGroup) string {
 		}
 	}
 
-	log.Println("INFO: Using default database 'memory'.")
-	return "memory"
+	log.Println("INFO: Using default database '" + defaultDatabase + "'.")
+	return defaultDatabase
 }
