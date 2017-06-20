@@ -81,6 +81,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		CommandsWeaviateCommandsUpdateHandler: commands.WeaviateCommandsUpdateHandlerFunc(func(params commands.WeaviateCommandsUpdateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation CommandsWeaviateCommandsUpdate has not yet been implemented")
 		}),
+		EventsWeaviateEventsGetHandler: events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation EventsWeaviateEventsGet has not yet been implemented")
+		}),
 		EventsWeaviateEventsValidateHandler: events.WeaviateEventsValidateHandlerFunc(func(params events.WeaviateEventsValidateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation EventsWeaviateEventsValidate has not yet been implemented")
 		}),
@@ -92,9 +95,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		EventsWeaviateGroupsEventsCreateHandler: events.WeaviateGroupsEventsCreateHandlerFunc(func(params events.WeaviateGroupsEventsCreateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation EventsWeaviateGroupsEventsCreate has not yet been implemented")
-		}),
-		EventsWeaviateGroupsEventsGetHandler: events.WeaviateGroupsEventsGetHandlerFunc(func(params events.WeaviateGroupsEventsGetParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation EventsWeaviateGroupsEventsGet has not yet been implemented")
 		}),
 		EventsWeaviateGroupsEventsListHandler: events.WeaviateGroupsEventsListHandlerFunc(func(params events.WeaviateGroupsEventsListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation EventsWeaviateGroupsEventsList has not yet been implemented")
@@ -168,9 +168,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		EventsWeaviateThingsEventsCreateHandler: events.WeaviateThingsEventsCreateHandlerFunc(func(params events.WeaviateThingsEventsCreateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation EventsWeaviateThingsEventsCreate has not yet been implemented")
 		}),
-		EventsWeaviateThingsEventsGetHandler: events.WeaviateThingsEventsGetHandlerFunc(func(params events.WeaviateThingsEventsGetParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation EventsWeaviateThingsEventsGet has not yet been implemented")
-		}),
 		EventsWeaviateThingsEventsListHandler: events.WeaviateThingsEventsListHandlerFunc(func(params events.WeaviateThingsEventsListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation EventsWeaviateThingsEventsList has not yet been implemented")
 		}),
@@ -194,7 +191,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 	}
 }
 
-/*WeaviateAPI Internet of Things platform that lets you register, view and manage cloud ready things. */
+/*WeaviateAPI Ubiquitous Computing (& Internet of Things) platform that lets you manage cloud ready things directly or by proxy. More info: https://github.com/weaviate/weaviate */
 type WeaviateAPI struct {
 	spec            *loads.Document
 	context         *middleware.Context
@@ -203,7 +200,7 @@ type WeaviateAPI struct {
 	defaultConsumes string
 	defaultProduces string
 	Middleware      func(middleware.Builder) http.Handler
-	// JSONConsumer registers a consumer for a "application/json" mime type
+	// JSONConsumer registers a consumer for a "application/json-patch+json" mime type
 	JSONConsumer runtime.Consumer
 	// BinConsumer registers a consumer for a "application/octet-stream" mime type
 	BinConsumer runtime.Consumer
@@ -249,6 +246,8 @@ type WeaviateAPI struct {
 	CommandsWeaviateCommandsPatchHandler commands.WeaviateCommandsPatchHandler
 	// CommandsWeaviateCommandsUpdateHandler sets the operation handler for the weaviate commands update operation
 	CommandsWeaviateCommandsUpdateHandler commands.WeaviateCommandsUpdateHandler
+	// EventsWeaviateEventsGetHandler sets the operation handler for the weaviate events get operation
+	EventsWeaviateEventsGetHandler events.WeaviateEventsGetHandler
 	// EventsWeaviateEventsValidateHandler sets the operation handler for the weaviate events validate operation
 	EventsWeaviateEventsValidateHandler events.WeaviateEventsValidateHandler
 	// GroupsWeaviateGroupsCreateHandler sets the operation handler for the weaviate groups create operation
@@ -257,8 +256,6 @@ type WeaviateAPI struct {
 	GroupsWeaviateGroupsDeleteHandler groups.WeaviateGroupsDeleteHandler
 	// EventsWeaviateGroupsEventsCreateHandler sets the operation handler for the weaviate groups events create operation
 	EventsWeaviateGroupsEventsCreateHandler events.WeaviateGroupsEventsCreateHandler
-	// EventsWeaviateGroupsEventsGetHandler sets the operation handler for the weaviate groups events get operation
-	EventsWeaviateGroupsEventsGetHandler events.WeaviateGroupsEventsGetHandler
 	// EventsWeaviateGroupsEventsListHandler sets the operation handler for the weaviate groups events list operation
 	EventsWeaviateGroupsEventsListHandler events.WeaviateGroupsEventsListHandler
 	// GroupsWeaviateGroupsGetHandler sets the operation handler for the weaviate groups get operation
@@ -307,8 +304,6 @@ type WeaviateAPI struct {
 	ThingsWeaviateThingsDeleteHandler things.WeaviateThingsDeleteHandler
 	// EventsWeaviateThingsEventsCreateHandler sets the operation handler for the weaviate things events create operation
 	EventsWeaviateThingsEventsCreateHandler events.WeaviateThingsEventsCreateHandler
-	// EventsWeaviateThingsEventsGetHandler sets the operation handler for the weaviate things events get operation
-	EventsWeaviateThingsEventsGetHandler events.WeaviateThingsEventsGetHandler
 	// EventsWeaviateThingsEventsListHandler sets the operation handler for the weaviate things events list operation
 	EventsWeaviateThingsEventsListHandler events.WeaviateThingsEventsListHandler
 	// ThingsWeaviateThingsGetHandler sets the operation handler for the weaviate things get operation
@@ -458,6 +453,10 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "commands.WeaviateCommandsUpdateHandler")
 	}
 
+	if o.EventsWeaviateEventsGetHandler == nil {
+		unregistered = append(unregistered, "events.WeaviateEventsGetHandler")
+	}
+
 	if o.EventsWeaviateEventsValidateHandler == nil {
 		unregistered = append(unregistered, "events.WeaviateEventsValidateHandler")
 	}
@@ -472,10 +471,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.EventsWeaviateGroupsEventsCreateHandler == nil {
 		unregistered = append(unregistered, "events.WeaviateGroupsEventsCreateHandler")
-	}
-
-	if o.EventsWeaviateGroupsEventsGetHandler == nil {
-		unregistered = append(unregistered, "events.WeaviateGroupsEventsGetHandler")
 	}
 
 	if o.EventsWeaviateGroupsEventsListHandler == nil {
@@ -572,10 +567,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.EventsWeaviateThingsEventsCreateHandler == nil {
 		unregistered = append(unregistered, "events.WeaviateThingsEventsCreateHandler")
-	}
-
-	if o.EventsWeaviateThingsEventsGetHandler == nil {
-		unregistered = append(unregistered, "events.WeaviateThingsEventsGetHandler")
 	}
 
 	if o.EventsWeaviateThingsEventsListHandler == nil {
@@ -760,6 +751,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	}
 	o.handlers["PUT"]["/commands/{commandId}"] = commands.NewWeaviateCommandsUpdate(o.context, o.CommandsWeaviateCommandsUpdateHandler)
 
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/events/{eventId}"] = events.NewWeaviateEventsGet(o.context, o.EventsWeaviateEventsGetHandler)
+
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -779,11 +775,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/groups/{groupId}/events"] = events.NewWeaviateGroupsEventsCreate(o.context, o.EventsWeaviateGroupsEventsCreateHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/groups/{groupId}/events/{eventId}"] = events.NewWeaviateGroupsEventsGet(o.context, o.EventsWeaviateGroupsEventsGetHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
@@ -904,11 +895,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/things/{thingId}/events"] = events.NewWeaviateThingsEventsCreate(o.context, o.EventsWeaviateThingsEventsCreateHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/things/{thingId}/events/{eventId}"] = events.NewWeaviateThingsEventsGet(o.context, o.EventsWeaviateThingsEventsGetHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
