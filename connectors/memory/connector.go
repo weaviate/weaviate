@@ -327,6 +327,7 @@ func (f *Memory) List(refType string, limit int, page int, referenceFilter *dbco
 			}
 		}
 
+		// Sorting on CreateTimeMs
 		sort.Sort(dataObjs)
 
 		// count total
