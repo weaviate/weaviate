@@ -365,7 +365,27 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return commands.NewWeaviateCommandsUpdateOK().WithPayload(responseObject)
 	})
 	api.EventsWeaviateEventsGetHandler = events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation events.WeaviateEventsGet has not yet been implemented")
+		// This is a read function, validate if allowed to read?
+		if dbconnector.ReadAllowed(principal) == false {
+			return events.NewWeaviateEventsGetForbidden()
+		}
+
+		// Get item from database
+		dbObject, err := databaseConnector.Get(string(params.EventID))
+
+		// Object is deleted eleted
+		if dbObject.Deleted || err != nil {
+			return events.NewWeaviateEventsGetNotFound()
+		}
+
+		// Create object to return
+		responseObject := &models.EventGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		// Get is successful
+		return events.NewWeaviateEventsGetOK().WithPayload(responseObject)
 	})
 	api.EventsWeaviateEventsValidateHandler = events.WeaviateEventsValidateHandlerFunc(func(params events.WeaviateEventsValidateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation events.WeaviateEventsValidate has not yet been implemented")
