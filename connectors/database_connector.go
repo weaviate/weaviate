@@ -40,6 +40,7 @@ type ObjectReferences struct {
 // DatabaseObjects type that is reused a lot
 type DatabaseObjects []DatabaseObject
 
+// Functions for sorting on CreateTime
 func (slice DatabaseObjects) Len() int {
 	return len(slice)
 }
