@@ -286,7 +286,7 @@ func (f *Memory) Get(Uuid string) (dbconnector.DatabaseObject, error) {
 }
 
 // return a list
-func (f *Memory) List(refType string, limit int, page int) (dbconnector.DatabaseObjects, int, error) {
+func (f *Memory) List(refType string, limit int, page int, referenceFilter *dbconnector.ObjectReferences) (dbconnector.DatabaseObjects, int64, error) {
 	dataObjs := dbconnector.DatabaseObjects{}
 
 	// Create read-only transaction
@@ -312,13 +312,23 @@ func (f *Memory) List(refType string, limit int, page int) (dbconnector.Database
 				loopResults = false
 			} else {
 				// only store if refType is correct
-				if singleResult.(dbconnector.DatabaseObject).RefType == refType && !singleResult.(dbconnector.DatabaseObject).Deleted {
-					// append array
-					dataObjs = append(dataObjs, singleResult.(dbconnector.DatabaseObject))
+				if singleResult.(dbconnector.DatabaseObject).RefType == refType &&
+					!singleResult.(dbconnector.DatabaseObject).Deleted {
+
+					if referenceFilter != nil {
+						// check for extra filters
+						if referenceFilter.ThingID != "" &&
+							singleResult.(dbconnector.DatabaseObject).RelatedObjects.ThingID == referenceFilter.ThingID {
+							dataObjs = append(dataObjs, singleResult.(dbconnector.DatabaseObject))
+						}
+					} else {
+						dataObjs = append(dataObjs, singleResult.(dbconnector.DatabaseObject))
+					}
 				}
 			}
 		}
 
+		// Sorting on CreateTimeMs
 		sort.Sort(dataObjs)
 
 		// count total
@@ -330,7 +340,7 @@ func (f *Memory) List(refType string, limit int, page int) (dbconnector.Database
 		dataObjs := dataObjs[offset:end]
 
 		// return found set
-		return dataObjs, totalResults, err
+		return dataObjs, int64(totalResults), err
 	}
 
 	// nothing found
