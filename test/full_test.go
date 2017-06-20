@@ -60,7 +60,7 @@ func doRequest(endpoint string, method string, accept string, body io.Reader, ap
 // testNotExistsRequest with starting endpoint
 func testNotExistsRequest(t *testing.T, endpointStartsWith string, method string, accept string, body io.Reader, apiKey string) {
 	// Create get request with non-existing ID
-	responseNotFound := doRequest(endpointStartsWith+"/11111111-1111-1111-1111-111111111111", method, accept, body, apiKey)
+	responseNotFound := doRequest(endpointStartsWith+"/"+fakeID, method, accept, body, apiKey)
 
 	// Check response of non-existing ID
 	testStatusCode(t, responseNotFound.StatusCode, http.StatusNotFound)
@@ -104,6 +104,13 @@ func testValues(t *testing.T, expected string, got string) {
 	}
 }
 
+// testIntegerValues tests whether two integers are the same
+func testIntegerValues(t *testing.T, expected int, got int) {
+	if expected != got {
+		t.Errorf("Expected value is %d. Got %d\n", expected, got)
+	}
+}
+
 // getResponseBody converts response body to bytes
 func getResponseBody(response *http.Response) []byte {
 	defer response.Body.Close()
@@ -124,14 +131,20 @@ func getEmptyPatchJSON() io.Reader {
 
 var apiKeyCmdLine string
 var commandID string
+var eventID string
+var fakeID string
 var groupID string
 var locationID string
 var thingID string
 var thingTemplateID string
+var userID string
 
 func init() {
 	flag.StringVar(&apiKeyCmdLine, "api-key", "", "API-KEY as used as haeder in the tests.")
 	flag.Parse()
+
+	userID = "c2da84b2-6525-43c2-80e8-dbf1bc571817"
+	fakeID = "11111111-1111-1111-1111-111111111111"
 }
 
 /******************
@@ -144,7 +157,7 @@ func Test__weaviate_location_create_JSON(t *testing.T) {
 	jsonStr := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"TEST","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"string","types":["UNDEFINED"]} `))
 	response := doRequest("/locations", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
-	// Check status code of insert
+	// Check status code of create
 	testStatusCode(t, response.StatusCode, http.StatusAccepted)
 
 	body := getResponseBody(response)
@@ -395,7 +408,7 @@ func Test__weaviate_location_list_delete_JSON(t *testing.T) {
 func Test__weaviate_thing_template_create_JSON(t *testing.T) {
 	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(`{
-		"commandsId": "11111111-1111-1111-1111-111111111111",
+		"commandsId": "` + fakeID + `",
 		"thingModelTemplate": {
 			"modelName": "TEST name",
 			"oemNumber": "TEST number",
@@ -481,7 +494,7 @@ func Test__weaviate_thing_template_update_JSON(t *testing.T) {
 	// Create update request
 	newValue := "updated_name"
 	jsonStr := bytes.NewBuffer([]byte(`{
-		"commandsId": "11111111-1111-1111-1111-111111111111",
+		"commandsId": "` + fakeID + `",
 		"thingModelTemplate": {
 			"modelName": "` + newValue + `",
 			"oemNumber": "TEST number",
@@ -600,9 +613,9 @@ func Test__weaviate_thing_template_delete_JSON(t *testing.T) {
 	testNotExistsRequest(t, "/thingTemplates", "DELETE", "application/json", nil, apiKeyCmdLine)
 }
 
-// weaviate.command.insert
-func Test__weaviate_command_insert_JSON(t *testing.T) {
-	// Create insert request
+// weaviate.command.create
+func Test__weaviate_command_create_JSON(t *testing.T) {
+	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(`
 		{
 			"creationTimeMs": 123,
@@ -627,7 +640,7 @@ func Test__weaviate_command_insert_JSON(t *testing.T) {
 	`))
 	response := doRequest("/commands", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
-	// Check status code of insert
+	// Check status code of create
 	testStatusCode(t, response.StatusCode, http.StatusAccepted)
 
 	body := getResponseBody(response)
@@ -817,9 +830,9 @@ func Test__weaviate_command_delete_JSON(t *testing.T) {
 	testNotExistsRequest(t, "/commands", "DELETE", "application/json", nil, apiKeyCmdLine)
 }
 
-// weaviate.group.insert
-func Test__weaviate_group_insert_JSON(t *testing.T) {
-	// Create insert request
+// weaviate.group.create
+func Test__weaviate_group_create_JSON(t *testing.T) {
+	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(`
 		{
 			"name": "Group 1"
@@ -827,7 +840,7 @@ func Test__weaviate_group_insert_JSON(t *testing.T) {
 	`))
 	response := doRequest("/groups", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
-	// Check status code of insert
+	// Check status code of create
 	testStatusCode(t, response.StatusCode, http.StatusAccepted)
 
 	body := getResponseBody(response)
@@ -1223,4 +1236,98 @@ func Test__weaviate_thing_delete_JSON(t *testing.T) {
 
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/things", "DELETE", "application/json", nil, apiKeyCmdLine)
+}
+
+// weaviate.events.things.create
+func Test__weaviate_events_things_create_JSON(t *testing.T) {
+	// Create create request
+	jsonStr := bytes.NewBuffer([]byte(`
+	{
+		"commandId": "` + commandID + `",
+		"command": {
+			"commandParameters": {}
+		},
+		"timeMs": 0,
+		"userkey": "` + userID + `"
+	}
+	`))
+	response := doRequest("/things/"+thingID+"/events", "POST", "application/json", jsonStr, apiKeyCmdLine)
+
+	// Check status code of create
+	testStatusCode(t, response.StatusCode, http.StatusAccepted)
+
+	body := getResponseBody(response)
+
+	respObject := &models.EventGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check whether generated UUID is added
+	eventID = string(respObject.ID)
+	testIDFormat(t, eventID)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#eventGetResponse")
+
+	// Add another event for another thing
+	jsonStr2 := bytes.NewBuffer([]byte(`
+	{
+		"commandId": "` + commandID + `",
+		"command": {
+			"commandParameters": {}
+		},
+		"timeMs": 0,
+		"userkey": "` + userID + `"
+	}
+	`))
+	responseSecond := doRequest("/things/"+fakeID+"/events", "POST", "application/json", jsonStr2, apiKeyCmdLine)
+	testStatusCode(t, responseSecond.StatusCode, http.StatusAccepted)
+
+	// Test is faster than adding to DB.
+	time.Sleep(2 * time.Second)
+}
+
+// weaviate.event.things.list
+func Test__weaviate_event_things_list_JSON(t *testing.T) {
+	// Create list request
+	response := doRequest("/things/"+thingID+"/events", "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code of list
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
+	body := getResponseBody(response)
+
+	respObject := &models.EventsListResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check most recent
+	testID(t, string(respObject.Events[0].ID), eventID)
+
+	// Check there is only one event
+	testIntegerValues(t, 1, len(respObject.Events))
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#eventsListResponse")
+}
+
+// weaviate.event.get
+func Test__weaviate_event_get_JSON(t *testing.T) {
+	// Create get request
+	response := doRequest("/events/"+eventID, "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
+	body := getResponseBody(response)
+
+	respObject := &models.EventGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check ID of object
+	testID(t, string(respObject.ID), eventID)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#eventGetResponse")
+
+	// Create get request with non-existing ID
+	testNotExistsRequest(t, "/events", "GET", "application/json", nil, apiKeyCmdLine)
 }
