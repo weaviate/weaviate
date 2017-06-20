@@ -311,9 +311,18 @@ func (f *Memory) List(refType string, limit int, page int, referenceFilter *dbco
 				loopResults = false
 			} else {
 				// only store if refType is correct
-				if singleResult.(dbconnector.DatabaseObject).RefType == refType && !singleResult.(dbconnector.DatabaseObject).Deleted {
-					// append array
-					dataObjs = append(dataObjs, singleResult.(dbconnector.DatabaseObject))
+				if singleResult.(dbconnector.DatabaseObject).RefType == refType &&
+					!singleResult.(dbconnector.DatabaseObject).Deleted {
+
+					if referenceFilter != nil {
+						// check for extra filters
+						if referenceFilter.ThingID != "" &&
+							singleResult.(dbconnector.DatabaseObject).RelatedObjects.ThingID == referenceFilter.ThingID {
+							dataObjs = append(dataObjs, singleResult.(dbconnector.DatabaseObject))
+						}
+					} else {
+						dataObjs = append(dataObjs, singleResult.(dbconnector.DatabaseObject))
+					}
 				}
 			}
 		}
