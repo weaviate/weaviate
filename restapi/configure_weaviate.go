@@ -120,8 +120,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	var databaseConnector dbconnector.DatabaseConnector
 
 	// Determine the database name and use that name to create a connection.
-	databaseConnectorName := dbconnector.GetDatabaseConnectorName(connectorOptionGroup)
-	databaseConnector = dbconnector.CreateDatabaseConnector(databaseConnectorName)
+	databaseConnector = dbconnector.CreateDatabaseConnector(connectorOptionGroup)
 
 	// connect the database
 	errConnect := databaseConnector.Connect()

@@ -35,8 +35,14 @@ type Memory struct {
 	kind   string
 }
 
+// SetConfig is used to fill in a struct with config variables
 func (f *Memory) GetName() string {
 	return "memory"
+}
+
+// GetName returns a unique connector name
+func (f *Memory) SetConfig(interface{}) {
+	// NOTHING
 }
 
 // Creates connection and tables if not already available (which is never because it is in memory)

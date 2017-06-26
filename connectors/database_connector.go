@@ -14,8 +14,6 @@
 package dbconnector
 
 import (
-	"log"
-
 	"github.com/weaviate/weaviate/connectors/datastore"
 	"github.com/weaviate/weaviate/connectors/memory"
 	"github.com/weaviate/weaviate/connectors/utils"
@@ -31,27 +29,16 @@ type DatabaseConnector interface {
 	ValidateKey(string) ([]connector_utils.DatabaseUsersObject, error)
 	AddKey(string, connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error)
 	GetName() string
+	SetConfig(interface{})
 }
 
-// CreateDatabaseConnector Creates a database connector with name given
-func CreateDatabaseConnector(databaseConnectorName string) DatabaseConnector {
-	// Make default database if name is not found
-	var defaultDatabase DatabaseConnector = &memory.Memory{}
-
+// GetAllConnectors contains all available connectors
+func GetAllConnectors() []DatabaseConnector {
 	// Set all existing connectors
 	connectors := []DatabaseConnector{
 		&datastore.Datastore{},
-		defaultDatabase, // Also memory-database
+		&memory.Memory{},
 	}
 
-	// Loop through all connectors and determine its name
-	for _, connector := range connectors {
-		if connector.GetName() == databaseConnectorName {
-			return connector
-		}
-	}
-
-	// Return default Database
-	log.Println("INFO: Using default database '" + defaultDatabase.GetName() + "', because '" + databaseConnectorName + "' does not exist.")
-	return defaultDatabase
+	return connectors
 }

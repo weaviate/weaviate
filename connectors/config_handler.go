@@ -18,11 +18,13 @@ import (
 	"github.com/go-openapi/swag"
 	"io/ioutil"
 	"log"
+
+	"github.com/weaviate/weaviate/connectors/memory"
 )
 
 const defaultConfigFile string = "~/weaviate.conf.json"
 const defaultEnvironment string = "development"
-const defaultDatabase string = "memory"
+const defaultDatabaseName string = "memory"
 
 // ConfigFlags are input options
 type ConfigFlags struct {
@@ -43,8 +45,8 @@ type Environment struct {
 
 // Database is the outline of the database
 type Database struct {
-	Name string `json:"name"`
-	// DatabaseConfig interface{} `json:"database_config"`
+	Name           string      `json:"name"`
+	DatabaseConfig interface{} `json:"database_config"`
 }
 
 // GetConfigOptionGroup creates a option group for swagger
@@ -58,11 +60,13 @@ func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 	return &commandLineOptionsGroup
 }
 
-// GetDatabaseConnectorName gets the database connector name from config
-func GetDatabaseConnectorName(flags *swag.CommandLineOptionsGroup) string {
+// CreateDatabaseConnector gets the database connector by name from config
+func CreateDatabaseConnector(flags *swag.CommandLineOptionsGroup) DatabaseConnector {
 	// Get command line flags
 	configEnvironment := flags.Options.(*ConfigFlags).ConfigSection
 	configFileName := flags.Options.(*ConfigFlags).ConfigFile
+
+	databaseName := defaultDatabaseName
 
 	// Set default if not given
 	if configFileName == "" {
@@ -87,13 +91,40 @@ func GetDatabaseConnectorName(flags *swag.CommandLineOptionsGroup) string {
 	json.Unmarshal(file, &configFile)
 
 	// Loop through all values in object to see whether the given connection-name exists
+	var databaseConfig interface{}
+	foundName := false
 	for _, env := range configFile.Environments {
 		if env.Name == configEnvironment {
-			return env.Database.Name
+			databaseName = env.Database.Name
+			foundName = true
+
+			// Get config interface data
+			databaseConfig = env.Database.DatabaseConfig
 		}
 	}
 
 	// Return default database because no good config is found
-	log.Println("INFO: Using default database '" + defaultDatabase + "'.")
+	if !foundName {
+		log.Println("INFO: Using default database '" + defaultDatabaseName + "'.")
+		databaseName = defaultDatabaseName
+	}
+
+	// Make default database if name is not found
+	var defaultDatabase DatabaseConnector = &memory.Memory{}
+
+	// Get all connectors
+	connectors := GetAllConnectors()
+
+	// Loop through all connectors and determine its name
+	for _, connector := range connectors {
+		if connector.GetName() == databaseName {
+			// Add config interface data to connector, so the connector could do it's own trick with it.
+			connector.SetConfig(databaseConfig)
+			return connector
+		}
+	}
+
+	// Return default Database
+	log.Println("INFO: Using default database '" + defaultDatabase.GetName() + "', because '" + databaseName + "' does not exist.")
 	return defaultDatabase
 }
