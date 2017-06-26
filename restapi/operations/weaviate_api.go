@@ -123,6 +123,15 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		KeysWeaviateKeysGetHandler: keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation KeysWeaviateKeysGet has not yet been implemented")
 		}),
+		KeysWeaviateKeysMeChildrenGetHandler: keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation KeysWeaviateKeysMeChildrenGet has not yet been implemented")
+		}),
+		KeysWeaviateKeysMeDeleteHandler: keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation KeysWeaviateKeysMeDelete has not yet been implemented")
+		}),
+		KeysWeaviateKeysMeGetHandler: keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation KeysWeaviateKeysMeGet has not yet been implemented")
+		}),
 		LocationsWeaviateLocationsCreateHandler: locations.WeaviateLocationsCreateHandlerFunc(func(params locations.WeaviateLocationsCreateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation LocationsWeaviateLocationsCreate has not yet been implemented")
 		}),
@@ -274,6 +283,12 @@ type WeaviateAPI struct {
 	KeysWeaviateKeysDeleteHandler keys.WeaviateKeysDeleteHandler
 	// KeysWeaviateKeysGetHandler sets the operation handler for the weaviate keys get operation
 	KeysWeaviateKeysGetHandler keys.WeaviateKeysGetHandler
+	// KeysWeaviateKeysMeChildrenGetHandler sets the operation handler for the weaviate keys me children get operation
+	KeysWeaviateKeysMeChildrenGetHandler keys.WeaviateKeysMeChildrenGetHandler
+	// KeysWeaviateKeysMeDeleteHandler sets the operation handler for the weaviate keys me delete operation
+	KeysWeaviateKeysMeDeleteHandler keys.WeaviateKeysMeDeleteHandler
+	// KeysWeaviateKeysMeGetHandler sets the operation handler for the weaviate keys me get operation
+	KeysWeaviateKeysMeGetHandler keys.WeaviateKeysMeGetHandler
 	// LocationsWeaviateLocationsCreateHandler sets the operation handler for the weaviate locations create operation
 	LocationsWeaviateLocationsCreateHandler locations.WeaviateLocationsCreateHandler
 	// LocationsWeaviateLocationsDeleteHandler sets the operation handler for the weaviate locations delete operation
@@ -507,6 +522,18 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.KeysWeaviateKeysGetHandler == nil {
 		unregistered = append(unregistered, "keys.WeaviateKeysGetHandler")
+	}
+
+	if o.KeysWeaviateKeysMeChildrenGetHandler == nil {
+		unregistered = append(unregistered, "keys.WeaviateKeysMeChildrenGetHandler")
+	}
+
+	if o.KeysWeaviateKeysMeDeleteHandler == nil {
+		unregistered = append(unregistered, "keys.WeaviateKeysMeDeleteHandler")
+	}
+
+	if o.KeysWeaviateKeysMeGetHandler == nil {
+		unregistered = append(unregistered, "keys.WeaviateKeysMeGetHandler")
 	}
 
 	if o.LocationsWeaviateLocationsCreateHandler == nil {
@@ -820,6 +847,21 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/keys/{keyId}"] = keys.NewWeaviateKeysGet(o.context, o.KeysWeaviateKeysGetHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/keys/me/children"] = keys.NewWeaviateKeysMeChildrenGet(o.context, o.KeysWeaviateKeysMeChildrenGetHandler)
+
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/keys/me"] = keys.NewWeaviateKeysMeDelete(o.context, o.KeysWeaviateKeysMeDeleteHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/keys/me"] = keys.NewWeaviateKeysMeGet(o.context, o.KeysWeaviateKeysMeGetHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
