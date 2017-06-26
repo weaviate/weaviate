@@ -42,7 +42,9 @@ import (
 	"strings"
 	"unicode"
 
+	"fmt"
 	"github.com/go-openapi/swag"
+	gouuid "github.com/satori/go.uuid"
 	"github.com/weaviate/weaviate/restapi/operations"
 	"github.com/weaviate/weaviate/restapi/operations/commands"
 	"github.com/weaviate/weaviate/restapi/operations/events"
@@ -648,7 +650,37 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE KEYS
 	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation keys.WeaviateKeyCreate has not yet been implemented")
+		// Create current User object from principle
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
+		// Fill the new User object
+		newUsersObject := &connector_utils.DatabaseUsersObject{}
+		newUsersObject.KeyExpiresUnix = int64(params.Body.KeyExpiresUnix)
+		newUsersObject.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
+		newUsersObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
+		newUsersObject.Parent = currentUsersObject.Uuid
+
+		// Fill in the string-Object of the User
+		objectsBody, _ := json.Marshal(params.Body)
+		newUsersObjectsObject := &connector_utils.DatabaseUsersObjectsObject{}
+		json.Unmarshal(objectsBody, newUsersObjectsObject)
+		databaseBody, _ := json.Marshal(newUsersObjectsObject)
+		newUsersObject.Object = string(databaseBody)
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.AddKey(currentUsersObject.Uuid, *newUsersObject)
+
+		// Create response Object from create object.
+		responseObject := &models.KeyGetResponse{}
+		json.Unmarshal([]byte(newUsersObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(newUsersObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+		responseObject.Key = newUsersObject.KeyToken
+		responseObject.Parent = newUsersObject.Parent
+		responseObject.KeyExpiresUnix = float64(newUsersObject.KeyExpiresUnix)
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return keys.NewWeaviateKeyCreateAccepted().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation keys.WeaviateKeysChildrenGet has not yet been implemented")
