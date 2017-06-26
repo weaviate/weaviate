@@ -35,12 +35,12 @@ type Memory struct {
 	kind   string
 }
 
-// SetConfig is used to fill in a struct with config variables
+// GetName returns a unique connector name
 func (f *Memory) GetName() string {
 	return "memory"
 }
 
-// GetName returns a unique connector name
+// SetConfig is used to fill in a struct with config variables
 func (f *Memory) SetConfig(interface{}) {
 	// NOTHING
 }
