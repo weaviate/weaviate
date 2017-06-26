@@ -1,4 +1,4 @@
- /*                          _       _
+/*                          _       _
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
@@ -111,6 +111,13 @@ func testIntegerValues(t *testing.T, expected int, got int) {
 	}
 }
 
+// testBooleanValues tests wheter two booleans are the same
+func testBooleanValues(t *testing.T, expected bool, got bool) {
+	if expected != got {
+		t.Errorf("Expected value is %t. Got %t\n", expected, got)
+	}
+}
+
 // getResponseBody converts response body to bytes
 func getResponseBody(response *http.Response) []byte {
 	defer response.Body.Close()
@@ -134,6 +141,7 @@ var commandID string
 var eventID string
 var fakeID string
 var groupID string
+var keyID string
 var locationID string
 var thingID string
 var thingTemplateID string
@@ -148,7 +156,90 @@ func init() {
 }
 
 /******************
- * START TESTS
+ * KEY TESTS
+ ******************/
+
+// weaviate.keys.create
+func Test__weaviate_keys_create_JSON(t *testing.T) {
+	// Create create request
+	jsonStr := bytes.NewBuffer([]byte(`{
+		"delete": true,
+		"email": "string",
+		"ipOrigin": "string",
+		"keyExpiresUnix": 1,
+		"read": false,
+		"write": false
+	}`))
+	response := doRequest("/keys", "POST", "application/json", jsonStr, apiKeyCmdLine)
+
+	// Check status code of create
+	testStatusCode(t, response.StatusCode, http.StatusAccepted)
+
+	body := getResponseBody(response)
+
+	respObject := &models.KeyGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check whether generated UUID is added
+	keyID = string(respObject.ID)
+	testIDFormat(t, keyID)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#keyGetResponse")
+
+	// Test Rights
+	testBooleanValues(t, true, respObject.Delete)
+	// testBooleanValues(t, true, respObject.Execute) TODO
+	testBooleanValues(t, false, respObject.Read)
+	testBooleanValues(t, false, respObject.Write)
+
+	// Test given Token
+	newAPItoken := string(respObject.Key)
+	testIDFormat(t, newAPItoken)
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Create create request
+	jsonStrNewKey := bytes.NewBuffer([]byte(`{
+		"delete": false,
+		"email": "string",
+		"ipOrigin": "string",
+		"keyExpiresUnix": 0,
+		"read": true,
+		"write": true
+	}`))
+	responseNewToken := doRequest("/keys", "POST", "application/json", jsonStrNewKey, newAPItoken)
+
+	// Test second statuscode
+	testStatusCode(t, responseNewToken.StatusCode, http.StatusAccepted)
+
+	// Process response
+	bodyNewToken := getResponseBody(responseNewToken)
+	respObjectNewToken := &models.KeyGetResponse{}
+	json.Unmarshal(bodyNewToken, respObjectNewToken)
+
+	// Test key ID parent is correct
+	testID(t, respObjectNewToken.Parent, keyID)
+
+	// Test expiration set
+	testIntegerValues(t, 0, int(respObjectNewToken.KeyExpiresUnix))
+
+	// Test Rights
+	testBooleanValues(t, false, respObjectNewToken.Delete)
+	// testBooleanValues(t, false, respObjectNewToken.Execute) TODO
+	testBooleanValues(t, true, respObjectNewToken.Read)
+	testBooleanValues(t, true, respObjectNewToken.Write)
+
+	// TODO:
+	// Test expiration
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+}
+
+/******************
+ * LOCATION TESTS
  ******************/
 
 // weaviate.location.create
@@ -404,6 +495,10 @@ func Test__weaviate_location_list_delete_JSON(t *testing.T) {
 	}
 }
 
+/******************
+ * THING TEMPLATE TESTS
+ ******************/
+
 // weaviate.thing_template.create
 func Test__weaviate_thing_template_create_JSON(t *testing.T) {
 	// Create create request
@@ -612,6 +707,10 @@ func Test__weaviate_thing_template_delete_JSON(t *testing.T) {
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/thingTemplates", "DELETE", "application/json", nil, apiKeyCmdLine)
 }
+
+/******************
+ * COMMAND TESTS
+ ******************/
 
 // weaviate.command.create
 func Test__weaviate_command_create_JSON(t *testing.T) {
@@ -830,6 +929,10 @@ func Test__weaviate_command_delete_JSON(t *testing.T) {
 	testNotExistsRequest(t, "/commands", "DELETE", "application/json", nil, apiKeyCmdLine)
 }
 
+/******************
+ * GROUP TESTS
+ ******************/
+
 // weaviate.group.create
 func Test__weaviate_group_create_JSON(t *testing.T) {
 	// Create create request
@@ -1012,6 +1115,10 @@ func Test__weaviate_group_delete_JSON(t *testing.T) {
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/groups", "DELETE", "application/json", nil, apiKeyCmdLine)
 }
+
+/******************
+ * THING TESTS
+ ******************/
 
 // weaviate.thing.create
 func Test__weaviate_thing_create_JSON(t *testing.T) {
@@ -1237,6 +1344,10 @@ func Test__weaviate_thing_delete_JSON(t *testing.T) {
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/things", "DELETE", "application/json", nil, apiKeyCmdLine)
 }
+
+/******************
+ * EVENTS TESTS
+ ******************/
 
 // weaviate.events.things.create
 func Test__weaviate_events_things_create_JSON(t *testing.T) {

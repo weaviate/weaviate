@@ -1,4 +1,4 @@
- /*                          _       _
+/*                          _       _
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
@@ -124,7 +124,7 @@ func (f *Datastore) Init() error {
 			}
 		}
 
-		dbObjectObject.IpOrigin = ips
+		dbObjectObject.IPOrigin = ips
 
 		// Marshall and add to object
 		dbObjectObjectJson, _ := json.Marshal(dbObjectObject)
@@ -303,9 +303,6 @@ func (f *Datastore) AddKey(parentUuid string, dbObject connector_utils.DatabaseU
 	kind := "weaviate_users"
 
 	nameUUID := fmt.Sprintf("%v", gouuid.NewV4())
-
-	// Create key token
-	dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
 
 	// Creates a Key instance.
 	taskKey := datastore.NameKey(kind, nameUUID, nil)

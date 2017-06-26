@@ -143,10 +143,10 @@ func (f *Memory) Connect() error {
 						Unique:  true,
 						Indexer: &memdb.StringFieldIndex{Field: "Uuid"},
 					},
-					"KeyExpiresMs": &memdb.IndexSchema{
-						Name:    "KeyExpiresMs",
+					"KeyExpiresUnix": &memdb.IndexSchema{
+						Name:    "KeyExpiresUnix",
 						Unique:  true,
-						Indexer: &memdb.StringFieldIndex{Field: "KeyExpiresMs"},
+						Indexer: &memdb.StringFieldIndex{Field: "KeyExpiresUnix"},
 					},
 					"KeyToken": &memdb.IndexSchema{
 						Name:    "KeyToken",
@@ -230,7 +230,7 @@ func (f *Memory) Init() error {
 		}
 	}
 
-	dbObjectObject.IpOrigin = ips
+	dbObjectObject.IPOrigin = ips
 
 	// Marshall and add to object
 	dbObjectObjectJSON, _ := json.Marshal(dbObjectObject)
@@ -385,9 +385,6 @@ func (f *Memory) AddKey(parentUuid string, dbObject connector_utils.DatabaseUser
 
 	// Create a write transaction
 	txn := f.client.Txn(true)
-
-	// Create key token
-	dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
 
 	// Auto set the parent ID
 	dbObject.Parent = parentUuid
