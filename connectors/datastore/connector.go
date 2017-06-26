@@ -33,6 +33,12 @@ type Datastore struct {
 	client *datastore.Client
 }
 
+// SetConfig is used to fill in a struct with config variables
+func (f *Datastore) SetConfig(configInput interface{}) {
+	// NOTHING HERE
+}
+
+// GetName returns a unique connector name
 func (f *Datastore) GetName() string {
 	return "datastore"
 }
