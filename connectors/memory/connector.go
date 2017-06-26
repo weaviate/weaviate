@@ -10,6 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
+
 package memory
 
 import (
@@ -25,7 +26,7 @@ import (
 	"sort"
 
 	"github.com/hashicorp/go-memdb"
-	"github.com/weaviate/weaviate/connectors"
+	"github.com/weaviate/weaviate/connectors/utils"
 )
 
 // Datastore has some basic variables.
@@ -184,7 +185,7 @@ func (f *Memory) Connect() error {
 
 // Creates a root key, normally this should be validaded, but because it is an inmemory DB it is created always
 func (f *Memory) Init() error {
-	dbObject := dbconnector.DatabaseUsersObject{}
+	dbObject := connector_utils.DatabaseUsersObject{}
 
 	// Create key token
 	dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
@@ -199,7 +200,7 @@ func (f *Memory) Init() error {
 	dbObject.Uuid = uuid
 
 	// Set chmod variables
-	dbObjectObject := dbconnector.DatabaseUsersObjectsObject{}
+	dbObjectObject := connector_utils.DatabaseUsersObjectsObject{}
 	dbObjectObject.Read = true
 	dbObjectObject.Write = true
 	dbObjectObject.Delete = true
@@ -248,7 +249,7 @@ func (f *Memory) Init() error {
 	return nil
 }
 
-func (f *Memory) Add(dbObject dbconnector.DatabaseObject) (string, error) {
+func (f *Memory) Add(dbObject connector_utils.DatabaseObject) (string, error) {
 
 	// Create a write transaction
 	txn := f.client.Txn(true)
@@ -266,7 +267,7 @@ func (f *Memory) Add(dbObject dbconnector.DatabaseObject) (string, error) {
 
 }
 
-func (f *Memory) Get(Uuid string) (dbconnector.DatabaseObject, error) {
+func (f *Memory) Get(Uuid string) (connector_utils.DatabaseObject, error) {
 
 	// Create read-only transaction
 	txn := f.client.Txn(false)
@@ -275,23 +276,23 @@ func (f *Memory) Get(Uuid string) (dbconnector.DatabaseObject, error) {
 	// Lookup by Uuid
 	result, err := txn.First("weaviate", "Uuid", Uuid)
 	if err != nil {
-		return dbconnector.DatabaseObject{}, err
+		return connector_utils.DatabaseObject{}, err
 	}
 
 	// Return 'not found'
 	if result == nil {
 		notFoundErr := errors.New("no object with such UUID found")
-		return dbconnector.DatabaseObject{}, notFoundErr
+		return connector_utils.DatabaseObject{}, notFoundErr
 	}
 
 	// Return found object
-	return result.(dbconnector.DatabaseObject), nil
+	return result.(connector_utils.DatabaseObject), nil
 
 }
 
 // return a list
-func (f *Memory) List(refType string, limit int, page int, referenceFilter *dbconnector.ObjectReferences) (dbconnector.DatabaseObjects, int64, error) {
-	dataObjs := dbconnector.DatabaseObjects{}
+func (f *Memory) List(refType string, limit int, page int, referenceFilter *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error) {
+	dataObjs := connector_utils.DatabaseObjects{}
 
 	// Create read-only transaction
 	txn := f.client.Txn(false)
@@ -316,17 +317,17 @@ func (f *Memory) List(refType string, limit int, page int, referenceFilter *dbco
 				loopResults = false
 			} else {
 				// only store if refType is correct
-				if singleResult.(dbconnector.DatabaseObject).RefType == refType &&
-					!singleResult.(dbconnector.DatabaseObject).Deleted {
+				if singleResult.(connector_utils.DatabaseObject).RefType == refType &&
+					!singleResult.(connector_utils.DatabaseObject).Deleted {
 
 					if referenceFilter != nil {
 						// check for extra filters
 						if referenceFilter.ThingID != "" &&
-							singleResult.(dbconnector.DatabaseObject).RelatedObjects.ThingID == referenceFilter.ThingID {
-							dataObjs = append(dataObjs, singleResult.(dbconnector.DatabaseObject))
+							singleResult.(connector_utils.DatabaseObject).RelatedObjects.ThingID == referenceFilter.ThingID {
+							dataObjs = append(dataObjs, singleResult.(connector_utils.DatabaseObject))
 						}
 					} else {
-						dataObjs = append(dataObjs, singleResult.(dbconnector.DatabaseObject))
+						dataObjs = append(dataObjs, singleResult.(connector_utils.DatabaseObject))
 					}
 				}
 			}
@@ -352,9 +353,9 @@ func (f *Memory) List(refType string, limit int, page int, referenceFilter *dbco
 }
 
 // Validate if a user has access, returns permissions object
-func (f *Memory) ValidateKey(token string) ([]dbconnector.DatabaseUsersObject, error) {
+func (f *Memory) ValidateKey(token string) ([]connector_utils.DatabaseUsersObject, error) {
 
-	dbUsersObjects := []dbconnector.DatabaseUsersObject{}
+	dbUsersObjects := []connector_utils.DatabaseUsersObject{}
 
 	// Create read-only transaction
 	txn := f.client.Txn(false)
@@ -363,18 +364,18 @@ func (f *Memory) ValidateKey(token string) ([]dbconnector.DatabaseUsersObject, e
 	// Lookup by Uuid
 	result, err := txn.First("weaviate_users", "KeyToken", token)
 	if err != nil || result == nil {
-		return []dbconnector.DatabaseUsersObject{}, err
+		return []connector_utils.DatabaseUsersObject{}, err
 	}
 
 	// add to results
-	dbUsersObjects = append(dbUsersObjects, result.(dbconnector.DatabaseUsersObject))
+	dbUsersObjects = append(dbUsersObjects, result.(connector_utils.DatabaseUsersObject))
 
 	// keys are found, return true
 	return dbUsersObjects, nil
 }
 
 // AddUser to DB
-func (f *Memory) AddKey(parentUuid string, dbObject dbconnector.DatabaseUsersObject) (dbconnector.DatabaseUsersObject, error) {
+func (f *Memory) AddKey(parentUuid string, dbObject connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error) {
 
 	// Create a write transaction
 	txn := f.client.Txn(true)
