@@ -109,6 +109,30 @@ func getKind(object interface{}) *string {
 	return &kind
 }
 
+// getKeyResponseByUUID transforms the key UUID into response object
+func getKeyResponseByUUID(UUID string, databaseConnector dbconnector.DatabaseConnector) (*models.KeyGetResponse, error) {
+	// Get item from database
+	userObject, err := databaseConnector.GetKey(string(UUID))
+
+	// Init object
+	responseObject := &models.KeyGetResponse{}
+
+	// Object is deleted eleted
+	if err != nil {
+		return responseObject, err
+	}
+
+	// Create response Object from create object.
+	json.Unmarshal([]byte(userObject.Object), responseObject)
+	responseObject.ID = strfmt.UUID(userObject.Uuid)
+	responseObject.Kind = getKind(responseObject)
+	responseObject.Key = userObject.KeyToken
+	responseObject.Parent = userObject.Parent
+	responseObject.KeyExpiresUnix = float64(userObject.KeyExpiresUnix)
+
+	return responseObject, nil
+}
+
 func configureFlags(api *operations.WeaviateAPI) {
 	connectorOptionGroup = dbconnector.GetConfigOptionGroup()
 
@@ -689,7 +713,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation keys.WeaviateKeysDelete has not yet been implemented")
 	})
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation keys.WeaviateKeysGet has not yet been implemented")
+		// Get response by UUID
+		responseObject, err := getKeyResponseByUUID(params.KeyID, databaseConnector)
+
+		// If not found, return corresponding status
+		if err != nil {
+			return keys.NewWeaviateKeysGetNotFound()
+		}
+
+		// Get is successful
+		return keys.NewWeaviateKeysGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation KeysWeaviateKeysMeChildrenGet has not yet been implemented")
@@ -698,7 +731,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation KeysWeaviateKeysMeDelete has not yet been implemented")
 	})
 	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation KeysWeaviateKeysMeGet has not yet been implemented")
+		// Create current User object from principle
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
+		// Get response by UUID
+		responseObject, err := getKeyResponseByUUID(currentUsersObject.Uuid, databaseConnector)
+
+		// If not found, return corresponding status
+		if err != nil {
+			return keys.NewWeaviateKeysMeGetNotFound()
+		}
+
+		// Get is successful
+		return keys.NewWeaviateKeysMeGetOK().WithPayload(responseObject)
 	})
 
 	/*

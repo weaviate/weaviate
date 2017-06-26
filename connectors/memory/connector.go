@@ -380,6 +380,30 @@ func (f *Memory) ValidateKey(token string) ([]connector_utils.DatabaseUsersObjec
 	return dbUsersObjects, nil
 }
 
+// GetKey returns user object by ID
+func (f *Memory) GetKey(Uuid string) (connector_utils.DatabaseUsersObject, error) {
+
+	// Create read-only transaction
+	txn := f.client.Txn(false)
+	defer txn.Abort()
+
+	// Lookup by Uuid
+	result, err := txn.First("weaviate_users", "Uuid", Uuid)
+	if err != nil {
+		return connector_utils.DatabaseUsersObject{}, err
+	}
+
+	// Return 'not found'
+	if result == nil {
+		notFoundErr := errors.New("No object with such UUID found")
+		return connector_utils.DatabaseUsersObject{}, notFoundErr
+	}
+
+	// Return found object
+	return result.(connector_utils.DatabaseUsersObject), nil
+
+}
+
 // AddUser to DB
 func (f *Memory) AddKey(parentUuid string, dbObject connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error) {
 

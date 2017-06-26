@@ -1,4 +1,4 @@
- /*                          _       _
+/*                          _       _
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
@@ -27,6 +27,7 @@ type DatabaseConnector interface {
 	Get(string) (connector_utils.DatabaseObject, error)
 	List(string, int, int, *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error)
 	ValidateKey(string) ([]connector_utils.DatabaseUsersObject, error)
+	GetKey(string) (connector_utils.DatabaseUsersObject, error)
 	AddKey(string, connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error)
 	GetName() string
 	SetConfig(interface{})

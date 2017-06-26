@@ -277,9 +277,8 @@ func (f *Datastore) List(refType string, limit int, page int, referenceFilter *c
 
 // Validate if a user has access, returns permissions object
 func (f *Datastore) ValidateKey(token string) ([]connector_utils.DatabaseUsersObject, error) {
-
+	// Set ctx and kind.
 	ctx := context.Background()
-
 	kind := "weaviate_users"
 
 	query := datastore.NewQuery(kind).Filter("KeyToken =", token).Limit(1)
@@ -294,6 +293,35 @@ func (f *Datastore) ValidateKey(token string) ([]connector_utils.DatabaseUsersOb
 
 	// keys are found, return them
 	return dbUsersObjects, nil
+}
+
+// GetKey returns user object by ID
+func (f *Datastore) GetKey(uuid string) (connector_utils.DatabaseUsersObject, error) {
+	// Set ctx and kind.
+	ctx := context.Background()
+	kind := "weaviate_users"
+
+	// Create get Query
+	query := datastore.NewQuery(kind).Filter("Uuid =", uuid).Limit(1)
+
+	// Fill User object
+	userObject := []connector_utils.DatabaseUsersObject{}
+	keys, err := f.client.GetAll(ctx, query, &userObject)
+
+	// Return error
+	if err != nil {
+		log.Fatalf("Failed to load task: %v", err)
+		return connector_utils.DatabaseUsersObject{}, err
+	}
+
+	// Return error 'not found'
+	if len(keys) == 0 {
+		notFoundErr := errors.New("No userObject with such UUID found")
+		return connector_utils.DatabaseUsersObject{}, notFoundErr
+	}
+
+	// Return found object
+	return userObject[0], nil
 }
 
 // AddUser to DB

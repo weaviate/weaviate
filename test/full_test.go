@@ -142,6 +142,7 @@ var eventID string
 var fakeID string
 var groupID string
 var keyID string
+var newAPIToken string
 var locationID string
 var thingID string
 var thingTemplateID string
@@ -159,7 +160,7 @@ func init() {
  * KEY TESTS
  ******************/
 
-// weaviate.keys.create
+// weaviate.key.create
 func Test__weaviate_keys_create_JSON(t *testing.T) {
 	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(`{
@@ -194,8 +195,8 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 	testBooleanValues(t, false, respObject.Write)
 
 	// Test given Token
-	newAPItoken := string(respObject.Key)
-	testIDFormat(t, newAPItoken)
+	newAPIToken = string(respObject.Key)
+	testIDFormat(t, newAPIToken)
 
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
@@ -209,7 +210,7 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 		"read": true,
 		"write": true
 	}`))
-	responseNewToken := doRequest("/keys", "POST", "application/json", jsonStrNewKey, newAPItoken)
+	responseNewToken := doRequest("/keys", "POST", "application/json", jsonStrNewKey, newAPIToken)
 
 	// Test second statuscode
 	testStatusCode(t, responseNewToken.StatusCode, http.StatusAccepted)
@@ -236,6 +237,52 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
+}
+
+// weaviate.key.get
+func Test__weaviate_key_get_JSON(t *testing.T) {
+	// Create get request
+	response := doRequest("/keys/"+keyID, "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
+	body := getResponseBody(response)
+
+	respObject := &models.KeyGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check ID of object
+	testID(t, string(respObject.ID), keyID)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#keyGetResponse")
+
+	// Create get request with non-existing ID
+	testNotExistsRequest(t, "/keys", "GET", "application/json", nil, apiKeyCmdLine)
+}
+
+// weaviate.key.me.get
+func Test__weaviate_key_get_me_JSON(t *testing.T) {
+	// Create get request
+	response := doRequest("/keys/me", "GET", "application/json", nil, newAPIToken)
+
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
+	body := getResponseBody(response)
+
+	respObject := &models.KeyGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check ID of object
+	testID(t, string(respObject.ID), keyID)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#keyGetResponse")
+
+	// Create get request with non-existing ID
+	testNotExistsRequest(t, "/keys", "GET", "application/json", nil, apiKeyCmdLine)
 }
 
 /******************
