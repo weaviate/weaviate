@@ -1,4 +1,4 @@
- /*                          _       _
+/*                          _       _
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
@@ -84,4 +84,10 @@ func WriteAllowed(validateObject interface{}) bool {
 func DeleteAllowed(validateObject interface{}) bool {
 	_, ObjectsObject := PrincipalMarshalling(validateObject)
 	return ObjectsObject.Delete
+}
+
+// ExecuteAllowed checks if execution is allowed
+func ExecuteAllowed(validateObject interface{}) bool {
+	_, ObjectsObject := PrincipalMarshalling(validateObject)
+	return ObjectsObject.Execute
 }
