@@ -35,8 +35,7 @@ import (
 	"github.com/weaviate/weaviate/mqtt"
 
 	"github.com/weaviate/weaviate/connectors"
-	"github.com/weaviate/weaviate/connectors/datastore"
-	"github.com/weaviate/weaviate/connectors/memory"
+	"github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/models"
 
 	"reflect"
@@ -117,22 +116,12 @@ func configureFlags(api *operations.WeaviateAPI) {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-
 	// configure database connection
 	var databaseConnector dbconnector.DatabaseConnector
 
-	commandLineInput := dbconnector.GetDatabaseConnector(connectorOptionGroup)
-
-	connectors := []dbconnector.DatabaseConnector{
-		&datastore.Datastore{},
-		&memory.Memory{},
-	}
-
-	for _, connector := range connectors {
-		if connector.GetName() == commandLineInput {
-			databaseConnector = connector
-		}
-	}
+	// Determine the database name and use that name to create a connection.
+	databaseConnectorName := dbconnector.GetDatabaseConnectorName(connectorOptionGroup)
+	databaseConnector = dbconnector.CreateDatabaseConnector(databaseConnectorName)
 
 	// connect the database
 	errConnect := databaseConnector.Connect()
@@ -199,12 +188,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.CommandsWeaviateCommandsCreateHandler = commands.WeaviateCommandsCreateHandlerFunc(func(params commands.WeaviateCommandsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return commands.NewWeaviateCommandsCreateForbidden()
 		}
 
 		// Create basic DataBase object
-		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeCommand)
+		dbObject := *connector_utils.NewDatabaseObjectFromPrincipal(principal, refTypeCommand)
 
 		// Set the generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
@@ -223,7 +212,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.CommandsWeaviateCommandsDeleteHandler = commands.WeaviateCommandsDeleteHandlerFunc(func(params commands.WeaviateCommandsDeleteParams, principal interface{}) middleware.Responder {
 		// This is a delete function, validate if allowed to read?
-		if dbconnector.DeleteAllowed(principal) == false {
+		if connector_utils.DeleteAllowed(principal) == false {
 			return commands.NewWeaviateCommandsDeleteForbidden()
 		}
 
@@ -246,7 +235,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.CommandsWeaviateCommandsGetHandler = commands.WeaviateCommandsGetHandlerFunc(func(params commands.WeaviateCommandsGetParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return commands.NewWeaviateCommandsGetForbidden()
 		}
 
@@ -269,7 +258,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.CommandsWeaviateCommandsListHandler = commands.WeaviateCommandsListHandlerFunc(func(params commands.WeaviateCommandsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return commands.NewWeaviateCommandsListForbidden()
 		}
 
@@ -300,7 +289,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.CommandsWeaviateCommandsPatchHandler = commands.WeaviateCommandsPatchHandlerFunc(func(params commands.WeaviateCommandsPatchParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return commands.NewWeaviateCommandsPatchForbidden()
 		}
 
@@ -344,7 +333,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.CommandsWeaviateCommandsUpdateHandler = commands.WeaviateCommandsUpdateHandlerFunc(func(params commands.WeaviateCommandsUpdateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return commands.NewWeaviateCommandsUpdateForbidden()
 		}
 
@@ -376,7 +365,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.EventsWeaviateEventsGetHandler = events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return events.NewWeaviateEventsGetForbidden()
 		}
 
@@ -408,7 +397,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.EventsWeaviateThingsEventsCreateHandler = events.WeaviateThingsEventsCreateHandlerFunc(func(params events.WeaviateThingsEventsCreateParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return events.NewWeaviateThingsEventsCreateForbidden()
 		}
 
@@ -416,7 +405,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingID := strfmt.UUID(params.ThingID)
 
 		// Create basic DataBase object
-		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeEvent)
+		dbObject := *connector_utils.NewDatabaseObjectFromPrincipal(principal, refTypeEvent)
 
 		// Set the generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
@@ -437,14 +426,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.EventsWeaviateThingsEventsListHandler = events.WeaviateThingsEventsListHandlerFunc(func(params events.WeaviateThingsEventsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return events.NewWeaviateThingsEventsListForbidden()
 		}
 
 		// Get limit and page
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
-		referenceFilter := &dbconnector.ObjectReferences{ThingID: params.ThingID}
+		referenceFilter := &connector_utils.ObjectReferences{ThingID: params.ThingID}
 
 		// List all results
 		eventsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeEvent, limit, page, referenceFilter)
@@ -469,12 +458,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.GroupsWeaviateGroupsCreateHandler = groups.WeaviateGroupsCreateHandlerFunc(func(params groups.WeaviateGroupsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return groups.NewWeaviateGroupsCreateForbidden()
 		}
 
 		// Create basic DataBase object
-		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeGroup)
+		dbObject := *connector_utils.NewDatabaseObjectFromPrincipal(principal, refTypeGroup)
 
 		// Set the generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
@@ -493,7 +482,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.GroupsWeaviateGroupsDeleteHandler = groups.WeaviateGroupsDeleteHandlerFunc(func(params groups.WeaviateGroupsDeleteParams, principal interface{}) middleware.Responder {
 		// This is a delete function, validate if allowed to read?
-		if dbconnector.DeleteAllowed(principal) == false {
+		if connector_utils.DeleteAllowed(principal) == false {
 			return groups.NewWeaviateGroupsDeleteForbidden()
 		}
 
@@ -516,7 +505,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.GroupsWeaviateGroupsGetHandler = groups.WeaviateGroupsGetHandlerFunc(func(params groups.WeaviateGroupsGetParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return groups.NewWeaviateGroupsGetForbidden()
 		}
 
@@ -539,7 +528,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.GroupsWeaviateGroupsListHandler = groups.WeaviateGroupsListHandlerFunc(func(params groups.WeaviateGroupsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return groups.NewWeaviateGroupsListForbidden()
 		}
 
@@ -570,7 +559,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.GroupsWeaviateGroupsPatchHandler = groups.WeaviateGroupsPatchHandlerFunc(func(params groups.WeaviateGroupsPatchParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return groups.NewWeaviateGroupsPatchForbidden()
 		}
 
@@ -614,7 +603,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.GroupsWeaviateGroupsUpdateHandler = groups.WeaviateGroupsUpdateHandlerFunc(func(params groups.WeaviateGroupsUpdateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return groups.NewWeaviateGroupsUpdateForbidden()
 		}
 
@@ -667,7 +656,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.LocationsWeaviateLocationsDeleteHandler = locations.WeaviateLocationsDeleteHandlerFunc(func(params locations.WeaviateLocationsDeleteParams, principal interface{}) middleware.Responder {
 
 		// This is a delete function, validate if allowed to read?
-		if dbconnector.DeleteAllowed(principal) == false {
+		if connector_utils.DeleteAllowed(principal) == false {
 			return locations.NewWeaviateLocationsDeleteForbidden()
 		}
 
@@ -691,7 +680,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.LocationsWeaviateLocationsGetHandler = locations.WeaviateLocationsGetHandlerFunc(func(params locations.WeaviateLocationsGetParams, principal interface{}) middleware.Responder {
 
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return locations.NewWeaviateLocationsGetForbidden()
 		}
 
@@ -715,12 +704,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.LocationsWeaviateLocationsCreateHandler = locations.WeaviateLocationsCreateHandlerFunc(func(params locations.WeaviateLocationsCreateParams, principal interface{}) middleware.Responder {
 
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return locations.NewWeaviateLocationsCreateForbidden()
 		}
 
 		// Create basic DataBase object
-		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeLocation)
+		dbObject := *connector_utils.NewDatabaseObjectFromPrincipal(principal, refTypeLocation)
 
 		// Set the generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
@@ -740,7 +729,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams, principal interface{}) middleware.Responder {
 
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return locations.NewWeaviateLocationsListForbidden()
 		}
 
@@ -772,7 +761,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.LocationsWeaviateLocationsPatchHandler = locations.WeaviateLocationsPatchHandlerFunc(func(params locations.WeaviateLocationsPatchParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return locations.NewWeaviateLocationsPatchForbidden()
 		}
 
@@ -817,7 +806,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.LocationsWeaviateLocationsUpdateHandler = locations.WeaviateLocationsUpdateHandlerFunc(func(params locations.WeaviateLocationsUpdateParams, principal interface{}) middleware.Responder {
 
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return locations.NewWeaviateLocationsUpdateForbidden()
 		}
 
@@ -850,12 +839,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.ThingTemplatesWeaviateThingTemplatesCreateHandler = thing_templates.WeaviateThingTemplatesCreateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return thing_templates.NewWeaviateThingTemplatesCreateForbidden()
 		}
 
 		// Create basic DataBase object
-		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeThingTemplate)
+		dbObject := *connector_utils.NewDatabaseObjectFromPrincipal(principal, refTypeThingTemplate)
 
 		// Set the generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
@@ -874,7 +863,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingTemplatesWeaviateThingTemplatesDeleteHandler = thing_templates.WeaviateThingTemplatesDeleteHandlerFunc(func(params thing_templates.WeaviateThingTemplatesDeleteParams, principal interface{}) middleware.Responder {
 		// This is a delete function, validate if allowed to read?
-		if dbconnector.DeleteAllowed(principal) == false {
+		if connector_utils.DeleteAllowed(principal) == false {
 			return thing_templates.NewWeaviateThingTemplatesDeleteForbidden()
 		}
 
@@ -897,7 +886,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingTemplatesWeaviateThingTemplatesGetHandler = thing_templates.WeaviateThingTemplatesGetHandlerFunc(func(params thing_templates.WeaviateThingTemplatesGetParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return thing_templates.NewWeaviateThingTemplatesGetForbidden()
 		}
 
@@ -920,7 +909,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingTemplatesWeaviateThingTemplatesListHandler = thing_templates.WeaviateThingTemplatesListHandlerFunc(func(params thing_templates.WeaviateThingTemplatesListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return thing_templates.NewWeaviateThingTemplatesListForbidden()
 		}
 
@@ -952,7 +941,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingTemplatesWeaviateThingTemplatesPatchHandler = thing_templates.WeaviateThingTemplatesPatchHandlerFunc(func(params thing_templates.WeaviateThingTemplatesPatchParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return thing_templates.NewWeaviateThingTemplatesPatchForbidden()
 		}
 
@@ -996,7 +985,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingTemplatesWeaviateThingTemplatesUpdateHandler = thing_templates.WeaviateThingTemplatesUpdateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesUpdateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return thing_templates.NewWeaviateThingTemplatesUpdateForbidden()
 		}
 
@@ -1028,12 +1017,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return things.NewWeaviateThingsCreateForbidden()
 		}
 
 		// Create basic DataBase object
-		dbObject := *dbconnector.NewDatabaseObjectFromPrincipal(principal, refTypeThing)
+		dbObject := *connector_utils.NewDatabaseObjectFromPrincipal(principal, refTypeThing)
 
 		// Set the generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
@@ -1052,7 +1041,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
 		// This is a delete function, validate if allowed to read?
-		if dbconnector.DeleteAllowed(principal) == false {
+		if connector_utils.DeleteAllowed(principal) == false {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
@@ -1075,7 +1064,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return things.NewWeaviateThingsGetForbidden()
 		}
 
@@ -1098,7 +1087,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if dbconnector.ReadAllowed(principal) == false {
+		if connector_utils.ReadAllowed(principal) == false {
 			return things.NewWeaviateThingsListForbidden()
 		}
 
@@ -1130,7 +1119,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return things.NewWeaviateThingsPatchForbidden()
 		}
 
@@ -1174,7 +1163,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
-		if dbconnector.WriteAllowed(principal) == false {
+		if connector_utils.WriteAllowed(principal) == false {
 			return things.NewWeaviateThingsUpdateForbidden()
 		}
 

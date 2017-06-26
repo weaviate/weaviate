@@ -58,8 +58,8 @@ func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 	return &commandLineOptionsGroup
 }
 
-// GetDatabaseConnector creates a database connector
-func GetDatabaseConnector(flags *swag.CommandLineOptionsGroup) string {
+// GetDatabaseConnectorName gets the database connector name from config
+func GetDatabaseConnectorName(flags *swag.CommandLineOptionsGroup) string {
 	// Get command line flags
 	configEnvironment := flags.Options.(*ConfigFlags).ConfigSection
 	configFileName := flags.Options.(*ConfigFlags).ConfigFile
@@ -82,15 +82,18 @@ func GetDatabaseConnector(flags *swag.CommandLineOptionsGroup) string {
 		log.Println("INFO: Using default environment '" + defaultEnvironment + "'.")
 	}
 
+	// Read from the config file and add it to an object
 	var configFile ConfigFile
 	json.Unmarshal(file, &configFile)
 
+	// Loop through all values in object to see whether the given connection-name exists
 	for _, env := range configFile.Environments {
 		if env.Name == configEnvironment {
 			return env.Database.Name
 		}
 	}
 
+	// Return default database because no good config is found
 	log.Println("INFO: Using default database '" + defaultDatabase + "'.")
 	return defaultDatabase
 }
