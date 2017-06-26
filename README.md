@@ -14,7 +14,7 @@ Weaviate is not fully testable / production ready yet. Follow this repo or sign 
 - [What is it?](#what-is-it)
 - [Installation](#installation)
 - [App Engine](#google-app-engine)
-- [Authentication](#authentication)
+- [Identification](#identification)
 - [DB support](#database-support)
 - [GCP Datastore](#google-cloud-datastore-connector)
 - [FAQ](#faq)
@@ -63,14 +63,12 @@ The service will be available from this basepath: `//domain/weaviate/v1-alpha/**
 
 [This](https://github.com/weaviate/weaviate-app-engine) repo has all the information to use Weaviate with Google App Engine.
 
-### Authentication
+### Identification
 
-1. Weaviate uses API-key based authentication.
-2. A Weaviate key can has multiple childeren, every key can create a child.
-3. Every parent can access a childs' data all the way down the family tree.
-4. You can create keys for devices, organistations, etcetera. How you decide to organise is up to you. A single project can have different ways of key organisation.
+- Weaviate uses API-key based identification.
+- [More information about the identification scheme](https://github.com/bobvanluijt/ubiquitous-computing-platform-identification-scheme/blob/master/README.md).
 
-To authenticate add: `X-API-KEY: SOMEKEY` (replace SOMEKEY) as a header to the request.
+To identificate add: `X-API-KEY: SOMEKEY` (replace SOMEKEY) as a header to the request.
 
 When a server is started for the first time _or_ when there is no root key, a new key will be created and show as ouput in the LOG files.
 
