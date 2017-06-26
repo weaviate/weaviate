@@ -1,4 +1,4 @@
- /*                          _       _
+/*                          _       _
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
@@ -185,6 +185,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	}
 
+	/*
+	 * HANDLE COMMANDS
+	 */
 	api.CommandsWeaviateCommandsCreateHandler = commands.WeaviateCommandsCreateHandlerFunc(func(params commands.WeaviateCommandsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
 		if connector_utils.WriteAllowed(principal) == false {
@@ -362,6 +365,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return commands.NewWeaviateCommandsUpdateOK().WithPayload(responseObject)
 	})
+
+	/*
+	 * HANDLE EVENTS
+	 */
 	api.EventsWeaviateEventsGetHandler = events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
 		if connector_utils.ReadAllowed(principal) == false {
@@ -455,6 +462,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		return events.NewWeaviateThingsEventsListOK().WithPayload(responseObject)
 	})
+
+	/*
+	 * HANDLE GROUPS
+	 */
 	api.GroupsWeaviateGroupsCreateHandler = groups.WeaviateGroupsCreateHandlerFunc(func(params groups.WeaviateGroupsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
 		if connector_utils.WriteAllowed(principal) == false {
@@ -648,6 +659,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation keys.WeaviateKeysGet has not yet been implemented")
 	})
+	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation KeysWeaviateKeysMeChildrenGet has not yet been implemented")
+	})
+	api.KeysWeaviateKeysMeDeleteHandler = keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation KeysWeaviateKeysMeDelete has not yet been implemented")
+	})
+	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation KeysWeaviateKeysMeGet has not yet been implemented")
+	})
 
 	/*
 	 * HANDLE LOCATIONS
@@ -836,6 +856,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return locations.NewWeaviateLocationsUpdateOK().WithPayload(responseObject)
 	})
 
+	/*
+	 * HANDLE THING TEMPLATES
+	 */
 	api.ThingTemplatesWeaviateThingTemplatesCreateHandler = thing_templates.WeaviateThingTemplatesCreateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
 		if connector_utils.WriteAllowed(principal) == false {
@@ -1014,6 +1037,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return thing_templates.NewWeaviateThingTemplatesUpdateOK().WithPayload(responseObject)
 	})
+
+	/*
+	 * HANDLE THINGS
+	 */
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
 		if connector_utils.WriteAllowed(principal) == false {

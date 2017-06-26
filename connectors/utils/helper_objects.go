@@ -52,7 +52,7 @@ func (slice DatabaseObjects) Swap(i, j int) {
 // DatabaseUsersObject for a new row in de database
 type DatabaseUsersObject struct {
 	Uuid         string // uuid, also used in Object's id
-	KeyToken     string // uuid, also used in Object's id
+	KeyToken     string // uuid, token to login
 	KeyExpiresMs int64  // uuid of the owner
 	Object       string // type, as defined
 	Parent       string // Parent Uuid (not key)
@@ -62,6 +62,7 @@ type DatabaseUsersObject struct {
 type DatabaseUsersObjectsObject struct {
 	Delete   bool     `json:"Delete"`
 	Email    string   `json:"Email"`
+	Execute  bool     `json:"Execute"`
 	IpOrigin []string `json:"IpOrigin"`
 	Read     bool     `json:"Read"`
 	Write    bool     `json:"Write"`
