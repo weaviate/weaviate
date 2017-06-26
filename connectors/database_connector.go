@@ -10,157 +10,35 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
+
 package dbconnector
 
 import (
-	"encoding/json"
-	"fmt"
-	"time"
-
-	"github.com/go-openapi/strfmt"
-	gouuid "github.com/satori/go.uuid"
+	"github.com/weaviate/weaviate/connectors/datastore"
+	"github.com/weaviate/weaviate/connectors/memory"
+	"github.com/weaviate/weaviate/connectors/utils"
 )
-
-// DatabaseObject for a new row in de database
-type DatabaseObject struct {
-	Uuid           string           // uuid, also used in Object's id
-	Owner          string           // uuid of the owner
-	RefType        string           // type, as defined
-	CreateTimeMs   int64            // creation time in ms
-	Object         string           // the JSON object, id will be collected from current uuid
-	Deleted        bool             // if true, it does not exsist anymore
-	RelatedObjects ObjectReferences // references to other objects
-}
-
-// ObjectReferences contains IDs that link to other objects
-type ObjectReferences struct {
-	ThingID strfmt.UUID `json:"thingID,omitempty"`
-}
-
-// DatabaseObjects type that is reused a lot
-type DatabaseObjects []DatabaseObject
-
-// Functions for sorting on CreateTime
-func (slice DatabaseObjects) Len() int {
-	return len(slice)
-}
-
-func (slice DatabaseObjects) Less(i, j int) bool {
-	return slice[i].CreateTimeMs > slice[j].CreateTimeMs
-}
-
-func (slice DatabaseObjects) Swap(i, j int) {
-	slice[i], slice[j] = slice[j], slice[i]
-}
-
-// DatabaseUsersObject for a new row in de database
-type DatabaseUsersObject struct {
-	Uuid         string // uuid, also used in Object's id
-	KeyToken     string // uuid, also used in Object's id
-	KeyExpiresMs int64  // uuid of the owner
-	Object       string // type, as defined
-	Parent       string // Parent Uuid (not key)
-}
-
-// DatabaseUsersObjectsObject is an Object of DatabaseUsersObject
-type DatabaseUsersObjectsObject struct {
-	Delete   bool     `json:"Delete"`
-	Email    string   `json:"Email"`
-	IpOrigin []string `json:"IpOrigin"`
-	Read     bool     `json:"Read"`
-	Write    bool     `json:"Write"`
-}
-
-// NewDatabaseObject creates a new object with default values
-// Note: Only owner and refType has to be filled. New object automatically gets new UUID and TIME.
-// 	Time is updatable by function.
-func NewDatabaseObject(owner string, refType string) *DatabaseObject {
-	dbo := new(DatabaseObject)
-
-	// Set default values
-	dbo.GenerateAndSetUUID()
-	dbo.SetCreateTimeMsToNow()
-	dbo.Deleted = false
-
-	// Set values by function params
-	dbo.Owner = owner
-	dbo.RefType = refType
-
-	return dbo
-}
-
-// NewDatabaseObjectFromPrincipal creates a new object with default values, out of principle object
-func NewDatabaseObjectFromPrincipal(principal interface{}, refType string) *DatabaseObject {
-	// Get user object
-	UsersObject, _ := PrincipalMarshalling(principal)
-
-	// Generate DatabaseObject without JSON-object in it.
-	dbObject := NewDatabaseObject(UsersObject.Uuid, refType)
-
-	return dbObject
-}
-
-// SetCreateTimeMsToNow gives the Object the current time in mili seconds
-func (f *DatabaseObject) SetCreateTimeMsToNow() {
-	f.CreateTimeMs = time.Now().UnixNano() / int64(time.Millisecond)
-}
-
-// GenerateAndSetUUID generates and sets a new Uuid
-func (f *DatabaseObject) GenerateAndSetUUID() {
-	f.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
-}
-
-// MakeObjectDeleted gives the Object the current time in mili seconds and marks it as deleted
-func (f *DatabaseObject) MakeObjectDeleted() {
-	f.Deleted = true
-	f.SetCreateTimeMsToNow()
-}
-
-// MergeRequestBodyIntoObject merges the Object with right body
-func (f *DatabaseObject) MergeRequestBodyIntoObject(body interface{}) {
-	databaseBody, _ := json.Marshal(body)
-	f.Object = string(databaseBody)
-}
-
-// PrincipalMarshalling Marhshall and Unmarshall Principal and Principals Objects
-func PrincipalMarshalling(Object interface{}) (DatabaseUsersObject, DatabaseUsersObjectsObject) {
-	// marshall principal
-	principalMarshall, _ := json.Marshal(Object)
-	var Principal DatabaseUsersObject
-	json.Unmarshal(principalMarshall, &Principal)
-
-	// Unmarshall the Object inside the Principal (aka ObjectsObject)
-	var ObjectsObject DatabaseUsersObjectsObject
-	json.Unmarshal([]byte(Principal.Object), &ObjectsObject)
-
-	return Principal, ObjectsObject
-}
-
-// ReadAllowed checks if reading is allowed
-func ReadAllowed(validateObject interface{}) bool {
-	_, ObjectsObject := PrincipalMarshalling(validateObject)
-	return ObjectsObject.Read
-}
-
-// WriteAllowed checks if writing is allowed
-func WriteAllowed(validateObject interface{}) bool {
-	_, ObjectsObject := PrincipalMarshalling(validateObject)
-	return ObjectsObject.Write
-}
-
-// DeleteAllowed checks if deleting is allowed
-func DeleteAllowed(validateObject interface{}) bool {
-	_, ObjectsObject := PrincipalMarshalling(validateObject)
-	return ObjectsObject.Delete
-}
 
 // DatabaseConnector is the interface that all connectors should have
 type DatabaseConnector interface {
 	Connect() error
 	Init() error
-	Add(DatabaseObject) (string, error)
-	Get(string) (DatabaseObject, error)
-	List(string, int, int, *ObjectReferences) (DatabaseObjects, int64, error)
-	ValidateKey(string) ([]DatabaseUsersObject, error)
-	AddKey(string, DatabaseUsersObject) (DatabaseUsersObject, error)
+	Add(connector_utils.DatabaseObject) (string, error)
+	Get(string) (connector_utils.DatabaseObject, error)
+	List(string, int, int, *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error)
+	ValidateKey(string) ([]connector_utils.DatabaseUsersObject, error)
+	AddKey(string, connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error)
+	GetName() string
+	SetConfig(interface{})
+}
+
+// GetAllConnectors contains all available connectors
+func GetAllConnectors() []DatabaseConnector {
+	// Set all existing connectors
+	connectors := []DatabaseConnector{
+		&datastore.Datastore{},
+		&memory.Memory{},
+	}
+
+	return connectors
 }
