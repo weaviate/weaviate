@@ -55,7 +55,7 @@ func init() {
       "url": "https://github.com/weaviate/weaviate",
       "email": "bob@weaviate.com"
     },
-    "version": "v0.2.5"
+    "version": "v0.2.6"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -789,6 +789,94 @@ func init() {
         "x-available-in-mqtt": false
       }
     },
+    "/keys/me": {
+      "get": {
+        "description": "Get the key-information of the key used.",
+        "tags": [
+          "keys"
+        ],
+        "summary": "Get a key based on the key used to do the request.",
+        "operationId": "weaviate.keys.me.get",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false
+      },
+      "delete": {
+        "description": "Deletes key used to do the request.",
+        "tags": [
+          "keys"
+        ],
+        "summary": "Delete a key based on the key used to do the request.",
+        "operationId": "weaviate.keys.me.delete",
+        "responses": {
+          "204": {
+            "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false
+      }
+    },
+    "/keys/me/children": {
+      "get": {
+        "description": "Get children of used key, only one step deep. A child can have children of its own.",
+        "tags": [
+          "keys"
+        ],
+        "summary": "Get an object of this keys' children related to the key used for request.",
+        "operationId": "weaviate.keys.me.children.get",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyChildren"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented"
+          }
+        },
+        "x-available-in-mqtt": false
+      }
+    },
     "/keys/{keyId}": {
       "get": {
         "description": "Get a key.",
@@ -866,7 +954,7 @@ func init() {
     },
     "/keys/{keyId}/children": {
       "get": {
-        "description": "Get children or a key, only one step deep. A child can have children of its own.",
+        "description": "Get children of a key, only one step deep. A child can have children of its own.",
         "tags": [
           "keys"
         ],
