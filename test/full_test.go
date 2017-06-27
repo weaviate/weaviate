@@ -405,7 +405,7 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Check sub2 removed and check its statuscode (404)
-	// TODO: FAILS WITH MEMORY DB
+	// TODO: FAILS WITH MEMORY DB (https://github.com/weaviate/weaviate/issues/107)
 	// responseSub2Deleted := doRequest("/keys/"+sub2ID, "DELETE", "application/json", nil, apiKeyCmdLine)
 	// testStatusCode(t, responseSub2Deleted.StatusCode, http.StatusNotFound)
 	// time.Sleep(2 * time.Second)
