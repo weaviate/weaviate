@@ -134,7 +134,7 @@ func (f *Memory) Connect() error {
 					},
 				},
 			},
-			// create `weaviate` DB
+			// create `weaviate_users` DB
 			"weaviate_users": &memdb.TableSchema{
 				Name: "weaviate_users",
 				Indexes: map[string]*memdb.IndexSchema{
@@ -315,28 +315,23 @@ func (f *Memory) List(refType string, limit int, page int, referenceFilter *conn
 	if result != nil {
 
 		// loop through the results
-		loopResults := true
-		for loopResults == true {
-			singleResult := result.Next()
-			if singleResult == nil {
-				// no results left, stop the loop
-				loopResults = false
-			} else {
-				// only store if refType is correct
-				if singleResult.(connector_utils.DatabaseObject).RefType == refType &&
-					!singleResult.(connector_utils.DatabaseObject).Deleted {
+		singleResult := result.Next()
+		for singleResult != nil {
+			// only store if refType is correct
+			if singleResult.(connector_utils.DatabaseObject).RefType == refType &&
+				!singleResult.(connector_utils.DatabaseObject).Deleted {
 
-					if referenceFilter != nil {
-						// check for extra filters
-						if referenceFilter.ThingID != "" &&
-							singleResult.(connector_utils.DatabaseObject).RelatedObjects.ThingID == referenceFilter.ThingID {
-							dataObjs = append(dataObjs, singleResult.(connector_utils.DatabaseObject))
-						}
-					} else {
+				if referenceFilter != nil {
+					// check for extra filters
+					if referenceFilter.ThingID != "" &&
+						singleResult.(connector_utils.DatabaseObject).RelatedObjects.ThingID == referenceFilter.ThingID {
 						dataObjs = append(dataObjs, singleResult.(connector_utils.DatabaseObject))
 					}
+				} else {
+					dataObjs = append(dataObjs, singleResult.(connector_utils.DatabaseObject))
 				}
 			}
+			singleResult = result.Next()
 		}
 
 		// Sorting on CreateTimeMs
@@ -424,4 +419,39 @@ func (f *Memory) AddKey(parentUuid string, dbObject connector_utils.DatabaseUser
 	// Return the ID that is used to create.
 	return dbObject, nil
 
+}
+
+// DeleteKey removes a key from the database
+func (f *Memory) DeleteKey(dbObject connector_utils.DatabaseUsersObject) error {
+	// Create a write transaction
+	txn := f.client.Txn(false)
+	defer txn.Abort()
+
+	// Lookup all Children
+	result, err := txn.Get("weaviate_users", "Parent", dbObject.Uuid)
+
+	// Return the error
+	if err != nil {
+		return err
+	}
+
+	if result != nil {
+		println("Hij komt hier 1")
+		// Loop through the results
+		singleResult := result.Next()
+		for singleResult != nil {
+			// Do the same trick for every child
+			f.DeleteKey(singleResult.(connector_utils.DatabaseUsersObject))
+			singleResult = result.Next()
+		}
+	}
+
+	txn2 := f.client.Txn(true)
+	// Delete item(s) with given Uuid
+	_, errDel := txn2.DeleteAll("weaviate_users", "Uuid", dbObject.Uuid)
+
+	// Commit transaction
+	txn2.Commit()
+
+	return errDel
 }

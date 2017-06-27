@@ -710,7 +710,27 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation keys.WeaviateKeysChildrenGet has not yet been implemented")
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation keys.WeaviateKeysDelete has not yet been implemented")
+		// This is a delete function, validate if allowed to delete own/parent.
+		// if connector_utils.DeleteAllowed(principal) == false {
+		// 	return locations.NewWeaviateLocationsDeleteForbidden()
+		// }
+
+		// Get item from database
+		userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
+
+		// Not found
+		if errGet != nil {
+			return keys.NewWeaviateKeysDeleteNotFound()
+		}
+
+		// Remove key from database if found
+		errDel := databaseConnector.DeleteKey(userObject)
+		if errDel != nil {
+			return keys.NewWeaviateKeysDeleteNotFound()
+		}
+
+		// Return 'No Content'
+		return keys.NewWeaviateKeysDeleteNoContent()
 	})
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
 		// Get response by UUID
@@ -728,7 +748,23 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation KeysWeaviateKeysMeChildrenGet has not yet been implemented")
 	})
 	api.KeysWeaviateKeysMeDeleteHandler = keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation KeysWeaviateKeysMeDelete has not yet been implemented")
+		// This is a delete function, validate if allowed to delete own/parent.
+		// if connector_utils.DeleteAllowed(principal) == false {
+		// 	return locations.NewWeaviateLocationsDeleteForbidden()
+		// }
+
+		// Create current User object from principle
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
+		// Remove key from database if found
+		errDel := databaseConnector.DeleteKey(currentUsersObject)
+		if errDel != nil {
+			return keys.NewWeaviateKeysMeDeleteNotFound()
+		}
+
+		// Return 'No Content'
+		return keys.NewWeaviateKeysMeDeleteNoContent()
+
 	})
 	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
 		// Create current User object from principle
