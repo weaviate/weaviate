@@ -44,7 +44,7 @@ type WeaviateKeysGetParams struct {
 	  Required: true
 	  In: path
 	*/
-	KeyID string
+	KeyID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -70,7 +70,11 @@ func (o *WeaviateKeysGetParams) bindKeyID(rawData []string, hasKey bool, formats
 		raw = rawData[len(rawData)-1]
 	}
 
-	o.KeyID = raw
+	value, err := formats.Parse("uuid", raw)
+	if err != nil {
+		return errors.InvalidType("keyId", "path", "strfmt.UUID", raw)
+	}
+	o.KeyID = *(value.(*strfmt.UUID))
 
 	return nil
 }

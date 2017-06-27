@@ -24,10 +24,11 @@ import (
 
 	// "github.com/weaviate/weaviate/connectors"
 	// "github.com/weaviate/weaviate/connectors/datastore"
-	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/models"
 	"runtime"
 	"strings"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/models"
 )
 
 /*
@@ -191,7 +192,7 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 	jsonStr := bytes.NewBuffer([]byte(`{
 		"delete": true,
 		"email": "string",
-		"ipOrigin": "string",
+		"ipOrigin": ["127.0.0.*", "*"],
 		"keyExpiresUnix": 1,
 		"read": false,
 		"write": false
@@ -203,7 +204,7 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 
 	body := getResponseBody(response)
 
-	respObject := &models.KeyGetResponse{}
+	respObject := &models.KeyTokenGetResponse{}
 	json.Unmarshal(body, respObject)
 
 	// Check whether generated UUID is added
@@ -211,7 +212,7 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 	testIDFormat(t, keyID)
 
 	// Check kind
-	testKind(t, string(*respObject.Kind), "weaviate#keyGetResponse")
+	testKind(t, string(*respObject.Kind), "weaviate#keyTokenGetResponse")
 
 	// Test Rights
 	testBooleanValues(t, true, respObject.Delete)
@@ -230,7 +231,7 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 	jsonStrNewKey := bytes.NewBuffer([]byte(`{
 		"delete": false,
 		"email": "string",
-		"ipOrigin": "string",
+		"ipOrigin": ["127.0.0.*", "*"],
 		"keyExpiresUnix": 0,
 		"read": true,
 		"write": true
@@ -242,7 +243,7 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 
 	// Process response
 	bodyNewToken := getResponseBody(responseNewToken)
-	respObjectNewToken := &models.KeyGetResponse{}
+	respObjectNewToken := &models.KeyTokenGetResponse{}
 	json.Unmarshal(bodyNewToken, respObjectNewToken)
 
 	// Test key ID parent is correct
@@ -297,14 +298,14 @@ func Test__weaviate_key_get_me_JSON(t *testing.T) {
 
 	body := getResponseBody(response)
 
-	respObject := &models.KeyGetResponse{}
+	respObject := &models.KeyTokenGetResponse{}
 	json.Unmarshal(body, respObject)
 
 	// Check ID of object
 	testID(t, string(respObject.ID), keyID)
 
 	// Check kind
-	testKind(t, string(*respObject.Kind), "weaviate#keyGetResponse")
+	testKind(t, string(*respObject.Kind), "weaviate#keyTokenGetResponse")
 
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/keys", "GET", "application/json", nil, apiKeyCmdLine)
@@ -316,7 +317,7 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	jsonStrKeyHead := bytes.NewBuffer([]byte(`{
 		"delete": true,
 		"email": "string",
-		"ipOrigin": "string",
+		"ipOrigin": ["127.0.0.*", "*"],
 		"keyExpiresUnix": 0,
 		"read": true,
 		"write": true
@@ -324,7 +325,7 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	responseHead := doRequest("/keys", "POST", "application/json", jsonStrKeyHead, newAPIToken)
 	testStatusCode(t, responseHead.StatusCode, http.StatusAccepted)
 	bodyHead := getResponseBody(responseHead)
-	respObjectHead := &models.KeyGetResponse{}
+	respObjectHead := &models.KeyTokenGetResponse{}
 	json.Unmarshal(bodyHead, respObjectHead)
 
 	// Set reusable keys
@@ -338,7 +339,7 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	jsonStrKeySub1 := bytes.NewBuffer([]byte(`{
 		"delete": true,
 		"email": "string",
-		"ipOrigin": "string",
+		"ipOrigin": ["127.0.0.*", "*"],
 		"keyExpiresUnix": 0,
 		"read": true,
 		"write": true
@@ -346,7 +347,7 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	responseSub1 := doRequest("/keys", "POST", "application/json", jsonStrKeySub1, headToken)
 	testStatusCode(t, responseSub1.StatusCode, http.StatusAccepted)
 	bodySub1 := getResponseBody(responseSub1)
-	respObjectSub1 := &models.KeyGetResponse{}
+	respObjectSub1 := &models.KeyTokenGetResponse{}
 	json.Unmarshal(bodySub1, respObjectSub1)
 
 	// Sleep, otherwise head-key is not added
@@ -360,7 +361,7 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	jsonStrKeySub2 := bytes.NewBuffer([]byte(`{
 		"delete": true,
 		"email": "string",
-		"ipOrigin": "string",
+		"ipOrigin": ["127.0.0.*", "*"],
 		"keyExpiresUnix": 0,
 		"read": true,
 		"write": true
@@ -368,7 +369,7 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	responseSub2 := doRequest("/keys", "POST", "application/json", jsonStrKeySub2, headToken)
 	testStatusCode(t, responseSub2.StatusCode, http.StatusAccepted)
 	bodySub2 := getResponseBody(responseSub2)
-	respObjectSub2 := &models.KeyGetResponse{}
+	respObjectSub2 := &models.KeyTokenGetResponse{}
 	json.Unmarshal(bodySub2, respObjectSub2)
 
 	// Sleep, otherwise head-key is not added

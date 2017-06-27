@@ -43,6 +43,7 @@ import (
 	"unicode"
 
 	"fmt"
+
 	"github.com/go-openapi/swag"
 	gouuid "github.com/satori/go.uuid"
 	"github.com/weaviate/weaviate/restapi/operations"
@@ -107,30 +108,6 @@ func getKind(object interface{}) *string {
 	kind = "weaviate#" + kind
 
 	return &kind
-}
-
-// getKeyResponseByUUID transforms the key UUID into response object
-func getKeyResponseByUUID(UUID string, databaseConnector dbconnector.DatabaseConnector) (*models.KeyGetResponse, error) {
-	// Get item from database
-	userObject, err := databaseConnector.GetKey(string(UUID))
-
-	// Init object
-	responseObject := &models.KeyGetResponse{}
-
-	// Object is deleted eleted
-	if err != nil {
-		return responseObject, err
-	}
-
-	// Create response Object from create object.
-	json.Unmarshal([]byte(userObject.Object), responseObject)
-	responseObject.ID = strfmt.UUID(userObject.Uuid)
-	responseObject.Kind = getKind(responseObject)
-	responseObject.Key = userObject.KeyToken
-	responseObject.Parent = userObject.Parent
-	responseObject.KeyExpiresUnix = float64(userObject.KeyExpiresUnix)
-
-	return responseObject, nil
 }
 
 func configureFlags(api *operations.WeaviateAPI) {
@@ -696,13 +673,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		go databaseConnector.AddKey(currentUsersObject.Uuid, *newUsersObject)
 
 		// Create response Object from create object.
-		responseObject := &models.KeyGetResponse{}
+		responseObject := &models.KeyTokenGetResponse{}
 		json.Unmarshal([]byte(newUsersObject.Object), responseObject)
 		responseObject.ID = strfmt.UUID(newUsersObject.Uuid)
 		responseObject.Kind = getKind(responseObject)
 		responseObject.Key = newUsersObject.KeyToken
 		responseObject.Parent = newUsersObject.Parent
-		responseObject.KeyExpiresUnix = float64(newUsersObject.KeyExpiresUnix)
+		responseObject.KeyExpiresUnix = newUsersObject.KeyExpiresUnix
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return keys.NewWeaviateKeyCreateAccepted().WithPayload(responseObject)
@@ -734,13 +711,23 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysDeleteNoContent()
 	})
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
-		// Get response by UUID
-		responseObject, err := getKeyResponseByUUID(params.KeyID, databaseConnector)
+		// Get item from database
+		userObject, err := databaseConnector.GetKey(string(params.KeyID))
 
-		// If not found, return corresponding status
-		if err != nil {
+		// Init object
+		responseObject := &models.KeyGetResponse{}
+
+		// Object is deleted or not-existing
+		if userObject.Deleted || err != nil {
 			return keys.NewWeaviateKeysGetNotFound()
 		}
+
+		// Create response Object from create object.
+		json.Unmarshal([]byte(userObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(userObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+		responseObject.Parent = userObject.Parent
+		responseObject.KeyExpiresUnix = userObject.KeyExpiresUnix
 
 		// Get is successful
 		return keys.NewWeaviateKeysGetOK().WithPayload(responseObject)
@@ -771,13 +758,21 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Create current User object from principle
 		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
-		// Get response by UUID
-		responseObject, err := getKeyResponseByUUID(currentUsersObject.Uuid, databaseConnector)
+		// Init object
+		responseObject := &models.KeyTokenGetResponse{}
 
-		// If not found, return corresponding status
-		if err != nil {
+		// Object is deleted or not-existing
+		if currentUsersObject.Deleted {
 			return keys.NewWeaviateKeysMeGetNotFound()
 		}
+
+		// Create response Object from create object.
+		json.Unmarshal([]byte(currentUsersObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(currentUsersObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+		responseObject.Parent = currentUsersObject.Parent
+		responseObject.Key = currentUsersObject.KeyToken
+		responseObject.KeyExpiresUnix = currentUsersObject.KeyExpiresUnix
 
 		// Get is successful
 		return keys.NewWeaviateKeysMeGetOK().WithPayload(responseObject)
