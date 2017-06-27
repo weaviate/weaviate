@@ -1,4 +1,4 @@
- /*                          _       _
+/*                          _       _
  *__      _____  __ ___   ___  __ _| |_ ___
  *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
@@ -15,9 +15,10 @@ package dbconnector
 
 import (
 	"encoding/json"
-	"github.com/go-openapi/swag"
 	"io/ioutil"
 	"log"
+
+	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/connectors/memory"
 )

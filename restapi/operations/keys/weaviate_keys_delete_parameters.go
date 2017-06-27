@@ -40,7 +40,7 @@ type WeaviateKeysDeleteParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request
 
-	/*
+	/*Unique ID of the key.
 	  Required: true
 	  In: path
 	*/

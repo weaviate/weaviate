@@ -24,10 +24,11 @@ import (
 
 	// "github.com/weaviate/weaviate/connectors"
 	// "github.com/weaviate/weaviate/connectors/datastore"
-	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/models"
 	"runtime"
 	"strings"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/models"
 )
 
 /*
