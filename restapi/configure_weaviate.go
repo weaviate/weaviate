@@ -43,6 +43,7 @@ import (
 	"unicode"
 
 	"fmt"
+
 	"github.com/go-openapi/swag"
 	gouuid "github.com/satori/go.uuid"
 	"github.com/weaviate/weaviate/restapi/operations"

@@ -55,7 +55,7 @@ func init() {
       "url": "https://github.com/weaviate/weaviate",
       "email": "bob@weaviate.com"
     },
-    "version": "v0.2.6"
+    "version": "v0.2.7"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -770,14 +770,11 @@ func init() {
           "202": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/KeyGetResponse"
+              "$ref": "#/definitions/KeyTokenGetResponse"
             }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
           },
           "422": {
             "description": "Can not validate, check the body."
@@ -801,14 +798,11 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/KeyGetResponse"
+              "$ref": "#/definitions/KeyTokenGetResponse"
             }
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -832,9 +826,6 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -888,6 +879,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique ID of the key.",
             "name": "keyId",
             "in": "path",
@@ -927,6 +919,7 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
+            "description": "Unique ID of the key.",
             "name": "keyId",
             "in": "path",
             "required": true
@@ -2229,13 +2222,21 @@ func init() {
           "description": "Email associated with this account.",
           "type": "string"
         },
+        "execute": {
+          "description": "Is user allowed to execute.",
+          "type": "boolean"
+        },
         "ipOrigin": {
           "description": "Origin of the IP using CIDR notation.",
-          "type": "string"
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "keyExpiresUnix": {
           "description": "Time as Unix timestamp that the key expires. Set to 0 for never.",
-          "type": "number"
+          "type": "integer",
+          "format": "int64"
         },
         "read": {
           "description": "Is user allowed to read.",
@@ -2259,10 +2260,6 @@ func init() {
               "type": "string",
               "format": "uuid"
             },
-            "key": {
-              "description": "Key for user to use.",
-              "type": "string"
-            },
             "kind": {
               "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#keyGetResponse\".",
               "type": "string",
@@ -2270,6 +2267,21 @@ func init() {
             },
             "parent": {
               "description": "Parent key. A parent allways has access to a child. Root key has parent value 0. Only a user with a root of 0 can set a root key.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "KeyTokenGetResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/KeyGetResponse"
+        },
+        {
+          "properties": {
+            "key": {
+              "description": "Key for user to use.",
               "type": "string"
             }
           }
