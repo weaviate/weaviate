@@ -63,27 +63,6 @@ func (o *WeaviateKeysMeDeleteUnauthorized) WriteResponse(rw http.ResponseWriter,
 	rw.WriteHeader(401)
 }
 
-// WeaviateKeysMeDeleteForbiddenCode is the HTTP code returned for type WeaviateKeysMeDeleteForbidden
-const WeaviateKeysMeDeleteForbiddenCode int = 403
-
-/*WeaviateKeysMeDeleteForbidden The used API-key has insufficient permissions.
-
-swagger:response weaviateKeysMeDeleteForbidden
-*/
-type WeaviateKeysMeDeleteForbidden struct {
-}
-
-// NewWeaviateKeysMeDeleteForbidden creates WeaviateKeysMeDeleteForbidden with default headers values
-func NewWeaviateKeysMeDeleteForbidden() *WeaviateKeysMeDeleteForbidden {
-	return &WeaviateKeysMeDeleteForbidden{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateKeysMeDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(403)
-}
-
 // WeaviateKeysMeDeleteNotFoundCode is the HTTP code returned for type WeaviateKeysMeDeleteNotFound
 const WeaviateKeysMeDeleteNotFoundCode int = 404
 

@@ -22,73 +22,51 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// KeyGetResponse key get response
-// swagger:model KeyGetResponse
-type KeyGetResponse struct {
-	KeyCreate
+// KeyTokenGetResponse key token get response
+// swagger:model KeyTokenGetResponse
+type KeyTokenGetResponse struct {
+	KeyGetResponse
 
-	// Id of the key.
-	ID strfmt.UUID `json:"id,omitempty"`
-
-	// Identifies what kind of resource this is. Value: the fixed string "weaviate#keyGetResponse".
-	Kind *string `json:"kind,omitempty"`
-
-	// Parent key. A parent allways has access to a child. Root key has parent value 0. Only a user with a root of 0 can set a root key.
-	Parent string `json:"parent,omitempty"`
+	// Key for user to use.
+	Key string `json:"key,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
-func (m *KeyGetResponse) UnmarshalJSON(raw []byte) error {
+func (m *KeyTokenGetResponse) UnmarshalJSON(raw []byte) error {
 
-	var aO0 KeyCreate
+	var aO0 KeyGetResponse
 	if err := swag.ReadJSON(raw, &aO0); err != nil {
 		return err
 	}
-	m.KeyCreate = aO0
+	m.KeyGetResponse = aO0
 
 	var data struct {
-		ID strfmt.UUID `json:"id,omitempty"`
-
-		Kind *string `json:"kind,omitempty"`
-
-		Parent string `json:"parent,omitempty"`
+		Key string `json:"key,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &data); err != nil {
 		return err
 	}
 
-	m.ID = data.ID
-
-	m.Kind = data.Kind
-
-	m.Parent = data.Parent
+	m.Key = data.Key
 
 	return nil
 }
 
 // MarshalJSON marshals this object to a JSON structure
-func (m KeyGetResponse) MarshalJSON() ([]byte, error) {
+func (m KeyTokenGetResponse) MarshalJSON() ([]byte, error) {
 	var _parts [][]byte
 
-	aO0, err := swag.WriteJSON(m.KeyCreate)
+	aO0, err := swag.WriteJSON(m.KeyGetResponse)
 	if err != nil {
 		return nil, err
 	}
 	_parts = append(_parts, aO0)
 
 	var data struct {
-		ID strfmt.UUID `json:"id,omitempty"`
-
-		Kind *string `json:"kind,omitempty"`
-
-		Parent string `json:"parent,omitempty"`
+		Key string `json:"key,omitempty"`
 	}
 
-	data.ID = m.ID
-
-	data.Kind = m.Kind
-
-	data.Parent = m.Parent
+	data.Key = m.Key
 
 	jsonData, err := swag.WriteJSON(data)
 	if err != nil {
@@ -99,11 +77,11 @@ func (m KeyGetResponse) MarshalJSON() ([]byte, error) {
 	return swag.ConcatJSON(_parts...), nil
 }
 
-// Validate validates this key get response
-func (m *KeyGetResponse) Validate(formats strfmt.Registry) error {
+// Validate validates this key token get response
+func (m *KeyTokenGetResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.KeyCreate.Validate(formats); err != nil {
+	if err := m.KeyGetResponse.Validate(formats); err != nil {
 		res = append(res, err)
 	}
 

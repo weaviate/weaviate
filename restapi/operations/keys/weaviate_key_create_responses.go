@@ -35,7 +35,7 @@ type WeaviateKeyCreateAccepted struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.KeyGetResponse `json:"body,omitempty"`
+	Payload *models.KeyTokenGetResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateKeyCreateAccepted creates WeaviateKeyCreateAccepted with default headers values
@@ -44,13 +44,13 @@ func NewWeaviateKeyCreateAccepted() *WeaviateKeyCreateAccepted {
 }
 
 // WithPayload adds the payload to the weaviate key create accepted response
-func (o *WeaviateKeyCreateAccepted) WithPayload(payload *models.KeyGetResponse) *WeaviateKeyCreateAccepted {
+func (o *WeaviateKeyCreateAccepted) WithPayload(payload *models.KeyTokenGetResponse) *WeaviateKeyCreateAccepted {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate key create accepted response
-func (o *WeaviateKeyCreateAccepted) SetPayload(payload *models.KeyGetResponse) {
+func (o *WeaviateKeyCreateAccepted) SetPayload(payload *models.KeyTokenGetResponse) {
 	o.Payload = payload
 }
 
@@ -85,27 +85,6 @@ func NewWeaviateKeyCreateUnauthorized() *WeaviateKeyCreateUnauthorized {
 func (o *WeaviateKeyCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(401)
-}
-
-// WeaviateKeyCreateForbiddenCode is the HTTP code returned for type WeaviateKeyCreateForbidden
-const WeaviateKeyCreateForbiddenCode int = 403
-
-/*WeaviateKeyCreateForbidden The used API-key has insufficient permissions.
-
-swagger:response weaviateKeyCreateForbidden
-*/
-type WeaviateKeyCreateForbidden struct {
-}
-
-// NewWeaviateKeyCreateForbidden creates WeaviateKeyCreateForbidden with default headers values
-func NewWeaviateKeyCreateForbidden() *WeaviateKeyCreateForbidden {
-	return &WeaviateKeyCreateForbidden{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateKeyCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(403)
 }
 
 // WeaviateKeyCreateUnprocessableEntityCode is the HTTP code returned for type WeaviateKeyCreateUnprocessableEntity
