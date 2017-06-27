@@ -56,6 +56,7 @@ type DatabaseUsersObject struct {
 	KeyExpiresUnix int64  // uuid of the owner
 	Object         string // type, as defined
 	Parent         string // Parent Uuid (not key)
+	Deleted        bool   // if true, it does not exsist anymore
 }
 
 // DatabaseUsersObjectsObject is an Object of DatabaseUsersObject

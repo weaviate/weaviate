@@ -679,6 +679,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Fill the new User object
 		newUsersObject := &connector_utils.DatabaseUsersObject{}
+		newUsersObject.Deleted = false
 		newUsersObject.KeyExpiresUnix = int64(params.Body.KeyExpiresUnix)
 		newUsersObject.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
 		newUsersObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
