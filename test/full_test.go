@@ -415,7 +415,7 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	testStatusCode(t, responseHeadDeleted.StatusCode, http.StatusNotFound)
 	time.Sleep(2 * time.Second)
 
-	// TODO: Delete not allowed
+	// TODO: Delete not allowed when not using key in tree
 }
 
 // weaviate.key.me.delete

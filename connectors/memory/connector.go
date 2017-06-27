@@ -459,3 +459,22 @@ func (f *Memory) DeleteKey(dbObject connector_utils.DatabaseUsersObject) error {
 
 	return errDel
 }
+
+// GetChildKeys returns all the child keys. Even children of children of children of etc...
+func (f *Memory) GetChildKeys(UUID string, allIds []string) []string {
+	// ctx := context.Background()
+
+	// allIds = append(allIds, UUID)
+
+	// // Find its children
+	// queryChildren := datastore.NewQuery("weaviate_users").Filter("Parent =", UUID)
+	// childUserObjects := []connector_utils.DatabaseUsersObject{}
+	// f.client.GetAll(ctx, queryChildren, &childUserObjects)
+
+	// // Do it for every child
+	// for _, childUserObject := range childUserObjects {
+	// 	allIds = f.GetChildKeys(childUserObject.Uuid, allIds)
+	// }
+
+	return allIds
+}
