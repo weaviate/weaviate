@@ -436,7 +436,6 @@ func (f *Memory) DeleteKey(dbObject connector_utils.DatabaseUsersObject) error {
 	}
 
 	if result != nil {
-		println("Hij komt hier 1")
 		// Loop through the results
 		singleResult := result.Next()
 		for singleResult != nil {
