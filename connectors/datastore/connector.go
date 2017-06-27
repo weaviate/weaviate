@@ -324,7 +324,7 @@ func (f *Datastore) GetKey(uuid string) (connector_utils.DatabaseUsersObject, er
 	return userObject[0], nil
 }
 
-// AddUser to DB
+// AddKey to DB
 func (f *Datastore) AddKey(parentUuid string, dbObject connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error) {
 	ctx := context.Background()
 
@@ -346,4 +346,39 @@ func (f *Datastore) AddKey(parentUuid string, dbObject connector_utils.DatabaseU
 
 	// Return the ID that is used to create.
 	return dbObject, nil
+}
+
+// DeleteKey removes a key from the database
+func (f *Datastore) DeleteKey(dbObject connector_utils.DatabaseUsersObject) error {
+	ctx := context.Background()
+
+	kind := "weaviate_users"
+
+	// Create get Query
+	query := datastore.NewQuery(kind).Filter("Uuid =", dbObject.Uuid).Limit(1)
+
+	// Fill User object
+	userObject := []connector_utils.DatabaseUsersObject{}
+	keys, _ := f.client.GetAll(ctx, query, &userObject)
+
+	// Find its children
+	queryChildren := datastore.NewQuery(kind).Filter("Parent =", dbObject.Uuid)
+
+	// Fill children user-objects
+	childUserObjects := []connector_utils.DatabaseUsersObject{}
+	f.client.GetAll(ctx, queryChildren, &childUserObjects)
+
+	// Delete for every child
+	for _, childUserObject := range childUserObjects {
+		go f.DeleteKey(childUserObject)
+	}
+
+	// Deletes the user itself
+	errDel := f.client.Delete(ctx, keys[0])
+	if errDel != nil {
+		log.Fatalf("Failed to delete task: %v", errDel)
+	}
+
+	// Return error if exists
+	return errDel
 }

@@ -31,6 +31,7 @@ type DatabaseConnector interface {
 	AddKey(string, connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error)
 	GetName() string
 	SetConfig(interface{})
+	DeleteKey(connector_utils.DatabaseUsersObject) error
 }
 
 // GetAllConnectors contains all available connectors

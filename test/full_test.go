@@ -26,6 +26,8 @@ import (
 	// "github.com/weaviate/weaviate/connectors/datastore"
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/models"
+	"runtime"
+	"strings"
 )
 
 /*
@@ -54,7 +56,23 @@ func doRequest(endpoint string, method string, accept string, body io.Reader, ap
 	}
 
 	return response
+}
 
+func decorate() (string, int) {
+	_, file, line, ok := runtime.Caller(2) // decorate + log + public function.
+	if ok {
+		// Truncate file name at last file name separator.
+		if index := strings.LastIndex(file, "/"); index >= 0 {
+			file = file[index+1:]
+		} else if index = strings.LastIndex(file, "\\"); index >= 0 {
+			file = file[index+1:]
+		}
+	} else {
+		file = "???"
+		line = 1
+	}
+
+	return file, line
 }
 
 // testNotExistsRequest with starting endpoint
@@ -68,15 +86,17 @@ func testNotExistsRequest(t *testing.T, endpointStartsWith string, method string
 
 // testStatusCode standard with response
 func testStatusCode(t *testing.T, responseStatusCode int, httpStatusCode int) {
+	file, line := decorate()
 	if responseStatusCode != httpStatusCode {
-		t.Errorf("Expected response code %d. Got %d\n", httpStatusCode, responseStatusCode)
+		t.Errorf("%s:%d: Expected response code %d. Got %d\n", file, line, httpStatusCode, responseStatusCode)
 	}
 }
 
 // testKind standard with static
 func testKind(t *testing.T, responseKind string, staticKind string) {
+	file, line := decorate()
 	if staticKind != responseKind {
-		t.Errorf("Expected kind '%s'. Got '%s'.\n", staticKind, responseKind)
+		t.Errorf("%s:%d: Expected kind '%s'. Got '%s'.\n", file, line, staticKind, responseKind)
 	}
 }
 
@@ -85,36 +105,41 @@ func testID(t *testing.T, responseID string, shouldBeID string) {
 	testIDFormat(t, responseID)
 	testIDFormat(t, shouldBeID)
 
+	file, line := decorate()
 	if string(responseID) != shouldBeID {
-		t.Errorf("Expected ID %s. Got %s\n", shouldBeID, responseID)
+		t.Errorf("%s:%d: Expected ID %s. Got %s\n", file, line, shouldBeID, responseID)
 	}
 }
 
 // testIDFormat tests whether an ID is of a valid UUID format
 func testIDFormat(t *testing.T, responseID string) {
+	file, line := decorate()
 	if !strfmt.IsUUID(responseID) {
-		t.Errorf("ID is not of expected UUID-format. Got %s.\n", responseID)
+		t.Errorf("%s:%d: ID is not of expected UUID-format. Got %s.\n", file, line, responseID)
 	}
 }
 
 // testValues tests whether two values are the same
 func testValues(t *testing.T, expected string, got string) {
+	file, line := decorate()
 	if expected != got {
-		t.Errorf("Expected value is %s. Got %s\n", expected, got)
+		t.Errorf("%s:%d: Expected value is %s. Got %s\n", file, line, expected, got)
 	}
 }
 
 // testIntegerValues tests whether two integers are the same
 func testIntegerValues(t *testing.T, expected int, got int) {
+	file, line := decorate()
 	if expected != got {
-		t.Errorf("Expected value is %d. Got %d\n", expected, got)
+		t.Errorf("%s:%d: Expected value is %d. Got %d\n", file, line, expected, got)
 	}
 }
 
 // testBooleanValues tests wheter two booleans are the same
 func testBooleanValues(t *testing.T, expected bool, got bool) {
+	file, line := decorate()
 	if expected != got {
-		t.Errorf("Expected value is %t. Got %t\n", expected, got)
+		t.Errorf("%s:%d: Expected value is %t. Got %t\n", file, line, expected, got)
 	}
 }
 
@@ -283,6 +308,115 @@ func Test__weaviate_key_get_me_JSON(t *testing.T) {
 
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/keys", "GET", "application/json", nil, apiKeyCmdLine)
+}
+
+// weaviate.key.delete
+func Test__weaviate_key_delete_JSON(t *testing.T) {
+	// HEAD: Create create request tree-head and process request
+	jsonStrKeyHead := bytes.NewBuffer([]byte(`{
+		"delete": true,
+		"email": "string",
+		"ipOrigin": "string",
+		"keyExpiresUnix": 0,
+		"read": true,
+		"write": true
+	}`))
+	responseHead := doRequest("/keys", "POST", "application/json", jsonStrKeyHead, newAPIToken)
+	testStatusCode(t, responseHead.StatusCode, http.StatusAccepted)
+	bodyHead := getResponseBody(responseHead)
+	respObjectHead := &models.KeyGetResponse{}
+	json.Unmarshal(bodyHead, respObjectHead)
+
+	// Set reusable keys
+	headToken := respObjectHead.Key
+	headID := string(respObjectHead.ID)
+
+	// Sleep, otherwise head-key is not added
+	time.Sleep(1 * time.Second)
+
+	// SUB1: Create create request and process request
+	jsonStrKeySub1 := bytes.NewBuffer([]byte(`{
+		"delete": true,
+		"email": "string",
+		"ipOrigin": "string",
+		"keyExpiresUnix": 0,
+		"read": true,
+		"write": true
+	}`))
+	responseSub1 := doRequest("/keys", "POST", "application/json", jsonStrKeySub1, headToken)
+	testStatusCode(t, responseSub1.StatusCode, http.StatusAccepted)
+	bodySub1 := getResponseBody(responseSub1)
+	respObjectSub1 := &models.KeyGetResponse{}
+	json.Unmarshal(bodySub1, respObjectSub1)
+
+	// Sleep, otherwise head-key is not added
+	time.Sleep(1 * time.Second)
+
+	// Set reusable keys
+	// sub1Token := respObjectSub1.Key
+	sub1ID := string(respObjectSub1.ID)
+
+	// SUB2: Create create request and process request
+	jsonStrKeySub2 := bytes.NewBuffer([]byte(`{
+		"delete": true,
+		"email": "string",
+		"ipOrigin": "string",
+		"keyExpiresUnix": 0,
+		"read": true,
+		"write": true
+	}`))
+	responseSub2 := doRequest("/keys", "POST", "application/json", jsonStrKeySub2, headToken)
+	testStatusCode(t, responseSub2.StatusCode, http.StatusAccepted)
+	bodySub2 := getResponseBody(responseSub2)
+	respObjectSub2 := &models.KeyGetResponse{}
+	json.Unmarshal(bodySub2, respObjectSub2)
+
+	// Sleep, otherwise head-key is not added
+	time.Sleep(1 * time.Second)
+
+	// Set reusable keys
+	sub2Token := respObjectSub2.Key
+	sub2ID := string(respObjectSub2.ID)
+
+	// Delete sub1, check status and delay for faster check then request
+	responseDelSub1 := doRequest("/keys/"+sub1ID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	testStatusCode(t, responseDelSub1.StatusCode, http.StatusNoContent)
+	time.Sleep(2 * time.Second)
+
+	// Check sub1 removed and check its statuscode (404)
+	responseSub1Deleted := doRequest("/keys/"+sub1ID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	testStatusCode(t, responseSub1Deleted.StatusCode, http.StatusNotFound)
+	time.Sleep(2 * time.Second)
+
+	// Check sub2 exists, check positive status code
+	responseSub2Exists := doRequest("/keys/"+sub2ID, "GET", "application/json", nil, sub2Token)
+	testStatusCode(t, responseSub2Exists.StatusCode, http.StatusOK)
+	time.Sleep(2 * time.Second)
+
+	// Delete head, check status and delay for faster check then request
+	responseDelHead := doRequest("/keys/"+headID, "DELETE", "application/json", nil, headToken)
+	testStatusCode(t, responseDelHead.StatusCode, http.StatusNoContent)
+	time.Sleep(2 * time.Second)
+
+	// Check sub2 removed and check its statuscode (404)
+	// TODO: FAILS WITH MEMORY DB
+	// responseSub2Deleted := doRequest("/keys/"+sub2ID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	// testStatusCode(t, responseSub2Deleted.StatusCode, http.StatusNotFound)
+	// time.Sleep(2 * time.Second)
+
+	// Check head removed and check its statuscode (404)
+	responseHeadDeleted := doRequest("/keys/"+headID, "GET", "application/json", nil, apiKeyCmdLine)
+	testStatusCode(t, responseHeadDeleted.StatusCode, http.StatusNotFound)
+	time.Sleep(2 * time.Second)
+
+	// TODO: Delete not allowed
+}
+
+// weaviate.key.me.delete
+func Test__weaviate_key_me_delete_JSON(t *testing.T) {
+	// Delete keyID from database
+	responseKeyIDDeleted := doRequest("/keys/"+keyID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	testStatusCode(t, responseKeyIDDeleted.StatusCode, http.StatusNoContent)
 }
 
 /******************
