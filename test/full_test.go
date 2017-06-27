@@ -195,7 +195,8 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 		"ipOrigin": ["127.0.0.*", "*"],
 		"keyExpiresUnix": 1,
 		"read": false,
-		"write": false
+		"write": false,
+		"execute": true
 	}`))
 	response := doRequest("/keys", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
@@ -216,7 +217,7 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 
 	// Test Rights
 	testBooleanValues(t, true, respObject.Delete)
-	// testBooleanValues(t, true, respObject.Execute) TODO
+	testBooleanValues(t, true, respObject.Execute)
 	testBooleanValues(t, false, respObject.Read)
 	testBooleanValues(t, false, respObject.Write)
 
@@ -234,7 +235,8 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 		"ipOrigin": ["127.0.0.*", "*"],
 		"keyExpiresUnix": 0,
 		"read": true,
-		"write": true
+		"write": true,
+		"execute": false
 	}`))
 	responseNewToken := doRequest("/keys", "POST", "application/json", jsonStrNewKey, newAPIToken)
 
@@ -254,7 +256,7 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 
 	// Test Rights
 	testBooleanValues(t, false, respObjectNewToken.Delete)
-	// testBooleanValues(t, false, respObjectNewToken.Execute) TODO
+	testBooleanValues(t, false, respObjectNewToken.Execute)
 	testBooleanValues(t, true, respObjectNewToken.Read)
 	testBooleanValues(t, true, respObjectNewToken.Write)
 
@@ -320,7 +322,8 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 		"ipOrigin": ["127.0.0.*", "*"],
 		"keyExpiresUnix": 0,
 		"read": true,
-		"write": true
+		"write": true,
+		"execute": true
 	}`))
 	responseHead := doRequest("/keys", "POST", "application/json", jsonStrKeyHead, newAPIToken)
 	testStatusCode(t, responseHead.StatusCode, http.StatusAccepted)
@@ -342,7 +345,8 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 		"ipOrigin": ["127.0.0.*", "*"],
 		"keyExpiresUnix": 0,
 		"read": true,
-		"write": true
+		"write": true,
+		"execute": true
 	}`))
 	responseSub1 := doRequest("/keys", "POST", "application/json", jsonStrKeySub1, headToken)
 	testStatusCode(t, responseSub1.StatusCode, http.StatusAccepted)
@@ -364,7 +368,8 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 		"ipOrigin": ["127.0.0.*", "*"],
 		"keyExpiresUnix": 0,
 		"read": true,
-		"write": true
+		"write": true,
+		"execute": true
 	}`))
 	responseSub2 := doRequest("/keys", "POST", "application/json", jsonStrKeySub2, headToken)
 	testStatusCode(t, responseSub2.StatusCode, http.StatusAccepted)
