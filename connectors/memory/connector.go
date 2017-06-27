@@ -210,6 +210,7 @@ func (f *Memory) Init() error {
 	dbObjectObject.Read = true
 	dbObjectObject.Write = true
 	dbObjectObject.Delete = true
+	dbObjectObject.Execute = true
 
 	// Get ips as v6
 	var ips []string
