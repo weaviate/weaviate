@@ -439,9 +439,12 @@ func (f *Memory) DeleteKey(dbObject connector_utils.DatabaseUsersObject) error {
 	if result != nil {
 		// Loop through the results
 		singleResult := result.Next()
+		// Won't get in loop (https://github.com/weaviate/weaviate/issues/107)
 		for singleResult != nil {
 			// Do the same trick for every child
-			f.DeleteKey(singleResult.(connector_utils.DatabaseUsersObject))
+			childUserObject := singleResult.(connector_utils.DatabaseUsersObject)
+			childUserObject.Deleted = true
+			f.DeleteKey(childUserObject)
 			singleResult = result.Next()
 		}
 	}
@@ -449,6 +452,7 @@ func (f *Memory) DeleteKey(dbObject connector_utils.DatabaseUsersObject) error {
 	txn2 := f.client.Txn(true)
 	// Delete item(s) with given Uuid
 	_, errDel := txn2.DeleteAll("weaviate_users", "Uuid", dbObject.Uuid)
+	txn2.Insert("weaviate_users", dbObject)
 
 	// Commit transaction
 	txn2.Commit()

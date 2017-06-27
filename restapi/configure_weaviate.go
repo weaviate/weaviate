@@ -697,11 +697,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
 
 		// Not found
-		if errGet != nil {
+		if userObject.Deleted || errGet != nil {
 			return keys.NewWeaviateKeysDeleteNotFound()
 		}
 
 		// Remove key from database if found
+		userObject.Deleted = true
 		errDel := databaseConnector.DeleteKey(userObject)
 		if errDel != nil {
 			return keys.NewWeaviateKeysDeleteNotFound()
@@ -743,6 +744,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Create current User object from principle
 		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		currentUsersObject.Deleted = true
 
 		// Remove key from database if found
 		errDel := databaseConnector.DeleteKey(currentUsersObject)

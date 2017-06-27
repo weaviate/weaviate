@@ -282,7 +282,7 @@ func (f *Datastore) ValidateKey(token string) ([]connector_utils.DatabaseUsersOb
 	ctx := context.Background()
 	kind := "weaviate_users"
 
-	query := datastore.NewQuery(kind).Filter("KeyToken =", token).Limit(1)
+	query := datastore.NewQuery(kind).Filter("KeyToken =", token).Filter("Deleted =", false).Limit(1)
 
 	dbUsersObjects := []connector_utils.DatabaseUsersObject{}
 
@@ -303,7 +303,7 @@ func (f *Datastore) GetKey(uuid string) (connector_utils.DatabaseUsersObject, er
 	kind := "weaviate_users"
 
 	// Create get Query
-	query := datastore.NewQuery(kind).Filter("Uuid =", uuid).Limit(1)
+	query := datastore.NewQuery(kind).Filter("Uuid =", uuid).Filter("Deleted =", false).Limit(1)
 
 	// Fill User object
 	userObject := []connector_utils.DatabaseUsersObject{}
@@ -326,7 +326,7 @@ func (f *Datastore) GetKey(uuid string) (connector_utils.DatabaseUsersObject, er
 }
 
 // AddKey to DB
-func (f *Datastore) AddKey(parentUuid string, dbObject connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error) {
+func (f *Datastore) AddKey(parentUUID string, dbObject connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error) {
 	ctx := context.Background()
 
 	kind := "weaviate_users"
@@ -337,7 +337,7 @@ func (f *Datastore) AddKey(parentUuid string, dbObject connector_utils.DatabaseU
 	taskKey := datastore.NameKey(kind, nameUUID, nil)
 
 	// Auto set the parent ID
-	dbObject.Parent = parentUuid
+	dbObject.Parent = parentUUID
 
 	// Saves the new entity.
 	if _, err := f.client.Put(ctx, taskKey, &dbObject); err != nil {
@@ -371,11 +371,12 @@ func (f *Datastore) DeleteKey(dbObject connector_utils.DatabaseUsersObject) erro
 
 	// Delete for every child
 	for _, childUserObject := range childUserObjects {
+		childUserObject.Deleted = true
 		go f.DeleteKey(childUserObject)
 	}
 
 	// Deletes the user itself
-	errDel := f.client.Delete(ctx, keys[0])
+	_, errDel := f.client.Put(ctx, keys[0], &dbObject)
 	if errDel != nil {
 		log.Fatalf("Failed to delete task: %v", errDel)
 	}
