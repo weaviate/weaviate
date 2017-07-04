@@ -172,13 +172,12 @@ var newAPIToken string
 var locationID string
 var thingID string
 var thingTemplateID string
-var userID string
+var rootID string
 
 func init() {
 	flag.StringVar(&apiKeyCmdLine, "api-key", "", "API-KEY as used as haeder in the tests.")
 	flag.Parse()
 
-	userID = "c2da84b2-6525-43c2-80e8-dbf1bc571817"
 	fakeID = "11111111-1111-1111-1111-111111111111"
 }
 
@@ -267,6 +266,29 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 }
 
+// weaviate.key.me.get
+func Test__weaviate_key_get_me_JSON(t *testing.T) {
+	// Create get request
+	response := doRequest("/keys/me", "GET", "application/json", nil, newAPIToken)
+
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
+	body := getResponseBody(response)
+
+	respObject := &models.KeyTokenGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Add general User ID
+	rootID = string(respObject.Parent)
+
+	// Check ID of object
+	testID(t, string(respObject.ID), keyID)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#keyTokenGetResponse")
+}
+
 // weaviate.key.get
 func Test__weaviate_key_get_JSON(t *testing.T) {
 	// Create get request
@@ -286,28 +308,11 @@ func Test__weaviate_key_get_JSON(t *testing.T) {
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#keyGetResponse")
 
-	// Create get request with non-existing ID
-	testNotExistsRequest(t, "/keys", "GET", "application/json", nil, apiKeyCmdLine)
-}
-
-// weaviate.key.me.get
-func Test__weaviate_key_get_me_JSON(t *testing.T) {
 	// Create get request
-	response := doRequest("/keys/me", "GET", "application/json", nil, newAPIToken)
+	responseForbidden := doRequest("/keys/"+rootID, "GET", "application/json", nil, newAPIToken)
 
-	// Check status code get request
-	testStatusCode(t, response.StatusCode, http.StatusOK)
-
-	body := getResponseBody(response)
-
-	respObject := &models.KeyTokenGetResponse{}
-	json.Unmarshal(body, respObject)
-
-	// Check ID of object
-	testID(t, string(respObject.ID), keyID)
-
-	// Check kind
-	testKind(t, string(*respObject.Kind), "weaviate#keyTokenGetResponse")
+	// Check status code forbidden request
+	testStatusCode(t, responseForbidden.StatusCode, http.StatusForbidden)
 
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/keys", "GET", "application/json", nil, apiKeyCmdLine)
@@ -1551,7 +1556,7 @@ func Test__weaviate_events_things_create_JSON(t *testing.T) {
 			"commandParameters": {}
 		},
 		"timeMs": 0,
-		"userkey": "` + userID + `"
+		"userkey": "` + rootID + `"
 	}
 	`))
 	response := doRequest("/things/"+thingID+"/events", "POST", "application/json", jsonStr, apiKeyCmdLine)
@@ -1579,7 +1584,7 @@ func Test__weaviate_events_things_create_JSON(t *testing.T) {
 			"commandParameters": {}
 		},
 		"timeMs": 0,
-		"userkey": "` + userID + `"
+		"userkey": "` + rootID + `"
 	}
 	`))
 	responseSecond := doRequest("/things/"+fakeID+"/events", "POST", "application/json", jsonStr2, apiKeyCmdLine)
