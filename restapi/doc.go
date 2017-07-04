@@ -23,7 +23,7 @@ Ubiquitous Computing (& Internet of Things) platform that lets you manage cloud 
     Contact: Weaviate<bob@weaviate.com> https://github.com/weaviate/weaviate
 
     Consumes:
-    - application/json-patch+json
+    - application/json
 
     - application/octet-stream
 

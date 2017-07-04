@@ -849,7 +849,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/KeyChildren"
+              "$ref": "#/definitions/KeyChildrenGetResponse"
             }
           },
           "401": {
@@ -967,7 +967,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/KeyChildren"
+              "$ref": "#/definitions/KeyChildrenGetResponse"
             }
           },
           "401": {
@@ -2247,10 +2247,14 @@ func init() {
     "JsonValue": {
       "description": "JSON value -- union over JSON value types."
     },
-    "KeyChildren": {
+    "KeyChildrenGetResponse": {
       "properties": {
         "children": {
-          "$ref": "#/definitions/JsonObject"
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
         }
       }
     },
