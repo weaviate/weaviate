@@ -19,6 +19,7 @@ import (
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/swag"
 )
 
 // KeyCreate key create
@@ -31,11 +32,14 @@ type KeyCreate struct {
 	// Email associated with this account.
 	Email string `json:"email,omitempty"`
 
+	// Is user allowed to execute.
+	Execute bool `json:"execute,omitempty"`
+
 	// Origin of the IP using CIDR notation.
-	IPOrigin string `json:"ipOrigin,omitempty"`
+	IPOrigin []string `json:"ipOrigin"`
 
 	// Time as Unix timestamp that the key expires. Set to 0 for never.
-	KeyExpiresUnix float64 `json:"keyExpiresUnix,omitempty"`
+	KeyExpiresUnix int64 `json:"keyExpiresUnix,omitempty"`
 
 	// Is user allowed to read.
 	Read bool `json:"read,omitempty"`
@@ -48,8 +52,22 @@ type KeyCreate struct {
 func (m *KeyCreate) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateIPOrigin(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *KeyCreate) validateIPOrigin(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.IPOrigin) { // not required
+		return nil
+	}
+
 	return nil
 }

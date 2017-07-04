@@ -19,24 +19,17 @@ import (
 	"errors"
 	"net/url"
 	golangswaggerpaths "path"
-	"strings"
-
-	"github.com/go-openapi/strfmt"
 )
 
-// WeaviateKeysGetURL generates an URL for the weaviate keys get operation
-type WeaviateKeysGetURL struct {
-	KeyID strfmt.UUID
-
+// WeaviateKeysMeGetURL generates an URL for the weaviate keys me get operation
+type WeaviateKeysMeGetURL struct {
 	_basePath string
-	// avoid unkeyed usage
-	_ struct{}
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *WeaviateKeysGetURL) WithBasePath(bp string) *WeaviateKeysGetURL {
+func (o *WeaviateKeysMeGetURL) WithBasePath(bp string) *WeaviateKeysMeGetURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -44,22 +37,16 @@ func (o *WeaviateKeysGetURL) WithBasePath(bp string) *WeaviateKeysGetURL {
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *WeaviateKeysGetURL) SetBasePath(bp string) {
+func (o *WeaviateKeysMeGetURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *WeaviateKeysGetURL) Build() (*url.URL, error) {
+func (o *WeaviateKeysMeGetURL) Build() (*url.URL, error) {
 	var result url.URL
 
-	var _path = "/keys/{keyId}"
+	var _path = "/keys/me"
 
-	keyID := o.KeyID.String()
-	if keyID != "" {
-		_path = strings.Replace(_path, "{keyId}", keyID, -1)
-	} else {
-		return nil, errors.New("KeyID is required on WeaviateKeysGetURL")
-	}
 	_basePath := o._basePath
 	if _basePath == "" {
 		_basePath = "/weaviate/v1"
@@ -70,7 +57,7 @@ func (o *WeaviateKeysGetURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *WeaviateKeysGetURL) Must(u *url.URL, err error) *url.URL {
+func (o *WeaviateKeysMeGetURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -81,17 +68,17 @@ func (o *WeaviateKeysGetURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *WeaviateKeysGetURL) String() string {
+func (o *WeaviateKeysMeGetURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *WeaviateKeysGetURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *WeaviateKeysMeGetURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on WeaviateKeysGetURL")
+		return nil, errors.New("scheme is required for a full url on WeaviateKeysMeGetURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on WeaviateKeysGetURL")
+		return nil, errors.New("host is required for a full url on WeaviateKeysMeGetURL")
 	}
 
 	base, err := o.Build()
@@ -105,6 +92,6 @@ func (o *WeaviateKeysGetURL) BuildFull(scheme, host string) (*url.URL, error) {
 }
 
 // StringFull returns the string representation of a complete url
-func (o *WeaviateKeysGetURL) StringFull(scheme, host string) string {
+func (o *WeaviateKeysMeGetURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }
