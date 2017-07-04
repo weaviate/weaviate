@@ -110,13 +110,18 @@ func getKind(object interface{}) *string {
 	return &kind
 }
 
-// isOwnKeyOrLowerInTree
+// isOwnKeyOrLowerInTree returns whether a key is his own or in his children
 func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.DatabaseUsersObject, userKeyID string, databaseConnector dbconnector.DatabaseConnector) bool {
+	// If is own key, return true
+	if strings.EqualFold(userKeyID, currentUsersObject.Uuid) {
+		return true
+	}
+
 	// Get all child id's
 	var childIDs []string
 	childIDs = databaseConnector.GetChildKeys(currentUsersObject.Uuid, childIDs, 0, 0)
 
-	// Check ID to delete is in childIds
+	// Check ID is in childIds
 	isChildID := false
 	for _, childID := range childIDs {
 		if childID == userKeyID {
@@ -124,12 +129,12 @@ func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.DatabaseUsersObjec
 		}
 	}
 
-	// This is a delete function, validate if allowed to delete own/parent.
-	if userKeyID != currentUsersObject.Uuid && !isChildID {
-		return false
+	// This is a delete function, validate if allowed to do action with own/parent.
+	if isChildID {
+		return true
 	}
 
-	return true
+	return false
 }
 
 func configureFlags(api *operations.WeaviateAPI) {
@@ -727,7 +732,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions
 		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
-		if isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+		if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
 			return locations.NewWeaviateLocationsDeleteForbidden()
 		}
 
@@ -745,21 +750,19 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get item from database
 		userObject, err := databaseConnector.GetKey(string(params.KeyID))
 
-		// Check on permissions
-		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
-		if isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
-			return locations.NewWeaviateLocationsDeleteForbidden()
-		}
-
-		// Init object
-		responseObject := &models.KeyGetResponse{}
-
 		// Object is deleted or not-existing
 		if userObject.Deleted || err != nil {
 			return keys.NewWeaviateKeysGetNotFound()
 		}
 
+		// Check on permissions
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+			return locations.NewWeaviateLocationsDeleteForbidden()
+		}
+
 		// Create response Object from create object.
+		responseObject := &models.KeyGetResponse{}
 		json.Unmarshal([]byte(userObject.Object), responseObject)
 		responseObject.ID = strfmt.UUID(userObject.Uuid)
 		responseObject.Kind = getKind(responseObject)
