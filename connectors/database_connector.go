@@ -32,7 +32,7 @@ type DatabaseConnector interface {
 	GetName() string
 	SetConfig(interface{})
 	DeleteKey(connector_utils.DatabaseUsersObject) error
-	GetChildKeys(string, []string) []string
+	GetChildKeys(string, []string, int, int) []string
 }
 
 // GetAllConnectors contains all available connectors

@@ -461,7 +461,7 @@ func (f *Memory) DeleteKey(dbObject connector_utils.DatabaseUsersObject) error {
 }
 
 // GetChildKeys returns all the child keys. Even children of children of children of etc...
-func (f *Memory) GetChildKeys(UUID string, allIds []string) []string {
+func (f *Memory) GetChildKeys(UUID string, allIds []string, maxDepth int, depth int) []string {
 	// ctx := context.Background()
 
 	// allIds = append(allIds, UUID)

@@ -384,6 +384,11 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	sub2Token := respObjectSub2.Key
 	sub2ID := string(respObjectSub2.ID)
 
+	// Delete head with sub2, which is not allowed
+	responseDelHeadWithSub := doRequest("/keys/"+headID, "DELETE", "application/json", nil, sub2Token)
+	testStatusCode(t, responseDelHeadWithSub.StatusCode, http.StatusForbidden)
+	time.Sleep(2 * time.Second)
+
 	// Delete sub1, check status and delay for faster check then request
 	responseDelSub1 := doRequest("/keys/"+sub1ID, "DELETE", "application/json", nil, apiKeyCmdLine)
 	testStatusCode(t, responseDelSub1.StatusCode, http.StatusNoContent)
