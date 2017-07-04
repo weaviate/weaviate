@@ -16,6 +16,8 @@
 
 
 import (
+	"strconv"
+
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
@@ -27,7 +29,7 @@ import (
 type Group struct {
 
 	// The items in the group.
-	Ids []strfmt.UUID `json:"ids"`
+	Ids []*GroupIdsItems0 `json:"ids"`
 
 	// Name of the group.
 	Name string `json:"name,omitempty"`
@@ -54,5 +56,47 @@ func (m *Group) validateIds(formats strfmt.Registry) error {
 		return nil
 	}
 
+	for i := 0; i < len(m.Ids); i++ {
+
+		if swag.IsZero(m.Ids[i]) { // not required
+			continue
+		}
+
+		if m.Ids[i] != nil {
+
+			if err := m.Ids[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("ids" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// GroupIdsItems0 group ids items0
+// swagger:model GroupIdsItems0
+type GroupIdsItems0 struct {
+
+	// ID of object in Group
+	ID strfmt.UUID `json:"id,omitempty"`
+
+	// RefType of object in Group
+	RefType string `json:"refType,omitempty"`
+
+	// URL of object in Group
+	URL string `json:"url,omitempty"`
+}
+
+// Validate validates this group ids items0
+func (m *GroupIdsItems0) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }

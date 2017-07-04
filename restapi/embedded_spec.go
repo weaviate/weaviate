@@ -55,7 +55,7 @@ func init() {
       "url": "https://github.com/weaviate/weaviate",
       "email": "bob@weaviate.com"
     },
-    "version": "v0.2.5"
+    "version": "v0.2.7"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -770,7 +770,86 @@ func init() {
           "202": {
             "description": "Successfully received.",
             "schema": {
-              "$ref": "#/definitions/KeyGetResponse"
+              "$ref": "#/definitions/KeyTokenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "422": {
+            "description": "Can not validate, check the body."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false
+      }
+    },
+    "/keys/me": {
+      "get": {
+        "description": "Get the key-information of the key used.",
+        "tags": [
+          "keys"
+        ],
+        "summary": "Get a key based on the key used to do the request.",
+        "operationId": "weaviate.keys.me.get",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyTokenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false
+      },
+      "delete": {
+        "description": "Deletes key used to do the request.",
+        "tags": [
+          "keys"
+        ],
+        "summary": "Delete a key based on the key used to do the request.",
+        "operationId": "weaviate.keys.me.delete",
+        "responses": {
+          "204": {
+            "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false
+      }
+    },
+    "/keys/me/children": {
+      "get": {
+        "description": "Get children of used key, only one step deep. A child can have children of its own.",
+        "tags": [
+          "keys"
+        ],
+        "summary": "Get an object of this keys' children related to the key used for request.",
+        "operationId": "weaviate.keys.me.children.get",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyChildren"
             }
           },
           "401": {
@@ -779,11 +858,11 @@ func init() {
           "403": {
             "description": "The used API-key has insufficient permissions."
           },
-          "422": {
-            "description": "Can not validate, check the body."
+          "404": {
+            "description": "Successful query result but no resource was found."
           },
           "501": {
-            "description": "Not (yet) implemented."
+            "description": "Not (yet) implemented"
           }
         },
         "x-available-in-mqtt": false
@@ -800,6 +879,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
+            "format": "uuid",
             "description": "Unique ID of the key.",
             "name": "keyId",
             "in": "path",
@@ -839,6 +919,7 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
+            "description": "Unique ID of the key.",
             "name": "keyId",
             "in": "path",
             "required": true
@@ -866,7 +947,7 @@ func init() {
     },
     "/keys/{keyId}/children": {
       "get": {
-        "description": "Get children or a key, only one step deep. A child can have children of its own.",
+        "description": "Get children of a key, only one step deep. A child can have children of its own.",
         "tags": [
           "keys"
         ],
@@ -2044,8 +2125,22 @@ func init() {
           "description": "The items in the group.",
           "type": "array",
           "items": {
-            "type": "string",
-            "format": "uuid"
+            "type": "object",
+            "properties": {
+              "id": {
+                "description": "ID of object in Group",
+                "type": "string",
+                "format": "uuid"
+              },
+              "refType": {
+                "description": "RefType of object in Group",
+                "type": "string"
+              },
+              "url": {
+                "description": "URL of object in Group",
+                "type": "string"
+              }
+            }
           }
         },
         "name": {
@@ -2141,13 +2236,21 @@ func init() {
           "description": "Email associated with this account.",
           "type": "string"
         },
+        "execute": {
+          "description": "Is user allowed to execute.",
+          "type": "boolean"
+        },
         "ipOrigin": {
           "description": "Origin of the IP using CIDR notation.",
-          "type": "string"
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "keyExpiresUnix": {
           "description": "Time as Unix timestamp that the key expires. Set to 0 for never.",
-          "type": "number"
+          "type": "integer",
+          "format": "int64"
         },
         "read": {
           "description": "Is user allowed to read.",
@@ -2171,10 +2274,6 @@ func init() {
               "type": "string",
               "format": "uuid"
             },
-            "key": {
-              "description": "Key for user to use.",
-              "type": "string"
-            },
             "kind": {
               "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#keyGetResponse\".",
               "type": "string",
@@ -2182,6 +2281,21 @@ func init() {
             },
             "parent": {
               "description": "Parent key. A parent allways has access to a child. Root key has parent value 0. Only a user with a root of 0 can set a root key.",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "KeyTokenGetResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/KeyGetResponse"
+        },
+        {
+          "properties": {
+            "key": {
+              "description": "Key for user to use.",
               "type": "string"
             }
           }

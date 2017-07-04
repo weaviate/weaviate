@@ -15,9 +15,10 @@ package dbconnector
 
 import (
 	"encoding/json"
-	"github.com/go-openapi/swag"
 	"io/ioutil"
 	"log"
+
+	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/connectors/memory"
 )

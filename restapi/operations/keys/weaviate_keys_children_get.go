@@ -43,7 +43,7 @@ func NewWeaviateKeysChildrenGet(ctx *middleware.Context, handler WeaviateKeysChi
 
 Get an object of this keys' children related to this key.
 
-Get children or a key, only one step deep. A child can have children of its own.
+Get children of a key, only one step deep. A child can have children of its own.
 
 */
 type WeaviateKeysChildrenGet struct {
