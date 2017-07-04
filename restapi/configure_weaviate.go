@@ -712,14 +712,36 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeyCreateAccepted().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
-		// var childIds []string
-		// childIds = databaseConnector.GetChildKeys(params.KeyID, childIds, 1, 0)
+		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
+		userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
 
-		// responseObject := &models.KeyChildren{}
-		// responseObject.Children
-		// json.Unmarshal([]byte(childIds), responseObject)
+		// Not found
+		if userObject.Deleted || errGet != nil {
+			return keys.NewWeaviateKeysChildrenGetNotFound()
+		}
 
-		return middleware.NotImplemented("operation keys.WeaviateKeysChildrenGet has not yet been implemented")
+		// Check on permissions
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+			return keys.NewWeaviateKeysChildrenGetForbidden()
+		}
+
+		// Get the children
+		var childIDs []string
+		childIDs = databaseConnector.GetChildKeys(string(params.KeyID), childIDs, 1, 0)
+
+		// Format the IDs for the response
+		childUUIDs := make([]strfmt.UUID, len(childIDs))
+		for i, v := range childIDs {
+			childUUIDs[i] = strfmt.UUID(v)
+		}
+
+		// Initiate response object
+		responseObject := &models.KeyChildrenGetResponse{}
+		responseObject.Children = childUUIDs
+
+		// Return children with 'OK'
+		return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
@@ -733,7 +755,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Check on permissions
 		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
 		if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
-			return locations.NewWeaviateLocationsDeleteForbidden()
+			return keys.NewWeaviateKeysDeleteForbidden()
 		}
 
 		// Remove key from database if found
@@ -773,13 +795,41 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation KeysWeaviateKeysMeChildrenGet has not yet been implemented")
-	})
-	api.KeysWeaviateKeysMeDeleteHandler = keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
-		// Check on 'not found' and 'forbidden' not needed, cause you are logged in as one existing key
-
 		// Create current User object from principal
 		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
+		// Object is deleted or not-existing
+		if currentUsersObject.Deleted {
+			return keys.NewWeaviateKeysMeChildrenGetNotFound()
+		}
+
+		// Get the children
+		var childIDs []string
+		childIDs = databaseConnector.GetChildKeys(currentUsersObject.Uuid, childIDs, 1, 0)
+
+		// Format the IDs for the response
+		childUUIDs := make([]strfmt.UUID, len(childIDs))
+		for i, v := range childIDs {
+			childUUIDs[i] = strfmt.UUID(v)
+		}
+
+		// Initiate response object
+		responseObject := &models.KeyChildrenGetResponse{}
+		responseObject.Children = childUUIDs
+
+		// Return children with 'OK'
+		return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)
+	})
+	api.KeysWeaviateKeysMeDeleteHandler = keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
+		// Create current User object from principal
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
+		// Object is deleted or not-existing
+		if currentUsersObject.Deleted {
+			return keys.NewWeaviateKeysMeDeleteNotFound()
+		}
+
+		// Change to Deleted
 		currentUsersObject.Deleted = true
 
 		// Remove key from database if found
