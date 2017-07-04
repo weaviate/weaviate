@@ -19,22 +19,37 @@ import (
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/swag"
 )
 
-// KeyChildren key children
-// swagger:model KeyChildren
-type KeyChildren struct {
+// KeyChildrenGetResponse key children get response
+// swagger:model KeyChildrenGetResponse
+type KeyChildrenGetResponse struct {
 
 	// children
-	Children JSONObject `json:"children,omitempty"`
+	Children []strfmt.UUID `json:"children"`
 }
 
-// Validate validates this key children
-func (m *KeyChildren) Validate(formats strfmt.Registry) error {
+// Validate validates this key children get response
+func (m *KeyChildrenGetResponse) Validate(formats strfmt.Registry) error {
 	var res []error
+
+	if err := m.validateChildren(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *KeyChildrenGetResponse) validateChildren(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Children) { // not required
+		return nil
+	}
+
 	return nil
 }
