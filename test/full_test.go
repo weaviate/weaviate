@@ -29,6 +29,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/models"
+	"sort"
 )
 
 /*
@@ -167,8 +168,13 @@ var commandID string
 var eventID string
 var fakeID string
 var groupID string
+var headToken string
+var headID string
 var keyID string
 var newAPIToken string
+var newAPIKeyID string
+var newSubAPIToken string
+var newSubAPIKeyID string
 var locationID string
 var thingID string
 var thingTemplateID string
@@ -186,7 +192,7 @@ func init() {
  ******************/
 
 // weaviate.key.create
-func Test__weaviate_keys_create_JSON(t *testing.T) {
+func Test__weaviate_key_create_JSON(t *testing.T) {
 	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(`{
 		"delete": true,
@@ -224,6 +230,10 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 	newAPIToken = string(respObject.Key)
 	testIDFormat(t, newAPIToken)
 
+	// Test given ID
+	newAPIKeyID = string(respObject.ID)
+	testIDFormat(t, newAPIKeyID)
+
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
 
@@ -250,6 +260,14 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 	// Test key ID parent is correct
 	testID(t, respObjectNewToken.Parent, keyID)
 
+	// Test given Token
+	newSubAPIToken = string(respObjectNewToken.Key)
+	testIDFormat(t, newAPIToken)
+
+	// Test given ID
+	newSubAPIKeyID = string(respObjectNewToken.ID)
+	testIDFormat(t, newAPIKeyID)
+
 	// Test expiration set
 	testIntegerValues(t, 0, int(respObjectNewToken.KeyExpiresUnix))
 
@@ -267,7 +285,7 @@ func Test__weaviate_keys_create_JSON(t *testing.T) {
 }
 
 // weaviate.key.me.get
-func Test__weaviate_key_get_me_JSON(t *testing.T) {
+func Test__weaviate_key_me_get_JSON(t *testing.T) {
 	// Create get request
 	response := doRequest("/keys/me", "GET", "application/json", nil, newAPIToken)
 
@@ -318,8 +336,8 @@ func Test__weaviate_key_get_JSON(t *testing.T) {
 	testNotExistsRequest(t, "/keys", "GET", "application/json", nil, apiKeyCmdLine)
 }
 
-// weaviate.key.delete
-func Test__weaviate_key_delete_JSON(t *testing.T) {
+// weaviate.key.children.get
+func Test__weaviate_key_children_get_JSON(t *testing.T) {
 	// HEAD: Create create request tree-head and process request
 	jsonStrKeyHead := bytes.NewBuffer([]byte(`{
 		"delete": true,
@@ -336,10 +354,96 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	respObjectHead := &models.KeyTokenGetResponse{}
 	json.Unmarshal(bodyHead, respObjectHead)
 
-	// Set reusable keys
-	headToken := respObjectHead.Key
-	headID := string(respObjectHead.ID)
+	time.Sleep(1 * time.Second)
 
+	// Set reusable keys
+	headToken = respObjectHead.Key
+	headID = string(respObjectHead.ID)
+
+	// Create get request
+	response := doRequest("/keys/"+newAPIKeyID+"/children", "GET", "application/json", nil, newAPIToken)
+
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
+	body := getResponseBody(response)
+
+	respObject := &models.KeyChildrenGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Add general User ID
+	if 2 != len(respObject.Children) {
+		t.Errorf("Expected number of children '%d'. Got '%d'.\n", 2, len(respObject.Children))
+	}
+
+	// Check IDs of objects are correct by adding them to an array and sorting
+	responseChildren := []string{
+		string(respObject.Children[0]),
+		string(respObject.Children[1]),
+	}
+
+	checkIDs := []string{
+		headID,
+		newSubAPIKeyID,
+	}
+
+	sort.Strings(responseChildren)
+	sort.Strings(checkIDs)
+
+	testID(t, responseChildren[0], checkIDs[0])
+	testID(t, responseChildren[1], checkIDs[1])
+
+	// Create get request
+	responseForbidden := doRequest("/keys/"+rootID+"/children", "GET", "application/json", nil, newAPIToken)
+
+	// Check status code forbidden request
+	testStatusCode(t, responseForbidden.StatusCode, http.StatusForbidden)
+
+	// Create get request with non-existing ID
+	responseNotFound := doRequest("keys/"+fakeID+"/children", "GET", "application/json", nil, newAPIToken)
+
+	// Check response of non-existing ID
+	testStatusCode(t, responseNotFound.StatusCode, http.StatusNotFound)
+}
+
+// weaviate.key.me.children.get
+func Test__weaviate_key_me_children_get_JSON(t *testing.T) {
+	// Create get request
+	response := doRequest("/keys/me/children", "GET", "application/json", nil, newAPIToken)
+
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
+	body := getResponseBody(response)
+
+	respObject := &models.KeyChildrenGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Add general User ID
+	if 2 != len(respObject.Children) {
+		t.Errorf("Expected number of children '%d'. Got '%d'.\n", 2, len(respObject.Children))
+	}
+
+	// Check IDs of objects are correct by adding them to an array and sorting
+	responseChildren := []string{
+		string(respObject.Children[0]),
+		string(respObject.Children[1]),
+	}
+
+	checkIDs := []string{
+		headID,
+		newSubAPIKeyID,
+	}
+
+	sort.Strings(responseChildren)
+	sort.Strings(checkIDs)
+
+	testID(t, responseChildren[0], checkIDs[0])
+	testID(t, responseChildren[1], checkIDs[1])
+}
+
+// weaviate.key.delete
+func Test__weaviate_key_delete_JSON(t *testing.T) {
 	// Sleep, otherwise head-key is not added
 	time.Sleep(1 * time.Second)
 
@@ -424,8 +528,6 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	responseHeadDeleted := doRequest("/keys/"+headID, "GET", "application/json", nil, apiKeyCmdLine)
 	testStatusCode(t, responseHeadDeleted.StatusCode, http.StatusNotFound)
 	time.Sleep(2 * time.Second)
-
-	// TODO: Delete not allowed when not using key in tree
 }
 
 // weaviate.key.me.delete
