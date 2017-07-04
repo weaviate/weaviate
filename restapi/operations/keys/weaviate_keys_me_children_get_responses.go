@@ -35,7 +35,7 @@ type WeaviateKeysMeChildrenGetOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.KeyChildren `json:"body,omitempty"`
+	Payload *models.KeyChildrenGetResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateKeysMeChildrenGetOK creates WeaviateKeysMeChildrenGetOK with default headers values
@@ -44,13 +44,13 @@ func NewWeaviateKeysMeChildrenGetOK() *WeaviateKeysMeChildrenGetOK {
 }
 
 // WithPayload adds the payload to the weaviate keys me children get o k response
-func (o *WeaviateKeysMeChildrenGetOK) WithPayload(payload *models.KeyChildren) *WeaviateKeysMeChildrenGetOK {
+func (o *WeaviateKeysMeChildrenGetOK) WithPayload(payload *models.KeyChildrenGetResponse) *WeaviateKeysMeChildrenGetOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate keys me children get o k response
-func (o *WeaviateKeysMeChildrenGetOK) SetPayload(payload *models.KeyChildren) {
+func (o *WeaviateKeysMeChildrenGetOK) SetPayload(payload *models.KeyChildrenGetResponse) {
 	o.Payload = payload
 }
 
