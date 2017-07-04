@@ -2121,28 +2121,6 @@ func init() {
       "description": "Group.",
       "type": "object",
       "properties": {
-        "ids": {
-          "description": "The items in the group.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "description": "ID of object in Group",
-                "type": "string",
-                "format": "uuid"
-              },
-              "refType": {
-                "description": "RefType of object in Group",
-                "type": "string"
-              },
-              "url": {
-                "description": "URL of object in Group",
-                "type": "string"
-              }
-            }
-          }
-        },
         "name": {
           "description": "Name of the group.",
           "type": "string"
@@ -2154,6 +2132,22 @@ func init() {
       "allOf": [
         {
           "$ref": "#/definitions/Group"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ids": {
+              "description": "The items in the group.",
+              "type": "array",
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/GroupId"
+                  }
+                ]
+              }
+            }
+          }
         }
       ]
     },
@@ -2170,6 +2164,30 @@ func init() {
               "type": "string",
               "format": "uuid"
             },
+            "ids": {
+              "description": "The items in the group.",
+              "type": "array",
+              "items": {
+                "allOf": [
+                  {
+                    "$ref": "#/definitions/GroupId"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "refType": {
+                        "description": "RefType of object in Group",
+                        "type": "string"
+                      },
+                      "url": {
+                        "description": "URL of object in Group",
+                        "type": "string"
+                      }
+                    }
+                  }
+                ]
+              }
+            },
             "kind": {
               "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#groupGetResponse\".",
               "type": "string",
@@ -2178,6 +2196,16 @@ func init() {
           }
         }
       ]
+    },
+    "GroupId": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "ID of object in Group",
+          "type": "string",
+          "format": "uuid"
+        }
+      }
     },
     "GroupUpdate": {
       "type": "object",

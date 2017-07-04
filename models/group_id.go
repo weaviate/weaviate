@@ -21,16 +21,16 @@ import (
 	"github.com/go-openapi/errors"
 )
 
-// Group Group.
-// swagger:model Group
-type Group struct {
+// GroupID group Id
+// swagger:model GroupId
+type GroupID struct {
 
-	// Name of the group.
-	Name string `json:"name,omitempty"`
+	// ID of object in Group
+	ID strfmt.UUID `json:"id,omitempty"`
 }
 
-// Validate validates this group
-func (m *Group) Validate(formats strfmt.Registry) error {
+// Validate validates this group Id
+func (m *GroupID) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if len(res) > 0 {
