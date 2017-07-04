@@ -110,6 +110,28 @@ func getKind(object interface{}) *string {
 	return &kind
 }
 
+// isOwnKeyOrLowerInTree
+func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.DatabaseUsersObject, userKeyID string, databaseConnector dbconnector.DatabaseConnector) bool {
+	// Get all child id's
+	var childIDs []string
+	childIDs = databaseConnector.GetChildKeys(currentUsersObject.Uuid, childIDs, 0, 0)
+
+	// Check ID to delete is in childIds
+	isChildID := false
+	for _, childID := range childIDs {
+		if childID == userKeyID {
+			isChildID = true
+		}
+	}
+
+	// This is a delete function, validate if allowed to delete own/parent.
+	if userKeyID != currentUsersObject.Uuid && !isChildID {
+		return false
+	}
+
+	return true
+}
+
 func configureFlags(api *operations.WeaviateAPI) {
 	connectorOptionGroup = dbconnector.GetConfigOptionGroup()
 
@@ -651,7 +673,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE KEYS
 	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
-		// Create current User object from principle
+		// Create current User object from principal
 		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
 		// Fill the new User object
@@ -685,20 +707,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeyCreateAccepted().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
+		// var childIds []string
+		// childIds = databaseConnector.GetChildKeys(params.KeyID, childIds, 1, 0)
+
+		// responseObject := &models.KeyChildren{}
+		// responseObject.Children
+		// json.Unmarshal([]byte(childIds), responseObject)
+
 		return middleware.NotImplemented("operation keys.WeaviateKeysChildrenGet has not yet been implemented")
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
-		// This is a delete function, validate if allowed to delete own/parent.
-		// if connector_utils.DeleteAllowed(principal) == false {
-		// 	return locations.NewWeaviateLocationsDeleteForbidden()
-		// }
-
-		// Get item from database
+		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
 		userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
 
 		// Not found
 		if userObject.Deleted || errGet != nil {
 			return keys.NewWeaviateKeysDeleteNotFound()
+		}
+
+		// Check on permissions
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		if isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+			return locations.NewWeaviateLocationsDeleteForbidden()
 		}
 
 		// Remove key from database if found
@@ -714,6 +744,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
 		// Get item from database
 		userObject, err := databaseConnector.GetKey(string(params.KeyID))
+
+		// Check on permissions
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		if isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+			return locations.NewWeaviateLocationsDeleteForbidden()
+		}
 
 		// Init object
 		responseObject := &models.KeyGetResponse{}
@@ -737,12 +773,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation KeysWeaviateKeysMeChildrenGet has not yet been implemented")
 	})
 	api.KeysWeaviateKeysMeDeleteHandler = keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
-		// This is a delete function, validate if allowed to delete own/parent.
-		// if connector_utils.DeleteAllowed(principal) == false {
-		// 	return locations.NewWeaviateLocationsDeleteForbidden()
-		// }
+		// Check on 'not found' and 'forbidden' not needed, cause you are logged in as one existing key
 
-		// Create current User object from principle
+		// Create current User object from principal
 		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
 		currentUsersObject.Deleted = true
 
@@ -757,7 +790,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	})
 	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
-		// Create current User object from principle
+		// Create current User object from principal
 		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
 		// Init object

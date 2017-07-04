@@ -385,20 +385,24 @@ func (f *Datastore) DeleteKey(dbObject connector_utils.DatabaseUsersObject) erro
 	return errDel
 }
 
-// GetChildKeys returns all the child keys. Even children of children of children of etc...
-func (f *Datastore) GetChildKeys(UUID string, allIds []string) []string {
+// GetChildKeys returns all the child keys until a certain depth. Max depth 0 is no limits.
+func (f *Datastore) GetChildKeys(UUID string, allIds []string, maxDepth int, depth int) []string {
 	ctx := context.Background()
 
-	allIds = append(allIds, UUID)
+	if depth > 0 {
+		allIds = append(allIds, UUID)
+	}
 
 	// Find its children
 	queryChildren := datastore.NewQuery("weaviate_users").Filter("Parent =", UUID).Filter("Deleted = ", false)
 	childUserObjects := []connector_utils.DatabaseUsersObject{}
 	f.client.GetAll(ctx, queryChildren, &childUserObjects)
 
-	// Do it for every child
-	for _, childUserObject := range childUserObjects {
-		allIds = f.GetChildKeys(childUserObject.Uuid, allIds)
+	// Do it for every child, if depth is not reached or depth is 0
+	if maxDepth == 0 || depth < maxDepth {
+		for _, childUserObject := range childUserObjects {
+			allIds = f.GetChildKeys(childUserObject.Uuid, allIds, maxDepth, depth+1)
+		}
 	}
 
 	return allIds
