@@ -465,8 +465,6 @@ func (f *Memory) GetChildObjects(UUID string, filterOutDeleted bool) ([]connecto
 	// Lookup by Uuid
 	result, err := txn.Get("weaviate_users", "Parent", UUID)
 
-	println("Komt hier: ", UUID)
-
 	// return the error
 	if err != nil {
 		return childUserObjects, err
