@@ -119,17 +119,17 @@ func (f *Memory) Connect() error {
 					},
 					"Owner": &memdb.IndexSchema{
 						Name:    "Owner",
-						Unique:  true,
+						Unique:  false,
 						Indexer: &memdb.StringFieldIndex{Field: "Owner"},
 					},
 					"RefType": &memdb.IndexSchema{
 						Name:    "RefType",
-						Unique:  true,
+						Unique:  false,
 						Indexer: &memdb.StringFieldIndex{Field: "RefType"},
 					},
 					"Uuid": &memdb.IndexSchema{
 						Name:    "Uuid",
-						Unique:  true,
+						Unique:  false,
 						Indexer: &memdb.StringFieldIndex{Field: "Uuid"},
 					},
 				},
@@ -160,7 +160,7 @@ func (f *Memory) Connect() error {
 					},
 					"Parent": &memdb.IndexSchema{
 						Name:    "Parent",
-						Unique:  true,
+						Unique:  false,
 						Indexer: &memdb.StringFieldIndex{Field: "Parent"},
 					},
 					"Uuid": &memdb.IndexSchema{
@@ -378,7 +378,6 @@ func (f *Memory) ValidateKey(token string) ([]connector_utils.DatabaseUsersObjec
 
 // GetKey returns user object by ID
 func (f *Memory) GetKey(Uuid string) (connector_utils.DatabaseUsersObject, error) {
-
 	// Create read-only transaction
 	txn := f.client.Txn(false)
 	defer txn.Abort()
@@ -423,36 +422,26 @@ func (f *Memory) AddKey(parentUuid string, dbObject connector_utils.DatabaseUser
 }
 
 // DeleteKey removes a key from the database
-func (f *Memory) DeleteKey(dbObject connector_utils.DatabaseUsersObject) error {
-	// Create a write transaction
+func (f *Memory) DeleteKey(UUID string) error {
+	// Create a read transaction
 	txn := f.client.Txn(false)
 	defer txn.Abort()
 
 	// Lookup all Children
-	result, err := txn.Get("weaviate_users", "Parent", dbObject.Uuid)
+	result, err := txn.First("weaviate_users", "Uuid", UUID)
 
 	// Return the error
 	if err != nil {
 		return err
 	}
 
-	if result != nil {
-		// Loop through the results
-		singleResult := result.Next()
-		// Won't get in loop (https://github.com/weaviate/weaviate/issues/107)
-		for singleResult != nil {
-			// Do the same trick for every child
-			childUserObject := singleResult.(connector_utils.DatabaseUsersObject)
-			childUserObject.Deleted = true
-			f.DeleteKey(childUserObject)
-			singleResult = result.Next()
-		}
-	}
+	childUserObject := result.(connector_utils.DatabaseUsersObject)
+	childUserObject.Deleted = true
 
 	txn2 := f.client.Txn(true)
 	// Delete item(s) with given Uuid
-	_, errDel := txn2.DeleteAll("weaviate_users", "Uuid", dbObject.Uuid)
-	txn2.Insert("weaviate_users", dbObject)
+	_, errDel := txn2.DeleteAll("weaviate_users", "Uuid", childUserObject.Uuid)
+	txn2.Insert("weaviate_users", childUserObject)
 
 	// Commit transaction
 	txn2.Commit()
@@ -460,21 +449,41 @@ func (f *Memory) DeleteKey(dbObject connector_utils.DatabaseUsersObject) error {
 	return errDel
 }
 
-// GetChildKeys returns all the child keys. Even children of children of children of etc...
-func (f *Memory) GetChildKeys(UUID string, allIds []string, maxDepth int, depth int) []string {
-	// ctx := context.Background()
+// GetChildKeys returns all the child keys
+func (f *Memory) GetChildObjects(UUID string, filterOutDeleted bool) ([]connector_utils.DatabaseUsersObject, error) {
+	// Create a read transaction
+	txn := f.client.Txn(false)
+	defer txn.Abort()
 
-	// allIds = append(allIds, UUID)
+	// // Fill children array
+	childUserObjects := []connector_utils.DatabaseUsersObject{}
 
-	// // Find its children
-	// queryChildren := datastore.NewQuery("weaviate_users").Filter("Parent =", UUID)
-	// childUserObjects := []connector_utils.DatabaseUsersObject{}
-	// f.client.GetAll(ctx, queryChildren, &childUserObjects)
+	// Lookup by Uuid
+	result, err := txn.Get("weaviate_users", "Parent", UUID)
 
-	// // Do it for every child
-	// for _, childUserObject := range childUserObjects {
-	// 	allIds = f.GetChildKeys(childUserObject.Uuid, allIds)
-	// }
+	println("Komt hier: ", UUID)
 
-	return allIds
+	// return the error
+	if err != nil {
+		return childUserObjects, err
+	}
+
+	if result != nil {
+		// loop through the results
+		singleResult := result.Next()
+		for singleResult != nil {
+			// only store if refType is correct
+			if filterOutDeleted {
+				if !singleResult.(connector_utils.DatabaseUsersObject).Deleted {
+					childUserObjects = append(childUserObjects, singleResult.(connector_utils.DatabaseUsersObject))
+				}
+			} else {
+				childUserObjects = append(childUserObjects, singleResult.(connector_utils.DatabaseUsersObject))
+			}
+
+			singleResult = result.Next()
+		}
+	}
+
+	return childUserObjects, nil
 }
