@@ -205,6 +205,9 @@ func (f *Memory) Init() error {
 	// Set Uuid
 	dbObject.Uuid = uuid
 
+	// Set expiry to unlimited
+	dbObject.KeyExpiresUnix = -1
+
 	// Set chmod variables
 	dbObjectObject := connector_utils.DatabaseUsersObjectsObject{}
 	dbObjectObject.Read = true
@@ -363,14 +366,15 @@ func (f *Memory) ValidateKey(token string) ([]connector_utils.DatabaseUsersObjec
 	txn := f.client.Txn(false)
 	defer txn.Abort()
 
-	// Lookup by Uuid
+	// Filter on timestamp, deleted and token itself
 	result, err := txn.First("weaviate_users", "KeyToken", token)
 	if err != nil || result == nil {
 		return []connector_utils.DatabaseUsersObject{}, err
 	}
 
-	// add to results
-	dbUsersObjects = append(dbUsersObjects, result.(connector_utils.DatabaseUsersObject))
+	// Add to results
+	userObject := result.(connector_utils.DatabaseUsersObject)
+	dbUsersObjects = append(dbUsersObjects, userObject)
 
 	// keys are found, return true
 	return dbUsersObjects, nil

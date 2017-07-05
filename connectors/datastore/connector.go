@@ -99,6 +99,9 @@ func (f *Datastore) Init() error {
 		// Set Uuid
 		dbObject.Uuid = uuid
 
+		// Set expiry to unlimited
+		dbObject.KeyExpiresUnix = -1
+
 		// Set chmod variables
 		dbObjectObject := connector_utils.DatabaseUsersObjectsObject{}
 		dbObjectObject.Read = true
@@ -282,7 +285,8 @@ func (f *Datastore) ValidateKey(token string) ([]connector_utils.DatabaseUsersOb
 	ctx := context.Background()
 	kind := "weaviate_users"
 
-	query := datastore.NewQuery(kind).Filter("KeyToken =", token).Filter("Deleted =", false).Limit(1)
+	// Check on token and deletion
+	query := datastore.NewQuery(kind).Filter("KeyToken =", token).Limit(1)
 
 	dbUsersObjects := []connector_utils.DatabaseUsersObject{}
 

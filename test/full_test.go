@@ -30,6 +30,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/models"
 	"sort"
+	"strconv"
 )
 
 /*
@@ -163,9 +164,12 @@ func getEmptyPatchJSON() io.Reader {
 	return bytes.NewBuffer([]byte(`[{}]`))
 }
 
+// Set all re-used vars
 var apiKeyCmdLine string
 var commandID string
 var eventID string
+var expiredKey string
+var expiredID string
 var fakeID string
 var groupID string
 var headToken string
@@ -178,6 +182,7 @@ var locationID string
 var thingID string
 var thingTemplateID string
 var rootID string
+var unixTimeExpire int64
 
 func init() {
 	flag.StringVar(&apiKeyCmdLine, "api-key", "", "API-KEY as used as haeder in the tests.")
@@ -197,7 +202,7 @@ func Test__weaviate_key_create_JSON(t *testing.T) {
 		"delete": true,
 		"email": "string",
 		"ipOrigin": ["127.0.0.*", "*"],
-		"keyExpiresUnix": 1,
+		"keyExpiresUnix": -1,
 		"read": false,
 		"write": false,
 		"execute": true
@@ -232,12 +237,12 @@ func Test__weaviate_key_create_JSON(t *testing.T) {
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
 
-	// Create create request
+	// Create request
 	jsonStrNewKey := bytes.NewBuffer([]byte(`{
 		"delete": false,
 		"email": "string",
 		"ipOrigin": ["127.0.0.*", "*"],
-		"keyExpiresUnix": 0,
+		"keyExpiresUnix": -1,
 		"read": true,
 		"write": true,
 		"execute": false
@@ -264,7 +269,7 @@ func Test__weaviate_key_create_JSON(t *testing.T) {
 	testIDFormat(t, newAPIKeyID)
 
 	// Test expiration set
-	testIntegerValues(t, 0, int(respObjectNewToken.KeyExpiresUnix))
+	testIntegerValues(t, -1, int(respObjectNewToken.KeyExpiresUnix))
 
 	// Test Rights
 	testBooleanValues(t, false, respObjectNewToken.Delete)
@@ -272,11 +277,46 @@ func Test__weaviate_key_create_JSON(t *testing.T) {
 	testBooleanValues(t, true, respObjectNewToken.Read)
 	testBooleanValues(t, true, respObjectNewToken.Write)
 
-	// TODO:
-	// Test expiration
-
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
+
+	// Create create request with a key that will expire soon
+	unixTimeExpire = time.Now().UnixNano() / int64(time.Millisecond)
+	jsonStrNewKeySoonExpire := bytes.NewBuffer([]byte(`{
+		"delete": false,
+		"email": "expiredkey",
+		"ipOrigin": ["127.0.0.*", "*"],
+		"keyExpiresUnix": ` + strconv.FormatInt(unixTimeExpire+2000, 10) + `,
+		"read": true,
+		"write": true,
+		"execute": false
+	}`))
+	responseNewTokenSoonExpire := doRequest("/keys", "POST", "application/json", jsonStrNewKeySoonExpire, apiKeyCmdLine)
+
+	// Test second statuscode
+	testStatusCode(t, responseNewTokenSoonExpire.StatusCode, http.StatusAccepted)
+
+	bodyExpireSoon := getResponseBody(responseNewTokenSoonExpire)
+	respObjectExpireSoon := &models.KeyTokenGetResponse{}
+	json.Unmarshal(bodyExpireSoon, respObjectExpireSoon)
+	expiredKey = respObjectExpireSoon.Key
+	expiredID = string(respObjectExpireSoon.ID)
+
+	time.Sleep(1 * time.Second)
+
+	// Create request that is invalid because time is lower then parent time
+	jsonStrNewKeyInvalid := bytes.NewBuffer([]byte(`{
+		"delete": false,
+		"email": "string",
+		"ipOrigin": ["127.0.0.*", "*"],
+		"keyExpiresUnix": ` + strconv.FormatInt(unixTimeExpire+3000, 10) + `,
+		"read": true,
+		"write": true,
+		"execute": false
+	}`))
+	responseNewTokenInvalid := doRequest("/keys", "POST", "application/json", jsonStrNewKeyInvalid, expiredKey)
+
+	testStatusCode(t, responseNewTokenInvalid.StatusCode, http.StatusUnprocessableEntity)
 }
 
 // weaviate.key.me.get
@@ -300,6 +340,16 @@ func Test__weaviate_key_me_get_JSON(t *testing.T) {
 
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#keyTokenGetResponse")
+
+	// Wait until key is expired
+	time.Sleep(3 * time.Second)
+
+	// Create get request with key that is expired
+	responseExpired := doRequest("/keys/me", "GET", "application/json", nil, expiredKey)
+
+	// Check status code get request
+	testStatusCode(t, responseExpired.StatusCode, http.StatusUnauthorized)
+
 }
 
 // weaviate.key.get
@@ -338,7 +388,7 @@ func Test__weaviate_key_children_get_JSON(t *testing.T) {
 		"delete": true,
 		"email": "string",
 		"ipOrigin": ["127.0.0.*", "*"],
-		"keyExpiresUnix": 0,
+		"keyExpiresUnix": -1,
 		"read": true,
 		"write": true,
 		"execute": true
@@ -366,7 +416,7 @@ func Test__weaviate_key_children_get_JSON(t *testing.T) {
 	respObject := &models.KeyChildrenGetResponse{}
 	json.Unmarshal(body, respObject)
 
-	// Add general User ID
+	// Check the number of children corresponds the added number
 	if 2 != len(respObject.Children) {
 		t.Errorf("Expected number of children '%d'. Got '%d'.\n", 2, len(respObject.Children))
 	} else {
@@ -414,7 +464,7 @@ func Test__weaviate_key_me_children_get_JSON(t *testing.T) {
 	respObject := &models.KeyChildrenGetResponse{}
 	json.Unmarshal(body, respObject)
 
-	// Add general User ID
+	// Check the number of children corresponds the added number
 	if 2 != len(respObject.Children) {
 		t.Errorf("Expected number of children '%d'. Got '%d'.\n", 2, len(respObject.Children))
 	} else {
@@ -447,7 +497,7 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 		"delete": true,
 		"email": "string",
 		"ipOrigin": ["127.0.0.*", "*"],
-		"keyExpiresUnix": 0,
+		"keyExpiresUnix": -1,
 		"read": true,
 		"write": true,
 		"execute": true
@@ -470,7 +520,7 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 		"delete": true,
 		"email": "string",
 		"ipOrigin": ["127.0.0.*", "*"],
-		"keyExpiresUnix": 0,
+		"keyExpiresUnix": -1,
 		"read": true,
 		"write": true,
 		"execute": true
@@ -522,12 +572,17 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	responseHeadDeleted := doRequest("/keys/"+headID, "GET", "application/json", nil, apiKeyCmdLine)
 	testStatusCode(t, responseHeadDeleted.StatusCode, http.StatusNotFound)
 	time.Sleep(2 * time.Second)
+
+	// Delete key that is expired
+	responseExpiredDeleted := doRequest("/keys/"+expiredID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	testStatusCode(t, responseExpiredDeleted.StatusCode, http.StatusNoContent)
+	time.Sleep(2 * time.Second)
 }
 
 // weaviate.key.me.delete
 func Test__weaviate_key_me_delete_JSON(t *testing.T) {
 	// Delete keyID from database
-	responseKeyIDDeleted := doRequest("/keys/"+newAPIKeyID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	responseKeyIDDeleted := doRequest("/keys/me", "DELETE", "application/json", nil, newAPIToken)
 	testStatusCode(t, responseKeyIDDeleted.StatusCode, http.StatusNoContent)
 }
 

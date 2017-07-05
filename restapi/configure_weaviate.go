@@ -54,6 +54,7 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/locations"
 	"github.com/weaviate/weaviate/restapi/operations/thing_templates"
 	"github.com/weaviate/weaviate/restapi/operations/things"
+	"time"
 )
 
 const refTypeCommand string = "#/paths/commands"
@@ -234,14 +235,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.APIKeyAuth = func(token string) (interface{}, error) {
 
 		// Check if the user has access, true if yes
-		validatedKey, _ := databaseConnector.ValidateKey(token)
+		validatedKeys, _ := databaseConnector.ValidateKey(token)
 
-		if len(validatedKey) == 0 {
-			return nil, errors.New(401, "Provided key is not valid")
+		if len(validatedKeys) == 0 {
+			return nil, errors.New(401, "Provided key does not exist.")
+		}
+
+		// Get the only key
+		validatedKey := validatedKeys[0]
+
+		// Validate key on deleted flag
+		if validatedKey.Deleted {
+			return nil, errors.New(401, "Provided key has been deleted.")
+		}
+
+		// Validate the key on expiry time
+		currentUnix := time.Now().UnixNano() / int64(time.Millisecond)
+		if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
+			return nil, errors.New(401, "Provided key has been expired.")
 		}
 
 		// key is valid, next step is allowing per Handler handling
-		return validatedKey[0], nil
+		return validatedKey, nil
 
 	}
 
@@ -718,6 +733,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		newUsersObject.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
 		newUsersObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
 		newUsersObject.Parent = currentUsersObject.Uuid
+
+		// Key expiry time is in the past
+		currentUnix := time.Now().UnixNano() / int64(time.Millisecond)
+		if newUsersObject.KeyExpiresUnix != -1 && newUsersObject.KeyExpiresUnix < currentUnix {
+			println("past")
+			return keys.NewWeaviateKeyCreateUnprocessableEntity()
+		}
+
+		// Key expiry time is later than the expiry time of parent
+		if currentUsersObject.KeyExpiresUnix != -1 && currentUsersObject.KeyExpiresUnix < newUsersObject.KeyExpiresUnix {
+			return keys.NewWeaviateKeyCreateUnprocessableEntity()
+		}
 
 		// Fill in the string-Object of the User
 		objectsBody, _ := json.Marshal(params.Body)

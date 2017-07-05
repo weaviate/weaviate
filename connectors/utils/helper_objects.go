@@ -53,7 +53,7 @@ func (slice DatabaseObjects) Swap(i, j int) {
 type DatabaseUsersObject struct {
 	Uuid           string // uuid, also used in Object's id
 	KeyToken       string // uuid, token to login
-	KeyExpiresUnix int64  // uuid of the owner
+	KeyExpiresUnix int64  // expiry time in unix timestamp
 	Object         string // type, as defined
 	Parent         string // Parent Uuid (not key)
 	Deleted        bool   // if true, it does not exsist anymore
