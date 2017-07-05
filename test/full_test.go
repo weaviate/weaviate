@@ -170,7 +170,6 @@ var fakeID string
 var groupID string
 var headToken string
 var headID string
-var keyID string
 var newAPIToken string
 var newAPIKeyID string
 var newSubAPIToken string
@@ -213,10 +212,6 @@ func Test__weaviate_key_create_JSON(t *testing.T) {
 	respObject := &models.KeyTokenGetResponse{}
 	json.Unmarshal(body, respObject)
 
-	// Check whether generated UUID is added
-	keyID = string(respObject.ID)
-	testIDFormat(t, keyID)
-
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#keyTokenGetResponse")
 
@@ -230,7 +225,7 @@ func Test__weaviate_key_create_JSON(t *testing.T) {
 	newAPIToken = string(respObject.Key)
 	testIDFormat(t, newAPIToken)
 
-	// Test given ID
+	// Check whether generated UUID is added
 	newAPIKeyID = string(respObject.ID)
 	testIDFormat(t, newAPIKeyID)
 
@@ -258,7 +253,7 @@ func Test__weaviate_key_create_JSON(t *testing.T) {
 	json.Unmarshal(bodyNewToken, respObjectNewToken)
 
 	// Test key ID parent is correct
-	testID(t, respObjectNewToken.Parent, keyID)
+	testID(t, respObjectNewToken.Parent, newAPIKeyID)
 
 	// Test given Token
 	newSubAPIToken = string(respObjectNewToken.Key)
@@ -301,7 +296,7 @@ func Test__weaviate_key_me_get_JSON(t *testing.T) {
 	rootID = string(respObject.Parent)
 
 	// Check ID of object
-	testID(t, string(respObject.ID), keyID)
+	testID(t, string(respObject.ID), newAPIKeyID)
 
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#keyTokenGetResponse")
@@ -310,7 +305,7 @@ func Test__weaviate_key_me_get_JSON(t *testing.T) {
 // weaviate.key.get
 func Test__weaviate_key_get_JSON(t *testing.T) {
 	// Create get request
-	response := doRequest("/keys/"+keyID, "GET", "application/json", nil, apiKeyCmdLine)
+	response := doRequest("/keys/"+newAPIKeyID, "GET", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code get request
 	testStatusCode(t, response.StatusCode, http.StatusOK)
@@ -321,7 +316,7 @@ func Test__weaviate_key_get_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check ID of object
-	testID(t, string(respObject.ID), keyID)
+	testID(t, string(respObject.ID), newAPIKeyID)
 
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#keyGetResponse")
@@ -361,7 +356,7 @@ func Test__weaviate_key_children_get_JSON(t *testing.T) {
 	headID = string(respObjectHead.ID)
 
 	// Create get request
-	response := doRequest("/keys/"+newAPIKeyID+"/children", "GET", "application/json", nil, newAPIToken)
+	response := doRequest("/keys/"+newAPIKeyID+"/children", "GET", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code get request
 	testStatusCode(t, response.StatusCode, http.StatusOK)
@@ -374,24 +369,24 @@ func Test__weaviate_key_children_get_JSON(t *testing.T) {
 	// Add general User ID
 	if 2 != len(respObject.Children) {
 		t.Errorf("Expected number of children '%d'. Got '%d'.\n", 2, len(respObject.Children))
+	} else {
+		// Check IDs of objects are correct by adding them to an array and sorting
+		responseChildren := []string{
+			string(respObject.Children[0]),
+			string(respObject.Children[1]),
+		}
+
+		checkIDs := []string{
+			headID,
+			newSubAPIKeyID,
+		}
+
+		sort.Strings(responseChildren)
+		sort.Strings(checkIDs)
+
+		testID(t, responseChildren[0], checkIDs[0])
+		testID(t, responseChildren[1], checkIDs[1])
 	}
-
-	// Check IDs of objects are correct by adding them to an array and sorting
-	responseChildren := []string{
-		string(respObject.Children[0]),
-		string(respObject.Children[1]),
-	}
-
-	checkIDs := []string{
-		headID,
-		newSubAPIKeyID,
-	}
-
-	sort.Strings(responseChildren)
-	sort.Strings(checkIDs)
-
-	testID(t, responseChildren[0], checkIDs[0])
-	testID(t, responseChildren[1], checkIDs[1])
 
 	// Create get request
 	responseForbidden := doRequest("/keys/"+rootID+"/children", "GET", "application/json", nil, newAPIToken)
@@ -422,24 +417,24 @@ func Test__weaviate_key_me_children_get_JSON(t *testing.T) {
 	// Add general User ID
 	if 2 != len(respObject.Children) {
 		t.Errorf("Expected number of children '%d'. Got '%d'.\n", 2, len(respObject.Children))
+	} else {
+		// Check IDs of objects are correct by adding them to an array and sorting
+		responseChildren := []string{
+			string(respObject.Children[0]),
+			string(respObject.Children[1]),
+		}
+
+		checkIDs := []string{
+			headID,
+			newSubAPIKeyID,
+		}
+
+		sort.Strings(responseChildren)
+		sort.Strings(checkIDs)
+
+		testID(t, responseChildren[0], checkIDs[0])
+		testID(t, responseChildren[1], checkIDs[1])
 	}
-
-	// Check IDs of objects are correct by adding them to an array and sorting
-	responseChildren := []string{
-		string(respObject.Children[0]),
-		string(respObject.Children[1]),
-	}
-
-	checkIDs := []string{
-		headID,
-		newSubAPIKeyID,
-	}
-
-	sort.Strings(responseChildren)
-	sort.Strings(checkIDs)
-
-	testID(t, responseChildren[0], checkIDs[0])
-	testID(t, responseChildren[1], checkIDs[1])
 }
 
 // weaviate.key.delete
@@ -519,10 +514,9 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Check sub2 removed and check its statuscode (404)
-	// TODO: FAILS WITH MEMORY DB (https://github.com/weaviate/weaviate/issues/107)
-	// responseSub2Deleted := doRequest("/keys/"+sub2ID, "DELETE", "application/json", nil, apiKeyCmdLine)
-	// testStatusCode(t, responseSub2Deleted.StatusCode, http.StatusNotFound)
-	// time.Sleep(2 * time.Second)
+	responseSub2Deleted := doRequest("/keys/"+sub2ID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	testStatusCode(t, responseSub2Deleted.StatusCode, http.StatusNotFound)
+	time.Sleep(2 * time.Second)
 
 	// Check head removed and check its statuscode (404)
 	responseHeadDeleted := doRequest("/keys/"+headID, "GET", "application/json", nil, apiKeyCmdLine)
@@ -533,7 +527,7 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 // weaviate.key.me.delete
 func Test__weaviate_key_me_delete_JSON(t *testing.T) {
 	// Delete keyID from database
-	responseKeyIDDeleted := doRequest("/keys/"+keyID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	responseKeyIDDeleted := doRequest("/keys/"+newAPIKeyID, "DELETE", "application/json", nil, apiKeyCmdLine)
 	testStatusCode(t, responseKeyIDDeleted.StatusCode, http.StatusNoContent)
 }
 

@@ -350,33 +350,28 @@ func (f *Datastore) AddKey(parentUUID string, dbObject connector_utils.DatabaseU
 }
 
 // DeleteKey removes a key from the database
-func (f *Datastore) DeleteKey(dbObject connector_utils.DatabaseUsersObject) error {
+func (f *Datastore) DeleteKey(UUID string) error {
 	ctx := context.Background()
 
 	kind := "weaviate_users"
 
 	// Create get Query
-	query := datastore.NewQuery(kind).Filter("Uuid =", dbObject.Uuid).Limit(1)
+	query := datastore.NewQuery(kind).Filter("Uuid =", UUID).Limit(1)
 
 	// Fill User object
-	userObject := []connector_utils.DatabaseUsersObject{}
-	keys, _ := f.client.GetAll(ctx, query, &userObject)
+	userObjects := []connector_utils.DatabaseUsersObject{}
+	keys, _ := f.client.GetAll(ctx, query, &userObjects)
 
-	// Find its children
-	queryChildren := datastore.NewQuery(kind).Filter("Parent =", dbObject.Uuid)
-
-	// Fill children user-objects
-	childUserObjects := []connector_utils.DatabaseUsersObject{}
-	f.client.GetAll(ctx, queryChildren, &childUserObjects)
-
-	// Delete for every child
-	for _, childUserObject := range childUserObjects {
-		childUserObject.Deleted = true
-		go f.DeleteKey(childUserObject)
+	if len(keys) == 0 {
+		notFoundErr := errors.New("no object with such UUID found")
+		return notFoundErr
 	}
 
+	userObject := userObjects[0]
+	userObject.Deleted = true
+
 	// Deletes the user itself
-	_, errDel := f.client.Put(ctx, keys[0], &dbObject)
+	_, errDel := f.client.Put(ctx, keys[0], &userObject)
 	if errDel != nil {
 		log.Fatalf("Failed to delete task: %v", errDel)
 	}
@@ -385,25 +380,21 @@ func (f *Datastore) DeleteKey(dbObject connector_utils.DatabaseUsersObject) erro
 	return errDel
 }
 
-// GetChildKeys returns all the child keys until a certain depth. Max depth 0 is no limits.
-func (f *Datastore) GetChildKeys(UUID string, allIds []string, maxDepth int, depth int) []string {
+// GetChildKeys returns all the child keys
+func (f *Datastore) GetChildObjects(UUID string, filterOutDeleted bool) ([]connector_utils.DatabaseUsersObject, error) {
 	ctx := context.Background()
 
-	if depth > 0 {
-		allIds = append(allIds, UUID)
+	// Find its children
+	var queryChildren *datastore.Query
+	if filterOutDeleted {
+		queryChildren = datastore.NewQuery("weaviate_users").Filter("Parent =", UUID).Filter("Deleted = ", false)
+	} else {
+		queryChildren = datastore.NewQuery("weaviate_users").Filter("Parent =", UUID)
 	}
 
-	// Find its children
-	queryChildren := datastore.NewQuery("weaviate_users").Filter("Parent =", UUID).Filter("Deleted = ", false)
+	// Fill children array
 	childUserObjects := []connector_utils.DatabaseUsersObject{}
 	f.client.GetAll(ctx, queryChildren, &childUserObjects)
 
-	// Do it for every child, if depth is not reached or depth is 0
-	if maxDepth == 0 || depth < maxDepth {
-		for _, childUserObject := range childUserObjects {
-			allIds = f.GetChildKeys(childUserObject.Uuid, allIds, maxDepth, depth+1)
-		}
-	}
-
-	return allIds
+	return childUserObjects, nil
 }

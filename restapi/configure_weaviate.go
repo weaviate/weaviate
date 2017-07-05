@@ -119,7 +119,7 @@ func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.DatabaseUsersObjec
 
 	// Get all child id's
 	var childIDs []string
-	childIDs = databaseConnector.GetChildKeys(currentUsersObject.Uuid, childIDs, 0, 0)
+	childIDs = getKeyChildren(databaseConnector, currentUsersObject.Uuid, true, childIDs, 0, 0)
 
 	// Check ID is in childIds
 	isChildID := false
@@ -135,6 +135,36 @@ func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.DatabaseUsersObjec
 	}
 
 	return false
+}
+
+// getKeyChildren
+func getKeyChildren(databaseConnector dbconnector.DatabaseConnector, parentUUID string, filterOutDeleted bool, allIDs []string, maxDepth int, depth int) []string {
+	if depth > 0 {
+		allIDs = append(allIDs, parentUUID)
+	}
+
+	childUserObjects, _ := databaseConnector.GetChildObjects(parentUUID, filterOutDeleted)
+
+	if maxDepth == 0 || depth < maxDepth {
+		for _, childUserObject := range childUserObjects {
+			allIDs = getKeyChildren(databaseConnector, childUserObject.Uuid, filterOutDeleted, allIDs, maxDepth, depth+1)
+		}
+	}
+
+	return allIDs
+}
+
+func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID string) {
+	// Find its children
+	var allIDs []string
+	allIDs = getKeyChildren(databaseConnector, parentUUID, false, allIDs, 0, 0)
+
+	allIDs = append(allIDs, parentUUID)
+
+	// Delete for every child
+	for _, keyID := range allIDs {
+		go databaseConnector.DeleteKey(keyID)
+	}
 }
 
 func configureFlags(api *operations.WeaviateAPI) {
@@ -728,7 +758,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get the children
 		var childIDs []string
-		childIDs = databaseConnector.GetChildKeys(string(params.KeyID), childIDs, 1, 0)
+		childIDs = getKeyChildren(databaseConnector, string(params.KeyID), true, childIDs, 1, 0)
 
 		// Format the IDs for the response
 		childUUIDs := make([]strfmt.UUID, len(childIDs))
@@ -759,11 +789,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Remove key from database if found
-		userObject.Deleted = true
-		errDel := databaseConnector.DeleteKey(userObject)
-		if errDel != nil {
-			return keys.NewWeaviateKeysDeleteNotFound()
-		}
+		deleteKey(databaseConnector, userObject.Uuid)
 
 		// Return 'No Content'
 		return keys.NewWeaviateKeysDeleteNoContent()
@@ -805,7 +831,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get the children
 		var childIDs []string
-		childIDs = databaseConnector.GetChildKeys(currentUsersObject.Uuid, childIDs, 1, 0)
+		childIDs = getKeyChildren(databaseConnector, currentUsersObject.Uuid, true, childIDs, 1, 0)
 
 		// Format the IDs for the response
 		childUUIDs := make([]strfmt.UUID, len(childIDs))
@@ -833,10 +859,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		currentUsersObject.Deleted = true
 
 		// Remove key from database if found
-		errDel := databaseConnector.DeleteKey(currentUsersObject)
-		if errDel != nil {
-			return keys.NewWeaviateKeysMeDeleteNotFound()
-		}
+		deleteKey(databaseConnector, currentUsersObject.Uuid)
 
 		// Return 'No Content'
 		return keys.NewWeaviateKeysMeDeleteNoContent()
