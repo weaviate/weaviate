@@ -467,14 +467,29 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Set the generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
 
-		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go databaseConnector.Add(dbObject)
-
 		// Create response Object from create object.
 		responseObject := &models.GroupGetResponse{}
 		json.Unmarshal([]byte(dbObject.Object), responseObject)
 		responseObject.ID = strfmt.UUID(dbObject.Uuid)
 		responseObject.Kind = getKind(responseObject)
+
+		var groupIDs []*models.GroupGetResponseIdsItems0
+
+		for _, inGroupObject := range responseObject.Ids {
+			otherObject, err := databaseConnector.Get(string(inGroupObject.ID))
+			if err == nil {
+				inGroupObject.RefType = otherObject.RefType
+				inGroupObject.URL = strings.Replace(otherObject.RefType, "#/paths", "", 1)
+				groupIDs = append(groupIDs, inGroupObject)
+			}
+		}
+
+		responseObject.Ids = groupIDs
+		jsonGroup, _ := json.Marshal(responseObject)
+		dbObject.Object = string(jsonGroup)
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.Add(dbObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return groups.NewWeaviateGroupsCreateAccepted().WithPayload(responseObject)

@@ -809,7 +809,47 @@ func Test__weaviate_command_patch_JSON(t *testing.T) {
 	testNotExistsRequest(t, "/commands", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
 }
 
+// weaviate.group.create
+func Test__weaviate_group_create_JSON(t *testing.T) {
+	// Create create request
+	jsonStr := bytes.NewBuffer([]byte(`
+		{
+			"name": "Group 1",
+			"ids": [
+				{
+					"id": "` + commandID + `"
+				}
+			]
+		}
+	`))
+	response := doRequest("/groups", "POST", "application/json", jsonStr, apiKeyCmdLine)
+
+	// Check status code of create
+	testStatusCode(t, response.StatusCode, http.StatusAccepted)
+
+	body := getResponseBody(response)
+
+	respObject := &models.GroupGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check whether generated UUID is added
+	groupID = string(respObject.ID)
+	testIDFormat(t, groupID)
+
+	// Check inner IDs
+	testID(t, string(respObject.Ids[0].ID), commandID)
+	testValues(t, "#/paths/commands", respObject.Ids[0].RefType)
+	testValues(t, "/commands", respObject.Ids[0].URL)
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#groupGetResponse")
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+}
+
 // weaviate.command.delete
+// Move this lower so it could be added to a group
 func Test__weaviate_command_delete_JSON(t *testing.T) {
 	// Create delete request
 	response := doRequest("/commands/"+commandID, "DELETE", "application/json", nil, apiKeyCmdLine)
@@ -828,35 +868,6 @@ func Test__weaviate_command_delete_JSON(t *testing.T) {
 
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/commands", "DELETE", "application/json", nil, apiKeyCmdLine)
-}
-
-// weaviate.group.create
-func Test__weaviate_group_create_JSON(t *testing.T) {
-	// Create create request
-	jsonStr := bytes.NewBuffer([]byte(`
-		{
-			"name": "Group 1"
-		}
-	`))
-	response := doRequest("/groups", "POST", "application/json", jsonStr, apiKeyCmdLine)
-
-	// Check status code of create
-	testStatusCode(t, response.StatusCode, http.StatusAccepted)
-
-	body := getResponseBody(response)
-
-	respObject := &models.GroupGetResponse{}
-	json.Unmarshal(body, respObject)
-
-	// Check whether generated UUID is added
-	groupID = string(respObject.ID)
-	testIDFormat(t, groupID)
-
-	// Check kind
-	testKind(t, string(*respObject.Kind), "weaviate#groupGetResponse")
-
-	// Test is faster than adding to DB.
-	time.Sleep(1 * time.Second)
 }
 
 // weaviate.group.list
