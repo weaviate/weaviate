@@ -18,12 +18,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 
 	"cloud.google.com/go/datastore"
 	gouuid "github.com/satori/go.uuid"
-
-	"encoding/json"
 
 	"github.com/weaviate/weaviate/connectors/utils"
 )
@@ -81,68 +78,16 @@ func (f *Datastore) Init() error {
 
 	// No key was found, create one
 	if len(dbKeyObjects) == 0 {
-
-		dbObject := connector_utils.DatabaseUsersObject{}
-
-		// Create key token
-		dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
-
-		// Uuid + name
-		uuid := fmt.Sprintf("%v", gouuid.NewV4())
+		// Generate a basic DB object and print it's key.
+		dbObject := connector_utils.CreateFirstUserObject()
 
 		// Creates a Key instance.
-		taskKey := datastore.NameKey(kind, uuid, nil)
-
-		// Auto set the parent ID to root *
-		dbObject.Parent = "*"
-
-		// Set Uuid
-		dbObject.Uuid = uuid
-
-		// Set expiry to unlimited
-		dbObject.KeyExpiresUnix = -1
-
-		// Set chmod variables
-		dbObjectObject := connector_utils.DatabaseUsersObjectsObject{}
-		dbObjectObject.Read = true
-		dbObjectObject.Write = true
-		dbObjectObject.Delete = true
-		dbObjectObject.Execute = true
-
-		// Get ips as v6
-		var ips []string
-		ifaces, _ := net.Interfaces()
-		for _, i := range ifaces {
-			addrs, _ := i.Addrs()
-			for _, addr := range addrs {
-				var ip net.IP
-				switch v := addr.(type) {
-				case *net.IPNet:
-					ip = v.IP
-				case *net.IPAddr:
-					ip = v.IP
-				}
-
-				ipv6 := ip.To16()
-				ips = append(ips, ipv6.String())
-			}
-		}
-
-		dbObjectObject.IPOrigin = ips
-
-		// Marshall and add to object
-		dbObjectObjectJson, _ := json.Marshal(dbObjectObject)
-		dbObject.Object = string(dbObjectObjectJson)
+		taskKey := datastore.NameKey(kind, dbObject.Uuid, nil)
 
 		// Saves the new entity.
 		if _, err := f.client.Put(ctx, taskKey, &dbObject); err != nil {
 			log.Fatalf("Failed to save task: %v", err)
 		}
-
-		// Print the key
-		log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/weaviate/weaviate/blob/develop/README.md#authentication")
-		log.Println("INFO: Auto set allowed IPs to: ", ips)
-		log.Println("ROOTKEY=" + dbObject.KeyToken)
 	}
 
 	return nil

@@ -14,13 +14,8 @@
 package memory
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
-	"net"
-
-	gouuid "github.com/satori/go.uuid"
 
 	"math"
 	"sort"
@@ -191,54 +186,8 @@ func (f *Memory) Connect() error {
 
 // Creates a root key, normally this should be validaded, but because it is an inmemory DB it is created always
 func (f *Memory) Init() error {
-	dbObject := connector_utils.DatabaseUsersObject{}
-
-	// Create key token
-	dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
-
-	// Uuid + name
-	uuid := fmt.Sprintf("%v", gouuid.NewV4())
-
-	// Auto set the parent ID to root *
-	dbObject.Parent = "*"
-
-	// Set Uuid
-	dbObject.Uuid = uuid
-
-	// Set expiry to unlimited
-	dbObject.KeyExpiresUnix = -1
-
-	// Set chmod variables
-	dbObjectObject := connector_utils.DatabaseUsersObjectsObject{}
-	dbObjectObject.Read = true
-	dbObjectObject.Write = true
-	dbObjectObject.Delete = true
-	dbObjectObject.Execute = true
-
-	// Get ips as v6
-	var ips []string
-	ifaces, _ := net.Interfaces()
-	for _, i := range ifaces {
-		addrs, _ := i.Addrs()
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-
-			ipv6 := ip.To16()
-			ips = append(ips, ipv6.String())
-		}
-	}
-
-	dbObjectObject.IPOrigin = ips
-
-	// Marshall and add to object
-	dbObjectObjectJSON, _ := json.Marshal(dbObjectObject)
-	dbObject.Object = string(dbObjectObjectJSON)
+	// Generate a basic DB object and print it's key.
+	dbObject := connector_utils.CreateFirstUserObject()
 
 	// Create a write transaction
 	txn := f.client.Txn(true)
@@ -250,11 +199,6 @@ func (f *Memory) Init() error {
 
 	// commit transaction
 	txn.Commit()
-
-	// Print the key
-	log.Println("INFO: A new root key is created. More info: https://github.com/weaviate/weaviate/blob/develop/README.md#authentication")
-	log.Println("INFO: Auto set allowed IPs to: ", ips)
-	log.Println("ROOTKEY=" + dbObject.KeyToken)
 
 	return nil
 }
