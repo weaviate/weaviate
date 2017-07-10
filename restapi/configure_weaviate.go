@@ -42,7 +42,10 @@ import (
 	"strings"
 	"unicode"
 
+	"fmt"
+
 	"github.com/go-openapi/swag"
+	gouuid "github.com/satori/go.uuid"
 	"github.com/weaviate/weaviate/restapi/operations"
 	"github.com/weaviate/weaviate/restapi/operations/commands"
 	"github.com/weaviate/weaviate/restapi/operations/events"
@@ -51,6 +54,7 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/locations"
 	"github.com/weaviate/weaviate/restapi/operations/thing_templates"
 	"github.com/weaviate/weaviate/restapi/operations/things"
+	"time"
 )
 
 const refTypeCommand string = "#/paths/commands"
@@ -105,6 +109,63 @@ func getKind(object interface{}) *string {
 	kind = "weaviate#" + kind
 
 	return &kind
+}
+
+// isOwnKeyOrLowerInTree returns whether a key is his own or in his children
+func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.DatabaseUsersObject, userKeyID string, databaseConnector dbconnector.DatabaseConnector) bool {
+	// If is own key, return true
+	if strings.EqualFold(userKeyID, currentUsersObject.Uuid) {
+		return true
+	}
+
+	// Get all child id's
+	var childIDs []string
+	childIDs = getKeyChildren(databaseConnector, currentUsersObject.Uuid, true, childIDs, 0, 0)
+
+	// Check ID is in childIds
+	isChildID := false
+	for _, childID := range childIDs {
+		if childID == userKeyID {
+			isChildID = true
+		}
+	}
+
+	// This is a delete function, validate if allowed to do action with own/parent.
+	if isChildID {
+		return true
+	}
+
+	return false
+}
+
+// getKeyChildren
+func getKeyChildren(databaseConnector dbconnector.DatabaseConnector, parentUUID string, filterOutDeleted bool, allIDs []string, maxDepth int, depth int) []string {
+	if depth > 0 {
+		allIDs = append(allIDs, parentUUID)
+	}
+
+	childUserObjects, _ := databaseConnector.GetChildObjects(parentUUID, filterOutDeleted)
+
+	if maxDepth == 0 || depth < maxDepth {
+		for _, childUserObject := range childUserObjects {
+			allIDs = getKeyChildren(databaseConnector, childUserObject.Uuid, filterOutDeleted, allIDs, maxDepth, depth+1)
+		}
+	}
+
+	return allIDs
+}
+
+func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID string) {
+	// Find its children
+	var allIDs []string
+	allIDs = getKeyChildren(databaseConnector, parentUUID, false, allIDs, 0, 0)
+
+	allIDs = append(allIDs, parentUUID)
+
+	// Delete for every child
+	for _, keyID := range allIDs {
+		go databaseConnector.DeleteKey(keyID)
+	}
 }
 
 func configureFlags(api *operations.WeaviateAPI) {
@@ -174,17 +235,34 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.APIKeyAuth = func(token string) (interface{}, error) {
 
 		// Check if the user has access, true if yes
-		validatedKey, _ := databaseConnector.ValidateKey(token)
+		validatedKeys, _ := databaseConnector.ValidateKey(token)
 
-		if len(validatedKey) == 0 {
-			return nil, errors.New(401, "Provided key is not valid")
+		if len(validatedKeys) == 0 {
+			return nil, errors.New(401, "Provided key does not exist.")
+		}
+
+		// Get the only key
+		validatedKey := validatedKeys[0]
+
+		// Validate key on deleted flag
+		if validatedKey.Deleted {
+			return nil, errors.New(401, "Provided key has been deleted.")
+		}
+
+		// Validate the key on expiry time
+		currentUnix := time.Now().UnixNano() / int64(time.Millisecond)
+		if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
+			return nil, errors.New(401, "Provided key has been expired.")
 		}
 
 		// key is valid, next step is allowing per Handler handling
-		return validatedKey[0], nil
+		return validatedKey, nil
 
 	}
 
+	/*
+	 * HANDLE COMMANDS
+	 */
 	api.CommandsWeaviateCommandsCreateHandler = commands.WeaviateCommandsCreateHandlerFunc(func(params commands.WeaviateCommandsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
 		if connector_utils.WriteAllowed(principal) == false {
@@ -362,6 +440,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return commands.NewWeaviateCommandsUpdateOK().WithPayload(responseObject)
 	})
+
+	/*
+	 * HANDLE EVENTS
+	 */
 	api.EventsWeaviateEventsGetHandler = events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
 		if connector_utils.ReadAllowed(principal) == false {
@@ -455,6 +537,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		return events.NewWeaviateThingsEventsListOK().WithPayload(responseObject)
 	})
+
+	/*
+	 * HANDLE GROUPS
+	 */
 	api.GroupsWeaviateGroupsCreateHandler = groups.WeaviateGroupsCreateHandlerFunc(func(params groups.WeaviateGroupsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
 		if connector_utils.WriteAllowed(principal) == false {
@@ -652,16 +738,197 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE KEYS
 	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation keys.WeaviateKeyCreate has not yet been implemented")
+		// Create current User object from principal
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
+		// Fill the new User object
+		newUsersObject := &connector_utils.DatabaseUsersObject{}
+		newUsersObject.Deleted = false
+		newUsersObject.KeyExpiresUnix = int64(params.Body.KeyExpiresUnix)
+		newUsersObject.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
+		newUsersObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
+		newUsersObject.Parent = currentUsersObject.Uuid
+
+		// Key expiry time is in the past
+		currentUnix := time.Now().UnixNano() / int64(time.Millisecond)
+		if newUsersObject.KeyExpiresUnix != -1 && newUsersObject.KeyExpiresUnix < currentUnix {
+			println("past")
+			return keys.NewWeaviateKeyCreateUnprocessableEntity()
+		}
+
+		// Key expiry time is later than the expiry time of parent
+		if currentUsersObject.KeyExpiresUnix != -1 && currentUsersObject.KeyExpiresUnix < newUsersObject.KeyExpiresUnix {
+			return keys.NewWeaviateKeyCreateUnprocessableEntity()
+		}
+
+		// Fill in the string-Object of the User
+		objectsBody, _ := json.Marshal(params.Body)
+		newUsersObjectsObject := &connector_utils.DatabaseUsersObjectsObject{}
+		json.Unmarshal(objectsBody, newUsersObjectsObject)
+		databaseBody, _ := json.Marshal(newUsersObjectsObject)
+		newUsersObject.Object = string(databaseBody)
+
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		go databaseConnector.AddKey(currentUsersObject.Uuid, *newUsersObject)
+
+		// Create response Object from create object.
+		responseObject := &models.KeyTokenGetResponse{}
+		json.Unmarshal([]byte(newUsersObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(newUsersObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+		responseObject.Key = newUsersObject.KeyToken
+		responseObject.Parent = newUsersObject.Parent
+		responseObject.KeyExpiresUnix = newUsersObject.KeyExpiresUnix
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		return keys.NewWeaviateKeyCreateAccepted().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation keys.WeaviateKeysChildrenGet has not yet been implemented")
+		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
+		userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
+
+		// Not found
+		if userObject.Deleted || errGet != nil {
+			return keys.NewWeaviateKeysChildrenGetNotFound()
+		}
+
+		// Check on permissions
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+			return keys.NewWeaviateKeysChildrenGetForbidden()
+		}
+
+		// Get the children
+		var childIDs []string
+		childIDs = getKeyChildren(databaseConnector, string(params.KeyID), true, childIDs, 1, 0)
+
+		// Format the IDs for the response
+		childUUIDs := make([]strfmt.UUID, len(childIDs))
+		for i, v := range childIDs {
+			childUUIDs[i] = strfmt.UUID(v)
+		}
+
+		// Initiate response object
+		responseObject := &models.KeyChildrenGetResponse{}
+		responseObject.Children = childUUIDs
+
+		// Return children with 'OK'
+		return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation keys.WeaviateKeysDelete has not yet been implemented")
+		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
+		userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
+
+		// Not found
+		if userObject.Deleted || errGet != nil {
+			return keys.NewWeaviateKeysDeleteNotFound()
+		}
+
+		// Check on permissions
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+			return keys.NewWeaviateKeysDeleteForbidden()
+		}
+
+		// Remove key from database if found
+		deleteKey(databaseConnector, userObject.Uuid)
+
+		// Return 'No Content'
+		return keys.NewWeaviateKeysDeleteNoContent()
 	})
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation keys.WeaviateKeysGet has not yet been implemented")
+		// Get item from database
+		userObject, err := databaseConnector.GetKey(string(params.KeyID))
+
+		// Object is deleted or not-existing
+		if userObject.Deleted || err != nil {
+			return keys.NewWeaviateKeysGetNotFound()
+		}
+
+		// Check on permissions
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+			return locations.NewWeaviateLocationsDeleteForbidden()
+		}
+
+		// Create response Object from create object.
+		responseObject := &models.KeyGetResponse{}
+		json.Unmarshal([]byte(userObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(userObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+		responseObject.Parent = userObject.Parent
+		responseObject.KeyExpiresUnix = userObject.KeyExpiresUnix
+
+		// Get is successful
+		return keys.NewWeaviateKeysGetOK().WithPayload(responseObject)
+	})
+	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
+		// Create current User object from principal
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
+		// Object is deleted or not-existing
+		if currentUsersObject.Deleted {
+			return keys.NewWeaviateKeysMeChildrenGetNotFound()
+		}
+
+		// Get the children
+		var childIDs []string
+		childIDs = getKeyChildren(databaseConnector, currentUsersObject.Uuid, true, childIDs, 1, 0)
+
+		// Format the IDs for the response
+		childUUIDs := make([]strfmt.UUID, len(childIDs))
+		for i, v := range childIDs {
+			childUUIDs[i] = strfmt.UUID(v)
+		}
+
+		// Initiate response object
+		responseObject := &models.KeyChildrenGetResponse{}
+		responseObject.Children = childUUIDs
+
+		// Return children with 'OK'
+		return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)
+	})
+	api.KeysWeaviateKeysMeDeleteHandler = keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
+		// Create current User object from principal
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
+		// Object is deleted or not-existing
+		if currentUsersObject.Deleted {
+			return keys.NewWeaviateKeysMeDeleteNotFound()
+		}
+
+		// Change to Deleted
+		currentUsersObject.Deleted = true
+
+		// Remove key from database if found
+		deleteKey(databaseConnector, currentUsersObject.Uuid)
+
+		// Return 'No Content'
+		return keys.NewWeaviateKeysMeDeleteNoContent()
+
+	})
+	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
+		// Create current User object from principal
+		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
+		// Init object
+		responseObject := &models.KeyTokenGetResponse{}
+
+		// Object is deleted or not-existing
+		if currentUsersObject.Deleted {
+			return keys.NewWeaviateKeysMeGetNotFound()
+		}
+
+		// Create response Object from create object.
+		json.Unmarshal([]byte(currentUsersObject.Object), responseObject)
+		responseObject.ID = strfmt.UUID(currentUsersObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+		responseObject.Parent = currentUsersObject.Parent
+		responseObject.Key = currentUsersObject.KeyToken
+		responseObject.KeyExpiresUnix = currentUsersObject.KeyExpiresUnix
+
+		// Get is successful
+		return keys.NewWeaviateKeysMeGetOK().WithPayload(responseObject)
 	})
 
 	/*
@@ -851,6 +1118,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return locations.NewWeaviateLocationsUpdateOK().WithPayload(responseObject)
 	})
 
+	/*
+	 * HANDLE THING TEMPLATES
+	 */
 	api.ThingTemplatesWeaviateThingTemplatesCreateHandler = thing_templates.WeaviateThingTemplatesCreateHandlerFunc(func(params thing_templates.WeaviateThingTemplatesCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
 		if connector_utils.WriteAllowed(principal) == false {
@@ -1029,6 +1299,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return thing_templates.NewWeaviateThingTemplatesUpdateOK().WithPayload(responseObject)
 	})
+
+	/*
+	 * HANDLE THINGS
+	 */
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to read?
 		if connector_utils.WriteAllowed(principal) == false {
