@@ -85,3 +85,9 @@ func DeleteAllowed(validateObject interface{}) bool {
 	_, ObjectsObject := PrincipalMarshalling(validateObject)
 	return ObjectsObject.Delete
 }
+
+// ExecuteAllowed checks if execution is allowed
+func ExecuteAllowed(validateObject interface{}) bool {
+	_, ObjectsObject := PrincipalMarshalling(validateObject)
+	return ObjectsObject.Execute
+}
