@@ -579,13 +579,6 @@ func Test__weaviate_key_delete_JSON(t *testing.T) {
 	time.Sleep(2 * time.Second)
 }
 
-// weaviate.key.me.delete
-func Test__weaviate_key_me_delete_JSON(t *testing.T) {
-	// Delete keyID from database
-	responseKeyIDDeleted := doRequest("/keys/me", "DELETE", "application/json", nil, newAPIToken)
-	testStatusCode(t, responseKeyIDDeleted.StatusCode, http.StatusNoContent)
-}
-
 /******************
  * LOCATION TESTS
  ******************/
@@ -611,6 +604,12 @@ func Test__weaviate_location_create_JSON(t *testing.T) {
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#locationGetResponse")
 
+	// KEY-CHECK: Create request for not allowed write action. Using key without write access.
+	jsonStrNotAllowed := bytes.NewBuffer([]byte(`{"address_components":[{"long_name":"TEST","short_name":"string","types":["UNDEFINED"]}],"formatted_address":"string","geometry":{"location":{},"location_type":"string","viewport":{"northeast":{},"southwest":{}}},"place_id":"string","types":["UNDEFINED"]} `))
+	responseNotAllowed := doRequest("/locations", "POST", "application/json", jsonStrNotAllowed, newAPIToken)
+
+	testStatusCode(t, responseNotAllowed.StatusCode, http.StatusForbidden)
+
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
 }
@@ -633,6 +632,12 @@ func Test__weaviate_location_get_JSON(t *testing.T) {
 
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#locationGetResponse")
+
+	// // KEY-CHECK: Create get request not allowed: the location is not in the right Key-tree (key is no child of key set at location)
+	// responseNotAllowed := doRequest("/locations/"+locationID, "GET", "application/json", nil, newSubAPIToken)
+
+	// // Check status code get request
+	// testStatusCode(t, responseNotAllowed.StatusCode, http.StatusForbidden)
 
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/locations", "GET", "application/json", nil, apiKeyCmdLine)
@@ -1789,4 +1794,11 @@ func Test__weaviate_event_get_JSON(t *testing.T) {
 
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/events", "GET", "application/json", nil, apiKeyCmdLine)
+}
+
+// weaviate.key.me.delete
+func Test__weaviate_key_me_delete_JSON(t *testing.T) {
+	// Delete keyID from database
+	responseKeyIDDeleted := doRequest("/keys/me", "DELETE", "application/json", nil, newAPIToken)
+	testStatusCode(t, responseKeyIDDeleted.StatusCode, http.StatusNoContent)
 }
