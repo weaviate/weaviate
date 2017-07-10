@@ -76,7 +76,7 @@ func (f *Datastore) Init() error {
 	_, err := f.client.GetAll(ctx, query, &dbKeyObjects)
 
 	if err != nil {
-		panic("ERROR INITIALIZING SERVER")
+		panic("ERROR INITIALIZING SERVER: " + err.Error())
 	}
 
 	// No key was found, create one
