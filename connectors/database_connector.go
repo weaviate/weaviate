@@ -25,11 +25,14 @@ type DatabaseConnector interface {
 	Init() error
 	Add(connector_utils.DatabaseObject) (string, error)
 	Get(string) (connector_utils.DatabaseObject, error)
-	List(string, int, int, *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error)
+	List(string, string, int, int, *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error)
 	ValidateKey(string) ([]connector_utils.DatabaseUsersObject, error)
+	GetKey(string) (connector_utils.DatabaseUsersObject, error)
 	AddKey(string, connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error)
 	GetName() string
 	SetConfig(interface{})
+	DeleteKey(string) error
+	GetChildObjects(string, bool) ([]connector_utils.DatabaseUsersObject, error)
 }
 
 // GetAllConnectors contains all available connectors

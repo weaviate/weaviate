@@ -35,12 +35,12 @@ type Memory struct {
 	kind   string
 }
 
-// SetConfig is used to fill in a struct with config variables
+// GetName returns a unique connector name
 func (f *Memory) GetName() string {
 	return "memory"
 }
 
-// GetName returns a unique connector name
+// SetConfig is used to fill in a struct with config variables
 func (f *Memory) SetConfig(interface{}) {
 	// NOTHING
 }
@@ -119,22 +119,22 @@ func (f *Memory) Connect() error {
 					},
 					"Owner": &memdb.IndexSchema{
 						Name:    "Owner",
-						Unique:  true,
+						Unique:  false,
 						Indexer: &memdb.StringFieldIndex{Field: "Owner"},
 					},
 					"RefType": &memdb.IndexSchema{
 						Name:    "RefType",
-						Unique:  true,
+						Unique:  false,
 						Indexer: &memdb.StringFieldIndex{Field: "RefType"},
 					},
 					"Uuid": &memdb.IndexSchema{
 						Name:    "Uuid",
-						Unique:  true,
+						Unique:  false,
 						Indexer: &memdb.StringFieldIndex{Field: "Uuid"},
 					},
 				},
 			},
-			// create `weaviate` DB
+			// create `weaviate_users` DB
 			"weaviate_users": &memdb.TableSchema{
 				Name: "weaviate_users",
 				Indexes: map[string]*memdb.IndexSchema{
@@ -143,10 +143,10 @@ func (f *Memory) Connect() error {
 						Unique:  true,
 						Indexer: &memdb.StringFieldIndex{Field: "Uuid"},
 					},
-					"KeyExpiresMs": &memdb.IndexSchema{
-						Name:    "KeyExpiresMs",
+					"KeyExpiresUnix": &memdb.IndexSchema{
+						Name:    "KeyExpiresUnix",
 						Unique:  true,
-						Indexer: &memdb.StringFieldIndex{Field: "KeyExpiresMs"},
+						Indexer: &memdb.StringFieldIndex{Field: "KeyExpiresUnix"},
 					},
 					"KeyToken": &memdb.IndexSchema{
 						Name:    "KeyToken",
@@ -160,7 +160,7 @@ func (f *Memory) Connect() error {
 					},
 					"Parent": &memdb.IndexSchema{
 						Name:    "Parent",
-						Unique:  true,
+						Unique:  false,
 						Indexer: &memdb.StringFieldIndex{Field: "Parent"},
 					},
 					"Uuid": &memdb.IndexSchema{
@@ -205,11 +205,15 @@ func (f *Memory) Init() error {
 	// Set Uuid
 	dbObject.Uuid = uuid
 
+	// Set expiry to unlimited
+	dbObject.KeyExpiresUnix = -1
+
 	// Set chmod variables
 	dbObjectObject := connector_utils.DatabaseUsersObjectsObject{}
 	dbObjectObject.Read = true
 	dbObjectObject.Write = true
 	dbObjectObject.Delete = true
+	dbObjectObject.Execute = true
 
 	// Get ips as v6
 	var ips []string
@@ -230,7 +234,7 @@ func (f *Memory) Init() error {
 		}
 	}
 
-	dbObjectObject.IpOrigin = ips
+	dbObjectObject.IPOrigin = ips
 
 	// Marshall and add to object
 	dbObjectObjectJSON, _ := json.Marshal(dbObjectObject)
@@ -297,7 +301,7 @@ func (f *Memory) Get(Uuid string) (connector_utils.DatabaseObject, error) {
 }
 
 // return a list
-func (f *Memory) List(refType string, limit int, page int, referenceFilter *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error) {
+func (f *Memory) List(refType string, ownerUUID string, limit int, page int, referenceFilter *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error) {
 	dataObjs := connector_utils.DatabaseObjects{}
 
 	// Create read-only transaction
@@ -315,28 +319,24 @@ func (f *Memory) List(refType string, limit int, page int, referenceFilter *conn
 	if result != nil {
 
 		// loop through the results
-		loopResults := true
-		for loopResults == true {
-			singleResult := result.Next()
-			if singleResult == nil {
-				// no results left, stop the loop
-				loopResults = false
-			} else {
-				// only store if refType is correct
-				if singleResult.(connector_utils.DatabaseObject).RefType == refType &&
-					!singleResult.(connector_utils.DatabaseObject).Deleted {
+		singleResult := result.Next()
+		for singleResult != nil {
+			// only store if refType and owner is correct and object is not deleted
+			if singleResult.(connector_utils.DatabaseObject).RefType == refType &&
+				singleResult.(connector_utils.DatabaseObject).Owner == ownerUUID &&
+				!singleResult.(connector_utils.DatabaseObject).Deleted {
 
-					if referenceFilter != nil {
-						// check for extra filters
-						if referenceFilter.ThingID != "" &&
-							singleResult.(connector_utils.DatabaseObject).RelatedObjects.ThingID == referenceFilter.ThingID {
-							dataObjs = append(dataObjs, singleResult.(connector_utils.DatabaseObject))
-						}
-					} else {
+				if referenceFilter != nil {
+					// check for extra filters
+					if referenceFilter.ThingID != "" &&
+						singleResult.(connector_utils.DatabaseObject).RelatedObjects.ThingID == referenceFilter.ThingID {
 						dataObjs = append(dataObjs, singleResult.(connector_utils.DatabaseObject))
 					}
+				} else {
+					dataObjs = append(dataObjs, singleResult.(connector_utils.DatabaseObject))
 				}
 			}
+			singleResult = result.Next()
 		}
 
 		// Sorting on CreateTimeMs
@@ -367,17 +367,41 @@ func (f *Memory) ValidateKey(token string) ([]connector_utils.DatabaseUsersObjec
 	txn := f.client.Txn(false)
 	defer txn.Abort()
 
-	// Lookup by Uuid
+	// Filter on timestamp, deleted and token itself
 	result, err := txn.First("weaviate_users", "KeyToken", token)
 	if err != nil || result == nil {
 		return []connector_utils.DatabaseUsersObject{}, err
 	}
 
-	// add to results
-	dbUsersObjects = append(dbUsersObjects, result.(connector_utils.DatabaseUsersObject))
+	// Add to results
+	userObject := result.(connector_utils.DatabaseUsersObject)
+	dbUsersObjects = append(dbUsersObjects, userObject)
 
 	// keys are found, return true
 	return dbUsersObjects, nil
+}
+
+// GetKey returns user object by ID
+func (f *Memory) GetKey(Uuid string) (connector_utils.DatabaseUsersObject, error) {
+	// Create read-only transaction
+	txn := f.client.Txn(false)
+	defer txn.Abort()
+
+	// Lookup by Uuid
+	result, err := txn.First("weaviate_users", "Uuid", Uuid)
+	if err != nil {
+		return connector_utils.DatabaseUsersObject{}, err
+	}
+
+	// Return 'not found'
+	if result == nil {
+		notFoundErr := errors.New("No object with such UUID found")
+		return connector_utils.DatabaseUsersObject{}, notFoundErr
+	}
+
+	// Return found object
+	return result.(connector_utils.DatabaseUsersObject), nil
+
 }
 
 // AddUser to DB
@@ -385,9 +409,6 @@ func (f *Memory) AddKey(parentUuid string, dbObject connector_utils.DatabaseUser
 
 	// Create a write transaction
 	txn := f.client.Txn(true)
-
-	// Create key token
-	dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
 
 	// Auto set the parent ID
 	dbObject.Parent = parentUuid
@@ -403,4 +424,69 @@ func (f *Memory) AddKey(parentUuid string, dbObject connector_utils.DatabaseUser
 	// Return the ID that is used to create.
 	return dbObject, nil
 
+}
+
+// DeleteKey removes a key from the database
+func (f *Memory) DeleteKey(UUID string) error {
+	// Create a read transaction
+	txn := f.client.Txn(false)
+	defer txn.Abort()
+
+	// Lookup all Children
+	result, err := txn.First("weaviate_users", "Uuid", UUID)
+
+	// Return the error
+	if err != nil {
+		return err
+	}
+
+	childUserObject := result.(connector_utils.DatabaseUsersObject)
+	childUserObject.Deleted = true
+
+	txn2 := f.client.Txn(true)
+	// Delete item(s) with given Uuid
+	_, errDel := txn2.DeleteAll("weaviate_users", "Uuid", childUserObject.Uuid)
+	txn2.Insert("weaviate_users", childUserObject)
+
+	// Commit transaction
+	txn2.Commit()
+
+	return errDel
+}
+
+// GetChildKeys returns all the child keys
+func (f *Memory) GetChildObjects(UUID string, filterOutDeleted bool) ([]connector_utils.DatabaseUsersObject, error) {
+	// Create a read transaction
+	txn := f.client.Txn(false)
+	defer txn.Abort()
+
+	// // Fill children array
+	childUserObjects := []connector_utils.DatabaseUsersObject{}
+
+	// Lookup by Uuid
+	result, err := txn.Get("weaviate_users", "Parent", UUID)
+
+	// return the error
+	if err != nil {
+		return childUserObjects, err
+	}
+
+	if result != nil {
+		// loop through the results
+		singleResult := result.Next()
+		for singleResult != nil {
+			// only store if refType is correct
+			if filterOutDeleted {
+				if !singleResult.(connector_utils.DatabaseUsersObject).Deleted {
+					childUserObjects = append(childUserObjects, singleResult.(connector_utils.DatabaseUsersObject))
+				}
+			} else {
+				childUserObjects = append(childUserObjects, singleResult.(connector_utils.DatabaseUsersObject))
+			}
+
+			singleResult = result.Next()
+		}
+	}
+
+	return childUserObjects, nil
 }
