@@ -520,6 +520,50 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get is successful
 		return events.NewWeaviateEventsGetOK().WithPayload(responseObject)
 	})
+	api.EventsWeaviateEventsPatchHandler = events.WeaviateEventsPatchHandlerFunc(func(params events.WeaviateEventsPatchParams, principal interface{}) middleware.Responder {
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed {
+			return events.NewWeaviateEventsPatchForbidden()
+		}
+
+		// Get and transform object
+		UUID := string(params.EventID)
+		dbObject, errGet := databaseConnector.Get(UUID)
+
+		// Return error if UUID is not found.
+		if dbObject.Deleted || errGet != nil {
+			return events.NewWeaviateEventsPatchNotFound()
+		}
+
+		// Get PATCH params in format RFC 6902
+		jsonBody, marshalErr := json.Marshal(params.Body)
+		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
+
+		if marshalErr != nil || decodeErr != nil {
+			return events.NewWeaviateEventsPatchBadRequest()
+		}
+
+		// Apply the patch
+		updatedJSON, applyErr := patchObject.Apply([]byte(dbObject.Object))
+
+		if applyErr != nil {
+			return events.NewWeaviateEventsPatchUnprocessableEntity()
+		}
+
+		// Set patched JSON back in dbObject
+		dbObject.Object = string(updatedJSON)
+
+		dbObject.SetCreateTimeMsToNow()
+		go databaseConnector.Add(dbObject)
+
+		// Create return Object
+		responseObject := &models.EventGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &responseObject)
+		responseObject.ID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Kind = getKind(responseObject)
+
+		return events.NewWeaviateEventsPatchOK().WithPayload(responseObject)
+	})
 	api.EventsWeaviateEventsValidateHandler = events.WeaviateEventsValidateHandlerFunc(func(params events.WeaviateEventsValidateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation events.WeaviateEventsValidate has not yet been implemented")
 	})

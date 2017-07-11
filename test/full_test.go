@@ -126,7 +126,7 @@ func testIDFormat(t *testing.T, responseID string) {
 func testValues(t *testing.T, expected string, got string) {
 	file, line := decorate()
 	if expected != got {
-		t.Errorf("%s:%d: Expected value is %s. Got %s\n", file, line, expected, got)
+		t.Errorf("%s:%d: Expected value is '%s'. Got '%s'\n", file, line, expected, got)
 	}
 }
 
@@ -655,6 +655,9 @@ func Test__weaviate_location_update_JSON(t *testing.T) {
 	respObject := &models.LocationGetResponse{}
 	json.Unmarshal(body, respObject)
 
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
 	// Check ID is same
 	testID(t, string(respObject.ID), locationID)
 
@@ -695,6 +698,9 @@ func Test__weaviate_location_patch_JSON(t *testing.T) {
 
 	respObject := &models.LocationGetResponse{}
 	json.Unmarshal(body, respObject)
+
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
 	// Check ID is the same
 	testID(t, string(respObject.ID), locationID)
@@ -987,6 +993,9 @@ func Test__weaviate_thing_template_update_JSON(t *testing.T) {
 	respObject := &models.ThingTemplateGetResponse{}
 	json.Unmarshal(body, respObject)
 
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
 	// Check thingTemplate ID is same
 	testID(t, string(respObject.ID), thingTemplateID)
 
@@ -1027,6 +1036,9 @@ func Test__weaviate_thing_template_patch_JSON(t *testing.T) {
 
 	respObject := &models.ThingTemplateGetResponse{}
 	json.Unmarshal(body, respObject)
+
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
 	// Check ID is the same
 	testID(t, string(respObject.ID), thingTemplateID)
@@ -1208,6 +1220,9 @@ func Test__weaviate_command_update_JSON(t *testing.T) {
 	respObject := &models.CommandGetResponse{}
 	json.Unmarshal(body, respObject)
 
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
 	// Check ID is same
 	testID(t, string(respObject.ID), commandID)
 
@@ -1248,6 +1263,9 @@ func Test__weaviate_command_patch_JSON(t *testing.T) {
 
 	respObject := &models.CommandGetResponse{}
 	json.Unmarshal(body, respObject)
+
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
 	// Check ID is the same
 	testID(t, string(respObject.ID), commandID)
@@ -1406,6 +1424,9 @@ func Test__weaviate_group_update_JSON(t *testing.T) {
 	respObject := &models.GroupGetResponse{}
 	json.Unmarshal(body, respObject)
 
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
 	// Check ID is same
 	testID(t, string(respObject.ID), groupID)
 
@@ -1446,6 +1467,9 @@ func Test__weaviate_group_patch_JSON(t *testing.T) {
 
 	respObject := &models.GroupGetResponse{}
 	json.Unmarshal(body, respObject)
+
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
 	// Check ID is the same
 	testID(t, string(respObject.ID), groupID)
@@ -1635,6 +1659,9 @@ func Test__weaviate_thing_update_JSON(t *testing.T) {
 	respObject := &models.ThingGetResponse{}
 	json.Unmarshal(body, respObject)
 
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
 	// Check thing ID is same
 	testID(t, string(respObject.ID), thingID)
 
@@ -1675,6 +1702,9 @@ func Test__weaviate_thing_patch_JSON(t *testing.T) {
 
 	respObject := &models.ThingGetResponse{}
 	json.Unmarshal(body, respObject)
+
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
 	// Check ID is the same
 	testID(t, string(respObject.ID), thingID)
@@ -1826,6 +1856,55 @@ func Test__weaviate_event_get_JSON(t *testing.T) {
 
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/events", "GET", "application/json", nil, apiKeyCmdLine)
+}
+
+// weaviate.event.patch
+func Test__weaviate_event_patch_JSON(t *testing.T) {
+	// Create patch request
+	newValue := "queued"
+
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "add", "path": "/commandProgress", "value": "` + newValue + `"}]`))
+	response := doRequest("/events/"+eventID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
+
+	body := getResponseBody(response)
+
+	respObject := &models.EventGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
+
+	// Check ID is the same
+	testID(t, string(respObject.ID), eventID)
+
+	// Check name after patch
+	testValues(t, newValue, string(respObject.CommandProgress))
+
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#eventGetResponse")
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Check if patch is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/events/"+eventID, "GET", "application/json", nil, apiKeyCmdLine)
+
+	bodyGet := getResponseBody(responseGet)
+
+	// Test response obj
+	respObjectGet := &models.EventGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
+
+	// Check name after patch and get
+	testValues(t, newValue, string(respObject.CommandProgress))
+
+	// Check patch with incorrect contents
+	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/commandProgress", "value": "` + newValue + `"}`))
+	responseError := doRequest("/events/"+eventID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
+
+	// Check patch on non-existing ID
+	testNotExistsRequest(t, "/events", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
 }
 
 // weaviate.key.me.delete
