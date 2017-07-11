@@ -128,3 +128,8 @@ func CreateFirstUserObject() DatabaseUsersObject {
 
 	return dbObject
 }
+
+// NowUnix returns the current Unix time
+func NowUnix() int64 {
+	return time.Now().UnixNano() / int64(time.Millisecond)
+}
