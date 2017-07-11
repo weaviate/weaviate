@@ -67,27 +67,3 @@ func PrincipalMarshalling(Object interface{}) (DatabaseUsersObject, DatabaseUser
 
 	return Principal, ObjectsObject
 }
-
-// ReadAllowed checks if reading is allowed
-func ReadAllowed(validateObject interface{}) bool {
-	_, ObjectsObject := PrincipalMarshalling(validateObject)
-	return ObjectsObject.Read
-}
-
-// WriteAllowed checks if writing is allowed
-func WriteAllowed(validateObject interface{}) bool {
-	_, ObjectsObject := PrincipalMarshalling(validateObject)
-	return ObjectsObject.Write
-}
-
-// DeleteAllowed checks if deleting is allowed
-func DeleteAllowed(validateObject interface{}) bool {
-	_, ObjectsObject := PrincipalMarshalling(validateObject)
-	return ObjectsObject.Delete
-}
-
-// ExecuteAllowed checks if execution is allowed
-func ExecuteAllowed(validateObject interface{}) bool {
-	_, ObjectsObject := PrincipalMarshalling(validateObject)
-	return ObjectsObject.Execute
-}

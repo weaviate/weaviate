@@ -633,11 +633,11 @@ func Test__weaviate_location_get_JSON(t *testing.T) {
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#locationGetResponse")
 
-	// // KEY-CHECK: Create get request not allowed: the location is not in the right Key-tree (key is no child of key set at location)
-	// responseNotAllowed := doRequest("/locations/"+locationID, "GET", "application/json", nil, newSubAPIToken)
+	// KEY-CHECK: Create get request not allowed: the location is not in the right Key-tree (key is no child of key set at location)
+	responseNotAllowed := doRequest("/locations/"+locationID, "GET", "application/json", nil, newSubAPIToken)
 
-	// // Check status code get request
-	// testStatusCode(t, responseNotAllowed.StatusCode, http.StatusForbidden)
+	// Check status code get request
+	testStatusCode(t, responseNotAllowed.StatusCode, http.StatusForbidden)
 
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/locations", "GET", "application/json", nil, apiKeyCmdLine)
