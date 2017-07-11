@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package models
+  package models
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	"encoding/json"
@@ -24,7 +24,16 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// CommandProgress Progress of the command. Will also be included in the events.
+// CommandProgress Progress of the command. Will be included in the events as the events are instances of the commands. Shows the current progress of an event. Progress:
+//   * aborted - The event is aborted.
+//   * cancelled - The event is cancelled.
+//   * done - The event is finished correctly.
+//   * error - An error occured during the event.
+//   * expired - The event is expired.
+//   * inProgress - The event is in progress by the Thing.
+//   * new - The event is newly added and has not been seen by the Thing.
+//   * queued - The event is queued by the Thing and is waiting for execution.
+//
 // swagger:model CommandProgress
 type CommandProgress string
 
@@ -41,6 +50,8 @@ const (
 	CommandProgressExpired CommandProgress = "expired"
 	// CommandProgressInProgress captures enum value "inProgress"
 	CommandProgressInProgress CommandProgress = "inProgress"
+	// CommandProgressNew captures enum value "new"
+	CommandProgressNew CommandProgress = "new"
 	// CommandProgressQueued captures enum value "queued"
 	CommandProgressQueued CommandProgress = "queued"
 )
@@ -50,7 +61,7 @@ var commandProgressEnum []interface{}
 
 func init() {
 	var res []CommandProgress
-	if err := json.Unmarshal([]byte(`["aborted","cancelled","done","error","expired","inProgress","queued"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["aborted","cancelled","done","error","expired","inProgress","new","queued"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {

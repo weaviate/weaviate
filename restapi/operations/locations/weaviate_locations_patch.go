@@ -10,9 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package locations
+  package locations
 
-
+ 
 // Editing this file might prove futile when you re-run the generate command
 
 import (
@@ -43,7 +43,7 @@ func NewWeaviateLocationsPatch(ctx *middleware.Context, handler WeaviateLocation
 
 Update a location based on its uuid (using patch semantics) related to this key.
 
-Updates an location. This method supports patch semantics.
+Updates a location. This method supports patch semantics.
 
 */
 type WeaviateLocationsPatch struct {

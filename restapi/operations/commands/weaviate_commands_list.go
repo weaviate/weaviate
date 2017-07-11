@@ -10,9 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package commands
+  package commands
 
-
+ 
 // Editing this file might prove futile when you re-run the generate command
 
 import (
@@ -43,7 +43,7 @@ func NewWeaviateCommandsList(ctx *middleware.Context, handler WeaviateCommandsLi
 
 Get a list of commands related to this key.
 
-Lists all commands in reverse order of creation.
+Lists all commands in reverse order of creation, owned by the user that belongs to the used token.
 
 */
 type WeaviateCommandsList struct {
