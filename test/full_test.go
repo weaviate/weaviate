@@ -808,6 +808,27 @@ func Test__weaviate_location_list_JSON(t *testing.T) {
 
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#locationsListResponse")
+
+	// Create list request read is not allowed
+	responseNotAllowed := doRequest("/locations", "GET", "application/json", nil, newAPIToken)
+	testStatusCode(t, responseNotAllowed.StatusCode, http.StatusForbidden)
+
+	// Create list request no entries on this key, but valid response
+	responseNothing := doRequest("/locations", "GET", "application/json", nil, newSubAPIToken)
+
+	// Check status code of list
+	testStatusCode(t, responseNothing.StatusCode, http.StatusOK)
+
+	// Check body
+	bodyNothing := getResponseBody(responseNothing)
+
+	respObjectNothing := &models.LocationsListResponse{}
+	json.Unmarshal(bodyNothing, respObjectNothing)
+
+	// Test amount in current response
+	if 0 != len(respObjectNothing.Locations) {
+		t.Errorf("Expected page results '%d'. Got '%d'.\n", 0, len(respObjectNothing.Locations))
+	}
 }
 
 // weaviate.location.delete

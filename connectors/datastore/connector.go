@@ -239,7 +239,7 @@ func (f *Datastore) Get(uuid string) (connector_utils.DatabaseObject, error) {
 }
 
 // List lists the items from Datastore by refType and limit
-func (f *Datastore) List(refType string, limit int, page int, referenceFilter *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error) {
+func (f *Datastore) List(refType string, ownerUUID string, limit int, page int, referenceFilter *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error) {
 	// Set ctx and kind.
 	ctx := context.Background()
 	kind := "weaviate"
@@ -248,7 +248,7 @@ func (f *Datastore) List(refType string, limit int, page int, referenceFilter *c
 	offset := (page - 1) * limit
 
 	// Make list queries
-	query := datastore.NewQuery(kind).Filter("RefType =", refType).Filter("Deleted =", false).Order("-CreateTimeMs")
+	query := datastore.NewQuery(kind).Filter("RefType =", refType).Filter("Owner =", ownerUUID).Filter("Deleted =", false).Order("-CreateTimeMs")
 
 	// Add more to queries for reference filters
 	if referenceFilter != nil {
