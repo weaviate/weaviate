@@ -5,9 +5,6 @@ test
 *.OLD
 *.OLD.go
 
-# Remove tools dir
-tools
-
 # Logs
 logs
 *.log
