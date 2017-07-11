@@ -70,30 +70,6 @@ func PrincipalMarshalling(Object interface{}) (DatabaseUsersObject, DatabaseUser
 	return Principal, ObjectsObject
 }
 
-// ReadAllowed checks if reading is allowed
-func ReadAllowed(validateObject interface{}) bool {
-	_, ObjectsObject := PrincipalMarshalling(validateObject)
-	return ObjectsObject.Read
-}
-
-// WriteAllowed checks if writing is allowed
-func WriteAllowed(validateObject interface{}) bool {
-	_, ObjectsObject := PrincipalMarshalling(validateObject)
-	return ObjectsObject.Write
-}
-
-// DeleteAllowed checks if deleting is allowed
-func DeleteAllowed(validateObject interface{}) bool {
-	_, ObjectsObject := PrincipalMarshalling(validateObject)
-	return ObjectsObject.Delete
-}
-
-// ExecuteAllowed checks if execution is allowed
-func ExecuteAllowed(validateObject interface{}) bool {
-	_, ObjectsObject := PrincipalMarshalling(validateObject)
-	return ObjectsObject.Execute
-}
-
 // CreateFirstUserObject creates a new user with new API key when none exists when starting server
 func CreateFirstUserObject() DatabaseUsersObject {
 	dbObject := DatabaseUsersObject{}
@@ -142,8 +118,8 @@ func CreateFirstUserObject() DatabaseUsersObject {
 	dbObjectObject.IPOrigin = ips
 
 	// Marshall and add to object
-	dbObjectObjectJson, _ := json.Marshal(dbObjectObject)
-	dbObject.Object = string(dbObjectObjectJson)
+	dbObjectObjectJSON, _ := json.Marshal(dbObjectObject)
+	dbObject.Object = string(dbObjectObjectJSON)
 
 	// Print the key
 	log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/weaviate/weaviate/blob/develop/README.md#authentication")

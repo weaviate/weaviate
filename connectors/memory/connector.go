@@ -245,7 +245,7 @@ func (f *Memory) Get(Uuid string) (connector_utils.DatabaseObject, error) {
 }
 
 // return a list
-func (f *Memory) List(refType string, limit int, page int, referenceFilter *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error) {
+func (f *Memory) List(refType string, ownerUUID string, limit int, page int, referenceFilter *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error) {
 	dataObjs := connector_utils.DatabaseObjects{}
 
 	// Create read-only transaction
@@ -265,8 +265,9 @@ func (f *Memory) List(refType string, limit int, page int, referenceFilter *conn
 		// loop through the results
 		singleResult := result.Next()
 		for singleResult != nil {
-			// only store if refType is correct
+			// only store if refType and owner is correct and object is not deleted
 			if singleResult.(connector_utils.DatabaseObject).RefType == refType &&
+				singleResult.(connector_utils.DatabaseObject).Owner == ownerUUID &&
 				!singleResult.(connector_utils.DatabaseObject).Deleted {
 
 				if referenceFilter != nil {
