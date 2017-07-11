@@ -10,9 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package events
+  package events
 
-
+ 
 // Editing this file might prove futile when you re-run the generate command
 
 import (
@@ -43,7 +43,7 @@ func NewWeaviateThingsEventsList(ctx *middleware.Context, handler WeaviateThings
 
 Get a list of events based on a thing's uuid (also available as MQTT channel) related to this key.
 
-Lists events.
+Lists all events in reverse order of creation, owned by the user that belongs to the used token.
 
 */
 type WeaviateThingsEventsList struct {

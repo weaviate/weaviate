@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package keys
+  package keys
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	"net/http"
@@ -85,27 +85,6 @@ func NewWeaviateKeysMeChildrenGetUnauthorized() *WeaviateKeysMeChildrenGetUnauth
 func (o *WeaviateKeysMeChildrenGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(401)
-}
-
-// WeaviateKeysMeChildrenGetForbiddenCode is the HTTP code returned for type WeaviateKeysMeChildrenGetForbidden
-const WeaviateKeysMeChildrenGetForbiddenCode int = 403
-
-/*WeaviateKeysMeChildrenGetForbidden The used API-key has insufficient permissions.
-
-swagger:response weaviateKeysMeChildrenGetForbidden
-*/
-type WeaviateKeysMeChildrenGetForbidden struct {
-}
-
-// NewWeaviateKeysMeChildrenGetForbidden creates WeaviateKeysMeChildrenGetForbidden with default headers values
-func NewWeaviateKeysMeChildrenGetForbidden() *WeaviateKeysMeChildrenGetForbidden {
-	return &WeaviateKeysMeChildrenGetForbidden{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateKeysMeChildrenGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(403)
 }
 
 // WeaviateKeysMeChildrenGetNotFoundCode is the HTTP code returned for type WeaviateKeysMeChildrenGetNotFound

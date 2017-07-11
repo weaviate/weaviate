@@ -10,9 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package thing_templates
+  package thing_templates
 
-
+ 
 // Editing this file might prove futile when you re-run the generate command
 
 import (
@@ -43,7 +43,7 @@ func NewWeaviateThingTemplatesCreate(ctx *middleware.Context, handler WeaviateTh
 
 Create a new thing template related to this key.
 
-Creates a new thing template manifest.
+Creates a new thing template.
 
 */
 type WeaviateThingTemplatesCreate struct {

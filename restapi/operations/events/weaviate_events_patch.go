@@ -10,7 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-  package keys
+  package events
 
  
 // Editing this file might prove futile when you re-run the generate command
@@ -21,39 +21,39 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-// WeaviateKeysDeleteHandlerFunc turns a function with the right signature into a weaviate keys delete handler
-type WeaviateKeysDeleteHandlerFunc func(WeaviateKeysDeleteParams, interface{}) middleware.Responder
+// WeaviateEventsPatchHandlerFunc turns a function with the right signature into a weaviate events patch handler
+type WeaviateEventsPatchHandlerFunc func(WeaviateEventsPatchParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateKeysDeleteHandlerFunc) Handle(params WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
+func (fn WeaviateEventsPatchHandlerFunc) Handle(params WeaviateEventsPatchParams, principal interface{}) middleware.Responder {
 	return fn(params, principal)
 }
 
-// WeaviateKeysDeleteHandler interface for that can handle valid weaviate keys delete params
-type WeaviateKeysDeleteHandler interface {
-	Handle(WeaviateKeysDeleteParams, interface{}) middleware.Responder
+// WeaviateEventsPatchHandler interface for that can handle valid weaviate events patch params
+type WeaviateEventsPatchHandler interface {
+	Handle(WeaviateEventsPatchParams, interface{}) middleware.Responder
 }
 
-// NewWeaviateKeysDelete creates a new http.Handler for the weaviate keys delete operation
-func NewWeaviateKeysDelete(ctx *middleware.Context, handler WeaviateKeysDeleteHandler) *WeaviateKeysDelete {
-	return &WeaviateKeysDelete{Context: ctx, Handler: handler}
+// NewWeaviateEventsPatch creates a new http.Handler for the weaviate events patch operation
+func NewWeaviateEventsPatch(ctx *middleware.Context, handler WeaviateEventsPatchHandler) *WeaviateEventsPatch {
+	return &WeaviateEventsPatch{Context: ctx, Handler: handler}
 }
 
-/*WeaviateKeysDelete swagger:route DELETE /keys/{keyId} keys weaviateKeysDelete
+/*WeaviateEventsPatch swagger:route PATCH /events/{eventId} events weaviateEventsPatch
 
-Delete a key based on its uuid related to this key.
+Update an event based on its uuid (using patch semantics) related to this key.
 
-Deletes a key. Only parent or self is allowed to delete key.
+Updates an event. This method supports patch semantics.
 
 */
-type WeaviateKeysDelete struct {
+type WeaviateEventsPatch struct {
 	Context *middleware.Context
-	Handler WeaviateKeysDeleteHandler
+	Handler WeaviateEventsPatchHandler
 }
 
-func (o *WeaviateKeysDelete) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *WeaviateEventsPatch) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, _ := o.Context.RouteInfo(r)
-	var Params = NewWeaviateKeysDeleteParams()
+	var Params = NewWeaviateEventsPatchParams()
 
 	uprinc, err := o.Context.Authorize(r, route)
 	if err != nil {

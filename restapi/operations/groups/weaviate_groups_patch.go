@@ -10,9 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package groups
+  package groups
 
-
+ 
 // Editing this file might prove futile when you re-run the generate command
 
 import (
@@ -43,7 +43,7 @@ func NewWeaviateGroupsPatch(ctx *middleware.Context, handler WeaviateGroupsPatch
 
 Update a group based on its uuid (using patch semantics) related to this key.
 
-Updates an group. This method supports patch semantics.
+Updates a group. This method supports patch semantics.
 
 */
 type WeaviateGroupsPatch struct {

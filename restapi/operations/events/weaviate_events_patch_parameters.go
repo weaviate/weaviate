@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package events
+  package events
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	"io"
@@ -28,43 +28,43 @@ import (
 	"github.com/weaviate/weaviate/models"
 )
 
-// NewWeaviateGroupsEventsCreateParams creates a new WeaviateGroupsEventsCreateParams object
+// NewWeaviateEventsPatchParams creates a new WeaviateEventsPatchParams object
 // with the default values initialized.
-func NewWeaviateGroupsEventsCreateParams() WeaviateGroupsEventsCreateParams {
+func NewWeaviateEventsPatchParams() WeaviateEventsPatchParams {
 	var ()
-	return WeaviateGroupsEventsCreateParams{}
+	return WeaviateEventsPatchParams{}
 }
 
-// WeaviateGroupsEventsCreateParams contains all the bound params for the weaviate groups events create operation
+// WeaviateEventsPatchParams contains all the bound params for the weaviate events patch operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters weaviate.groups.events.create
-type WeaviateGroupsEventsCreateParams struct {
+// swagger:parameters weaviate.events.patch
+type WeaviateEventsPatchParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request
 
-	/*
+	/*JSONPatch document as defined by RFC 6902.
 	  Required: true
 	  In: body
 	*/
-	Body *models.EventCreate
-	/*Unique ID of the group.
+	Body []*models.PatchDocument
+	/*Unique ID of the event.
 	  Required: true
 	  In: path
 	*/
-	GroupID string
+	EventID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls
-func (o *WeaviateGroupsEventsCreateParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+func (o *WeaviateEventsPatchParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 	o.HTTPRequest = r
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.EventCreate
+		var body []*models.PatchDocument
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))
@@ -73,12 +73,15 @@ func (o *WeaviateGroupsEventsCreateParams) BindRequest(r *http.Request, route *m
 			}
 
 		} else {
-			if err := body.Validate(route.Formats); err != nil {
-				res = append(res, err)
+			for _, io := range o.Body {
+				if err := io.Validate(route.Formats); err != nil {
+					res = append(res, err)
+					break
+				}
 			}
 
 			if len(res) == 0 {
-				o.Body = &body
+				o.Body = body
 			}
 		}
 
@@ -86,8 +89,8 @@ func (o *WeaviateGroupsEventsCreateParams) BindRequest(r *http.Request, route *m
 		res = append(res, errors.Required("body", "body"))
 	}
 
-	rGroupID, rhkGroupID, _ := route.Params.GetOK("groupId")
-	if err := o.bindGroupID(rGroupID, rhkGroupID, route.Formats); err != nil {
+	rEventID, rhkEventID, _ := route.Params.GetOK("eventId")
+	if err := o.bindEventID(rEventID, rhkEventID, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -97,13 +100,17 @@ func (o *WeaviateGroupsEventsCreateParams) BindRequest(r *http.Request, route *m
 	return nil
 }
 
-func (o *WeaviateGroupsEventsCreateParams) bindGroupID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *WeaviateEventsPatchParams) bindEventID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
 	}
 
-	o.GroupID = raw
+	value, err := formats.Parse("uuid", raw)
+	if err != nil {
+		return errors.InvalidType("eventId", "path", "strfmt.UUID", raw)
+	}
+	o.EventID = *(value.(*strfmt.UUID))
 
 	return nil
 }
