@@ -528,12 +528,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.EventsWeaviateEventsValidateHandler = events.WeaviateEventsValidateHandlerFunc(func(params events.WeaviateEventsValidateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation events.WeaviateEventsValidate has not yet been implemented")
 	})
-	api.EventsWeaviateGroupsEventsCreateHandler = events.WeaviateGroupsEventsCreateHandlerFunc(func(params events.WeaviateGroupsEventsCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation events.WeaviateGroupsEventsCreate has not yet been implemented")
-	})
-	api.EventsWeaviateGroupsEventsListHandler = events.WeaviateGroupsEventsListHandlerFunc(func(params events.WeaviateGroupsEventsListParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation events.WeaviateGroupsEventsList has not yet been implemented")
-	})
+	// api.EventsWeaviateGroupsEventsCreateHandler = events.WeaviateGroupsEventsCreateHandlerFunc(func(params events.WeaviateGroupsEventsCreateParams, principal interface{}) middleware.Responder {
+	// 	return middleware.NotImplemented("operation events.WeaviateGroupsEventsCreate has not yet been implemented")
+	// })
+	// api.EventsWeaviateGroupsEventsListHandler = events.WeaviateGroupsEventsListHandlerFunc(func(params events.WeaviateGroupsEventsListParams, principal interface{}) middleware.Responder {
+	// 	return middleware.NotImplemented("operation events.WeaviateGroupsEventsList has not yet been implemented")
+	// })
 	api.EventsWeaviateThingsEventsCreateHandler = events.WeaviateThingsEventsCreateHandlerFunc(func(params events.WeaviateThingsEventsCreateParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
 		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed {
