@@ -17,8 +17,8 @@ script:
   - export DATASTORE_EMULATOR_HOST=localhost:8081
   - nohup gcloud beta emulators datastore start --no-store-on-disk &
   - sleep 60
-  - rm nohup.out
+  - rm -f nohup.out
   - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8080 --host=127.0.0.1 &
-  - sleep 12
+  - sleep 40
   - export WEAVIATEKEY=$(grep "ROOTKEY=" nohup.out | cut -d "=" -f 2)
   - go test -v ./test -args -api-key=$WEAVIATEKEY
