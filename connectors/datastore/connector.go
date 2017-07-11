@@ -18,12 +18,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 
 	"cloud.google.com/go/datastore"
 	gouuid "github.com/satori/go.uuid"
-
-	"encoding/json"
 
 	"github.com/weaviate/weaviate/connectors/utils"
 )
@@ -76,69 +73,21 @@ func (f *Datastore) Init() error {
 	_, err := f.client.GetAll(ctx, query, &dbKeyObjects)
 
 	if err != nil {
-		panic("ERROR INITIALIZING SERVER")
+		panic("ERROR INITIALIZING SERVER: " + err.Error())
 	}
 
 	// No key was found, create one
 	if len(dbKeyObjects) == 0 {
-
-		dbObject := connector_utils.DatabaseUsersObject{}
-
-		// Create key token
-		dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
-
-		// Uuid + name
-		uuid := fmt.Sprintf("%v", gouuid.NewV4())
+		// Generate a basic DB object and print it's key.
+		dbObject := connector_utils.CreateFirstUserObject()
 
 		// Creates a Key instance.
-		taskKey := datastore.NameKey(kind, uuid, nil)
-
-		// Auto set the parent ID to root *
-		dbObject.Parent = "*"
-
-		// Set Uuid
-		dbObject.Uuid = uuid
-
-		// Set chmod variables
-		dbObjectObject := connector_utils.DatabaseUsersObjectsObject{}
-		dbObjectObject.Read = true
-		dbObjectObject.Write = true
-		dbObjectObject.Delete = true
-
-		// Get ips as v6
-		var ips []string
-		ifaces, _ := net.Interfaces()
-		for _, i := range ifaces {
-			addrs, _ := i.Addrs()
-			for _, addr := range addrs {
-				var ip net.IP
-				switch v := addr.(type) {
-				case *net.IPNet:
-					ip = v.IP
-				case *net.IPAddr:
-					ip = v.IP
-				}
-
-				ipv6 := ip.To16()
-				ips = append(ips, ipv6.String())
-			}
-		}
-
-		dbObjectObject.IpOrigin = ips
-
-		// Marshall and add to object
-		dbObjectObjectJson, _ := json.Marshal(dbObjectObject)
-		dbObject.Object = string(dbObjectObjectJson)
+		taskKey := datastore.NameKey(kind, dbObject.Uuid, nil)
 
 		// Saves the new entity.
 		if _, err := f.client.Put(ctx, taskKey, &dbObject); err != nil {
 			log.Fatalf("Failed to save task: %v", err)
 		}
-
-		// Print the key
-		log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/weaviate/weaviate/blob/develop/README.md#authentication")
-		log.Println("INFO: Auto set allowed IPs to: ", ips)
-		log.Println("ROOTKEY=" + dbObject.KeyToken)
 	}
 
 	return nil
@@ -235,7 +184,7 @@ func (f *Datastore) Get(uuid string) (connector_utils.DatabaseObject, error) {
 }
 
 // List lists the items from Datastore by refType and limit
-func (f *Datastore) List(refType string, limit int, page int, referenceFilter *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error) {
+func (f *Datastore) List(refType string, ownerUUID string, limit int, page int, referenceFilter *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error) {
 	// Set ctx and kind.
 	ctx := context.Background()
 	kind := "weaviate"
@@ -244,7 +193,7 @@ func (f *Datastore) List(refType string, limit int, page int, referenceFilter *c
 	offset := (page - 1) * limit
 
 	// Make list queries
-	query := datastore.NewQuery(kind).Filter("RefType =", refType).Filter("Deleted =", false).Order("-CreateTimeMs")
+	query := datastore.NewQuery(kind).Filter("RefType =", refType).Filter("Owner =", ownerUUID).Filter("Deleted =", false).Order("-CreateTimeMs")
 
 	// Add more to queries for reference filters
 	if referenceFilter != nil {
@@ -277,11 +226,11 @@ func (f *Datastore) List(refType string, limit int, page int, referenceFilter *c
 
 // Validate if a user has access, returns permissions object
 func (f *Datastore) ValidateKey(token string) ([]connector_utils.DatabaseUsersObject, error) {
-
+	// Set ctx and kind.
 	ctx := context.Background()
-
 	kind := "weaviate_users"
 
+	// Check on token and deletion
 	query := datastore.NewQuery(kind).Filter("KeyToken =", token).Limit(1)
 
 	dbUsersObjects := []connector_utils.DatabaseUsersObject{}
@@ -296,22 +245,48 @@ func (f *Datastore) ValidateKey(token string) ([]connector_utils.DatabaseUsersOb
 	return dbUsersObjects, nil
 }
 
-// AddUser to DB
-func (f *Datastore) AddKey(parentUuid string, dbObject connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error) {
+// GetKey returns user object by ID
+func (f *Datastore) GetKey(uuid string) (connector_utils.DatabaseUsersObject, error) {
+	// Set ctx and kind.
+	ctx := context.Background()
+	kind := "weaviate_users"
+
+	// Create get Query
+	query := datastore.NewQuery(kind).Filter("Uuid =", uuid).Filter("Deleted =", false).Limit(1)
+
+	// Fill User object
+	userObject := []connector_utils.DatabaseUsersObject{}
+	keys, err := f.client.GetAll(ctx, query, &userObject)
+
+	// Return error
+	if err != nil {
+		log.Fatalf("Failed to load task: %v", err)
+		return connector_utils.DatabaseUsersObject{}, err
+	}
+
+	// Return error 'not found'
+	if len(keys) == 0 {
+		notFoundErr := errors.New("No userObject with such UUID found")
+		return connector_utils.DatabaseUsersObject{}, notFoundErr
+	}
+
+	// Return found object
+	return userObject[0], nil
+}
+
+// AddKey to DB
+func (f *Datastore) AddKey(parentUUID string, dbObject connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error) {
 	ctx := context.Background()
 
 	kind := "weaviate_users"
 
 	nameUUID := fmt.Sprintf("%v", gouuid.NewV4())
 
-	// Create key token
-	dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
-
 	// Creates a Key instance.
 	taskKey := datastore.NameKey(kind, nameUUID, nil)
 
 	// Auto set the parent ID
-	dbObject.Parent = parentUuid
+	dbObject.Parent = parentUUID
 
 	// Saves the new entity.
 	if _, err := f.client.Put(ctx, taskKey, &dbObject); err != nil {
@@ -321,4 +296,54 @@ func (f *Datastore) AddKey(parentUuid string, dbObject connector_utils.DatabaseU
 
 	// Return the ID that is used to create.
 	return dbObject, nil
+}
+
+// DeleteKey removes a key from the database
+func (f *Datastore) DeleteKey(UUID string) error {
+	ctx := context.Background()
+
+	kind := "weaviate_users"
+
+	// Create get Query
+	query := datastore.NewQuery(kind).Filter("Uuid =", UUID).Limit(1)
+
+	// Fill User object
+	userObjects := []connector_utils.DatabaseUsersObject{}
+	keys, _ := f.client.GetAll(ctx, query, &userObjects)
+
+	if len(keys) == 0 {
+		notFoundErr := errors.New("no object with such UUID found")
+		return notFoundErr
+	}
+
+	userObject := userObjects[0]
+	userObject.Deleted = true
+
+	// Deletes the user itself
+	_, errDel := f.client.Put(ctx, keys[0], &userObject)
+	if errDel != nil {
+		log.Fatalf("Failed to delete task: %v", errDel)
+	}
+
+	// Return error if exists
+	return errDel
+}
+
+// GetChildKeys returns all the child keys
+func (f *Datastore) GetChildObjects(UUID string, filterOutDeleted bool) ([]connector_utils.DatabaseUsersObject, error) {
+	ctx := context.Background()
+
+	// Find its children
+	var queryChildren *datastore.Query
+	if filterOutDeleted {
+		queryChildren = datastore.NewQuery("weaviate_users").Filter("Parent =", UUID).Filter("Deleted = ", false)
+	} else {
+		queryChildren = datastore.NewQuery("weaviate_users").Filter("Parent =", UUID)
+	}
+
+	// Fill children array
+	childUserObjects := []connector_utils.DatabaseUsersObject{}
+	f.client.GetAll(ctx, queryChildren, &childUserObjects)
+
+	return childUserObjects, nil
 }

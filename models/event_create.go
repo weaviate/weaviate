@@ -25,41 +25,59 @@ import (
 // EventCreate event create
 // swagger:model EventCreate
 type EventCreate struct {
-	Event
-}
 
-// UnmarshalJSON unmarshals this object from a JSON structure
-func (m *EventCreate) UnmarshalJSON(raw []byte) error {
+	// command
+	Command *EventCreateCommand `json:"command,omitempty"`
 
-	var aO0 Event
-	if err := swag.ReadJSON(raw, &aO0); err != nil {
-		return err
-	}
-	m.Event = aO0
-
-	return nil
-}
-
-// MarshalJSON marshals this object to a JSON structure
-func (m EventCreate) MarshalJSON() ([]byte, error) {
-	var _parts [][]byte
-
-	aO0, err := swag.WriteJSON(m.Event)
-	if err != nil {
-		return nil, err
-	}
-	_parts = append(_parts, aO0)
-
-	return swag.ConcatJSON(_parts...), nil
+	// Command id.
+	CommandID strfmt.UUID `json:"commandId,omitempty"`
 }
 
 // Validate validates this event create
 func (m *EventCreate) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.Event.Validate(formats); err != nil {
+	if err := m.validateCommand(formats); err != nil {
+		// prop
 		res = append(res, err)
 	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *EventCreate) validateCommand(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Command) { // not required
+		return nil
+	}
+
+	if m.Command != nil {
+
+		if err := m.Command.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("command")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// EventCreateCommand event create command
+// swagger:model EventCreateCommand
+type EventCreateCommand struct {
+
+	// command parameters
+	CommandParameters *CommandParameters `json:"commandParameters,omitempty"`
+}
+
+// Validate validates this event create command
+func (m *EventCreateCommand) Validate(formats strfmt.Registry) error {
+	var res []error
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
