@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package models
+  package models
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	strfmt "github.com/go-openapi/strfmt"
@@ -33,14 +33,17 @@ type EventGetResponse struct {
 	// command results
 	CommandResults *CommandResults `json:"commandResults,omitempty"`
 
-	// UUID of this event
-	EventID strfmt.UUID `json:"eventId,omitempty"`
+	// Timestamp of creation of this event in milliseconds since epoch UTC.
+	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
 	// ID of the event.
 	ID strfmt.UUID `json:"id,omitempty"`
 
 	// Identifies what kind of resource this is. Value: the fixed string "weaviate#eventGetResponse".
 	Kind *string `json:"kind,omitempty"`
+
+	// Timestamp since epoch of last update made to the command.
+	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -57,11 +60,13 @@ func (m *EventGetResponse) UnmarshalJSON(raw []byte) error {
 
 		CommandResults *CommandResults `json:"commandResults,omitempty"`
 
-		EventID strfmt.UUID `json:"eventId,omitempty"`
+		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
 		ID strfmt.UUID `json:"id,omitempty"`
 
 		Kind *string `json:"kind,omitempty"`
+
+		LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &data); err != nil {
 		return err
@@ -71,11 +76,13 @@ func (m *EventGetResponse) UnmarshalJSON(raw []byte) error {
 
 	m.CommandResults = data.CommandResults
 
-	m.EventID = data.EventID
+	m.CreationTimeUnix = data.CreationTimeUnix
 
 	m.ID = data.ID
 
 	m.Kind = data.Kind
+
+	m.LastUpdateTimeUnix = data.LastUpdateTimeUnix
 
 	return nil
 }
@@ -95,22 +102,26 @@ func (m EventGetResponse) MarshalJSON() ([]byte, error) {
 
 		CommandResults *CommandResults `json:"commandResults,omitempty"`
 
-		EventID strfmt.UUID `json:"eventId,omitempty"`
+		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
 		ID strfmt.UUID `json:"id,omitempty"`
 
 		Kind *string `json:"kind,omitempty"`
+
+		LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 	}
 
 	data.CommandProgress = m.CommandProgress
 
 	data.CommandResults = m.CommandResults
 
-	data.EventID = m.EventID
+	data.CreationTimeUnix = m.CreationTimeUnix
 
 	data.ID = m.ID
 
 	data.Kind = m.Kind
+
+	data.LastUpdateTimeUnix = m.LastUpdateTimeUnix
 
 	jsonData, err := swag.WriteJSON(data)
 	if err != nil {

@@ -18,12 +18,15 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	errors_ "errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"math"
 	"net/http"
-
-	"google.golang.org/grpc/grpclog"
+	"reflect"
+	"strings"
+	"time"
+	"unicode"
 
 	jsonpatch "github.com/evanphx/json-patch"
 	errors "github.com/go-openapi/errors"
@@ -33,20 +36,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	graceful "github.com/tylerb/graceful"
 
-	"github.com/weaviate/weaviate/mqtt"
-
+	"github.com/go-openapi/swag"
+	gouuid "github.com/satori/go.uuid"
 	"github.com/weaviate/weaviate/connectors"
 	"github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/models"
-
-	"reflect"
-	"strings"
-	"unicode"
-
-	"fmt"
-
-	"github.com/go-openapi/swag"
-	gouuid "github.com/satori/go.uuid"
+	"github.com/weaviate/weaviate/mqtt"
 	"github.com/weaviate/weaviate/restapi/operations"
 	"github.com/weaviate/weaviate/restapi/operations/commands"
 	"github.com/weaviate/weaviate/restapi/operations/events"
@@ -55,7 +50,7 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/locations"
 	"github.com/weaviate/weaviate/restapi/operations/thing_templates"
 	"github.com/weaviate/weaviate/restapi/operations/things"
-	"time"
+	"google.golang.org/grpc/grpclog"
 )
 
 const refTypeCommand string = "#/paths/commands"

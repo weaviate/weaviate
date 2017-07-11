@@ -10,9 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package thing_templates
+  package thing_templates
 
-
+ 
 // Editing this file might prove futile when you re-run the generate command
 
 import (
@@ -43,7 +43,7 @@ func NewWeaviateThingTemplatesPatch(ctx *middleware.Context, handler WeaviateThi
 
 Update a thing template based on its uuid (using patch sematics) related to this key.
 
-Updates a particular model manifest.
+Updates a particular thing template.
 
 */
 type WeaviateThingTemplatesPatch struct {

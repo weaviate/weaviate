@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package models
+  package models
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	"strconv"

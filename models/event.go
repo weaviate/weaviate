@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package models
+  package models
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	strfmt "github.com/go-openapi/strfmt"
@@ -35,11 +35,8 @@ type Event struct {
 	// Thing id.
 	ThingID strfmt.UUID `json:"thingId,omitempty"`
 
-	// Time the event was generated in milliseconds since epoch UTC.
-	TimeMs int64 `json:"timeMs,omitempty"`
-
 	// User that caused the event (if applicable).
-	Userkey string `json:"userkey,omitempty"`
+	UserKey strfmt.UUID `json:"userKey,omitempty"`
 }
 
 // Validate validates this event
