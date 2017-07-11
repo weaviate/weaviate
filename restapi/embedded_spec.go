@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package restapi
+  package restapi
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	"encoding/json"
@@ -55,13 +55,13 @@ func init() {
       "url": "https://github.com/weaviate/weaviate",
       "email": "bob@weaviate.com"
     },
-    "version": "v0.2.7"
+    "version": "v0.2.9"
   },
   "basePath": "/weaviate/v1",
   "paths": {
     "/commands": {
       "get": {
-        "description": "Lists all commands in reverse order of creation.",
+        "description": "Lists all commands in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "commands"
         ],
@@ -395,11 +395,68 @@ func init() {
           }
         },
         "x-available-in-mqtt": false
+      },
+      "patch": {
+        "description": "Updates an event. This method supports patch semantics.",
+        "tags": [
+          "events"
+        ],
+        "summary": "Update an event based on its uuid (using patch semantics) related to this key.",
+        "operationId": "weaviate.events.patch",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the event.",
+            "name": "eventId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "JSONPatch document as defined by RFC 6902.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PatchDocument"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful updated.",
+            "schema": {
+              "$ref": "#/definitions/EventGetResponse"
+            }
+          },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false
       }
     },
     "/groups": {
       "get": {
-        "description": "Lists all groups.",
+        "description": "Lists all groups in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "groups"
         ],
@@ -515,7 +572,7 @@ func init() {
         "x-available-in-mqtt": false
       },
       "put": {
-        "description": "Updates an group.",
+        "description": "Updates a group.",
         "tags": [
           "groups"
         ],
@@ -599,7 +656,7 @@ func init() {
         "x-available-in-mqtt": false
       },
       "patch": {
-        "description": "Updates an group. This method supports patch semantics.",
+        "description": "Updates a group. This method supports patch semantics.",
         "tags": [
           "groups"
         ],
@@ -647,99 +704,6 @@ func init() {
           },
           "422": {
             "description": "The patch-JSON is valid but unprocessable."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false
-      }
-    },
-    "/groups/{groupId}/events": {
-      "get": {
-        "description": "Lists events.",
-        "tags": [
-          "events"
-        ],
-        "summary": "Get a list of events based on a groups's uuid (also available as MQTT channel) related to this key.",
-        "operationId": "weaviate.groups.events.list",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the group.",
-            "name": "groupId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/EventsListResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": true
-      },
-      "post": {
-        "description": "Create event in group.",
-        "tags": [
-          "events"
-        ],
-        "summary": "Create events for a group (also available as MQTT channel) related to this key.",
-        "operationId": "weaviate.groups.events.create",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Unique ID of the group.",
-            "name": "groupId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/EventCreate"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Successfully received.",
-            "schema": {
-              "$ref": "#/definitions/EventGetResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "422": {
-            "description": "Can not execute this command, because the commandParameters{} are set incorrectly."
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -854,9 +818,6 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -988,7 +949,7 @@ func init() {
     },
     "/locations": {
       "get": {
-        "description": "Lists all locations.",
+        "description": "Lists all locations in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "locations"
         ],
@@ -1104,7 +1065,7 @@ func init() {
         "x-available-in-mqtt": false
       },
       "put": {
-        "description": "Updates an location.",
+        "description": "Updates a location.",
         "tags": [
           "locations"
         ],
@@ -1188,7 +1149,7 @@ func init() {
         "x-available-in-mqtt": false
       },
       "patch": {
-        "description": "Updates an location. This method supports patch semantics.",
+        "description": "Updates a location. This method supports patch semantics.",
         "tags": [
           "locations"
         ],
@@ -1246,7 +1207,7 @@ func init() {
     },
     "/thingTemplates": {
       "get": {
-        "description": "Lists all model manifests.",
+        "description": "Lists all thing templates in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "thingTemplates"
         ],
@@ -1283,7 +1244,7 @@ func init() {
         "x-available-in-mqtt": false
       },
       "post": {
-        "description": "Creates a new thing template manifest.",
+        "description": "Creates a new thing template.",
         "tags": [
           "thingTemplates"
         ],
@@ -1324,7 +1285,7 @@ func init() {
     },
     "/thingTemplates/{thingTemplateId}": {
       "get": {
-        "description": "Returns a particular model manifest.",
+        "description": "Returns a particular thing template.",
         "tags": [
           "thingTemplates"
         ],
@@ -1333,7 +1294,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Unique ID of the model manifest.",
+            "description": "Unique ID of the thing template.",
             "name": "thingTemplateId",
             "in": "path",
             "required": true
@@ -1362,7 +1323,7 @@ func init() {
         "x-available-in-mqtt": false
       },
       "put": {
-        "description": "Updates a particular model manifest.",
+        "description": "Updates a particular thing template.",
         "tags": [
           "thingTemplates"
         ],
@@ -1371,7 +1332,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Unique ID of the model manifest.",
+            "description": "Unique ID of the thing template.",
             "name": "thingTemplateId",
             "in": "path",
             "required": true
@@ -1411,7 +1372,7 @@ func init() {
         "x-available-in-mqtt": false
       },
       "delete": {
-        "description": "Deletes a particular model manifest.",
+        "description": "Deletes a particular thing template.",
         "tags": [
           "thingTemplates"
         ],
@@ -1421,7 +1382,7 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the model manifest.",
+            "description": "Unique ID of the thing template.",
             "name": "thingTemplateId",
             "in": "path",
             "required": true
@@ -1447,7 +1408,7 @@ func init() {
         "x-available-in-mqtt": false
       },
       "patch": {
-        "description": "Updates a particular model manifest.",
+        "description": "Updates a particular thing template.",
         "tags": [
           "thingTemplates"
         ],
@@ -1456,7 +1417,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "Unique ID of the model manifest.",
+            "description": "Unique ID of the thing template.",
             "name": "thingTemplateId",
             "in": "path",
             "required": true
@@ -1505,7 +1466,7 @@ func init() {
     },
     "/things": {
       "get": {
-        "description": "Lists all things user has access to.",
+        "description": "Lists all things in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "things"
         ],
@@ -1764,7 +1725,7 @@ func init() {
     },
     "/things/{thingId}/events": {
       "get": {
-        "description": "Lists events.",
+        "description": "Lists all events in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "events"
         ],
@@ -1860,11 +1821,6 @@ func init() {
     "Command": {
       "type": "object",
       "properties": {
-        "creationTimeMs": {
-          "description": "Timestamp since epoch of a creation of a command.",
-          "type": "integer",
-          "format": "int64"
-        },
         "creatorKey": {
           "description": "User that created the command (by key).",
           "type": "string"
@@ -1900,20 +1856,12 @@ func init() {
           "type": "integer",
           "format": "int64"
         },
-        "lastUpdateTimeMs": {
-          "description": "Timestamp since epoch of last update made to the command.",
-          "type": "integer",
-          "format": "int64"
-        },
         "name": {
           "description": "Full command name, including trait.",
           "type": "string"
         },
         "parameters": {
           "$ref": "#/definitions/CommandParameters"
-        },
-        "progress": {
-          "$ref": "#/definitions/CommandProgress"
         },
         "results": {
           "$ref": "#/definitions/CommandResults"
@@ -1962,7 +1910,7 @@ func init() {
       ]
     },
     "CommandProgress": {
-      "description": "Progress of the command. Will also be included in the events.",
+      "description": "Progress of the command. Will be included in the events as the events are instances of the commands. Shows the current progress of an event. Progress:\n  * aborted - The event is aborted.\n  * cancelled - The event is cancelled.\n  * done - The event is finished correctly.\n  * error - An error occured during the event.\n  * expired - The event is expired.\n  * inProgress - The event is in progress by the Thing.\n  * new - The event is newly added and has not been seen by the Thing.\n  * queued - The event is queued by the Thing and is waiting for execution.\n",
       "type": "string",
       "enum": [
         "aborted",
@@ -1971,6 +1919,7 @@ func init() {
         "error",
         "expired",
         "inProgress",
+        "new",
         "queued"
       ]
     },
@@ -2034,14 +1983,10 @@ func init() {
           "type": "string",
           "format": "uuid"
         },
-        "timeMs": {
-          "description": "Time the event was generated in milliseconds since epoch UTC.",
-          "type": "integer",
-          "format": "int64"
-        },
-        "userkey": {
+        "userKey": {
           "description": "User that caused the event (if applicable).",
-          "type": "string"
+          "type": "string",
+          "format": "uuid"
         }
       }
     },
@@ -2067,10 +2012,10 @@ func init() {
             "commandResults": {
               "$ref": "#/definitions/CommandResults"
             },
-            "eventId": {
-              "description": "UUID of this event",
-              "type": "string",
-              "format": "uuid"
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this event in milliseconds since epoch UTC.",
+              "type": "integer",
+              "format": "int64"
             },
             "id": {
               "description": "ID of the event.",
@@ -2081,6 +2026,11 @@ func init() {
               "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#eventGetResponse\".",
               "type": "string",
               "default": "weaviate#eventGetResponse"
+            },
+            "lastUpdateTimeUnix": {
+              "description": "Timestamp since epoch of last update made to the command.",
+              "type": "integer",
+              "format": "int64"
             }
           }
         }
@@ -2751,7 +2701,7 @@ func init() {
               }
             },
             "thingTemplateId": {
-              "description": "Model manifest ID of this thing.",
+              "description": "Thing template ID of this thing.",
               "type": "string",
               "format": "uuid"
             }
@@ -2831,7 +2781,7 @@ func init() {
           "type": "string"
         },
         "thingModelTemplate": {
-          "description": "Thing model information provided by the model manifest of this thing.",
+          "description": "Thing template information provided by the thing template of this thing.",
           "type": "object",
           "properties": {
             "modelName": {
@@ -2889,7 +2839,7 @@ func init() {
       ]
     },
     "ThingTemplatesListResponse": {
-      "description": "List of model manifests.",
+      "description": "List of thing templates.",
       "type": "object",
       "properties": {
         "kind": {
@@ -2898,14 +2848,14 @@ func init() {
           "default": "weaviate#thingTemplatesListResponse"
         },
         "thingTemplates": {
-          "description": "The actual list of model manifests.",
+          "description": "The actual list of thing templates.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/ThingTemplateGetResponse"
           }
         },
         "totalResults": {
-          "description": "The total number of model manifests for the query. The number of items in a response may be smaller due to paging.",
+          "description": "The total number of thing templates for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
         }

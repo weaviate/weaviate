@@ -10,9 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package groups
+  package groups
 
-
+ 
 // Editing this file might prove futile when you re-run the generate command
 
 import (
@@ -43,7 +43,7 @@ func NewWeaviateGroupsList(ctx *middleware.Context, handler WeaviateGroupsListHa
 
 Get a list of groups related to this key.
 
-Lists all groups.
+Lists all groups in reverse order of creation, owned by the user that belongs to the used token.
 
 */
 type WeaviateGroupsList struct {

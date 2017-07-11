@@ -10,7 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package main
+  package main
 
 import (
 	"log"
@@ -23,8 +23,8 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations"
 )
 
-
-// Make sure not to overwrite this file after you generated it because all your edits would be lost!
+ 
+ 
 
 func main() {
 
