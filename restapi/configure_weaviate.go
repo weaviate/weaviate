@@ -25,7 +25,6 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
-	"time"
 	"unicode"
 
 	jsonpatch "github.com/evanphx/json-patch"
@@ -300,7 +299,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate the key on expiry time
-		currentUnix := time.Now().UnixNano() / int64(time.Millisecond)
+		currentUnix := connector_utils.NowUnix()
 		if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
 			return nil, errors.New(401, "Provided key has been expired.")
 		}
@@ -550,15 +549,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return events.NewWeaviateEventsPatchUnprocessableEntity()
 		}
 
-		// Set patched JSON back in dbObject
-		dbObject.Object = string(updatedJSON)
+		// Update the last updated time in the response object
+		responseObject := &models.EventGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &responseObject)
+		responseObject.LastUpdateTimeUnix = connector_utils.NowUnix()
 
+		// Set patched JSON back in dbObject
+		updatedJSONWithTime, _ := json.Marshal(responseObject)
+		dbObject.Object = string(updatedJSONWithTime)
+
+		// Add create time
 		dbObject.SetCreateTimeMsToNow()
 		go databaseConnector.Add(dbObject)
 
 		// Create return Object
-		responseObject := &models.EventGetResponse{}
-		json.Unmarshal([]byte(updatedJSON), &responseObject)
 		responseObject.ID = strfmt.UUID(dbObject.Uuid)
 		responseObject.Kind = getKind(responseObject)
 
@@ -591,15 +595,22 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Initialize a response object
 		responseObject := &models.EventGetResponse{}
+		json.Unmarshal([]byte(dbObject.Object), responseObject)
+		responseObject.CreationTimeUnix = connector_utils.NowUnix()
+		responseObject.CommandProgress = "new"
+		responseObject.ThingID = thingID
+		responseObject.UserKey = strfmt.UUID(dbObject.Owner)
+
+		// Put data back into object
+		objectJSON, _ := json.Marshal(responseObject)
+		dbObject.Object = string(objectJSON)
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
 		go databaseConnector.Add(dbObject)
 
 		// Add vars to response Object from create object.
-		json.Unmarshal([]byte(dbObject.Object), responseObject)
 		responseObject.ID = strfmt.UUID(dbObject.Uuid)
 		responseObject.Kind = getKind(responseObject)
-		responseObject.ThingID = thingID
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return events.NewWeaviateThingsEventsCreateAccepted().WithPayload(responseObject)
@@ -857,7 +868,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		newUsersObject.Parent = currentUsersObject.Uuid
 
 		// Key expiry time is in the past
-		currentUnix := time.Now().UnixNano() / int64(time.Millisecond)
+		currentUnix := connector_utils.NowUnix()
 		if newUsersObject.KeyExpiresUnix != -1 && newUsersObject.KeyExpiresUnix < currentUnix {
 			println("past")
 			return keys.NewWeaviateKeyCreateUnprocessableEntity()

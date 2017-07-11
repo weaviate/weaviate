@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/models"
 	"sort"
 	"strconv"
@@ -281,7 +282,7 @@ func Test__weaviate_key_create_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Create create request with a key that will expire soon
-	unixTimeExpire = time.Now().UnixNano() / int64(time.Millisecond)
+	unixTimeExpire = connector_utils.NowUnix()
 	jsonStrNewKeySoonExpire := bytes.NewBuffer([]byte(`{
 		"delete": false,
 		"email": "expiredkey",
@@ -1791,6 +1792,25 @@ func Test__weaviate_events_things_create_JSON(t *testing.T) {
 	eventID = string(respObject.ID)
 	testIDFormat(t, eventID)
 
+	// Check event progress is set to 'new'
+	testValues(t, "new", string(respObject.CommandProgress))
+
+	// Check thing is set to known ThingID
+	testID(t, string(respObject.ThingID), thingID)
+
+	// Check set user key is rootID
+	testID(t, string(respObject.UserKey), rootID)
+
+	// Check given creation time is after now, but not in the future
+	now := connector_utils.NowUnix()
+	if respObject.CreationTimeUnix > now {
+		t.Errorf("CreationTimeUnix is incorrect, it was set in the future.")
+	}
+
+	if respObject.CreationTimeUnix < now-2000 {
+		t.Errorf("CreationTimeUnix is incorrect, it was set to far back.")
+	}
+
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#eventGetResponse")
 
@@ -1863,7 +1883,7 @@ func Test__weaviate_event_patch_JSON(t *testing.T) {
 	// Create patch request
 	newValue := "queued"
 
-	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "add", "path": "/commandProgress", "value": "` + newValue + `"}]`))
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/commandProgress", "value": "` + newValue + `"}]`))
 	response := doRequest("/events/"+eventID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
@@ -1879,6 +1899,16 @@ func Test__weaviate_event_patch_JSON(t *testing.T) {
 
 	// Check name after patch
 	testValues(t, newValue, string(respObject.CommandProgress))
+
+	// Check given creation time is after now, but not in the future
+	now := connector_utils.NowUnix()
+	if respObject.LastUpdateTimeUnix > now {
+		t.Errorf("LastUpdateTimeUnix is incorrect, it was set in the future.")
+	}
+
+	if respObject.LastUpdateTimeUnix < now-2000 {
+		t.Errorf("LastUpdateTimeUnix is incorrect, it was set to far back.")
+	}
 
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#eventGetResponse")
