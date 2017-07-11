@@ -10,7 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package restapi
+  package restapi
 
 import (
 	"crypto/tls"

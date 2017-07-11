@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package operations
+  package operations
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	"fmt"
@@ -84,6 +84,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		EventsWeaviateEventsGetHandler: events.WeaviateEventsGetHandlerFunc(func(params events.WeaviateEventsGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation EventsWeaviateEventsGet has not yet been implemented")
 		}),
+		EventsWeaviateEventsPatchHandler: events.WeaviateEventsPatchHandlerFunc(func(params events.WeaviateEventsPatchParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation EventsWeaviateEventsPatch has not yet been implemented")
+		}),
 		EventsWeaviateEventsValidateHandler: events.WeaviateEventsValidateHandlerFunc(func(params events.WeaviateEventsValidateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation EventsWeaviateEventsValidate has not yet been implemented")
 		}),
@@ -92,12 +95,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		GroupsWeaviateGroupsDeleteHandler: groups.WeaviateGroupsDeleteHandlerFunc(func(params groups.WeaviateGroupsDeleteParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation GroupsWeaviateGroupsDelete has not yet been implemented")
-		}),
-		EventsWeaviateGroupsEventsCreateHandler: events.WeaviateGroupsEventsCreateHandlerFunc(func(params events.WeaviateGroupsEventsCreateParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation EventsWeaviateGroupsEventsCreate has not yet been implemented")
-		}),
-		EventsWeaviateGroupsEventsListHandler: events.WeaviateGroupsEventsListHandlerFunc(func(params events.WeaviateGroupsEventsListParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation EventsWeaviateGroupsEventsList has not yet been implemented")
 		}),
 		GroupsWeaviateGroupsGetHandler: groups.WeaviateGroupsGetHandlerFunc(func(params groups.WeaviateGroupsGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation GroupsWeaviateGroupsGet has not yet been implemented")
@@ -257,16 +254,14 @@ type WeaviateAPI struct {
 	CommandsWeaviateCommandsUpdateHandler commands.WeaviateCommandsUpdateHandler
 	// EventsWeaviateEventsGetHandler sets the operation handler for the weaviate events get operation
 	EventsWeaviateEventsGetHandler events.WeaviateEventsGetHandler
+	// EventsWeaviateEventsPatchHandler sets the operation handler for the weaviate events patch operation
+	EventsWeaviateEventsPatchHandler events.WeaviateEventsPatchHandler
 	// EventsWeaviateEventsValidateHandler sets the operation handler for the weaviate events validate operation
 	EventsWeaviateEventsValidateHandler events.WeaviateEventsValidateHandler
 	// GroupsWeaviateGroupsCreateHandler sets the operation handler for the weaviate groups create operation
 	GroupsWeaviateGroupsCreateHandler groups.WeaviateGroupsCreateHandler
 	// GroupsWeaviateGroupsDeleteHandler sets the operation handler for the weaviate groups delete operation
 	GroupsWeaviateGroupsDeleteHandler groups.WeaviateGroupsDeleteHandler
-	// EventsWeaviateGroupsEventsCreateHandler sets the operation handler for the weaviate groups events create operation
-	EventsWeaviateGroupsEventsCreateHandler events.WeaviateGroupsEventsCreateHandler
-	// EventsWeaviateGroupsEventsListHandler sets the operation handler for the weaviate groups events list operation
-	EventsWeaviateGroupsEventsListHandler events.WeaviateGroupsEventsListHandler
 	// GroupsWeaviateGroupsGetHandler sets the operation handler for the weaviate groups get operation
 	GroupsWeaviateGroupsGetHandler groups.WeaviateGroupsGetHandler
 	// GroupsWeaviateGroupsListHandler sets the operation handler for the weaviate groups list operation
@@ -472,6 +467,10 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "events.WeaviateEventsGetHandler")
 	}
 
+	if o.EventsWeaviateEventsPatchHandler == nil {
+		unregistered = append(unregistered, "events.WeaviateEventsPatchHandler")
+	}
+
 	if o.EventsWeaviateEventsValidateHandler == nil {
 		unregistered = append(unregistered, "events.WeaviateEventsValidateHandler")
 	}
@@ -482,14 +481,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.GroupsWeaviateGroupsDeleteHandler == nil {
 		unregistered = append(unregistered, "groups.WeaviateGroupsDeleteHandler")
-	}
-
-	if o.EventsWeaviateGroupsEventsCreateHandler == nil {
-		unregistered = append(unregistered, "events.WeaviateGroupsEventsCreateHandler")
-	}
-
-	if o.EventsWeaviateGroupsEventsListHandler == nil {
-		unregistered = append(unregistered, "events.WeaviateGroupsEventsListHandler")
 	}
 
 	if o.GroupsWeaviateGroupsGetHandler == nil {
@@ -783,6 +774,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	}
 	o.handlers["GET"]["/events/{eventId}"] = events.NewWeaviateEventsGet(o.context, o.EventsWeaviateEventsGetHandler)
 
+	if o.handlers["PATCH"] == nil {
+		o.handlers["PATCH"] = make(map[string]http.Handler)
+	}
+	o.handlers["PATCH"]["/events/{eventId}"] = events.NewWeaviateEventsPatch(o.context, o.EventsWeaviateEventsPatchHandler)
+
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -797,16 +793,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/groups/{groupId}"] = groups.NewWeaviateGroupsDelete(o.context, o.GroupsWeaviateGroupsDeleteHandler)
-
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
-	o.handlers["POST"]["/groups/{groupId}/events"] = events.NewWeaviateGroupsEventsCreate(o.context, o.EventsWeaviateGroupsEventsCreateHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/groups/{groupId}/events"] = events.NewWeaviateGroupsEventsList(o.context, o.EventsWeaviateGroupsEventsListHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)

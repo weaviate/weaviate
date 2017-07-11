@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package thing_templates
+  package thing_templates
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	"net/http"
@@ -40,7 +40,7 @@ type WeaviateThingTemplatesGetParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request
 
-	/*Unique ID of the model manifest.
+	/*Unique ID of the thing template.
 	  Required: true
 	  In: path
 	*/

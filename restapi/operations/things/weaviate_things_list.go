@@ -10,9 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package things
+  package things
 
-
+ 
 // Editing this file might prove futile when you re-run the generate command
 
 import (
@@ -43,7 +43,7 @@ func NewWeaviateThingsList(ctx *middleware.Context, handler WeaviateThingsListHa
 
 Get a list of things related to this key.
 
-Lists all things user has access to.
+Lists all things in reverse order of creation, owned by the user that belongs to the used token.
 
 */
 type WeaviateThingsList struct {

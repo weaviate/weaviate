@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package models
+  package models
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	strfmt "github.com/go-openapi/strfmt"
@@ -25,9 +25,6 @@ import (
 // Command command
 // swagger:model Command
 type Command struct {
-
-	// Timestamp since epoch of a creation of a command.
-	CreationTimeMs int64 `json:"creationTimeMs,omitempty"`
 
 	// User that created the command (by key).
 	CreatorKey string `json:"creatorKey,omitempty"`
@@ -41,17 +38,11 @@ type Command struct {
 	// Expiration timeout for the command since its creation, 10 seconds min, 30 days max.
 	ExpirationTimeoutMs int64 `json:"expirationTimeoutMs,omitempty"`
 
-	// Timestamp since epoch of last update made to the command.
-	LastUpdateTimeMs int64 `json:"lastUpdateTimeMs,omitempty"`
-
 	// Full command name, including trait.
 	Name string `json:"name,omitempty"`
 
 	// parameters
 	Parameters *CommandParameters `json:"parameters,omitempty"`
-
-	// progress
-	Progress CommandProgress `json:"progress,omitempty"`
 
 	// results
 	Results *CommandResults `json:"results,omitempty"`
@@ -65,11 +56,6 @@ func (m *Command) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateError(formats); err != nil {
-		// prop
-		res = append(res, err)
-	}
-
-	if err := m.validateProgress(formats); err != nil {
 		// prop
 		res = append(res, err)
 	}
@@ -94,22 +80,6 @@ func (m *Command) validateError(formats strfmt.Registry) error {
 			}
 			return err
 		}
-	}
-
-	return nil
-}
-
-func (m *Command) validateProgress(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Progress) { // not required
-		return nil
-	}
-
-	if err := m.Progress.Validate(formats); err != nil {
-		if ve, ok := err.(*errors.Validation); ok {
-			return ve.ValidateName("progress")
-		}
-		return err
 	}
 
 	return nil

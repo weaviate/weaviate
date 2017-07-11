@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package models
+  package models
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	strfmt "github.com/go-openapi/strfmt"
@@ -84,7 +84,7 @@ func (m *ThingTemplate) validateThingModelTemplate(formats strfmt.Registry) erro
 	return nil
 }
 
-// ThingTemplateThingModelTemplate Thing model information provided by the model manifest of this thing.
+// ThingTemplateThingModelTemplate Thing template information provided by the thing template of this thing.
 // swagger:model ThingTemplateThingModelTemplate
 type ThingTemplateThingModelTemplate struct {
 

@@ -10,7 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- /*Package restapi Weaviate API and MQTT Ubiquitous Computing platform.
+  /*Package restapi Weaviate API and MQTT Ubiquitous Computing platform.
 
 Ubiquitous Computing (& Internet of Things) platform that lets you manage cloud ready things directly or by proxy. More info: https://github.com/weaviate/weaviate
 
@@ -19,7 +19,7 @@ Ubiquitous Computing (& Internet of Things) platform that lets you manage cloud 
       https
     Host: localhost
     BasePath: /weaviate/v1
-    Version: v0.2.7
+    Version: v0.2.9
     Contact: Weaviate<bob@weaviate.com> https://github.com/weaviate/weaviate
 
     Consumes:

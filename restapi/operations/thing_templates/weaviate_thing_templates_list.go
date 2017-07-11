@@ -10,9 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package thing_templates
+  package thing_templates
 
-
+ 
 // Editing this file might prove futile when you re-run the generate command
 
 import (
@@ -43,7 +43,7 @@ func NewWeaviateThingTemplatesList(ctx *middleware.Context, handler WeaviateThin
 
 Get a list of thing template related to this key.
 
-Lists all model manifests.
+Lists all thing templates in reverse order of creation, owned by the user that belongs to the used token.
 
 */
 type WeaviateThingTemplatesList struct {

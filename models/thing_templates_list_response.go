@@ -10,10 +10,10 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package models
+  package models
 
-
-
+ 
+// Editing this file might prove futile when you re-run the swagger generate command
 
 import (
 	"strconv"
@@ -24,17 +24,17 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ThingTemplatesListResponse List of model manifests.
+// ThingTemplatesListResponse List of thing templates.
 // swagger:model ThingTemplatesListResponse
 type ThingTemplatesListResponse struct {
 
 	// Identifies what kind of resource this is. Value: the fixed string "weaviate#thingTemplatesListResponse".
 	Kind *string `json:"kind,omitempty"`
 
-	// The actual list of model manifests.
+	// The actual list of thing templates.
 	ThingTemplates []*ThingTemplateGetResponse `json:"thingTemplates"`
 
-	// The total number of model manifests for the query. The number of items in a response may be smaller due to paging.
+	// The total number of thing templates for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int64 `json:"totalResults,omitempty"`
 }
 

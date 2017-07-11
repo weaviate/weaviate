@@ -10,9 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
- package thing_templates
+  package thing_templates
 
-
+ 
 // Editing this file might prove futile when you re-run the generate command
 
 import (
@@ -43,7 +43,7 @@ func NewWeaviateThingTemplatesDelete(ctx *middleware.Context, handler WeaviateTh
 
 Delete a thing template based on its uuid related to this key.
 
-Deletes a particular model manifest.
+Deletes a particular thing template.
 
 */
 type WeaviateThingTemplatesDelete struct {
