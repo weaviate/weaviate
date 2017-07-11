@@ -55,7 +55,7 @@ func init() {
       "url": "https://github.com/weaviate/weaviate",
       "email": "bob@weaviate.com"
     },
-    "version": "v0.2.9"
+    "version": "v0.2.11"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -1964,6 +1964,45 @@ func init() {
     },
     "Event": {
       "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/EventCreate"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "commandProgress": {
+              "$ref": "#/definitions/CommandProgress"
+            },
+            "commandResults": {
+              "$ref": "#/definitions/CommandResults"
+            },
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this event in milliseconds since epoch UTC.",
+              "type": "integer",
+              "format": "int64"
+            },
+            "lastUpdateTimeUnix": {
+              "description": "Timestamp since epoch of last update made to the command.",
+              "type": "integer",
+              "format": "int64"
+            },
+            "thingId": {
+              "description": "Thing id.",
+              "type": "string",
+              "format": "uuid"
+            },
+            "userKey": {
+              "description": "User that caused the event (if applicable).",
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      ]
+    },
+    "EventCreate": {
+      "type": "object",
       "properties": {
         "command": {
           "type": "object",
@@ -1977,26 +2016,8 @@ func init() {
           "description": "Command id.",
           "type": "string",
           "format": "uuid"
-        },
-        "thingId": {
-          "description": "Thing id.",
-          "type": "string",
-          "format": "uuid"
-        },
-        "userKey": {
-          "description": "User that caused the event (if applicable).",
-          "type": "string",
-          "format": "uuid"
         }
       }
-    },
-    "EventCreate": {
-      "type": "object",
-      "allOf": [
-        {
-          "$ref": "#/definitions/Event"
-        }
-      ]
     },
     "EventGetResponse": {
       "type": "object",
@@ -2006,17 +2027,6 @@ func init() {
         },
         {
           "properties": {
-            "commandProgress": {
-              "$ref": "#/definitions/CommandProgress"
-            },
-            "commandResults": {
-              "$ref": "#/definitions/CommandResults"
-            },
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this event in milliseconds since epoch UTC.",
-              "type": "integer",
-              "format": "int64"
-            },
             "id": {
               "description": "ID of the event.",
               "type": "string",
@@ -2026,11 +2036,6 @@ func init() {
               "description": "Identifies what kind of resource this is. Value: the fixed string \"weaviate#eventGetResponse\".",
               "type": "string",
               "default": "weaviate#eventGetResponse"
-            },
-            "lastUpdateTimeUnix": {
-              "description": "Timestamp since epoch of last update made to the command.",
-              "type": "integer",
-              "format": "int64"
             }
           }
         }
