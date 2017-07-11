@@ -398,8 +398,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
+		// Get user out of principal
+		usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
 		// List all results
-		commandsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeCommand, limit, page, nil)
+		commandsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeCommand, usersObject.Uuid, limit, page, nil)
 
 		// Convert to an response object
 		responseObject := &models.CommandsListResponse{}
@@ -569,10 +572,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get limit and page
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
+
+		// Set reference filter object
 		referenceFilter := &connector_utils.ObjectReferences{ThingID: params.ThingID}
 
+		// Get user out of principal
+		usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
 		// List all results
-		eventsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeEvent, limit, page, referenceFilter)
+		eventsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeEvent, usersObject.Uuid, limit, page, referenceFilter)
 
 		// Convert to an response object
 		responseObject := &models.EventsListResponse{}
@@ -676,8 +684,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
+		// Get user out of principal
+		usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
 		// List all results
-		groupsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeGroup, limit, page, nil)
+		groupsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeGroup, usersObject.Uuid, limit, page, nil)
 
 		// Convert to an response object
 		responseObject := &models.GroupsListResponse{}
@@ -1046,7 +1057,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return locations.NewWeaviateLocationsCreateAccepted().WithPayload(responseObject)
 	})
 	api.LocationsWeaviateLocationsListHandler = locations.WeaviateLocationsListHandlerFunc(func(params locations.WeaviateLocationsListParams, principal interface{}) middleware.Responder {
-
 		// This is a read function, validate if allowed to read?
 		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed {
 			return locations.NewWeaviateLocationsListForbidden()
@@ -1056,8 +1066,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
+		// Get user out of principal
+		usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
 		// List all results
-		locationDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeLocation, limit, page, nil)
+		locationDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeLocation, usersObject.Uuid, limit, page, nil)
 
 		// Convert to an response object
 		responseObject := &models.LocationsListResponse{}
@@ -1239,8 +1252,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
+		// Get user out of principal
+		usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
 		// List all results
-		thingTemplatesDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThingTemplate, limit, page, nil)
+		thingTemplatesDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThingTemplate, usersObject.Uuid, limit, page, nil)
 
 		// Convert to an response object
 		responseObject := &models.ThingTemplatesListResponse{}
@@ -1421,8 +1437,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
+		// Get user out of principal
+		usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
 		// List all results
-		thingDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThing, limit, page, nil)
+		thingDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThing, usersObject.Uuid, limit, page, nil)
 
 		// Convert to an response object
 		responseObject := &models.ThingsListResponse{}
