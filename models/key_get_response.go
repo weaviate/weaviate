@@ -10,10 +10,12 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-  package models
+   
+
+package models
 
  
-// Editing this file might prove futile when you re-run the swagger generate command
+ 
 
 import (
 	strfmt "github.com/go-openapi/strfmt"
@@ -110,5 +112,23 @@ func (m *KeyGetResponse) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *KeyGetResponse) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *KeyGetResponse) UnmarshalBinary(b []byte) error {
+	var res KeyGetResponse
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
 	return nil
 }

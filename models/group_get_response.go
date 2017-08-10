@@ -10,10 +10,12 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-  package models
+   
+
+package models
 
  
-// Editing this file might prove futile when you re-run the swagger generate command
+ 
 
 import (
 	"strconv"
@@ -146,6 +148,24 @@ func (m *GroupGetResponse) validateIds(formats strfmt.Registry) error {
 	return nil
 }
 
+// MarshalBinary interface implementation
+func (m *GroupGetResponse) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *GroupGetResponse) UnmarshalBinary(b []byte) error {
+	var res GroupGetResponse
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
 // GroupGetResponseIdsItems0 group get response ids items0
 // swagger:model GroupGetResponseIdsItems0
 type GroupGetResponseIdsItems0 struct {
@@ -223,5 +243,23 @@ func (m *GroupGetResponseIdsItems0) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *GroupGetResponseIdsItems0) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *GroupGetResponseIdsItems0) UnmarshalBinary(b []byte) error {
+	var res GroupGetResponseIdsItems0
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
 	return nil
 }

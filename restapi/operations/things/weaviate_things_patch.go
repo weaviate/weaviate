@@ -10,7 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-  package things
+   
+
+package things
 
  
 // Editing this file might prove futile when you re-run the generate command
@@ -52,13 +54,19 @@ type WeaviateThingsPatch struct {
 }
 
 func (o *WeaviateThingsPatch) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
-	route, _ := o.Context.RouteInfo(r)
+	route, rCtx, _ := o.Context.RouteInfo(r)
+	if rCtx != nil {
+		r = rCtx
+	}
 	var Params = NewWeaviateThingsPatchParams()
 
-	uprinc, err := o.Context.Authorize(r, route)
+	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
+	}
+	if aCtx != nil {
+		r = aCtx
 	}
 	var principal interface{}
 	if uprinc != nil {

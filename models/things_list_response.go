@@ -10,10 +10,12 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-  package models
+   
+
+package models
 
  
-// Editing this file might prove futile when you re-run the swagger generate command
+ 
 
 import (
 	"strconv"
@@ -77,5 +79,23 @@ func (m *ThingsListResponse) validateThings(formats strfmt.Registry) error {
 
 	}
 
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *ThingsListResponse) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *ThingsListResponse) UnmarshalBinary(b []byte) error {
+	var res ThingsListResponse
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
 	return nil
 }

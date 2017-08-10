@@ -10,21 +10,32 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-  package models
+   
+
+package models
 
  
-// Editing this file might prove futile when you re-run the swagger generate command
+ 
 
 import (
+	"encoding/json"
+
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // ThingTemplate thing template
 // swagger:model ThingTemplate
 type ThingTemplate struct {
+
+	// Available context. For now only schema.org
+	AtContext string `json:"@context,omitempty"`
+
+	// at schema
+	AtSchema Schema `json:"@schema,omitempty"`
 
 	// The id of the commands that this device is able to execute.
 	CommandsIds []strfmt.UUID `json:"commandsIds"`
@@ -40,6 +51,11 @@ type ThingTemplate struct {
 func (m *ThingTemplate) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateAtContext(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
 	if err := m.validateCommandsIds(formats); err != nil {
 		// prop
 		res = append(res, err)
@@ -53,6 +69,45 @@ func (m *ThingTemplate) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+var thingTemplateTypeAtContextPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["http://schema.org"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		thingTemplateTypeAtContextPropEnum = append(thingTemplateTypeAtContextPropEnum, v)
+	}
+}
+
+const (
+	// ThingTemplateAtContextHTTPSchemaOrg captures enum value "http://schema.org"
+	ThingTemplateAtContextHTTPSchemaOrg string = "http://schema.org"
+)
+
+// prop value enum
+func (m *ThingTemplate) validateAtContextEnum(path, location string, value string) error {
+	if err := validate.Enum(path, location, value, thingTemplateTypeAtContextPropEnum); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *ThingTemplate) validateAtContext(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.AtContext) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateAtContextEnum("@context", "body", m.AtContext); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -81,6 +136,24 @@ func (m *ThingTemplate) validateThingModelTemplate(formats strfmt.Registry) erro
 		}
 	}
 
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *ThingTemplate) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *ThingTemplate) UnmarshalBinary(b []byte) error {
+	var res ThingTemplate
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
 	return nil
 }
 
@@ -114,5 +187,23 @@ func (m *ThingTemplateThingModelTemplate) Validate(formats strfmt.Registry) erro
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *ThingTemplateThingModelTemplate) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *ThingTemplateThingModelTemplate) UnmarshalBinary(b []byte) error {
+	var res ThingTemplateThingModelTemplate
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
 	return nil
 }
