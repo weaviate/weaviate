@@ -10,10 +10,12 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-  package models
+   
+
+package models
 
  
-// Editing this file might prove futile when you re-run the swagger generate command
+ 
 
 import (
 	"strconv"
@@ -170,6 +172,24 @@ func (m *Location) validateTypes(formats strfmt.Registry) error {
 	return nil
 }
 
+// MarshalBinary interface implementation
+func (m *Location) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *Location) UnmarshalBinary(b []byte) error {
+	var res Location
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
 // LocationAddressComponentsItems0 location address components items0
 // swagger:model LocationAddressComponentsItems0
 type LocationAddressComponentsItems0 struct {
@@ -216,6 +236,24 @@ func (m *LocationAddressComponentsItems0) validateTypes(formats strfmt.Registry)
 
 	}
 
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *LocationAddressComponentsItems0) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *LocationAddressComponentsItems0) UnmarshalBinary(b []byte) error {
+	var res LocationAddressComponentsItems0
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
 	return nil
 }
 
@@ -291,6 +329,24 @@ func (m *LocationGeometry) validateViewport(formats strfmt.Registry) error {
 	return nil
 }
 
+// MarshalBinary interface implementation
+func (m *LocationGeometry) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *LocationGeometry) UnmarshalBinary(b []byte) error {
+	var res LocationGeometry
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
 // LocationGeometryLocation Location coordinates.
 // swagger:model LocationGeometryLocation
 type LocationGeometryLocation struct {
@@ -315,6 +371,24 @@ func (m *LocationGeometryLocation) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *LocationGeometryLocation) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *LocationGeometryLocation) UnmarshalBinary(b []byte) error {
+	var res LocationGeometryLocation
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
 	return nil
 }
 
@@ -387,6 +461,24 @@ func (m *LocationGeometryViewport) validateSouthwest(formats strfmt.Registry) er
 	return nil
 }
 
+// MarshalBinary interface implementation
+func (m *LocationGeometryViewport) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *LocationGeometryViewport) UnmarshalBinary(b []byte) error {
+	var res LocationGeometryViewport
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
 // LocationGeometryViewportNortheast Northeast corner coordinates.
 // swagger:model LocationGeometryViewportNortheast
 type LocationGeometryViewportNortheast struct {
@@ -408,6 +500,24 @@ func (m *LocationGeometryViewportNortheast) Validate(formats strfmt.Registry) er
 	return nil
 }
 
+// MarshalBinary interface implementation
+func (m *LocationGeometryViewportNortheast) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *LocationGeometryViewportNortheast) UnmarshalBinary(b []byte) error {
+	var res LocationGeometryViewportNortheast
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
 // LocationGeometryViewportSouthwest Southwest corner coordinates.
 // swagger:model LocationGeometryViewportSouthwest
 type LocationGeometryViewportSouthwest struct {
@@ -426,5 +536,23 @@ func (m *LocationGeometryViewportSouthwest) Validate(formats strfmt.Registry) er
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *LocationGeometryViewportSouthwest) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *LocationGeometryViewportSouthwest) UnmarshalBinary(b []byte) error {
+	var res LocationGeometryViewportSouthwest
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
 	return nil
 }

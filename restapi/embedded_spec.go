@@ -10,10 +10,12 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-  package restapi
+   
+
+package restapi
 
  
-// Editing this file might prove futile when you re-run the swagger generate command
+ 
 
 import (
 	"encoding/json"
@@ -55,7 +57,7 @@ func init() {
       "url": "https://github.com/weaviate/weaviate",
       "email": "bob@weaviate.com"
     },
-    "version": "v0.2.11"
+    "version": "v0.3.0"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -447,6 +449,22 @@ func init() {
           "422": {
             "description": "The patch-JSON is valid but unprocessable."
           },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false
+      }
+    },
+    "/graphql": {
+      "get": {
+        "description": "Get results based on GraphQL",
+        "tags": [
+          "graphql"
+        ],
+        "summary": "Get a response based on GraphQL",
+        "operationId": "weavaite.graphql.get",
+        "responses": {
           "501": {
             "description": "Not (yet) implemented."
           }
@@ -2641,6 +2659,12 @@ func init() {
         }
       }
     },
+    "Schema": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/JsonObject"
+      }
+    },
     "Thing": {
       "allOf": [
         {
@@ -2773,6 +2797,16 @@ func init() {
     "ThingTemplate": {
       "type": "object",
       "properties": {
+        "@context": {
+          "description": "Available context. For now only schema.org",
+          "type": "string",
+          "enum": [
+            "http://schema.org"
+          ]
+        },
+        "@schema": {
+          "$ref": "#/definitions/Schema"
+        },
         "commandsIds": {
           "description": "The id of the commands that this device is able to execute.",
           "type": "array",
@@ -2935,6 +2969,9 @@ func init() {
     },
     {
       "name": "groups"
+    },
+    {
+      "name": "graphql"
     },
     {
       "name": "locations"

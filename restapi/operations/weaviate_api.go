@@ -10,10 +10,12 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-  package operations
+   
+
+package operations
 
  
-// Editing this file might prove futile when you re-run the swagger generate command
+ 
 
 import (
 	"fmt"
@@ -32,6 +34,7 @@ import (
 
 	"github.com/weaviate/weaviate/restapi/operations/commands"
 	"github.com/weaviate/weaviate/restapi/operations/events"
+	"github.com/weaviate/weaviate/restapi/operations/graphql"
 	"github.com/weaviate/weaviate/restapi/operations/groups"
 	"github.com/weaviate/weaviate/restapi/operations/keys"
 	"github.com/weaviate/weaviate/restapi/operations/locations"
@@ -49,6 +52,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ServerShutdown:        func() {},
 		spec:                  spec,
 		ServeError:            errors.ServeError,
+		BasicAuthenticator:    security.BasicAuth,
+		APIKeyAuthenticator:   security.APIKeyAuth,
+		BearerAuthenticator:   security.BearerAuth,
 		JSONConsumer:          runtime.JSONConsumer(),
 		BinConsumer:           runtime.ByteStreamConsumer(),
 		UrlformConsumer:       runtime.DiscardConsumer,
@@ -63,6 +69,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		XMLProducer:           runtime.XMLProducer(),
 		MultipartformProducer: runtime.DiscardProducer,
 		TxtProducer:           runtime.TextProducer(),
+		GraphqlWeavaiteGraphqlGetHandler: graphql.WeavaiteGraphqlGetHandlerFunc(func(params graphql.WeavaiteGraphqlGetParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation GraphqlWeavaiteGraphqlGet has not yet been implemented")
+		}),
 		CommandsWeaviateCommandsCreateHandler: commands.WeaviateCommandsCreateHandlerFunc(func(params commands.WeaviateCommandsCreateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation CommandsWeaviateCommandsCreate has not yet been implemented")
 		}),
@@ -206,6 +215,17 @@ type WeaviateAPI struct {
 	defaultConsumes string
 	defaultProduces string
 	Middleware      func(middleware.Builder) http.Handler
+
+	// BasicAuthenticator generates a runtime.Authenticator from the supplied basic auth function.
+	// It has a default implemention in the security package, however you can replace it for your particular usage.
+	BasicAuthenticator func(security.UserPassAuthentication) runtime.Authenticator
+	// APIKeyAuthenticator generates a runtime.Authenticator from the supplied token auth function.
+	// It has a default implemention in the security package, however you can replace it for your particular usage.
+	APIKeyAuthenticator func(string, string, security.TokenAuthentication) runtime.Authenticator
+	// BearerAuthenticator generates a runtime.Authenticator from the supplied bearer token auth function.
+	// It has a default implemention in the security package, however you can replace it for your particular usage.
+	BearerAuthenticator func(string, security.ScopedTokenAuthentication) runtime.Authenticator
+
 	// JSONConsumer registers a consumer for a "application/json" mime type
 	JSONConsumer runtime.Consumer
 	// BinConsumer registers a consumer for a "application/octet-stream" mime type
@@ -240,6 +260,8 @@ type WeaviateAPI struct {
 	// it performs authentication based on an api key X-API-KEY provided in the header
 	APIKeyAuth func(string) (interface{}, error)
 
+	// GraphqlWeavaiteGraphqlGetHandler sets the operation handler for the weavaite graphql get operation
+	GraphqlWeavaiteGraphqlGetHandler graphql.WeavaiteGraphqlGetHandler
 	// CommandsWeaviateCommandsCreateHandler sets the operation handler for the weaviate commands create operation
 	CommandsWeaviateCommandsCreateHandler commands.WeaviateCommandsCreateHandler
 	// CommandsWeaviateCommandsDeleteHandler sets the operation handler for the weaviate commands delete operation
@@ -439,6 +461,10 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "XAPIKEYAuth")
 	}
 
+	if o.GraphqlWeavaiteGraphqlGetHandler == nil {
+		unregistered = append(unregistered, "graphql.WeavaiteGraphqlGetHandler")
+	}
+
 	if o.CommandsWeaviateCommandsCreateHandler == nil {
 		unregistered = append(unregistered, "commands.WeaviateCommandsCreateHandler")
 	}
@@ -628,7 +654,7 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 
 		case "apiKey":
 
-			result[name] = security.APIKeyAuth(scheme.Name, scheme.In, o.APIKeyAuth)
+			result[name] = o.APIKeyAuthenticator(scheme.Name, scheme.In, o.APIKeyAuth)
 
 		}
 	}
@@ -738,6 +764,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers == nil {
 		o.handlers = make(map[string]map[string]http.Handler)
 	}
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/graphql"] = graphql.NewWeavaiteGraphqlGet(o.context, o.GraphqlWeavaiteGraphqlGetHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

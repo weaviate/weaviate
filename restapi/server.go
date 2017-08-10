@@ -10,7 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-  package restapi
+   
+
+package restapi
 
 import (
 	"crypto/tls"
@@ -264,9 +266,9 @@ func (s *Server) Serve() (err error) {
 		}
 
 		if s.TLSCACertificate != "" {
-			caCert, err := ioutil.ReadFile(string(s.TLSCACertificate))
-			if err != nil {
-				log.Fatal(err)
+			caCert, caCertErr := ioutil.ReadFile(string(s.TLSCACertificate))
+			if caCertErr != nil {
+				log.Fatal(caCertErr)
 			}
 			caCertPool := x509.NewCertPool()
 			caCertPool.AppendCertsFromPEM(caCert)

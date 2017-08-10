@@ -10,10 +10,12 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-  package models
+   
+
+package models
 
  
-// Editing this file might prove futile when you re-run the swagger generate command
+ 
 
 import (
 	strfmt "github.com/go-openapi/strfmt"
@@ -85,6 +87,24 @@ func (m *Command) validateError(formats strfmt.Registry) error {
 	return nil
 }
 
+// MarshalBinary interface implementation
+func (m *Command) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *Command) UnmarshalBinary(b []byte) error {
+	var res Command
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
 // CommandError Error descriptor.
 // swagger:model CommandError
 type CommandError struct {
@@ -120,5 +140,23 @@ func (m *CommandError) validateArguments(formats strfmt.Registry) error {
 		return nil
 	}
 
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *CommandError) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *CommandError) UnmarshalBinary(b []byte) error {
+	var res CommandError
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
 	return nil
 }
