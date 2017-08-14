@@ -1,14 +1,29 @@
+project_name: weaviate
 builds:
-  - binary: drum-roll
+  - binary: weaviate
     goos:
+      - android
+      - dragonfly
+      - freebsd
+      - openbsd
+      - plan9
+      - solaris
       - windows
       - darwin
       - linux
+      - netbsd
     goarch:
       - amd64
+      - arm64
+      - ppc64
+      - ppc64le
+      - mips
+      - mipsle
+      - mips64
+      - mips64le
+      - arm
 archive:
   format: tar.gz
-  replacements:
-    amd64: 64-bit
-    darwin: macOS
-    linux: Tux
+  name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+snapshot:
+  name_template: SNAPSHOT-{{.Commit}}
