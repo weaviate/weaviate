@@ -8,7 +8,8 @@
             "schemas": {
                 "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
                 "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
-            }
+            },
+            "mqttEnabled": true
         },
         {
             "name": "test",
@@ -18,7 +19,8 @@
             "schemas": {
                 "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
                 "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
-            }
+            },
+            "mqttEnabled": false
         }
     ]
 }
