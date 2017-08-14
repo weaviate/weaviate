@@ -1,0 +1,169 @@
+hash: a33099f488b599810c31842cfe61438382b4997212b3e814ca3737a507f369a2
+updated: 2017-08-14T11:58:00.405005964+02:00
+imports:
+- name: cloud.google.com/go
+  version: 44bcd0b2078ba5e7fedbeb36808d1ed893534750
+  subpackages:
+  - compute/metadata
+  - datastore
+  - internal/atomiccache
+  - internal/fields
+  - internal/version
+- name: github.com/asaskevich/govalidator
+  version: 2c14e1cca90af49b3b21fe2d7aaa8cc7f9da2ff8
+- name: github.com/docker/go-units
+  version: 0dadbb0345b35ec7ef35e228dabb8de89a65bf52
+- name: github.com/eclipse/paho.mqtt.golang
+  version: aff15770515e3c57fc6109da73d42b0d46f7f483
+  subpackages:
+  - packets
+- name: github.com/evanphx/json-patch
+  version: 944e07253867aacae43c04b2e6a239005443f33a
+- name: github.com/go-openapi/analysis
+  version: d5a75b7d751ca3f11ad5d93cfe97405f2c3f6a47
+- name: github.com/go-openapi/errors
+  version: fc3f73a224499b047eda7191e5d22e1e9631e86f
+- name: github.com/go-openapi/jsonpointer
+  version: 779f45308c19820f1a69e9a4cd965f496e0da10f
+- name: github.com/go-openapi/jsonreference
+  version: 36d33bfe519efae5632669801b180bf1a245da3b
+- name: github.com/go-openapi/loads
+  version: 6bb6486231e079ea125c0f39994ed3d0c53399ed
+  subpackages:
+  - fmts
+- name: github.com/go-openapi/runtime
+  version: 0cb5480dd0e075d0530ff20681dcd77c249501fb
+  subpackages:
+  - flagext
+  - middleware
+  - middleware/denco
+  - middleware/header
+  - middleware/untyped
+  - security
+  - yamlpc
+- name: github.com/go-openapi/spec
+  version: e51c28f07047ad90caff03f6450908720d337e0c
+- name: github.com/go-openapi/strfmt
+  version: 93a31ef21ac23f317792fff78f9539219dd74619
+- name: github.com/go-openapi/swag
+  version: aa30237cf993e01e1a1e467eead45d1ce5ad155e
+- name: github.com/go-openapi/validate
+  version: 035dcd74f1f61e83debe1c22950dc53556e7e4b2
+- name: github.com/golang/protobuf
+  version: 1909bc2f63dc92bb931deace8b8312c4db72d12f
+  subpackages:
+  - proto
+  - protoc-gen-go/descriptor
+  - ptypes/any
+  - ptypes/struct
+  - ptypes/timestamp
+  - ptypes/wrappers
+- name: github.com/gorilla/context
+  version: 08b5f424b9271eedf6f9f0ce86cb9396ed337a42
+- name: github.com/hashicorp/go-immutable-radix
+  version: 8aac2701530899b64bdea735a1de8da899815220
+- name: github.com/hashicorp/go-memdb
+  version: 2b2d6c35e14e7557ea1003e707d5e179fa315028
+- name: github.com/hashicorp/golang-lru
+  version: 0a025b7e63adc15a622f29b0b2c4c3848243bbf6
+  subpackages:
+  - simplelru
+- name: github.com/jessevdk/go-flags
+  version: 96dc06278ce32a0e9d957d590bb987c81ee66407
+- name: github.com/mailru/easyjson
+  version: 2af9a745a611440bab0528e5ac19b2805a1c50eb
+  subpackages:
+  - buffer
+  - jlexer
+  - jwriter
+- name: github.com/mitchellh/mapstructure
+  version: cc8532a8e9a55ea36402aa21efdf403a60d34096
+- name: github.com/PuerkitoBio/purell
+  version: b938d81255b5473c57635324295cb0fe398c7a58
+- name: github.com/PuerkitoBio/urlesc
+  version: bbf7a2afc14f93e1e0a5c06df524fbd75e5031e5
+- name: github.com/satori/go.uuid
+  version: 879c5887cd475cd7864858769793b2ceb0d44feb
+- name: github.com/tylerb/graceful
+  version: 4654dfbb6ad53cb5e27f37d99b02e16c1872fbbb
+- name: golang.org/x/net
+  version: 1c05540f6879653db88113bc4a2b70aec4bd491f
+  subpackages:
+  - context
+  - context/ctxhttp
+  - http2
+  - http2/hpack
+  - idna
+  - internal/timeseries
+  - lex/httplex
+  - proxy
+  - trace
+  - websocket
+- name: golang.org/x/oauth2
+  version: 9a379c6b3e95a790ffc43293c2a78dee0d7b6e20
+  subpackages:
+  - google
+  - internal
+  - jws
+  - jwt
+- name: golang.org/x/text
+  version: b19bf474d317b857955b12035d2c5acb57ce8b01
+  subpackages:
+  - secure/bidirule
+  - transform
+  - unicode/bidi
+  - unicode/norm
+  - width
+- name: google.golang.org/api
+  version: 98825bb0065da4054e5da6db34f5fc598e50bc24
+  subpackages:
+  - internal
+  - iterator
+  - option
+  - transport/grpc
+- name: google.golang.org/appengine
+  version: c5a90ac045b779001847fec87403f5cba090deae
+  subpackages:
+  - internal
+  - internal/app_identity
+  - internal/base
+  - internal/datastore
+  - internal/log
+  - internal/modules
+  - internal/remote_api
+  - internal/socket
+  - internal/urlfetch
+  - socket
+  - urlfetch
+- name: google.golang.org/genproto
+  version: 09f6ed296fc66555a25fe4ce95173148778dfa85
+  subpackages:
+  - googleapis/api/annotations
+  - googleapis/datastore/v1
+  - googleapis/rpc/status
+  - googleapis/type/latlng
+- name: google.golang.org/grpc
+  version: b8669c35455183da6d5c474ea6e72fbf55183274
+  subpackages:
+  - codes
+  - credentials
+  - credentials/oauth
+  - grpclb/grpc_lb_v1
+  - grpclog
+  - internal
+  - keepalive
+  - metadata
+  - naming
+  - peer
+  - stats
+  - status
+  - tap
+  - transport
+- name: gopkg.in/mgo.v2
+  version: 3f83fa5005286a7fe593b055f0d7771a7dce4655
+  subpackages:
+  - bson
+  - internal/json
+- name: gopkg.in/yaml.v2
+  version: cd8b52f8269e0feb286dfeef29f8fe4d5b397e0b
+testImports: []
