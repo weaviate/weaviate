@@ -12,17 +12,17 @@
  */
    
 
-/*Package restapi Weaviate API and MQTT Ubiquitous Computing platform.
+/*Package restapi Weaviate - Semantic Graphql, RESTful and MQTT Web of Things platform.
 
-Ubiquitous Computing (& Internet of Things) platform that lets you manage cloud ready things directly or by proxy. More info: https://github.com/weaviate/weaviate
+Semantic Graphql, RESTful and MQTT Web of Things platform.
 
 
     Schemes:
       https
     Host: localhost
     BasePath: /weaviate/v1
-    Version: v0.3.0
-    Contact: Weaviate<bob@weaviate.com> https://github.com/weaviate/weaviate
+    Version: v0.4.0
+    Contact: Weaviate<yourfriends@weaviate.com> https://weaviate.com
 
     Consumes:
     - application/json

@@ -4,12 +4,20 @@
             "name": "development",
             "database": {
                 "name": "memory"
+            },
+            "schemas": {
+                "Things": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
+                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
             }
         },
         {
             "name": "test",
             "database": {
                 "name": "datastore"
+            },
+            "schemas": {
+                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
+                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
             }
         }
     ]
