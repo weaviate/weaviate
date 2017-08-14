@@ -4,8 +4,6 @@ builds:
     goos:
       - android
       - dragonfly
-      - plan9
-      - solaris
       - windows
       - darwin
       - linux
