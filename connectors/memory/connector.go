@@ -21,6 +21,7 @@ import (
 	"sort"
 
 	"github.com/hashicorp/go-memdb"
+	"github.com/weaviate/weaviate/connectors/config"
 	"github.com/weaviate/weaviate/connectors/utils"
 )
 
@@ -36,7 +37,7 @@ func (f *Memory) GetName() string {
 }
 
 // SetConfig is used to fill in a struct with config variables
-func (f *Memory) SetConfig(interface{}) {
+func (f *Memory) SetConfig(configInput connectorConfig.Database) {
 	// NOTHING
 }
 
