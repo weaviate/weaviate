@@ -22,6 +22,7 @@ import (
 	"cloud.google.com/go/datastore"
 	gouuid "github.com/satori/go.uuid"
 
+	"github.com/weaviate/weaviate/connectors/config"
 	"github.com/weaviate/weaviate/connectors/utils"
 )
 
@@ -31,7 +32,7 @@ type Datastore struct {
 }
 
 // SetConfig is used to fill in a struct with config variables
-func (f *Datastore) SetConfig(configInput interface{}) {
+func (f *Datastore) SetConfig(configInput connectorConfig.Database) {
 	// NOTHING HERE
 }
 
