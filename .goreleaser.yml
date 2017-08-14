@@ -4,7 +4,6 @@ builds:
     goos:
       - android
       - dragonfly
-      - freebsd
       - openbsd
       - plan9
       - solaris
