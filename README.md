@@ -39,9 +39,9 @@ Important to know:
 
 ### Installation
 
-You can run: `go run ./cmd/weaviate-server/main.go` of build Weaviate by running: `go build ./cmd/weaviate-server/main.go`.
+You can run: `go run main.go` of build Weaviate by running: `go build main.go`.
 
-For testing you can run over http: `go run ./cmd/weaviate-server/main.go --scheme=http --server-port=8080 --server-host=localhost`. Note: to run the service in production you always need https.
+For testing you can run over http: `go run main.go --scheme=http --server-port=8080 --server-host=localhost`. Note: to run the service in production you always need https.
 
 *Application options:*
 
