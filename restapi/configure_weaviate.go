@@ -38,6 +38,7 @@ import (
 	"github.com/go-openapi/swag"
 	gouuid "github.com/satori/go.uuid"
 	"github.com/weaviate/weaviate/connectors"
+	"github.com/weaviate/weaviate/connectors/config"
 	"github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/models"
 	"github.com/weaviate/weaviate/mqtt"
@@ -210,7 +211,7 @@ func ActionsAllowed(actions []string, validateObject interface{}, databaseConnec
 }
 
 func configureFlags(api *operations.WeaviateAPI) {
-	connectorOptionGroup = dbconnector.GetConfigOptionGroup()
+	connectorOptionGroup = connectorConfig.GetConfigOptionGroup()
 
 	api.CommandLineOptionsGroups = []swag.CommandLineOptionsGroup{
 		*connectorOptionGroup,
