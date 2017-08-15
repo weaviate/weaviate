@@ -18,6 +18,7 @@ import (
 
 var buildTags = flag.String("build_tags", "", "build tags to add to generated file")
 var snakeCase = flag.Bool("snake_case", false, "use snake_case names instead of CamelCase by default")
+var lowerCamelCase = flag.Bool("lower_camel_case", false, "use lowerCamelCase names instead of CamelCase by default")
 var noStdMarshalers = flag.Bool("no_std_marshalers", false, "don't generate MarshalJSON/UnmarshalJSON funcs")
 var omitEmpty = flag.Bool("omit_empty", false, "omit empty fields by default")
 var allStructs = flag.Bool("all", false, "generate marshaler/unmarshalers for all structs in a file")
@@ -59,6 +60,7 @@ func generate(fname string) (err error) {
 		PkgName:         p.PkgName,
 		Types:           p.StructNames,
 		SnakeCase:       *snakeCase,
+		LowerCamelCase:  *lowerCamelCase,
 		NoStdMarshalers: *noStdMarshalers,
 		OmitEmpty:       *omitEmpty,
 		LeaveTemps:      *leaveTemps,

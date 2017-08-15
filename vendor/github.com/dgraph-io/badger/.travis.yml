@@ -1,0 +1,10 @@
+language: go
+go: 1.8
+matrix:
+  include:
+    - os: linux
+    - os: osx
+notifications:
+  email: false
+  slack:
+    secure: X7uBLWYbuUhf8QFE16CoS5z7WvFR8EN9j6cEectMW6mKZ3vwXGwVXRIPsgUq/606DsQdCCx34MR8MRWYGlu6TBolbSe9y0EP0i46yipPz22YtuT7umcVUbGEyx8MZKgG0v1u/zA0O4aCsOBpGAA3gxz8h3JlEHDt+hv6U8xRsSllVLzLSNb5lwxDtcfEDxVVqP47GMEgjLPM28Pyt5qwjk7o5a4YSVzkfdxBXxd3gWzFUWzJ5E3cTacli50dK4GVfiLcQY2aQYoYO7AAvDnvP+TPfjDkBlUEE4MUz5CDIN51Xb+WW33sX7g+r3Bj7V5IRcF973RiYkpEh+3eoiPnyWyxhDZBYilty3b+Hysp6d4Ov/3I3ll7Bcny5+cYjakjkMH3l9w3gs6Y82GlpSLSJshKWS8vPRsxFe0Pstj6QSJXTd9EBaFr+l1ScXjJv/Sya9j8N9FfTuOTESWuaL1auX4Y7zEEVHlA8SCNOO8K0eTfxGZnC/YcIHsR8rePEAcFxfOYQppkyLF/XvAtnb/LMUuu0g4y2qNdme6Oelvyar1tFEMRtbl4mRCdu/krXBFtkrsfUaVY6WTPdvXAGotsFJ0wuA53zGVhlcd3+xAlSlR3c1QX95HIMeivJKb5L4nTjP+xnrmQNtnVk+tG4LSH2ltuwcZSSczModtcBmRefrk=

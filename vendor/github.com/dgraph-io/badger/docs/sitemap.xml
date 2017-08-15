@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  
+  <url>
+    <loc>https://badger.dgraph.io/intro/index/</loc>
+    <lastmod>2017-03-20T22:25:17+11:00</lastmod>
+  </url>
+  
+  <url>
+    <loc>https://badger.dgraph.io/</loc>
+    <lastmod>2017-03-20T22:25:17+11:00</lastmod>
+    <priority>0</priority>
+  </url>
+  
+  <url>
+    <loc>https://badger.dgraph.io/categories/</loc>
+    <priority>0</priority>
+  </url>
+  
+  <url>
+    <loc>https://badger.dgraph.io/intro/</loc>
+    <lastmod>2017-03-20T22:25:17+11:00</lastmod>
+    <priority>0</priority>
+  </url>
+  
+  <url>
+    <loc>https://badger.dgraph.io/tags/</loc>
+    <priority>0</priority>
+  </url>
+  
+</urlset>
