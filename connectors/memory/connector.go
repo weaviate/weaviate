@@ -37,7 +37,7 @@ func (f *Memory) GetName() string {
 }
 
 // SetConfig is used to fill in a struct with config variables
-func (f *Memory) SetConfig(configInput connectorConfig.Database) {
+func (f *Memory) SetConfig(configInput connectorConfig.Environment) {
 	// NOTHING
 }
 

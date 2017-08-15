@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/connectors/config"
 	"github.com/weaviate/weaviate/connectors/datastore"
+	"github.com/weaviate/weaviate/connectors/dgraph"
 	"github.com/weaviate/weaviate/connectors/memory"
 	"github.com/weaviate/weaviate/connectors/utils"
 )
@@ -37,7 +38,7 @@ type DatabaseConnector interface {
 	GetKey(string) (connector_utils.DatabaseUsersObject, error)
 	AddKey(string, connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error)
 	GetName() string
-	SetConfig(connectorConfig.Database)
+	SetConfig(connectorConfig.Environment)
 	DeleteKey(string) error
 	GetChildObjects(string, bool) ([]connector_utils.DatabaseUsersObject, error)
 }
@@ -48,6 +49,7 @@ func GetAllConnectors() []DatabaseConnector {
 	connectors := []DatabaseConnector{
 		&datastore.Datastore{},
 		&memory.Memory{},
+		&dgraph.Dgraph{},
 	}
 
 	return connectors
@@ -84,7 +86,7 @@ func CreateDatabaseConnector(flags *swag.CommandLineOptionsGroup) DatabaseConnec
 	json.Unmarshal(file, &configFile)
 
 	// Loop through all values in object to see whether the given connection-name exists
-	var databaseConfig connectorConfig.Database
+	var databaseConfig connectorConfig.Environment
 	foundName := false
 	for _, env := range configFile.Environments {
 		if env.Name == configEnvironment {
@@ -92,7 +94,7 @@ func CreateDatabaseConnector(flags *swag.CommandLineOptionsGroup) DatabaseConnec
 			foundName = true
 
 			// Get config interface data
-			databaseConfig = env.Database
+			databaseConfig = env
 		}
 	}
 
