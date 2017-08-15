@@ -59,7 +59,7 @@ func (f *Dgraph) Connect() error {
 		conn,
 	}
 
-	f.client = dgraphClient.NewDgraphClient(connections, dgraphClient.DefaultOptions, "weaviate_dir_")
+	f.client = dgraphClient.NewDgraphClient(connections, dgraphClient.DefaultOptions, "temp/weaviate_dgraph")
 	defer f.client.Close()
 
 	return nil

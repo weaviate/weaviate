@@ -1,5 +1,5 @@
-hash: a33099f488b599810c31842cfe61438382b4997212b3e814ca3737a507f369a2
-updated: 2017-08-14T11:58:00.405005964+02:00
+hash: b92da3be152de3f23467dbe1226a9202fef257f1c3843dd33a9deb102fa2059a
+updated: 2017-08-14T13:58:53.998885783+02:00
 imports:
 - name: cloud.google.com/go
   version: 44bcd0b2078ba5e7fedbeb36808d1ed893534750
@@ -9,8 +9,30 @@ imports:
   - internal/atomiccache
   - internal/fields
   - internal/version
+- name: github.com/AndreasBriese/bbloom
+  version: 28f7e881ca57bc00e028f9ede9f0d9104cfeef5e
 - name: github.com/asaskevich/govalidator
-  version: 2c14e1cca90af49b3b21fe2d7aaa8cc7f9da2ff8
+  version: 15028e809df8c71964e8efa6c11e81d5c0262302
+- name: github.com/beorn7/perks
+  version: 4c0e84591b9aa9e6dcfdf3e020114cd81f89d5f9
+  subpackages:
+  - quantile
+- name: github.com/codahale/hdrhistogram
+  version: 3a0bb77429bd3a61596f5e8a3172445844342120
+- name: github.com/dgraph-io/badger
+  version: 3ff26e3fb5b49c8aad5c17f0a2fbc88cd8e28307
+  subpackages:
+  - protos
+  - skl
+  - table
+  - "y"
+- name: github.com/dgraph-io/dgraph
+  version: e4b731d2751bb4a5ec18e14f4292c8e4318a2912
+  subpackages:
+  - client
+  - protos
+  - types
+  - x
 - name: github.com/docker/go-units
   version: 0dadbb0345b35ec7ef35e228dabb8de89a65bf52
 - name: github.com/eclipse/paho.mqtt.golang
@@ -20,19 +42,17 @@ imports:
 - name: github.com/evanphx/json-patch
   version: 944e07253867aacae43c04b2e6a239005443f33a
 - name: github.com/go-openapi/analysis
-  version: d5a75b7d751ca3f11ad5d93cfe97405f2c3f6a47
+  version: 8ed83f2ea9f00f945516462951a288eaa68bf0d6
 - name: github.com/go-openapi/errors
-  version: fc3f73a224499b047eda7191e5d22e1e9631e86f
+  version: 03cfca65330da08a5a440053faf994a3c682b5bf
 - name: github.com/go-openapi/jsonpointer
   version: 779f45308c19820f1a69e9a4cd965f496e0da10f
 - name: github.com/go-openapi/jsonreference
   version: 36d33bfe519efae5632669801b180bf1a245da3b
 - name: github.com/go-openapi/loads
-  version: 6bb6486231e079ea125c0f39994ed3d0c53399ed
-  subpackages:
-  - fmts
+  version: a80dea3052f00e5f032e860dd7355cd0cc67e24d
 - name: github.com/go-openapi/runtime
-  version: 0cb5480dd0e075d0530ff20681dcd77c249501fb
+  version: d6605b7c17ac3b1033ca794886e6142a4141f5b0
   subpackages:
   - flagext
   - middleware
@@ -42,13 +62,21 @@ imports:
   - security
   - yamlpc
 - name: github.com/go-openapi/spec
-  version: e51c28f07047ad90caff03f6450908720d337e0c
+  version: 3faa0055dbbf2110abc1f3b4e3adbb22721e96e7
 - name: github.com/go-openapi/strfmt
   version: 93a31ef21ac23f317792fff78f9539219dd74619
 - name: github.com/go-openapi/swag
-  version: aa30237cf993e01e1a1e467eead45d1ce5ad155e
+  version: f3f9494671f93fcff853e3c6e9e948b3eb71e590
 - name: github.com/go-openapi/validate
-  version: 035dcd74f1f61e83debe1c22950dc53556e7e4b2
+  version: 8a82927c942c94794a5cd8b8b50ce2f48a955c0c
+- name: github.com/golang/geo
+  version: 31fb0106dc4a947e5aaee1fe186e56447f839510
+  subpackages:
+  - r1
+  - r2
+  - r3
+  - s1
+  - s2
 - name: github.com/golang/protobuf
   version: 1909bc2f63dc92bb931deace8b8312c4db72d12f
   subpackages:
@@ -58,8 +86,6 @@ imports:
   - ptypes/struct
   - ptypes/timestamp
   - ptypes/wrappers
-- name: github.com/gorilla/context
-  version: 08b5f424b9271eedf6f9f0ce86cb9396ed337a42
 - name: github.com/hashicorp/go-immutable-radix
   version: 8aac2701530899b64bdea735a1de8da899815220
 - name: github.com/hashicorp/go-memdb
@@ -71,21 +97,56 @@ imports:
 - name: github.com/jessevdk/go-flags
   version: 96dc06278ce32a0e9d957d590bb987c81ee66407
 - name: github.com/mailru/easyjson
-  version: 2af9a745a611440bab0528e5ac19b2805a1c50eb
+  version: 2f5df55504ebc322e4d52d34df6a1f5b503bf26d
   subpackages:
   - buffer
   - jlexer
   - jwriter
+- name: github.com/matttproud/golang_protobuf_extensions
+  version: c12348ce28de40eed0136aa2b644d0ee0650e56c
+  subpackages:
+  - pbutil
 - name: github.com/mitchellh/mapstructure
-  version: cc8532a8e9a55ea36402aa21efdf403a60d34096
+  version: d0303fe809921458f417bcf828397a65db30a7e4
+- name: github.com/pkg/errors
+  version: c605e284fe17294bda444b34710735b29d1a9d90
+- name: github.com/prometheus/client_golang
+  version: 94ff84a9a6ebb5e6eb9172897c221a64df3443bc
+  subpackages:
+  - prometheus
+- name: github.com/prometheus/client_model
+  version: 6f3806018612930941127f2a7c6c453ba2c527d2
+  subpackages:
+  - go
+- name: github.com/prometheus/common
+  version: 61f87aac8082fa8c3c5655c7608d7478d46ac2ad
+  subpackages:
+  - expfmt
+  - internal/bitbucket.org/ww/goautoneg
+  - model
+- name: github.com/prometheus/procfs
+  version: e645f4e5aaa8506fc71d6edbc5c4ff02c04c46f2
+  subpackages:
+  - xfs
 - name: github.com/PuerkitoBio/purell
-  version: b938d81255b5473c57635324295cb0fe398c7a58
+  version: 7cf257f0a33260797b0febf39f95fccd86aab2a3
 - name: github.com/PuerkitoBio/urlesc
-  version: bbf7a2afc14f93e1e0a5c06df524fbd75e5031e5
+  version: de5bf2ad457846296e2031421a34e2568e304e35
 - name: github.com/satori/go.uuid
   version: 879c5887cd475cd7864858769793b2ceb0d44feb
+- name: github.com/twpayne/go-geom
+  version: 0f56701f8f463c58f874dd0667ccb75bed17de2f
+  subpackages:
+  - encoding/geojson
+  - encoding/wkb
+  - encoding/wkbcommon
 - name: github.com/tylerb/graceful
   version: 4654dfbb6ad53cb5e27f37d99b02e16c1872fbbb
+- name: golang.org/x/crypto
+  version: b176d7def5d71bdd214203491f89843ed217f420
+  subpackages:
+  - bcrypt
+  - blowfish
 - name: golang.org/x/net
   version: 1c05540f6879653db88113bc4a2b70aec4bd491f
   subpackages:
@@ -106,6 +167,10 @@ imports:
   - internal
   - jws
   - jwt
+- name: golang.org/x/sys
+  version: c84c1ab9fd18cdd4c23dd021c10f5f46dea95e46
+  subpackages:
+  - unix
 - name: golang.org/x/text
   version: b19bf474d317b857955b12035d2c5acb57ce8b01
   subpackages:
@@ -165,5 +230,5 @@ imports:
   - bson
   - internal/json
 - name: gopkg.in/yaml.v2
-  version: cd8b52f8269e0feb286dfeef29f8fe4d5b397e0b
+  version: eb3733d160e74a9c7e442f435eb3bea458e1d19f
 testImports: []

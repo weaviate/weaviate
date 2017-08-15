@@ -228,7 +228,7 @@ func (g *Generator) genTypeDecoderNoCheck(t reflect.Type, out string, tags field
 		fmt.Fprintln(g.out, ws+"if m, ok := "+out+".(easyjson.Unmarshaler); ok {")
 		fmt.Fprintln(g.out, ws+"m.UnmarshalEasyJSON(in)")
 		fmt.Fprintln(g.out, ws+"} else if m, ok := "+out+".(json.Unmarshaler); ok {")
-		fmt.Fprintln(g.out, ws+"m.UnmarshalJSON(in.Raw())")
+		fmt.Fprintln(g.out, ws+"_ = m.UnmarshalJSON(in.Raw())")
 		fmt.Fprintln(g.out, ws+"} else {")
 		fmt.Fprintln(g.out, ws+"  "+out+" = in.Interface()")
 		fmt.Fprintln(g.out, ws+"}")

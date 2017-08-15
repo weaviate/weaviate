@@ -28,6 +28,28 @@ func TestCamelToSnake(t *testing.T) {
 	}
 }
 
+func TestCamelToLowerCamel(t *testing.T) {
+	for i, test := range []struct {
+		In, Out string
+	}{
+		{"", ""},
+		{"A", "a"},
+		{"SimpleExample", "simpleExample"},
+		{"internalField", "internalField"},
+
+		{"SomeHTTPStuff", "someHTTPStuff"},
+		{"WriteJSON", "writeJSON"},
+		{"HTTP2Server", "http2Server"},
+
+		{"JSONHTTPRPCServer", "jsonhttprpcServer"}, // nothing can be done here without a dictionary
+	} {
+		got := lowerFirst(test.In)
+		if got != test.Out {
+			t.Errorf("[%d] lowerFirst(%s) = %s; want %s", i, test.In, got, test.Out)
+		}
+	}
+}
+
 func TestJoinFunctionNameParts(t *testing.T) {
 	for i, test := range []struct {
 		keepFirst bool
