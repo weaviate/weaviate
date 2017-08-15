@@ -32,7 +32,7 @@ type Datastore struct {
 }
 
 // SetConfig is used to fill in a struct with config variables
-func (f *Datastore) SetConfig(configInput connectorConfig.Database) {
+func (f *Datastore) SetConfig(configInput connectorConfig.Environment) {
 	// NOTHING HERE
 }
 
