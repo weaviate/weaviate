@@ -14,10 +14,15 @@
 package dgraph
 
 import (
+	"context"
+	"encoding/json"
+	"github.com/dgraph-io/dgraph/protos"
+	"github.com/dgraph-io/dgraph/types"
 	"google.golang.org/grpc"
 	"io"
 	"io/ioutil"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,9 +30,10 @@ import (
 	dgraphClient "github.com/dgraph-io/dgraph/client"
 	"github.com/weaviate/weaviate/connectors/config"
 	"github.com/weaviate/weaviate/connectors/utils"
+	"github.com/weaviate/weaviate/schema"
 )
 
-// Datastore has some basic variables.
+// Dgraph has some basic variables.
 type Dgraph struct {
 	client              *dgraphClient.Dgraph
 	kind                string
@@ -45,27 +51,42 @@ func (f *Dgraph) SetConfig(configInput connectorConfig.Environment) {
 	f.thingSchemaLocation = configInput.Schemas.Thing
 }
 
-// Creates connection and tables if not already available
+// Connect creates connection and tables if not already available
 func (f *Dgraph) Connect() error {
-	dgraphGrpcAddress := "http://localhost:9081"
+	dgraphGrpcAddress := "127.0.0.1:9080"
 
 	conn, err := grpc.Dial(dgraphGrpcAddress, grpc.WithInsecure())
 	if err != nil {
-		log.Fatal(err)
+		log.Println("dail error", err)
 	}
-	defer conn.Close()
+	// defer conn.Close()
 
 	connections := []*grpc.ClientConn{
 		conn,
 	}
 
-	f.client = dgraphClient.NewDgraphClient(connections, dgraphClient.DefaultOptions, "temp/weaviate_dgraph")
-	defer f.client.Close()
+	dir, err := ioutil.TempDir("", "weaviate_dgraph")
+
+	if err != nil {
+		return err
+	}
+	// defer os.RemoveAll(dir)
+
+	var options = dgraphClient.BatchMutationOptions{
+		Size:          100,
+		Pending:       100,
+		PrintCounters: true,
+		MaxRetries:    math.MaxUint32,
+		Ctx:           context.Background(),
+	}
+
+	f.client = dgraphClient.NewDgraphClient(connections, options, dir)
+	// defer f.client.Close()
 
 	return nil
 }
 
-// Creates a root key, normally this should be validaded, but because it is an indgraph DB it is created always
+// Init creates a root key, normally this should be validaded, but because it is an indgraph DB it is created always
 func (f *Dgraph) Init() error {
 	// Generate a basic DB object and print it's key.
 	// dbObject := connector_utils.CreateFirstUserObject()
@@ -105,7 +126,78 @@ func (f *Dgraph) Init() error {
 	}
 
 	fileContentJSON := string(fileContents)
-	log.Println(fileContentJSON[0:100])
+	log.Println("File is loaded.")
+
+	// Merge JSON into Schema objects
+	thingSchema := &schema.Schema{}
+	err = json.Unmarshal([]byte(fileContentJSON), &thingSchema)
+
+	// Return error when error is given reading file.
+	if err != nil {
+		log.Println("Can not parse schema.")
+		return err
+	}
+
+	// Add class schema in Dgraph
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: "class",
+		ValueType: uint32(types.StringID),
+		Tokenizer: []string{"exact", "term"},
+		Directive: protos.SchemaUpdate_INDEX,
+	}); err != nil {
+		return err
+	}
+
+	// Add type schema in Dgraph
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: "type",
+		ValueType: uint32(types.UidID),
+		Directive: protos.SchemaUpdate_REVERSE,
+	}); err != nil {
+		return err
+	}
+
+	// Add ID schema in Dgraph
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: "id",
+		ValueType: uint32(types.UidID),
+		Directive: protos.SchemaUpdate_REVERSE,
+	}); err != nil {
+		return err
+	}
+
+	// Add UUID schema in Dgraph
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: "uuid",
+		ValueType: uint32(types.StringID),
+		Tokenizer: []string{"exact", "term"},
+		Directive: protos.SchemaUpdate_INDEX,
+	}); err != nil {
+		return err
+	}
+
+	// Add schema to database
+	for _, class := range thingSchema.Classes {
+		for _, prop := range class.Properties {
+			// err = f.client.AddSchema(protos.SchemaUpdate{
+			// 	Predicate: prop.,
+			// 	ValueType: uint32(types.StringID),
+			// 	Tokenizer: []string{"exact", "term"},
+			// 	Directive: protos.SchemaUpdate_INDEX,
+			// })
+
+			// if err != nil {
+			// 	log.Println(err)
+			// }
+		}
+	}
+
+	// # Individual nodes
+	// schema.employee
+	// schema.name
+	// schema.legalname
+	// schema.birthdate
+	// … all that is possible...
 
 	return nil
 }
