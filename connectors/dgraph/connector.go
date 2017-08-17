@@ -144,6 +144,7 @@ func (f *Dgraph) Init() error {
 		ValueType: uint32(types.StringID),
 		Tokenizer: []string{"exact", "term"},
 		Directive: protos.SchemaUpdate_INDEX,
+		Count:     true,
 	}); err != nil {
 		return err
 	}
@@ -172,6 +173,7 @@ func (f *Dgraph) Init() error {
 		ValueType: uint32(types.StringID),
 		Tokenizer: []string{"exact", "term"},
 		Directive: protos.SchemaUpdate_INDEX,
+		Count:     true,
 	}); err != nil {
 		return err
 	}
@@ -179,25 +181,51 @@ func (f *Dgraph) Init() error {
 	// Add schema to database
 	for _, class := range thingSchema.Classes {
 		for _, prop := range class.Properties {
-			// err = f.client.AddSchema(protos.SchemaUpdate{
-			// 	Predicate: prop.,
-			// 	ValueType: uint32(types.StringID),
-			// 	Tokenizer: []string{"exact", "term"},
-			// 	Directive: protos.SchemaUpdate_INDEX,
-			// })
+			// Add Dgraph-schema for every property of individual nodes
+			err = f.client.AddSchema(protos.SchemaUpdate{
+				Predicate: "schema." + prop.Name,
+				ValueType: uint32(types.UidID),
+				Directive: protos.SchemaUpdate_REVERSE,
+			})
 
-			// if err != nil {
-			// 	log.Println(err)
-			// }
+			if err != nil {
+				log.Println(err)
+			}
+
+			// TODO: Add specific schema for datatypes
+			// http://schema.org/DataType
+		}
+
+		// Add node and edge for every class
+		node, err := f.client.NodeBlank(class.Class)
+
+		if err != nil {
+			log.Println(err)
+		}
+
+		// Add class edge
+		edge := node.Edge("class")
+		err = edge.SetValueString(class.Class)
+
+		if err != nil {
+			log.Println(err)
+		}
+
+		// Add class edge to batch
+		err = f.client.BatchSet(edge)
+
+		if err != nil {
+			log.Println(err)
 		}
 	}
 
-	// # Individual nodes
-	// schema.employee
-	// schema.name
-	// schema.legalname
-	// schema.birthdate
-	// … all that is possible...
+	// Call flush to flush buffers after all mutations are added
+	f.client.BatchFlush()
+	err = f.client.Close()
+
+	if err != nil {
+		log.Println(err)
+	}
 
 	return nil
 }
