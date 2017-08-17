@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/weaviate/weaviate/models"
 	"log"
 
 	"cloud.google.com/go/datastore"
@@ -347,4 +348,8 @@ func (f *Datastore) GetChildObjects(UUID string, filterOutDeleted bool) ([]conne
 	f.client.GetAll(ctx, queryChildren, &childUserObjects)
 
 	return childUserObjects, nil
+}
+
+func (f *Datastore) AddThing(thing *models.ThingCreate) error {
+	return nil
 }

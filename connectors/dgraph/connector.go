@@ -16,8 +16,7 @@ package dgraph
 import (
 	"context"
 	"encoding/json"
-	"github.com/dgraph-io/dgraph/protos"
-	"github.com/dgraph-io/dgraph/types"
+	"fmt"
 	"google.golang.org/grpc"
 	"io"
 	"io/ioutil"
@@ -28,8 +27,13 @@ import (
 	"os"
 
 	dgraphClient "github.com/dgraph-io/dgraph/client"
+	"github.com/dgraph-io/dgraph/protos"
+	"github.com/dgraph-io/dgraph/types"
+	gouuid "github.com/satori/go.uuid"
+
 	"github.com/weaviate/weaviate/connectors/config"
 	"github.com/weaviate/weaviate/connectors/utils"
+	"github.com/weaviate/weaviate/models"
 	"github.com/weaviate/weaviate/schema"
 )
 
@@ -116,118 +120,240 @@ func (f *Dgraph) Init() error {
 		localThingSchemaFile = f.thingSchemaLocation
 	}
 
-	// Read local file which is either just downloaded or given in config.
-	log.Println("Read local file...")
-	fileContents, err := ioutil.ReadFile(localThingSchemaFile)
+	if false {
+		// Read local file which is either just downloaded or given in config.
+		log.Println("Read local file...")
+		fileContents, err := ioutil.ReadFile(localThingSchemaFile)
 
-	// Return error when error is given reading file.
-	if err != nil {
-		return err
-	}
+		// Return error when error is given reading file.
+		if err != nil {
+			return err
+		}
 
-	fileContentJSON := string(fileContents)
-	log.Println("File is loaded.")
+		fileContentJSON := string(fileContents)
+		log.Println("File is loaded.")
 
-	// Merge JSON into Schema objects
-	thingSchema := &schema.Schema{}
-	err = json.Unmarshal([]byte(fileContentJSON), &thingSchema)
+		// Merge JSON into Schema objects
+		thingSchema := &schema.Schema{}
+		err = json.Unmarshal([]byte(fileContentJSON), &thingSchema)
 
-	// Return error when error is given reading file.
-	if err != nil {
-		log.Println("Can not parse schema.")
-		return err
-	}
+		// Return error when error is given reading file.
+		if err != nil {
+			log.Println("Can not parse schema.")
+			return err
+		}
 
-	// Add class schema in Dgraph
-	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "class",
-		ValueType: uint32(types.StringID),
-		Tokenizer: []string{"exact", "term"},
-		Directive: protos.SchemaUpdate_INDEX,
-		Count:     true,
-	}); err != nil {
-		return err
-	}
+		// Add class schema in Dgraph
+		if err := f.client.AddSchema(protos.SchemaUpdate{
+			Predicate: "class",
+			ValueType: uint32(types.StringID),
+			Tokenizer: []string{"exact", "term"},
+			Directive: protos.SchemaUpdate_INDEX,
+			Count:     true,
+		}); err != nil {
+			return err
+		}
 
-	// Add type schema in Dgraph
-	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "type",
-		ValueType: uint32(types.UidID),
-		Directive: protos.SchemaUpdate_REVERSE,
-	}); err != nil {
-		return err
-	}
+		// Add type schema in Dgraph
+		if err := f.client.AddSchema(protos.SchemaUpdate{
+			Predicate: "type",
+			ValueType: uint32(types.UidID),
+			Directive: protos.SchemaUpdate_REVERSE,
+		}); err != nil {
+			return err
+		}
 
-	// Add ID schema in Dgraph
-	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "id",
-		ValueType: uint32(types.UidID),
-		Directive: protos.SchemaUpdate_REVERSE,
-	}); err != nil {
-		return err
-	}
+		// Add ID schema in Dgraph
+		if err := f.client.AddSchema(protos.SchemaUpdate{
+			Predicate: "id",
+			ValueType: uint32(types.UidID),
+			Directive: protos.SchemaUpdate_REVERSE,
+		}); err != nil {
+			return err
+		}
 
-	// Add UUID schema in Dgraph
-	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "uuid",
-		ValueType: uint32(types.StringID),
-		Tokenizer: []string{"exact", "term"},
-		Directive: protos.SchemaUpdate_INDEX,
-		Count:     true,
-	}); err != nil {
-		return err
-	}
+		// Add UUID schema in Dgraph
+		if err := f.client.AddSchema(protos.SchemaUpdate{
+			Predicate: "uuid",
+			ValueType: uint32(types.StringID),
+			Tokenizer: []string{"exact", "term"},
+			Directive: protos.SchemaUpdate_INDEX,
+			Count:     true,
+		}); err != nil {
+			return err
+		}
 
-	// Add schema to database
-	for _, class := range thingSchema.Classes {
-		for _, prop := range class.Properties {
-			// Add Dgraph-schema for every property of individual nodes
-			err = f.client.AddSchema(protos.SchemaUpdate{
-				Predicate: "schema." + prop.Name,
-				ValueType: uint32(types.UidID),
-				Directive: protos.SchemaUpdate_REVERSE,
-			})
+		// Add search possibilities for every "timing"
+		thingTimings := []string{
+			"creationTimeMs",
+			"lastSeenTimeMs",
+			"lastUpdateTimeMs",
+			"lastUseTimeMs",
+		}
 
-			if err != nil {
-				log.Println(err)
+		for _, ms := range thingTimings {
+			if err := f.client.AddSchema(protos.SchemaUpdate{
+				Predicate: ms,
+				ValueType: uint32(types.IntID),
+				Tokenizer: []string{"int"},
+				Directive: protos.SchemaUpdate_INDEX,
+				Count:     true,
+			}); err != nil {
+				return err
+			}
+		}
+
+		// Add schema to database
+		for _, class := range thingSchema.Classes {
+			for _, prop := range class.Properties {
+				// Add Dgraph-schema for every property of individual nodes
+				err = f.client.AddSchema(protos.SchemaUpdate{
+					Predicate: "schema." + prop.Name,
+					ValueType: uint32(types.UidID),
+					Directive: protos.SchemaUpdate_REVERSE,
+				})
+
+				if err != nil {
+					return err
+				}
+
+				// TODO: Add specific schema for datatypes
+				// http://schema.org/DataType
 			}
 
-			// TODO: Add specific schema for datatypes
-			// http://schema.org/DataType
+			// Add node and edge for every class
+			// TODO: Only add if not exists
+			node, err := f.client.NodeBlank(class.Class)
+
+			if err != nil {
+				return err
+			}
+
+			// Add class edge
+			edge := node.Edge("class")
+			err = edge.SetValueString(thingSchema.Context + "/" + class.Class)
+
+			if err != nil {
+				return err
+			}
+
+			// Add class edge to batch
+			err = f.client.BatchSet(edge)
+
+			if err != nil {
+				return err
+			}
 		}
 
-		// Add node and edge for every class
-		node, err := f.client.NodeBlank(class.Class)
+		// Call flush to flush buffers after all mutations are added
+		err = f.client.BatchFlush()
 
 		if err != nil {
-			log.Println(err)
+			return err
 		}
-
-		// Add class edge
-		edge := node.Edge("class")
-		err = edge.SetValueString(class.Class)
-
-		if err != nil {
-			log.Println(err)
-		}
-
-		// Add class edge to batch
-		err = f.client.BatchSet(edge)
-
-		if err != nil {
-			log.Println(err)
-		}
-	}
-
-	// Call flush to flush buffers after all mutations are added
-	f.client.BatchFlush()
-	err = f.client.Close()
-
-	if err != nil {
-		log.Println(err)
 	}
 
 	return nil
+}
+
+func (f *Dgraph) AddThing(thing *models.ThingCreate) error {
+	// TODO, make type interactive
+	// thingType := thing.AtContext + "/" + models.ThingCreate.type
+	ctx := context.Background()
+
+	thingType := thing.AtContext + "/Person"
+
+	variables := make(map[string]string)
+	variables["$a"] = thingType
+
+	req := dgraphClient.Req{}
+
+	req.SetQueryWithVariables(`{
+		class(func: eq(class, $a)) {
+			_uid_
+			class
+		}
+	}`, variables)
+
+	resp, err := f.client.Run(ctx, &req)
+
+	if err != nil {
+		return err
+	}
+
+	var dClass ClassResult
+	err = dgraphClient.Unmarshal(resp.N, &dClass)
+
+	if err != nil {
+		return err
+	}
+
+	classNode := f.client.NodeUid(dClass.Root.ID)
+
+	// Node has been found, create new one and connect it
+	newThing, err := f.client.NodeBlank(fmt.Sprintf("%v", gouuid.NewV4()))
+
+	if err != nil {
+		return err
+	}
+
+	// Add edge between New Thing and Class Node
+	typeEdge := newThing.ConnectTo("type", classNode)
+
+	// Add class edge to batch
+	req = dgraphClient.Req{}
+	err = req.Set(typeEdge)
+
+	if err != nil {
+		return err
+	}
+
+	// Add timings
+	edge := newThing.Edge("creationTimeMs")
+	if err = edge.SetValueInt(thing.CreationTimeMs); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	edge = newThing.Edge("lastSeenTimeMs")
+	if err = edge.SetValueInt(thing.LastSeenTimeMs); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	edge = newThing.Edge("lastUpdateTimeMs")
+	if err = edge.SetValueInt(thing.LastUpdateTimeMs); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	edge = newThing.Edge("lastUseTimeMs")
+	if err = edge.SetValueInt(thing.LastUseTimeMs); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Add Thing properties
+	// log.Println(thing.Schema)
+
+	// Call flush to flush buffers after all mutations are added
+	resp, err = f.client.Run(ctx, &req)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+
+	// TODO: Reset batch before and flush after every function??
 }
 
 func (f *Dgraph) Add(dbObject connector_utils.DatabaseObject) (string, error) {
@@ -250,7 +376,14 @@ func (f *Dgraph) List(refType string, ownerUUID string, limit int, page int, ref
 
 // Validate if a user has access, returns permissions object
 func (f *Dgraph) ValidateKey(token string) ([]connector_utils.DatabaseUsersObject, error) {
-	dbUsersObjects := []connector_utils.DatabaseUsersObject{}
+	dbUsersObjects := []connector_utils.DatabaseUsersObject{{
+		Deleted:        false,
+		KeyExpiresUnix: -1,
+		KeyToken:       "be9d1928-d004-4b0b-a8c3-2aad06cc67e1",
+		Object:         "{}",
+		Parent:         "",
+		Uuid:           "ce9d1928-d004-4b0b-a8c3-2aad06cc67e1",
+	}}
 
 	// keys are found, return true
 	return dbUsersObjects, nil

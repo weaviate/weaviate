@@ -15,6 +15,7 @@ package dbconnector
 
 import (
 	"encoding/json"
+	"github.com/weaviate/weaviate/models"
 	"io/ioutil"
 	"log"
 
@@ -41,6 +42,8 @@ type DatabaseConnector interface {
 	SetConfig(connectorConfig.Environment)
 	DeleteKey(string) error
 	GetChildObjects(string, bool) ([]connector_utils.DatabaseUsersObject, error)
+
+	AddThing(*models.ThingCreate) error
 }
 
 // GetAllConnectors contains all available connectors

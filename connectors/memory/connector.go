@@ -15,6 +15,7 @@ package memory
 
 import (
 	"errors"
+	"github.com/weaviate/weaviate/models"
 	"log"
 
 	"math"
@@ -434,4 +435,8 @@ func (f *Memory) GetChildObjects(UUID string, filterOutDeleted bool) ([]connecto
 	}
 
 	return childUserObjects, nil
+}
+
+func (f *Memory) AddThing(thing *models.ThingCreate) error {
+	return nil
 }
