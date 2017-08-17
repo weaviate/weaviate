@@ -441,3 +441,9 @@ func (f *Memory) GetChildObjects(UUID string, filterOutDeleted bool) ([]connecto
 func (f *Memory) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 	return nil
 }
+
+func (f *Memory) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
+	thingResponse := models.ThingGetResponse{}
+
+	return thingResponse, nil
+}

@@ -354,3 +354,9 @@ func (f *Datastore) GetChildObjects(UUID string, filterOutDeleted bool) ([]conne
 func (f *Datastore) AddThing(thing *models.ThingCreate, uuid strfmt.UUID) error {
 	return nil
 }
+
+func (f *Datastore) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
+	thingResponse := models.ThingGetResponse{}
+
+	return thingResponse, nil
+}

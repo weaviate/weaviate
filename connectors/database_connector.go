@@ -45,6 +45,7 @@ type DatabaseConnector interface {
 	GetChildObjects(string, bool) ([]connector_utils.DatabaseUsersObject, error)
 
 	AddThing(*models.ThingCreate, strfmt.UUID) error
+	GetThing(strfmt.UUID) (models.ThingGetResponse, error)
 }
 
 // GetAllConnectors contains all available connectors

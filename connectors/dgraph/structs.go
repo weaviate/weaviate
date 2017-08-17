@@ -13,6 +13,8 @@
 
 package dgraph
 
+import ()
+
 // DgraphClass is a representation of a class within the Dgraph Database.
 type DgraphClass struct {
 	Class string `dgraph:"class"`

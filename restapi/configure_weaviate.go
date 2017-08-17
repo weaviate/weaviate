@@ -706,26 +706,30 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
 		// Get item from database
-		dbObject, err := databaseConnector.Get(params.ThingID)
+		responseObject, err := databaseConnector.GetThing(strfmt.UUID(params.ThingID))
 
-		// Object is deleted eleted
-		if dbObject.Deleted || err != nil {
-			return things.NewWeaviateThingsGetNotFound()
+		if err != nil {
+			log.Println("ERROR")
 		}
 
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, dbObject.Owner); !allowed {
-			return things.NewWeaviateThingsGetForbidden()
-		}
+		// // Object is deleted eleted
+		// if dbObject.Deleted || err != nil {
+		// 	return things.NewWeaviateThingsGetNotFound()
+		// }
 
-		// Create object to return
-		responseObject := &models.ThingGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), &responseObject)
-		responseObject.ThingID = strfmt.UUID(dbObject.Uuid)
+		// // This is a read function, validate if allowed to read?
+		// if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, dbObject.Owner); !allowed {
+		// 	return things.NewWeaviateThingsGetForbidden()
+		// }
+
+		// // Create object to return
+		// responseObject := &models.ThingGetResponse{}
+		// json.Unmarshal([]byte(dbObject.Object), &responseObject)
+		// responseObject.ThingID = strfmt.UUID(params.ThingID)
 		responseObject.Kind = getKind(responseObject)
 
 		// Get is successful
-		return things.NewWeaviateThingsGetOK().WithPayload(responseObject)
+		return things.NewWeaviateThingsGetOK().WithPayload(&responseObject)
 	})
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?

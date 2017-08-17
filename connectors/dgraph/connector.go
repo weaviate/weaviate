@@ -386,6 +386,84 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 	// TODO: Reset batch before and flush after every function??
 }
 
+func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
+	thingResponse := models.ThingGetResponse{}
+	thingResponse.Schema = map[string]models.JSONObject{}
+
+	ctx := context.Background()
+
+	variables := make(map[string]string)
+	variables["$uuid"] = string(UUID)
+
+	req := dgraphClient.Req{}
+
+	req.SetQueryWithVariables(`{ 
+		get(func: eq(uuid, $uuid)) {
+			uuid
+			~id {
+				expand(_all_) {
+					expand(_all_)
+				}
+			}
+		}
+	}`, variables)
+
+	resp, err := f.client.Run(ctx, &req)
+	if err != nil {
+		return thingResponse, err
+	}
+
+	// var getResult GetOnIdResult
+	// err = dgraphClient.Unmarshal(resp.N, &getResult)
+
+	// if err != nil {
+	// 	return thingResponse, err
+	// }
+
+	nodes := resp.GetN()
+
+	for _, node := range nodes {
+		mergeNodeInResponse(node, &thingResponse)
+	}
+
+	return thingResponse, nil
+}
+
+// mergeNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
+func mergeNodeInResponse(node *protos.Node, thingResponse *models.ThingGetResponse) {
+	attribute := node.Attribute
+
+	for _, prop := range node.GetProperties() {
+		if attribute == "~id" {
+			if prop.Prop == "creationTimeMs" {
+				thingResponse.CreationTimeMs = prop.GetValue().GetIntVal()
+			} else if prop.Prop == "lastSeenTimeMs" {
+				thingResponse.LastSeenTimeMs = prop.GetValue().GetIntVal()
+			} else if prop.Prop == "lastUpdateTimeMs" {
+				thingResponse.LastUpdateTimeMs = prop.GetValue().GetIntVal()
+			} else if prop.Prop == "lastUseTimeMs" {
+				thingResponse.LastUseTimeMs = prop.GetValue().GetIntVal()
+			} else {
+				thingResponse.Schema[prop.Prop] = map[string]models.JSONValue{
+					"value": prop.GetValue().GetStrVal(),
+				}
+			}
+		} else if attribute == "type" {
+			thingResponse.AtContext = "http://schema.org"
+			// thingResponse.AtType = "Person"
+		} else if attribute == "id" {
+			if prop.Prop == "uuid" {
+				thingResponse.ThingID = strfmt.UUID(prop.GetValue().GetStrVal())
+			}
+		}
+	}
+
+	for _, child := range node.Children {
+		mergeNodeInResponse(child, thingResponse)
+	}
+
+}
+
 func (f *Dgraph) Add(dbObject connector_utils.DatabaseObject) (string, error) {
 
 	// Return the ID that is used to create.
