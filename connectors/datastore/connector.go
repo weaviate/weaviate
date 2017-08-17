@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/models"
 	"log"
 
@@ -350,6 +351,6 @@ func (f *Datastore) GetChildObjects(UUID string, filterOutDeleted bool) ([]conne
 	return childUserObjects, nil
 }
 
-func (f *Datastore) AddThing(thing *models.ThingCreate) error {
+func (f *Datastore) AddThing(thing *models.ThingCreate, uuid strfmt.UUID) error {
 	return nil
 }

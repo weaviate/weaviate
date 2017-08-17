@@ -15,6 +15,7 @@ package dbconnector
 
 import (
 	"encoding/json"
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/models"
 	"io/ioutil"
 	"log"
@@ -43,7 +44,7 @@ type DatabaseConnector interface {
 	DeleteKey(string) error
 	GetChildObjects(string, bool) ([]connector_utils.DatabaseUsersObject, error)
 
-	AddThing(*models.ThingCreate) error
+	AddThing(*models.ThingCreate, strfmt.UUID) error
 }
 
 // GetAllConnectors contains all available connectors

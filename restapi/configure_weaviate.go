@@ -670,7 +670,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		dbObject.MergeRequestBodyIntoObject(params.Body)
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go databaseConnector.AddThing(params.Body)
+		go databaseConnector.AddThing(params.Body, strfmt.UUID(dbObject.Uuid))
 
 		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
