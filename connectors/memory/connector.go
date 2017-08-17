@@ -15,6 +15,7 @@ package memory
 
 import (
 	"errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/models"
 	"log"
 
@@ -437,6 +438,6 @@ func (f *Memory) GetChildObjects(UUID string, filterOutDeleted bool) ([]connecto
 	return childUserObjects, nil
 }
 
-func (f *Memory) AddThing(thing *models.ThingCreate) error {
+func (f *Memory) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 	return nil
 }

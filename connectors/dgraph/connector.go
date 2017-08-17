@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/go-openapi/strfmt"
 	"google.golang.org/grpc"
 	"io"
 	"io/ioutil"
@@ -246,6 +247,7 @@ func (f *Dgraph) Init() error {
 		}
 
 		// Call flush to flush buffers after all mutations are added
+		// TODO: Will this give problems??
 		err = f.client.BatchFlush()
 
 		if err != nil {
@@ -256,7 +258,7 @@ func (f *Dgraph) Init() error {
 	return nil
 }
 
-func (f *Dgraph) AddThing(thing *models.ThingCreate) error {
+func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 	// TODO, make type interactive
 	// thingType := thing.AtContext + "/" + models.ThingCreate.type
 	ctx := context.Background()
@@ -291,14 +293,14 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate) error {
 	classNode := f.client.NodeUid(dClass.Root.ID)
 
 	// Node has been found, create new one and connect it
-	newThing, err := f.client.NodeBlank(fmt.Sprintf("%v", gouuid.NewV4()))
+	newThingNode, err := f.client.NodeBlank(fmt.Sprintf("%v", gouuid.NewV4()))
 
 	if err != nil {
 		return err
 	}
 
 	// Add edge between New Thing and Class Node
-	typeEdge := newThing.ConnectTo("type", classNode)
+	typeEdge := newThingNode.ConnectTo("type", classNode)
 
 	// Add class edge to batch
 	req = dgraphClient.Req{}
@@ -308,8 +310,27 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate) error {
 		return err
 	}
 
+	// Add UUID node
+	uuidNode, err := f.client.NodeBlank(string(UUID))
+
+	// Add UUID edge
+	uuidEdge := newThingNode.ConnectTo("id", uuidNode)
+	if err = req.Set(uuidEdge); err != nil {
+		return err
+	}
+
+	// Add UUID to UUID node
+	// TODO: Search for uuid edge/node before making new??
+	edge := uuidNode.Edge("uuid")
+	if err = edge.SetValueString(string(UUID)); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
 	// Add timings
-	edge := newThing.Edge("creationTimeMs")
+	edge = newThingNode.Edge("creationTimeMs")
 	if err = edge.SetValueInt(thing.CreationTimeMs); err != nil {
 		return err
 	}
@@ -317,7 +338,7 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate) error {
 		return err
 	}
 
-	edge = newThing.Edge("lastSeenTimeMs")
+	edge = newThingNode.Edge("lastSeenTimeMs")
 	if err = edge.SetValueInt(thing.LastSeenTimeMs); err != nil {
 		return err
 	}
@@ -325,7 +346,7 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate) error {
 		return err
 	}
 
-	edge = newThing.Edge("lastUpdateTimeMs")
+	edge = newThingNode.Edge("lastUpdateTimeMs")
 	if err = edge.SetValueInt(thing.LastUpdateTimeMs); err != nil {
 		return err
 	}
@@ -333,7 +354,7 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate) error {
 		return err
 	}
 
-	edge = newThing.Edge("lastUseTimeMs")
+	edge = newThingNode.Edge("lastUseTimeMs")
 	if err = edge.SetValueInt(thing.LastUseTimeMs); err != nil {
 		return err
 	}
@@ -342,7 +363,16 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate) error {
 	}
 
 	// Add Thing properties
-	// log.Println(thing.Schema)
+	for propKey, propValue := range thing.Schema {
+		// TODO: add property: string/int/connection other object, now everything is string
+		edge = newThingNode.Edge(propKey)
+		if err = edge.SetValueString(propValue["value"].(string)); err != nil {
+			return err
+		}
+		if err = req.Set(edge); err != nil {
+			return err
+		}
+	}
 
 	// Call flush to flush buffers after all mutations are added
 	resp, err = f.client.Run(ctx, &req)
