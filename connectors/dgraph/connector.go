@@ -237,6 +237,7 @@ func (f *Dgraph) Init() error {
 		}
 
 		// Create the class name by concatinating context with class
+		// TODO: Do not concatinate, split and add classname and context seperatly to node?
 		className := thingSchema.Context + "/" + class.Class
 
 		if _, err := f.getClassFromResult(className, allClasses); err != nil {
@@ -549,8 +550,11 @@ func mergeNodeInResponse(node *protos.Node, thingResponse *models.ThingGetRespon
 				}
 			}
 		} else if attribute == "type" {
-			thingResponse.AtContext = "http://schema.org"
-			// thingResponse.AtType = "Person" TODO: FIX?
+			if prop.Prop == "context" {
+				thingResponse.AtContext = prop.GetValue().GetStrVal()
+			} else if prop.Prop == "class" {
+				// thingResponse.AtType = "Person" TODO: FIX?
+			}
 		} else if attribute == "id" {
 			if prop.Prop == "uuid" {
 				thingResponse.ThingID = strfmt.UUID(prop.GetValue().GetStrVal())
