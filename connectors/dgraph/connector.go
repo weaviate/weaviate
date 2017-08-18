@@ -210,17 +210,18 @@ func (f *Dgraph) Init() error {
 
 	// Add schema to database
 	for _, class := range thingSchema.Classes {
-		for _, prop := range class.Properties {
+		// for _, prop := range class.Properties {
+		for _ = range class.Properties {
 			// Add Dgraph-schema for every property of individual nodes
-			err = f.client.AddSchema(protos.SchemaUpdate{
-				Predicate: "schema." + prop.Name,
-				ValueType: uint32(types.UidID),
-				Directive: protos.SchemaUpdate_REVERSE,
-			})
+			// err = f.client.AddSchema(protos.SchemaUpdate{
+			// 	Predicate: "schema." + prop.Name,
+			// 	ValueType: uint32(types.UidID),
+			// 	Directive: protos.SchemaUpdate_REVERSE,
+			// })
 
-			if err != nil {
-				return err
-			}
+			// if err != nil {
+			// 	return err
+			// }
 
 			// TODO: Add specific schema for datatypes
 			// http://schema.org/DataType
@@ -270,12 +271,13 @@ func (f *Dgraph) Init() error {
 }
 
 func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
-	// TODO, make type interactive
-	// thingType := thing.AtContext + "/" + models.ThingCreate.type
 	ctx := context.Background()
 
+	// TODO, make type interactive
+	// thingType := thing.AtContext + "/" + models.ThingCreate.type
 	thingType := thing.AtContext + "/Person"
 
+	// Search for the class to make the connection
 	variables := make(map[string]string)
 	variables["$a"] = thingType
 
