@@ -743,29 +743,33 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		page := getPage(params.Page)
 
 		// Get user out of principal
-		usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
 		// List all results
-		thingDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeThing, usersObject.Uuid, limit, page, nil)
+		thingsResponse, err := databaseConnector.ListThings(limit, page)
 
-		// Convert to an response object
-		responseObject := &models.ThingsListResponse{}
-		responseObject.Things = make([]*models.ThingGetResponse, len(thingDatabaseObjects))
-
-		// Loop to fill response project
-		for i, thingDatabaseObject := range thingDatabaseObjects {
-			thingObject := &models.ThingGetResponse{}
-			json.Unmarshal([]byte(thingDatabaseObject.Object), thingObject)
-			thingObject.ThingID = strfmt.UUID(thingDatabaseObject.Uuid)
-			thingObject.Kind = getKind(thingObject)
-			responseObject.Things[i] = thingObject
+		if err != nil {
+			log.Println("ERROR", err)
 		}
 
-		// Add totalResults to response object.
-		responseObject.TotalResults = int64(totalResults)
-		responseObject.Kind = getKind(responseObject)
+		// // Convert to an response object
+		// responseObject := &models.ThingsListResponse{}
+		// responseObject.Things = make([]*models.ThingGetResponse, len(thingDatabaseObjects))
 
-		return things.NewWeaviateThingsListOK().WithPayload(responseObject)
+		// // Loop to fill response project
+		// for i, thingDatabaseObject := range thingDatabaseObjects {
+		// 	thingObject := &models.ThingGetResponse{}
+		// 	json.Unmarshal([]byte(thingDatabaseObject.Object), thingObject)
+		// 	thingObject.ThingID = strfmt.UUID(thingDatabaseObject.Uuid)
+		// 	thingObject.Kind = getKind(thingObject)
+		// 	responseObject.Things[i] = thingObject
+		// }
+
+		// Add totalResults to response object.
+		// responseObject.TotalResults = int64(totalResults)
+		thingsResponse.Kind = getKind(thingsResponse)
+
+		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
 	})
 	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to write?
