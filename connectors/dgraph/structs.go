@@ -25,3 +25,8 @@ type DgraphClass struct {
 type ClassResult struct {
 	Root *DgraphClass `dgraph:"class"`
 }
+
+// AllClassesResult
+type AllClassesResult struct {
+	Root []*DgraphClass `dgraph:"classes"`
+}
