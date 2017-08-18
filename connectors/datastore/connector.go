@@ -360,3 +360,9 @@ func (f *Datastore) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) 
 
 	return thingResponse, nil
 }
+
+func (f *Datastore) ListThings(limit int, page int) (models.ThingsListResponse, error) {
+	thingsListResponse := models.ThingsListResponse{}
+
+	return thingsListResponse, nil
+}

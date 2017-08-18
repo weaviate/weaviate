@@ -447,3 +447,9 @@ func (f *Memory) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 
 	return thingResponse, nil
 }
+
+func (f *Memory) ListThings(limit int, page int) (models.ThingsListResponse, error) {
+	thingsListResponse := models.ThingsListResponse{}
+
+	return thingsListResponse, nil
+}

@@ -59,6 +59,8 @@ func (f *Dgraph) SetConfig(configInput connectorConfig.Environment) {
 
 // Connect creates connection and tables if not already available
 func (f *Dgraph) Connect() error {
+	// Connect with Dgraph host, create connection dail
+	// TODO: Put hostname in config using the SetConfig function (configInput.Database.DatabaseConfig and making custom struct)
 	dgraphGrpcAddress := "127.0.0.1:9080"
 
 	conn, err := grpc.Dial(dgraphGrpcAddress, grpc.WithInsecure())
@@ -67,10 +69,7 @@ func (f *Dgraph) Connect() error {
 	}
 	// defer conn.Close()
 
-	connections := []*grpc.ClientConn{
-		conn,
-	}
-
+	// Create temp-folder for caching
 	dir, err := ioutil.TempDir("", "weaviate_dgraph")
 
 	if err != nil {
@@ -78,6 +77,7 @@ func (f *Dgraph) Connect() error {
 	}
 	// defer os.RemoveAll(dir)
 
+	// Set custom options
 	var options = dgraphClient.BatchMutationOptions{
 		Size:          100,
 		Pending:       100,
@@ -86,7 +86,7 @@ func (f *Dgraph) Connect() error {
 		Ctx:           context.Background(),
 	}
 
-	f.client = dgraphClient.NewDgraphClient(connections, options, dir)
+	f.client = dgraphClient.NewDgraphClient([]*grpc.ClientConn{conn}, options, dir)
 	// defer f.client.Close()
 
 	return nil
@@ -108,17 +108,24 @@ func (f *Dgraph) Init() error {
 		log.Println("Downloading Thing schema file...")
 		localThingSchemaFile = "temp/thing-schema.json"
 
+		// Create local file
 		thingSchema, _ := os.Create(localThingSchemaFile)
 		defer thingSchema.Close()
 
-		resp, _ := http.Get(f.thingSchemaLocation)
+		// Get the file from online
+		resp, err := http.Get(f.thingSchemaLocation)
+		if err != nil {
+			return err
+		}
 		defer resp.Body.Close()
 
+		// Write file to local file
 		b, _ := io.Copy(thingSchema, resp.Body)
 		log.Println("Download complete, file size: ", b)
 	} else {
 		log.Println("Given Thing schema location is not a valid URL, looking for local file...")
 
+		// Given Thing schema location is not a valid URL, assume it is a local file
 		localThingSchemaFile = f.thingSchemaLocation
 	}
 
@@ -131,12 +138,10 @@ func (f *Dgraph) Init() error {
 		return err
 	}
 
-	fileContentJSON := string(fileContents)
-	log.Println("File is loaded.")
-
 	// Merge JSON into Schema objects
 	thingSchema := &schema.Schema{}
-	err = json.Unmarshal([]byte(fileContentJSON), &thingSchema)
+	err = json.Unmarshal([]byte(fileContents), &thingSchema)
+	log.Println("File is loaded.")
 
 	// Return error when error is given reading file.
 	if err != nil {
@@ -160,6 +165,7 @@ func (f *Dgraph) Init() error {
 		Predicate: "type",
 		ValueType: uint32(types.UidID),
 		Directive: protos.SchemaUpdate_REVERSE,
+		Count:     true,
 	}); err != nil {
 		return err
 	}
@@ -192,6 +198,7 @@ func (f *Dgraph) Init() error {
 		"lastUseTimeMs",
 	}
 
+	// For every timing, add them in the DB
 	for _, ms := range thingTimings {
 		if err := f.client.AddSchema(protos.SchemaUpdate{
 			Predicate: ms,
@@ -204,8 +211,10 @@ func (f *Dgraph) Init() error {
 		}
 	}
 
+	// Get all classes to verify we do not create duplicates
 	allClasses, err := f.getAllClasses()
 
+	// Init flush variable
 	flushIt := false
 
 	// Add schema to database
@@ -227,6 +236,7 @@ func (f *Dgraph) Init() error {
 			// http://schema.org/DataType
 		}
 
+		// Create the class name by concatinating context with class
 		className := thingSchema.Context + "/" + class.Class
 
 		if _, err := f.getClassFromResult(className, allClasses); err != nil {
@@ -258,7 +268,6 @@ func (f *Dgraph) Init() error {
 	}
 
 	// Call flush to flush buffers after all mutations are added
-	// TODO: Will this give problems??
 	if flushIt {
 		err = f.client.BatchFlush()
 
@@ -270,19 +279,21 @@ func (f *Dgraph) Init() error {
 	return nil
 }
 
+// AddThing adds a thing to the Dgraph database with the given UUID
 func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
+	// Create context which could be used in the rest of the function
 	ctx := context.Background()
 
-	// TODO, make type interactive
+	// TODO: make type interactive
 	// thingType := thing.AtContext + "/" + models.ThingCreate.type
 	thingType := thing.AtContext + "/Person"
 
-	// Search for the class to make the connection
+	// Search for the class to make the connection, create variables
 	variables := make(map[string]string)
 	variables["$a"] = thingType
 
+	// Create the query for existing class
 	req := dgraphClient.Req{}
-
 	req.SetQueryWithVariables(`{
 		class(func: eq(class, $a)) {
 			_uid_
@@ -290,12 +301,14 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 		}
 	}`, variables)
 
+	// Run the query
 	resp, err := f.client.Run(ctx, &req)
 
 	if err != nil {
 		return err
 	}
 
+	// Unmarshal the result
 	var dClass ClassResult
 	err = dgraphClient.Unmarshal(resp.N, &dClass)
 
@@ -303,6 +316,7 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 		return err
 	}
 
+	// Crete the classNode from the result
 	classNode := f.client.NodeUid(dClass.Root.ID)
 
 	// Node has been found, create new one and connect it
@@ -342,7 +356,7 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 		return err
 	}
 
-	// Add timings
+	// Add timing nodes
 	edge = newThingNode.Edge("creationTimeMs")
 	if err = edge.SetValueInt(thing.CreationTimeMs); err != nil {
 		return err
@@ -400,17 +414,20 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 	// TODO: Reset batch before and flush after every function??
 }
 
+// GetThing returns the thing in the ThingGetResponse format
 func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
+	// Initialize response
 	thingResponse := models.ThingGetResponse{}
 	thingResponse.Schema = map[string]models.JSONObject{}
 
+	// Init the context
 	ctx := context.Background()
 
+	// Do a query to get all node-information based on the given UUID
 	variables := make(map[string]string)
 	variables["$uuid"] = string(UUID)
 
 	req := dgraphClient.Req{}
-
 	req.SetQueryWithVariables(`{ 
 		get(func: eq(uuid, $uuid)) {
 			uuid
@@ -422,20 +439,14 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 		}
 	}`, variables)
 
+	// Run query created above
 	resp, err := f.client.Run(ctx, &req)
 	if err != nil {
 		return thingResponse, err
 	}
 
-	// var getResult GetOnIdResult
-	// err = dgraphClient.Unmarshal(resp.N, &getResult)
-
-	// if err != nil {
-	// 	return thingResponse, err
-	// }
-
+	// Merge the results into the model to return
 	nodes := resp.GetN()
-
 	for _, node := range nodes {
 		mergeNodeInResponse(node, &thingResponse)
 	}
@@ -443,12 +454,74 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 	return thingResponse, nil
 }
 
+// ListThings returns the thing in the ThingGetResponse format
+func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, error) {
+	// Initialize response
+	thingsResponse := models.ThingsListResponse{}
+	thingsResponse.Things = make([]*models.ThingGetResponse, limit)
+
+	// Init the context
+	ctx := context.Background()
+
+	// Do a query to get all node-information
+	req := dgraphClient.Req{}
+	req.SetQuery(fmt.Sprintf(`{ 
+		things(func: has(type), orderdesc: creationTimeMs, first: %d, offset: %d)  {
+			expand(_all_) {
+				expand(_all_)
+			}
+		}
+	}	
+	`, limit, (page-1)*limit))
+
+	// Run query created above
+	resp, err := f.client.Run(ctx, &req)
+	if err != nil {
+		return thingsResponse, err
+	}
+
+	// Merge the results into the model to return
+	nodes := resp.GetN()
+	for i, node := range nodes[0].Children {
+		thingResponse := &models.ThingGetResponse{}
+		thingResponse.Schema = map[string]models.JSONObject{}
+		mergeNodeInResponse(node, thingResponse)
+		thingsResponse.Things[i] = thingResponse
+	}
+
+	// Create query to count total results
+	req = dgraphClient.Req{}
+	req.SetQuery(`{ 
+  		totalResults(func: has(type))  {
+    		count()
+  		}
+	}`)
+
+	// Run query created above
+	resp, err = f.client.Run(ctx, &req)
+	if err != nil {
+		return thingsResponse, err
+	}
+
+	// Unmarshal the dgraph response into a struct
+	var totalResult TotalResultsResult
+	err = dgraphClient.Unmarshal(resp.N, &totalResult)
+	if err != nil {
+		return thingsResponse, nil
+	}
+
+	// Set the total results
+	thingsResponse.TotalResults = totalResult.Root.Count
+
+	return thingsResponse, nil
+}
+
 // mergeNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
 func mergeNodeInResponse(node *protos.Node, thingResponse *models.ThingGetResponse) {
 	attribute := node.Attribute
 
 	for _, prop := range node.GetProperties() {
-		if attribute == "~id" {
+		if attribute == "~id" || attribute == "things" {
 			if prop.Prop == "creationTimeMs" {
 				thingResponse.CreationTimeMs = prop.GetValue().GetIntVal()
 			} else if prop.Prop == "lastSeenTimeMs" {
@@ -464,7 +537,7 @@ func mergeNodeInResponse(node *protos.Node, thingResponse *models.ThingGetRespon
 			}
 		} else if attribute == "type" {
 			thingResponse.AtContext = "http://schema.org"
-			// thingResponse.AtType = "Person"
+			// thingResponse.AtType = "Person" TODO: FIX?
 		} else if attribute == "id" {
 			if prop.Prop == "uuid" {
 				thingResponse.ThingID = strfmt.UUID(prop.GetValue().GetStrVal())
@@ -478,25 +551,27 @@ func mergeNodeInResponse(node *protos.Node, thingResponse *models.ThingGetRespon
 
 }
 
+// Add deprecated?
 func (f *Dgraph) Add(dbObject connector_utils.DatabaseObject) (string, error) {
 
 	// Return the ID that is used to create.
 	return "hoi", nil
 }
 
-func (f *Dgraph) Get(Uuid string) (connector_utils.DatabaseObject, error) {
+// Get deprecated?
+func (f *Dgraph) Get(UUID string) (connector_utils.DatabaseObject, error) {
 
 	return connector_utils.DatabaseObject{}, nil
 }
 
-// return a list
+// List deprecated?
 func (f *Dgraph) List(refType string, ownerUUID string, limit int, page int, referenceFilter *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error) {
 	dataObjs := connector_utils.DatabaseObjects{}
 
 	return dataObjs, 0, nil
 }
 
-// Validate if a user has access, returns permissions object
+// ValidateKey Validate if a user has access, returns permissions object
 func (f *Dgraph) ValidateKey(token string) ([]connector_utils.DatabaseUsersObject, error) {
 	dbUsersObjects := []connector_utils.DatabaseUsersObject{{
 		Deleted:        false,
@@ -512,14 +587,14 @@ func (f *Dgraph) ValidateKey(token string) ([]connector_utils.DatabaseUsersObjec
 }
 
 // GetKey returns user object by ID
-func (f *Dgraph) GetKey(Uuid string) (connector_utils.DatabaseUsersObject, error) {
+func (f *Dgraph) GetKey(UUID string) (connector_utils.DatabaseUsersObject, error) {
 	// Return found object
 	return connector_utils.DatabaseUsersObject{}, nil
 
 }
 
-// AddUser to DB
-func (f *Dgraph) AddKey(parentUuid string, dbObject connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error) {
+// AddKey to DB
+func (f *Dgraph) AddKey(parentUUID string, dbObject connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error) {
 
 	// Return the ID that is used to create.
 	return connector_utils.DatabaseUsersObject{}, nil
@@ -532,7 +607,7 @@ func (f *Dgraph) DeleteKey(UUID string) error {
 	return nil
 }
 
-// GetChildKeys returns all the child keys
+// GetChildObjects returns all the child objects
 func (f *Dgraph) GetChildObjects(UUID string, filterOutDeleted bool) ([]connector_utils.DatabaseUsersObject, error) {
 	// Fill children array
 	childUserObjects := []connector_utils.DatabaseUsersObject{}
