@@ -40,3 +40,20 @@ type TotalResultsResult struct {
 type Count struct {
 	Count int64 `dgraph:"count"`
 }
+
+// ThingIDResult is the struct for getting the thing with an UUID
+type ThingIDResult struct {
+	Root ThingID `dgraph:"thing"`
+}
+
+// ThingID reversed thing-id
+type ThingID struct {
+	UUID string    `dgraph:"uuid"`
+	ID   uint64    `dgraph:"_uid_"`
+	Node ThingNode `dgraph:"~id"`
+}
+
+// ThingNode by Thing ID
+type ThingNode struct {
+	ID uint64 `dgraph:"_uid_"`
+}
