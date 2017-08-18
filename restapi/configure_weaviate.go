@@ -709,7 +709,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject, err := databaseConnector.GetThing(strfmt.UUID(params.ThingID))
 
 		if err != nil {
-			log.Println("ERROR")
+			log.Println(err, "ERROR")
 		}
 
 		// // Object is deleted eleted
