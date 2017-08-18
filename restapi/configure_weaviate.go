@@ -670,8 +670,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		dbObject.MergeRequestBodyIntoObject(params.Body)
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		err := databaseConnector.AddThing(params.Body, strfmt.UUID(dbObject.Uuid))
-		log.Println("ERROR ADD:", err)
+		go databaseConnector.AddThing(params.Body, strfmt.UUID(dbObject.Uuid))
 
 		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
@@ -709,14 +708,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get item from database
 		responseObject, err := databaseConnector.GetThing(strfmt.UUID(params.ThingID))
 
+		// Object is not found
 		if err != nil {
-			log.Println(err, "ERROR")
+			return things.NewWeaviateThingsGetNotFound()
 		}
-
-		// // Object is deleted eleted
-		// if dbObject.Deleted || err != nil {
-		// 	return things.NewWeaviateThingsGetNotFound()
-		// }
 
 		// // This is a read function, validate if allowed to read?
 		// if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, dbObject.Owner); !allowed {
