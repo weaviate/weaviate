@@ -286,7 +286,7 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 
 	// TODO: make type interactive
 	// thingType := thing.AtContext + "/" + models.ThingCreate.type
-	thingType := thing.AtContext + "/Person"
+	thingType := thing.AtContext + "/Event"
 
 	// Search for the class to make the connection, create variables
 	variables := make(map[string]string)
@@ -316,7 +316,7 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 		return err
 	}
 
-	// Crete the classNode from the result
+	// Create the classNode from the result
 	classNode := f.client.NodeUid(dClass.Root.ID)
 
 	// Node has been found, create new one and connect it
@@ -393,13 +393,26 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 	for propKey, propValue := range thing.Schema {
 		// TODO: add property: string/int/connection other object, now everything is string
 		// TODO: Add 'schema.' to a global var, if this is the nicest way to fix
-		edge = newThingNode.Edge("schema." + propKey)
-		if err = edge.SetValueString(propValue["value"].(string)); err != nil {
-			return err
+		edgeName := "schema." + propKey
+		if val, ok := propValue["value"]; ok {
+			edge = newThingNode.Edge(edgeName)
+			if err = edge.SetValueString(val.(string)); err != nil {
+				return err
+			}
+			if err = req.Set(edge); err != nil {
+				return err
+			}
+		} else if val, ok = propValue["ref"]; ok {
+			refThingNode, err := f.getThingNodeByUUID(strfmt.UUID(val.(string)))
+			if err != nil {
+				return err
+			}
+			relatedEdge := newThingNode.ConnectTo(edgeName, refThingNode)
+			if err = req.Set(relatedEdge); err != nil {
+				return err
+			}
 		}
-		if err = req.Set(edge); err != nil {
-			return err
-		}
+
 	}
 
 	// Call flush to flush buffers after all mutations are added
@@ -549,6 +562,46 @@ func mergeNodeInResponse(node *protos.Node, thingResponse *models.ThingGetRespon
 		mergeNodeInResponse(child, thingResponse)
 	}
 
+}
+
+func (f *Dgraph) getThingNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
+	// Init the context
+	ctx := context.Background()
+
+	// Search for the class to make the connection, create variables
+	variables := make(map[string]string)
+	variables["$uuid"] = string(UUID)
+
+	// Create the query for existing class
+	req := dgraphClient.Req{}
+	req.SetQueryWithVariables(`{ 
+		thing(func: eq(uuid, $uuid)) {
+			uuid
+			~id {
+				_uid_
+			}
+		}
+	}`, variables)
+
+	// Run the query
+	resp, err := f.client.Run(ctx, &req)
+
+	if err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	// Unmarshal the result
+	var idResult ThingIDResult
+	err = dgraphClient.Unmarshal(resp.N, &idResult)
+
+	if err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	// Create the classNode from the result
+	node := f.client.NodeUid(idResult.Root.Node.ID)
+
+	return node, err
 }
 
 // Add deprecated?
