@@ -675,112 +675,99 @@ func Test__weaviate_thing_get_JSON(t *testing.T) {
 	testNotExistsRequest(t, "/things", "GET", "application/json", nil, apiKeyCmdLine)
 }
 
-// // weaviate.thing.update
-// func Test__weaviate_thing_update_JSON(t *testing.T) {
-// 	// Create update request
-// 	newValue := "updated_description"
-// 	jsonStr := bytes.NewBuffer([]byte(`{
-// 			"commandsIds": [
-// 				"string"
-// 			],
-// 			"thingModelTemplate": {
-// 				"modelName": "string",
-// 				"oemNumber": "string",
-// 				"oemAdditions": {},
-// 				"oemName": "string",
-// 				"oemIcon": "string",
-// 				"oemContact": "string"
-// 			},
-// 			"name": "string",
-// 			"connectionStatus": "string",
-// 			"creationTimeMs": 0,
-// 			"description": "` + newValue + `",
-// 			"groups": [
-// 				"string"
-// 			],
-// 			"lastSeenTimeMs": 0,
-// 			"lastUpdateTimeMs": 0,
-// 			"lastUseTimeMs": 0,
-// 			"owner": "string",
-// 			"serialNumber": "string",
-// 			"tags": [
-// 				"string"
-// 			]
-// 		}`))
-// 	response := doRequest("/things/"+thingID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
+// weaviate.thing.update
+func Test__weaviate_thing_update_JSON(t *testing.T) {
+	// Create update request
+	newValue := "New Name!"
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://schema.org",
+		"@type": "Person",
+		"schema": {
+			"givenName": { "value": "%s"},
+			"faxNumber": { "value": "+1234567890"}
+		},
+		"potentialActionIds": [],
+		"creationTimeMs": %d,
+		"lastSeenTimeMs": 2,
+		"lastUpdateTimeMs": 3,
+		"lastUseTimeMs": 4
+	}`, newValue, connector_utils.NowUnix())))
+	response := doRequest("/things/"+thingID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
 
-// 	body := getResponseBody(response)
+	body := getResponseBody(response)
 
-// 	respObject := &models.ThingGetResponse{}
-// 	json.Unmarshal(body, respObject)
+	respObject := &models.ThingGetResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	// Check status code
-// 	testStatusCode(t, response.StatusCode, http.StatusOK)
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
-// 	// Check thing ID is same
-// 	testID(t, string(respObject.ThingID), thingID)
+	// Check thing ID is same
+	testID(t, string(respObject.ThingID), thingID)
 
-// 	// Check kind
-// 	testKind(t, string(*respObject.Kind), "weaviate#thingGetResponse")
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#thingGetResponse")
 
-// 	// Test is faster than adding to DB.
-// 	time.Sleep(1 * time.Second)
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 
-// 	// Check if update is also applied on object when using a new GET request on same object
-// 	responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
+	// Check if update is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
 
-// 	bodyGet := getResponseBody(responseGet)
+	bodyGet := getResponseBody(responseGet)
 
-// 	// Test response obj
-// 	respObjectGet := &models.ThingGetResponse{}
-// 	json.Unmarshal(bodyGet, respObjectGet)
+	// Test response obj
+	respObjectGet := &models.ThingGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
+	testValues(t, newValue, respObject.Schema["givenName"]["value"].(string))
 
-// 	// Check put on non-existing ID
-// 	testNotExistsRequest(t, "/things", "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
-// }
+	// Check put on non-existing ID
+	testNotExistsRequest(t, "/things", "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
+}
 
-// // weaviate.thing.patch
-// func Test__weaviate_thing_patch_JSON(t *testing.T) {
-// 	// Create patch request
-// 	newValue := "patched_description"
+// weaviate.thing.patch
+func Test__weaviate_thing_patch_JSON(t *testing.T) {
+	// Create patch request
+	newValue := "New name patched!"
 
-// 	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/description", "value": "` + newValue + `"}]`))
-// 	response := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/givenName/value", "value": "` + newValue + `"}]`))
+	response := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
-// 	body := getResponseBody(response)
+	body := getResponseBody(response)
 
-// 	respObject := &models.ThingGetResponse{}
-// 	json.Unmarshal(body, respObject)
+	respObject := &models.ThingGetResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	// Check status code
-// 	testStatusCode(t, response.StatusCode, http.StatusOK)
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
-// 	// Check ID is the same
-// 	testID(t, string(respObject.ThingID), thingID)
+	// Check ID is the same
+	testID(t, string(respObject.ThingID), thingID)
 
-// 	// Check kind
-// 	testKind(t, string(*respObject.Kind), "weaviate#thingGetResponse")
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#thingGetResponse")
 
-// 	//dTest is faster than adding to DB.
-// 	time.Sleep(1 * time.Second)
+	//dTest is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 
-// 	// Check if patch is also applied on object when using a new GET request on same object
-// 	responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
+	// Check if patch is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
 
-// 	bodyGet := getResponseBody(responseGet)
+	bodyGet := getResponseBody(responseGet)
 
-// 	// Test response obj
-// 	respObjectGet := &models.ThingGetResponse{}
-// 	json.Unmarshal(bodyGet, respObjectGet)
+	// Test response obj
+	respObjectGet := &models.ThingGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
+	testValues(t, newValue, respObject.Schema["givenName"]["value"].(string))
 
-// 	// Check patch with incorrect contents
-// 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newValue + `"}`))
-// 	responseError := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
-// 	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
+	// Check patch with incorrect contents
+	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newValue + `"}`))
+	responseError := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
 
-// 	// Check patch on non-existing ID
-// 	testNotExistsRequest(t, "/things", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
-// }
+	// Check patch on non-existing ID
+	testNotExistsRequest(t, "/things", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
+}
 
 // // weaviate.thing.delete
 // func Test__weaviate_thing_delete_JSON(t *testing.T) {
