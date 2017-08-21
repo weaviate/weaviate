@@ -675,6 +675,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			log.Println("InsertErr:", insertErr)
 		}
 
+		// TODO Add create-time automatically
+
 		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
 		json.Unmarshal([]byte(dbObject.Object), responseObject)
@@ -802,6 +804,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsPatchUnprocessableEntity()
 		}
 
+		// TODO Add update-time automatically
+
 		// Turn it into a ThingUpdate object
 		thingUpdate := &models.ThingUpdate{}
 		json.Unmarshal([]byte(updatedJSON), &thingUpdate)
@@ -836,6 +840,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			// Object not found response.
 			return things.NewWeaviateThingsUpdateNotFound()
 		}
+
+		// TODO Add update-time automatically
 
 		// dbObject.SetCreateTimeMsToNow() TODO
 		// Update the database

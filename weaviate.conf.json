@@ -28,7 +28,7 @@
                 "name": "dgraph"
             },
             "schemas": {
-                "Thing": "temp/thing-schema-test.json",
+                "Thing": "thing-schema-test.json",
                 "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
             },
             "mqttEnabled": false

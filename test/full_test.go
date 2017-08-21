@@ -648,6 +648,8 @@ func Test__weaviate_thing_list_JSON(t *testing.T) {
 	// Check most recent
 	testID(t, string(respObject.Things[0].ThingID), thingID)
 
+	// TODO: Add maxResults and page tests.
+
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#thingsListResponse")
 }
