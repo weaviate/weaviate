@@ -175,6 +175,7 @@ func (f *Dgraph) Init() error {
 		Predicate: "id",
 		ValueType: uint32(types.UidID),
 		Directive: protos.SchemaUpdate_REVERSE,
+		Count:     true,
 	}); err != nil {
 		return err
 	}
@@ -476,6 +477,36 @@ func (f *Dgraph) UpdateThing(thing *models.ThingUpdate, UUID strfmt.UUID) error 
 	err = f.updateNodeEdges(refThingNode, &thing.Thing)
 
 	return err
+}
+
+// DeleteThing deletes the Thing in the DB at the given UUID.
+func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
+	// Create the query for removing query
+	variables := make(map[string]string)
+	variables["$uuid"] = string(UUID)
+
+	req := dgraphClient.Req{}
+	req.SetQueryWithVariables(`{
+		var(func: eq(uuid, $uuid)) {
+			node_to_delete as ~id
+		}
+		
+		id_node_to_delete as var(func: eq(uuid, $uuid))
+	}
+	mutation {
+		delete {
+			uid(node_to_delete) * * .
+			uid(id_node_to_delete) * * .
+		}
+	}`, variables)
+
+	_, err := f.client.Run(f.getContext(), &req)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // updateNodeEdges updates all the edges of the node, used with a new node or to update/patch a node
