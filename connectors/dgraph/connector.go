@@ -83,7 +83,7 @@ func (f *Dgraph) Connect() error {
 		Pending:       100,
 		PrintCounters: true,
 		MaxRetries:    math.MaxUint32,
-		Ctx:           context.Background(),
+		Ctx:           f.getContext(),
 	}
 
 	f.client = dgraphClient.NewDgraphClient([]*grpc.ClientConn{conn}, options, dir)
@@ -282,9 +282,6 @@ func (f *Dgraph) Init() error {
 
 // AddThing adds a thing to the Dgraph database with the given UUID
 func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
-	// Create context which could be used in the rest of the function
-	ctx := context.Background()
-
 	// TODO: make type interactive
 	// thingType := thing.AtContext + "/" + models.ThingCreate.type
 	thingType := thing.AtContext + "/Event"
@@ -303,7 +300,7 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 	}`, variables)
 
 	// Run the query
-	resp, err := f.client.Run(ctx, &req)
+	resp, err := f.client.Run(f.getContext(), &req)
 
 	if err != nil {
 		return err
@@ -417,7 +414,7 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 	}
 
 	// Call flush to flush buffers after all mutations are added
-	resp, err = f.client.Run(ctx, &req)
+	resp, err = f.client.Run(f.getContext(), &req)
 
 	if err != nil {
 		return err
@@ -433,9 +430,6 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 	// Initialize response
 	thingResponse := models.ThingGetResponse{}
 	thingResponse.Schema = map[string]models.JSONObject{}
-
-	// Init the context
-	ctx := context.Background()
 
 	// Do a query to get all node-information based on the given UUID
 	variables := make(map[string]string)
@@ -454,7 +448,7 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 	}`, variables)
 
 	// Run query created above
-	resp, err := f.client.Run(ctx, &req)
+	resp, err := f.client.Run(f.getContext(), &req)
 	if err != nil {
 		return thingResponse, err
 	}
@@ -474,9 +468,6 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 	thingsResponse := models.ThingsListResponse{}
 	thingsResponse.Things = make([]*models.ThingGetResponse, limit)
 
-	// Init the context
-	ctx := context.Background()
-
 	// Do a query to get all node-information
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{ 
@@ -489,7 +480,7 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 	`, limit, (page-1)*limit))
 
 	// Run query created above
-	resp, err := f.client.Run(ctx, &req)
+	resp, err := f.client.Run(f.getContext(), &req)
 	if err != nil {
 		return thingsResponse, err
 	}
@@ -512,7 +503,7 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 	}`)
 
 	// Run query created above
-	resp, err = f.client.Run(ctx, &req)
+	resp, err = f.client.Run(f.getContext(), &req)
 	if err != nil {
 		return thingsResponse, err
 	}
@@ -569,9 +560,6 @@ func mergeNodeInResponse(node *protos.Node, thingResponse *models.ThingGetRespon
 }
 
 func (f *Dgraph) getThingNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
-	// Init the context
-	ctx := context.Background()
-
 	// Search for the class to make the connection, create variables
 	variables := make(map[string]string)
 	variables["$uuid"] = string(UUID)
@@ -588,7 +576,7 @@ func (f *Dgraph) getThingNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error)
 	}`, variables)
 
 	// Run the query
-	resp, err := f.client.Run(ctx, &req)
+	resp, err := f.client.Run(f.getContext(), &req)
 
 	if err != nil {
 		return dgraphClient.Node{}, err
@@ -673,19 +661,17 @@ func (f *Dgraph) GetChildObjects(UUID string, filterOutDeleted bool) ([]connecto
 }
 
 func (f *Dgraph) getAllClasses() (AllClassesResult, error) {
-	ctx := context.Background()
-
 	// Search for all existing classes
 	req := dgraphClient.Req{}
 
 	req.SetQuery(`{
-  				classes(func: has(class)) {
-					_uid_
-   					class
-  				}
-			}`)
+		classes(func: has(class)) {
+			_uid_
+			class
+		}
+	}`)
 
-	resp, err := f.client.Run(ctx, &req)
+	resp, err := f.client.Run(f.getContext(), &req)
 	if err != nil {
 		return AllClassesResult{}, err
 	}
@@ -707,4 +693,8 @@ func (f *Dgraph) getClassFromResult(className string, allClasses AllClassesResul
 		}
 	}
 	return &DgraphClass{}, errors_.New("class not found")
+}
+
+func (f *Dgraph) getContext() context.Context {
+	return context.Background()
 }
