@@ -670,7 +670,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		dbObject.MergeRequestBodyIntoObject(params.Body)
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go databaseConnector.AddThing(params.Body, strfmt.UUID(dbObject.Uuid))
+		insertErr := databaseConnector.AddThing(params.Body, strfmt.UUID(dbObject.Uuid)) // TODO: go-routine?
+		if insertErr != nil {
+			log.Println("InsertErr:", insertErr)
+		}
 
 		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
@@ -773,11 +776,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get and transform object
-		UUID := params.ThingID
-		dbObject, errGet := databaseConnector.Get(UUID)
+		UUID := strfmt.UUID(params.ThingID)
+		thingGetResponse, errGet := databaseConnector.GetThing(UUID)
 
 		// Return error if UUID is not found.
-		if dbObject.Deleted || errGet != nil {
+		if errGet != nil {
 			return things.NewWeaviateThingsPatchNotFound()
 		}
 
@@ -789,23 +792,34 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsPatchBadRequest()
 		}
 
+		// Convert ThingGetResponse object to JSON
+		thingUpdateJSON, marshalErr := json.Marshal(thingGetResponse)
+		if marshalErr != nil {
+			return things.NewWeaviateThingsPatchBadRequest()
+		}
+
 		// Apply the patch
-		updatedJSON, applyErr := patchObject.Apply([]byte(dbObject.Object))
+		updatedJSON, applyErr := patchObject.Apply(thingUpdateJSON)
 
 		if applyErr != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity()
 		}
 
-		// Set patched JSON back in dbObject
-		dbObject.Object = string(updatedJSON)
+		// Turn it into a ThingUpdate object
+		thingUpdate := &models.ThingUpdate{}
+		json.Unmarshal([]byte(updatedJSON), &thingUpdate)
 
-		dbObject.SetCreateTimeMsToNow()
-		go databaseConnector.Add(dbObject)
+		// dbObject.SetCreateTimeMsToNow() TODO
+		// Update the database
+		insertErr := databaseConnector.UpdateThing(thingUpdate, UUID) // TODO: go-routine?
+		if insertErr != nil {
+			log.Println("InsertErr:", insertErr)
+		}
 
 		// Create return Object
 		responseObject := &models.ThingGetResponse{}
 		json.Unmarshal([]byte(updatedJSON), &responseObject)
-		responseObject.ThingID = strfmt.UUID(dbObject.Uuid)
+		responseObject.ThingID = UUID
 		responseObject.Kind = getKind(responseObject)
 
 		return things.NewWeaviateThingsPatchOK().WithPayload(responseObject)
@@ -817,26 +831,26 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get item from database
-		UUID := params.ThingID
-		dbObject, errGet := databaseConnector.Get(UUID)
+		UUID := strfmt.UUID(params.ThingID)
+		_, errGet := databaseConnector.GetThing(UUID)
 
 		// If there are no results, there is an error
-		if dbObject.Deleted || errGet != nil {
+		if errGet != nil {
 			// Object not found response.
 			return things.NewWeaviateThingsUpdateNotFound()
 		}
 
-		// Set the body-id and generate JSON to save to the database
-		dbObject.MergeRequestBodyIntoObject(params.Body)
-		dbObject.SetCreateTimeMsToNow()
-
-		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go databaseConnector.Add(dbObject)
+		// dbObject.SetCreateTimeMsToNow() TODO
+		// Update the database
+		insertErr := databaseConnector.UpdateThing(params.Body, UUID) // TODO: go-routine?
+		if insertErr != nil {
+			log.Println("InsertErr:", insertErr)
+		}
 
 		// Create object to return
 		responseObject := &models.ThingGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), &responseObject)
-		responseObject.ThingID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Thing = params.Body.Thing
+		responseObject.ThingID = UUID
 		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)

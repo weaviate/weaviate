@@ -354,67 +354,11 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 		return err
 	}
 
-	// Add timing nodes
-	edge = newThingNode.Edge("creationTimeMs")
-	if err = edge.SetValueInt(thing.CreationTimeMs); err != nil {
-		return err
-	}
-	if err = req.Set(edge); err != nil {
-		return err
-	}
+	// Call run after all mutations are added
+	_, err = f.client.Run(f.getContext(), &req)
 
-	edge = newThingNode.Edge("lastSeenTimeMs")
-	if err = edge.SetValueInt(thing.LastSeenTimeMs); err != nil {
-		return err
-	}
-	if err = req.Set(edge); err != nil {
-		return err
-	}
-
-	edge = newThingNode.Edge("lastUpdateTimeMs")
-	if err = edge.SetValueInt(thing.LastUpdateTimeMs); err != nil {
-		return err
-	}
-	if err = req.Set(edge); err != nil {
-		return err
-	}
-
-	edge = newThingNode.Edge("lastUseTimeMs")
-	if err = edge.SetValueInt(thing.LastUseTimeMs); err != nil {
-		return err
-	}
-	if err = req.Set(edge); err != nil {
-		return err
-	}
-
-	// Add Thing properties
-	for propKey, propValue := range thing.Schema {
-		// TODO: add property: string/int/connection other object, now everything is string
-		// TODO: Add 'schema.' to a global var, if this is the nicest way to fix
-		edgeName := "schema." + propKey
-		if val, ok := propValue["value"]; ok {
-			edge = newThingNode.Edge(edgeName)
-			if err = edge.SetValueString(val.(string)); err != nil {
-				return err
-			}
-			if err = req.Set(edge); err != nil {
-				return err
-			}
-		} else if val, ok = propValue["ref"]; ok {
-			refThingNode, err := f.getThingNodeByUUID(strfmt.UUID(val.(string)))
-			if err != nil {
-				return err
-			}
-			relatedEdge := newThingNode.ConnectTo(edgeName, refThingNode)
-			if err = req.Set(relatedEdge); err != nil {
-				return err
-			}
-		}
-
-	}
-
-	// Call flush to flush buffers after all mutations are added
-	resp, err = f.client.Run(f.getContext(), &req)
+	// Add all given information to the new node
+	err = f.updateNodeEdges(newThingNode, &thing.Thing)
 
 	if err != nil {
 		return err
@@ -456,7 +400,7 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 	// Merge the results into the model to return
 	nodes := resp.GetN()
 	for _, node := range nodes {
-		mergeNodeInResponse(node, &thingResponse)
+		f.mergeNodeInResponse(node, &thingResponse)
 	}
 
 	return thingResponse, nil
@@ -490,7 +434,7 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 	for i, node := range nodes[0].Children {
 		thingResponse := &models.ThingGetResponse{}
 		thingResponse.Schema = map[string]models.JSONObject{}
-		mergeNodeInResponse(node, thingResponse)
+		f.mergeNodeInResponse(node, thingResponse)
 		thingsResponse.Things[i] = thingResponse
 	}
 
@@ -521,8 +465,94 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 	return thingsResponse, nil
 }
 
+// UpdateThing updates the Thing in the DB at the given UUID.
+func (f *Dgraph) UpdateThing(thing *models.ThingUpdate, UUID strfmt.UUID) error {
+	refThingNode, err := f.getThingNodeByUUID(UUID)
+
+	if err != nil {
+		return err
+	}
+
+	err = f.updateNodeEdges(refThingNode, &thing.Thing)
+
+	return err
+}
+
+// updateNodeEdges updates all the edges of the node, used with a new node or to update/patch a node
+func (f *Dgraph) updateNodeEdges(node dgraphClient.Node, thing *models.Thing) error {
+	// Create update request
+	req := dgraphClient.Req{}
+
+	// Init error var
+	var err error
+
+	// Add timing nodes
+	edge := node.Edge("creationTimeMs")
+	if err = edge.SetValueInt(thing.CreationTimeMs); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	edge = node.Edge("lastSeenTimeMs")
+	if err = edge.SetValueInt(thing.LastSeenTimeMs); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	edge = node.Edge("lastUpdateTimeMs")
+	if err = edge.SetValueInt(thing.LastUpdateTimeMs); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	edge = node.Edge("lastUseTimeMs")
+	if err = edge.SetValueInt(thing.LastUseTimeMs); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Add Thing properties
+	for propKey, propValue := range thing.Schema {
+		// TODO: add property: string/int/connection other object, now everything is string
+		// TODO: Add 'schema.' to a global var, if this is the nicest way to fix
+		edgeName := propKey // add "schema." + ??
+		if val, ok := propValue["value"]; ok {
+			edge = node.Edge(edgeName)
+			if err = edge.SetValueString(val.(string)); err != nil {
+				return err
+			}
+			if err = req.Set(edge); err != nil {
+				return err
+			}
+		} else if val, ok = propValue["ref"]; ok {
+			refThingNode, err := f.getThingNodeByUUID(strfmt.UUID(val.(string)))
+			if err != nil {
+				return err
+			}
+			relatedEdge := node.ConnectTo(edgeName, refThingNode)
+			if err = req.Set(relatedEdge); err != nil {
+				return err
+			}
+		}
+
+	}
+
+	// Call run after all mutations are added
+	_, err = f.client.Run(f.getContext(), &req)
+
+	return err
+}
+
 // mergeNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
-func mergeNodeInResponse(node *protos.Node, thingResponse *models.ThingGetResponse) {
+func (f *Dgraph) mergeNodeInResponse(node *protos.Node, thingResponse *models.ThingGetResponse) {
 	attribute := node.Attribute
 
 	for _, prop := range node.GetProperties() {
@@ -554,7 +584,7 @@ func mergeNodeInResponse(node *protos.Node, thingResponse *models.ThingGetRespon
 	}
 
 	for _, child := range node.Children {
-		mergeNodeInResponse(child, thingResponse)
+		f.mergeNodeInResponse(child, thingResponse)
 	}
 
 }

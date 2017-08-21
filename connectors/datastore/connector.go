@@ -366,3 +366,7 @@ func (f *Datastore) ListThings(limit int, page int) (models.ThingsListResponse, 
 
 	return thingsListResponse, nil
 }
+
+func (f *Datastore) UpdateThing(thing *models.ThingUpdate, uuid strfmt.UUID) error {
+	return nil
+}
