@@ -686,23 +686,20 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
 		// Get item from database
-		dbObject, errGet := databaseConnector.Get(string(params.ThingID))
+		_, errGet := databaseConnector.GetThing(params.ThingID)
 
 		// Not found
-		if dbObject.Deleted || errGet != nil {
+		if errGet != nil {
 			return things.NewWeaviateThingsDeleteNotFound()
 		}
 
 		// This is a delete function, validate if allowed to delete?
-		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, dbObject.Owner); !allowed {
-			return things.NewWeaviateThingsDeleteForbidden()
-		}
-
-		// Set deleted values
-		dbObject.MakeObjectDeleted()
+		// if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, dbObject.Owner); !allowed {
+		// 	return things.NewWeaviateThingsDeleteForbidden()
+		// }
 
 		// Add new row as GO-routine
-		go databaseConnector.Add(dbObject)
+		go databaseConnector.DeleteThing(params.ThingID)
 
 		// Return 'No Content'
 		return things.NewWeaviateThingsDeleteNoContent()

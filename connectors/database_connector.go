@@ -48,6 +48,7 @@ type DatabaseConnector interface {
 	GetThing(strfmt.UUID) (models.ThingGetResponse, error)
 	ListThings(int, int) (models.ThingsListResponse, error)
 	UpdateThing(*models.ThingUpdate, strfmt.UUID) error
+	DeleteThing(strfmt.UUID) error
 }
 
 // GetAllConnectors contains all available connectors

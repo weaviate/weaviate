@@ -454,6 +454,10 @@ func (f *Memory) ListThings(limit int, page int) (models.ThingsListResponse, err
 	return thingsListResponse, nil
 }
 
-func (f *Memory) UpdateThing(thing *models.ThingUpdate, uuid strfmt.UUID) error {
+func (f *Memory) UpdateThing(thing *models.ThingUpdate, UUID strfmt.UUID) error {
+	return nil
+}
+
+func (f *Memory) DeleteThing(UUID strfmt.UUID) error {
 	return nil
 }
