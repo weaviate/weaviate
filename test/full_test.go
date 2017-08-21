@@ -769,26 +769,26 @@ func Test__weaviate_thing_patch_JSON(t *testing.T) {
 	testNotExistsRequest(t, "/things", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
 }
 
-// // weaviate.thing.delete
-// func Test__weaviate_thing_delete_JSON(t *testing.T) {
-// 	// Create delete request
-// 	response := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
+// weaviate.thing.delete
+func Test__weaviate_thing_delete_JSON(t *testing.T) {
+	// Create delete request
+	response := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
-// 	// Check status code get request
-// 	testStatusCode(t, response.StatusCode, http.StatusNoContent)
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusNoContent)
 
-// 	// Test is faster than adding to DB.
-// 	time.Sleep(1 * time.Second)
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 
-// 	// Create delete request
-// 	responseAlreadyDeleted := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	// Create delete request
+	responseAlreadyDeleted := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
-// 	// Check status code already deleted
-// 	testStatusCode(t, responseAlreadyDeleted.StatusCode, http.StatusNotFound)
+	// Check status code already deleted
+	testStatusCode(t, responseAlreadyDeleted.StatusCode, http.StatusNotFound)
 
-// 	// Create get request with non-existing ID
-// 	testNotExistsRequest(t, "/things", "DELETE", "application/json", nil, apiKeyCmdLine)
-// }
+	// Create get request with non-existing ID
+	testNotExistsRequest(t, "/things", "DELETE", "application/json", nil, apiKeyCmdLine)
+}
 
 // /******************
 //  * ACTIONS TESTS
