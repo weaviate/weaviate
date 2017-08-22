@@ -295,82 +295,14 @@ func (f *Dgraph) Init() error {
 // AddThing adds a thing to the Dgraph database with the given UUID
 func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 	// TODO: make type interactive
-	// thingType := thing.AtContext + "/" + models.ThingCreate.type
-	thingType := thing.AtContext + "/Event"
-
-	// Search for the class to make the connection, create variables
-	variables := make(map[string]string)
-	variables["$a"] = thingType
-
-	// Create the query for existing class
-	req := dgraphClient.Req{}
-	req.SetQueryWithVariables(`{
-		class(func: eq(class, $a)) {
-			_uid_
-			class
-		}
-	}`, variables)
-
-	// Run the query
-	resp, err := f.client.Run(f.getContext(), &req)
+	newNode, err := f.addNewNode(thing.AtContext, "Event", UUID)
 
 	if err != nil {
 		return err
 	}
-
-	// Unmarshal the result
-	var dClass ClassResult
-	err = dgraphClient.Unmarshal(resp.N, &dClass)
-
-	if err != nil {
-		return err
-	}
-
-	// Create the classNode from the result
-	classNode := f.client.NodeUid(dClass.Root.ID)
-
-	// Node has been found, create new one and connect it
-	newThingNode, err := f.client.NodeBlank(fmt.Sprintf("%v", gouuid.NewV4()))
-
-	if err != nil {
-		return err
-	}
-
-	// Add edge between New Thing and Class Node
-	typeEdge := newThingNode.ConnectTo("type", classNode)
-
-	// Add class edge to batch
-	req = dgraphClient.Req{}
-	err = req.Set(typeEdge)
-
-	if err != nil {
-		return err
-	}
-
-	// Add UUID node
-	uuidNode, err := f.client.NodeBlank(string(UUID))
-
-	// Add UUID edge
-	uuidEdge := newThingNode.ConnectTo("id", uuidNode)
-	if err = req.Set(uuidEdge); err != nil {
-		return err
-	}
-
-	// Add UUID to UUID node
-	// TODO: Search for uuid edge/node before making new??
-	edge := uuidNode.Edge("uuid")
-	if err = edge.SetValueString(string(UUID)); err != nil {
-		return err
-	}
-	if err = req.Set(edge); err != nil {
-		return err
-	}
-
-	// Call run after all mutations are added
-	_, err = f.client.Run(f.getContext(), &req)
 
 	// Add all given information to the new node
-	err = f.updateNodeEdges(newThingNode, &thing.Thing)
+	err = f.updateNodeEdges(newNode, &thing.Thing)
 
 	if err != nil {
 		return err
@@ -521,84 +453,16 @@ func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
 }
 
 // AddAction adds an Action to the Dgraph database with the given UUID
-func (f *Dgraph) AddAction(thing *models.Action, UUID strfmt.UUID) error {
+func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	// TODO: make type interactive
-	// thingType := thing.AtContext + "/" + models.ThingCreate.type
-	// thingType := thing.AtContext + "/OnOffAction"
+	_, err := f.addNewNode(action.AtContext, "OnOffAction", UUID)
 
-	// // Search for the class to make the connection, create variables
-	// variables := make(map[string]string)
-	// variables["$a"] = thingType
-
-	// // Create the query for existing class
-	// req := dgraphClient.Req{}
-	// req.SetQueryWithVariables(`{
-	// 	class(func: eq(class, $a)) {
-	// 		_uid_
-	// 		class
-	// 	}
-	// }`, variables)
-
-	// // Run the query
-	// resp, err := f.client.Run(f.getContext(), &req)
-
-	// if err != nil {
-	// 	return err
-	// }
-
-	// // Unmarshal the result
-	// var dClass ClassResult
-	// err = dgraphClient.Unmarshal(resp.N, &dClass)
-
-	// if err != nil {
-	// 	return err
-	// }
-
-	// // Create the classNode from the result
-	// classNode := f.client.NodeUid(dClass.Root.ID)
-
-	// // Node has been found, create new one and connect it
-	// newThingNode, err := f.client.NodeBlank(fmt.Sprintf("%v", gouuid.NewV4()))
-
-	// if err != nil {
-	// 	return err
-	// }
-
-	// // Add edge between New Thing and Class Node
-	// typeEdge := newThingNode.ConnectTo("type", classNode)
-
-	// // Add class edge to batch
-	// req = dgraphClient.Req{}
-	// err = req.Set(typeEdge)
-
-	// if err != nil {
-	// 	return err
-	// }
-
-	// // Add UUID node
-	// uuidNode, err := f.client.NodeBlank(string(UUID))
-
-	// // Add UUID edge
-	// uuidEdge := newThingNode.ConnectTo("id", uuidNode)
-	// if err = req.Set(uuidEdge); err != nil {
-	// 	return err
-	// }
-
-	// // Add UUID to UUID node
-	// // TODO: Search for uuid edge/node before making new??
-	// edge := uuidNode.Edge("uuid")
-	// if err = edge.SetValueString(string(UUID)); err != nil {
-	// 	return err
-	// }
-	// if err = req.Set(edge); err != nil {
-	// 	return err
-	// }
-
-	// // Call run after all mutations are added
-	// _, err = f.client.Run(f.getContext(), &req)
+	if err != nil {
+		return err
+	}
 
 	// // Add all given information to the new node
-	// err = f.updateNodeEdges(newThingNode, &thing.Thing)
+	//err = f.updateNodeEdges(newNode, &action.Action)
 
 	// if err != nil {
 	// 	return err
@@ -624,6 +488,84 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 // UpdateAction updates a specific action
 func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 	return nil
+}
+
+func (f *Dgraph) addNewNode(nodeContext string, nodeClass string, UUID strfmt.UUID) (dgraphClient.Node, error) {
+	// TODO: separate both?
+	nodeType := nodeContext + "/" + nodeClass
+
+	// Search for the class to make the connection, create variables
+	variables := make(map[string]string)
+	variables["$a"] = nodeType
+
+	// Create the query for existing class
+	req := dgraphClient.Req{}
+	req.SetQueryWithVariables(`{
+		class(func: eq(class, $a)) {
+			_uid_
+			class
+		}
+	}`, variables)
+
+	// Run the query
+	resp, err := f.client.Run(f.getContext(), &req)
+
+	if err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	// Unmarshal the result
+	var dClass ClassResult
+	err = dgraphClient.Unmarshal(resp.N, &dClass)
+
+	if err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	// Create the classNode from the result
+	classNode := f.client.NodeUid(dClass.Root.ID)
+
+	// Node has been found, create new one and connect it
+	newNode, err := f.client.NodeBlank(fmt.Sprintf("%v", gouuid.NewV4()))
+
+	if err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	// Add edge between New Node and Class Node
+	typeEdge := newNode.ConnectTo("type", classNode)
+
+	// Add class edge to batch
+	req = dgraphClient.Req{}
+	err = req.Set(typeEdge)
+
+	if err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	// Add UUID node
+	uuidNode, err := f.client.NodeBlank(string(UUID))
+
+	// Add UUID edge
+	uuidEdge := newNode.ConnectTo("id", uuidNode)
+	if err = req.Set(uuidEdge); err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	// Add UUID to UUID node
+	// TODO: Search for uuid edge/node before making new??
+	edge := uuidNode.Edge("uuid")
+	if err = edge.SetValueString(string(UUID)); err != nil {
+		return dgraphClient.Node{}, err
+	}
+	if err = req.Set(edge); err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	// Call run after all mutations are added
+	_, err = f.client.Run(f.getContext(), &req)
+
+	return newNode, nil
 }
 
 // updateNodeEdges updates all the edges of the node, used with a new node or to update/patch a node
