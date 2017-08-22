@@ -302,7 +302,7 @@ func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
 	}
 
 	// Add all given information to the new node
-	err = f.updateNodeEdges(newNode, &thing.Thing)
+	err = f.updateThingNodeEdges(newNode, &thing.Thing)
 
 	if err != nil {
 		return err
@@ -417,7 +417,7 @@ func (f *Dgraph) UpdateThing(thing *models.ThingUpdate, UUID strfmt.UUID) error 
 		return err
 	}
 
-	err = f.updateNodeEdges(refThingNode, &thing.Thing)
+	err = f.updateThingNodeEdges(refThingNode, &thing.Thing)
 
 	return err
 }
@@ -455,18 +455,18 @@ func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
 // AddAction adds an Action to the Dgraph database with the given UUID
 func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	// TODO: make type interactive
-	_, err := f.addNewNode(action.AtContext, "OnOffAction", UUID)
+	newNode, err := f.addNewNode(action.AtContext, "OnOffAction", UUID)
 
 	if err != nil {
 		return err
 	}
 
-	// // Add all given information to the new node
-	//err = f.updateNodeEdges(newNode, &action.Action)
+	// Add all given information to the new node
+	err = f.updateActionNodeEdges(newNode, action)
 
-	// if err != nil {
-	// 	return err
-	// }
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -568,8 +568,8 @@ func (f *Dgraph) addNewNode(nodeContext string, nodeClass string, UUID strfmt.UU
 	return newNode, nil
 }
 
-// updateNodeEdges updates all the edges of the node, used with a new node or to update/patch a node
-func (f *Dgraph) updateNodeEdges(node dgraphClient.Node, thing *models.Thing) error {
+// updateThingNodeEdges updates all the edges of the node, used with a new node or to update/patch a node
+func (f *Dgraph) updateThingNodeEdges(node dgraphClient.Node, thing *models.Thing) error {
 	// Create update request
 	req := dgraphClient.Req{}
 
@@ -611,34 +611,77 @@ func (f *Dgraph) updateNodeEdges(node dgraphClient.Node, thing *models.Thing) er
 
 	// Add Thing properties
 	for propKey, propValue := range thing.Schema {
-		// TODO: add property: string/int/connection other object, now everything is string
-		// TODO: Add 'schema.' to a global var, if this is the nicest way to fix
-		edgeName := propKey // add "schema." + ??
-		if val, ok := propValue["value"]; ok {
-			edge = node.Edge(edgeName)
-			if err = edge.SetValueString(val.(string)); err != nil {
-				return err
-			}
-			if err = req.Set(edge); err != nil {
-				return err
-			}
-		} else if val, ok = propValue["ref"]; ok {
-			refThingNode, err := f.getThingNodeByUUID(strfmt.UUID(val.(string)))
-			if err != nil {
-				return err
-			}
-			relatedEdge := node.ConnectTo(edgeName, refThingNode)
-			if err = req.Set(relatedEdge); err != nil {
-				return err
-			}
-		}
-
+		err = f.addPropertyEdge(req, node, propKey, propValue)
 	}
 
 	// Call run after all mutations are added
 	_, err = f.client.Run(f.getContext(), &req)
 
 	return err
+}
+
+// updateActionNodeEdges updates all the edges of the node, used with a new node or to update/patch a node
+func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Action) error {
+	// Create update request
+	req := dgraphClient.Req{}
+
+	// Init error var
+	var err error
+
+	// Add timing nodes
+	edge := node.Edge("creationTimeUnix")
+	if err = edge.SetValueInt(action.CreationTimeUnix); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	edge = node.Edge("lastUpdateTimeUnix")
+	if err = edge.SetValueInt(action.LastUpdateTimeUnix); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Add Action properties
+	for propKey, propValue := range action.Schema {
+		err = f.addPropertyEdge(req, node, propKey, propValue)
+	}
+
+	// Call run after all mutations are added
+	_, err = f.client.Run(f.getContext(), &req)
+
+	return err
+}
+
+func (f *Dgraph) addPropertyEdge(req dgraphClient.Req, node dgraphClient.Node, propKey string, propValue models.JSONObject) error {
+	// TODO: add property: string/int/connection other object, now everything is string
+	// TODO: Add 'schema.' to a global var, if this is the nicest way to fix
+	var err error
+
+	edgeName := propKey // add "schema." + ??
+	if val, ok := propValue["value"]; ok {
+		edge := node.Edge(edgeName)
+		if err = edge.SetValueString(val.(string)); err != nil {
+			return err
+		}
+		if err = req.Set(edge); err != nil {
+			return err
+		}
+	} else if val, ok = propValue["ref"]; ok {
+		refThingNode, err := f.getThingNodeByUUID(strfmt.UUID(val.(string)))
+		if err != nil {
+			return err
+		}
+		relatedEdge := node.ConnectTo(edgeName, refThingNode)
+		if err = req.Set(relatedEdge); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // mergeNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
