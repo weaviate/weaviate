@@ -41,9 +41,17 @@ import (
 
 // Dgraph has some basic variables.
 type Dgraph struct {
-	client              *dgraphClient.Dgraph
-	kind                string
-	thingSchemaLocation string
+	client *dgraphClient.Dgraph
+	kind   string
+
+	actionSchema schemaProperties
+	thingSchema  schemaProperties
+}
+
+type schemaProperties struct {
+	localFile      string
+	configLocation string
+	schema         schema.Schema
 }
 
 // GetName returns a unique connector name
@@ -53,8 +61,8 @@ func (f *Dgraph) GetName() string {
 
 // SetConfig is used to fill in a struct with config variables
 func (f *Dgraph) SetConfig(configInput connectorConfig.Environment) {
-	// println(configInput.Schemas.Action)
-	f.thingSchemaLocation = configInput.Schemas.Thing
+	f.thingSchema.configLocation = configInput.Schemas.Thing
+	f.actionSchema.configLocation = configInput.Schemas.Action
 }
 
 // Connect creates connection and tables if not already available
@@ -97,56 +105,116 @@ func (f *Dgraph) Init() error {
 	// Generate a basic DB object and print it's key.
 	// dbObject := connector_utils.CreateFirstUserObject()
 
-	// Init var for local file location
-	var localThingSchemaFile string
+	configFiles := []*schemaProperties{
+		&f.actionSchema,
+		&f.thingSchema,
+	}
 
-	// Validate if given location is URL or local file
-	_, err := url.ParseRequestURI(f.thingSchemaLocation)
+	// Get all classes to verify we do not create duplicates
+	allClasses, err := f.getAllClasses()
 
-	// With no error, it is an URL
-	if err == nil {
-		log.Println("Downloading Thing schema file...")
-		localThingSchemaFile = "temp/thing-schema.json"
+	// Init flush variable
+	flushIt := false
 
-		// Create local file
-		thingSchema, _ := os.Create(localThingSchemaFile)
-		defer thingSchema.Close()
+	for _, cfv := range configFiles {
+		// Validate if given location is URL or local file
+		_, err := url.ParseRequestURI(cfv.configLocation)
 
-		// Get the file from online
-		resp, err := http.Get(f.thingSchemaLocation)
+		// With no error, it is an URL
+		if err == nil {
+			log.Println("Downloading schema file...")
+			cfv.localFile = "temp/schema" + string(connector_utils.GenerateUUID()) + ".json"
+
+			// Create local file
+			schemaFile, _ := os.Create(cfv.localFile)
+			defer schemaFile.Close()
+
+			// Get the file from online
+			resp, err := http.Get(cfv.configLocation)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+
+			// Write file to local file
+			b, _ := io.Copy(schemaFile, resp.Body)
+			log.Println("Download complete, file size: ", b)
+		} else {
+			log.Println("Given schema location is not a valid URL, looking for local file...")
+
+			// Given schema location is not a valid URL, assume it is a local file
+			cfv.localFile = cfv.configLocation
+		}
+
+		// Read local file which is either just downloaded or given in config.
+		log.Println("Read local file...")
+		fileContents, err := ioutil.ReadFile(cfv.localFile)
+
+		// Return error when error is given reading file.
 		if err != nil {
 			return err
 		}
-		defer resp.Body.Close()
 
-		// Write file to local file
-		b, _ := io.Copy(thingSchema, resp.Body)
-		log.Println("Download complete, file size: ", b)
-	} else {
-		log.Println("Given Thing schema location is not a valid URL, looking for local file...")
+		// Merge JSON into Schema objects
+		err = json.Unmarshal([]byte(fileContents), &cfv.schema)
+		log.Println("File is loaded.")
 
-		// Given Thing schema location is not a valid URL, assume it is a local file
-		localThingSchemaFile = f.thingSchemaLocation
-	}
+		// Return error when error is given reading file.
+		if err != nil {
+			log.Println("Can not parse schema.")
+			return err
+		}
 
-	// Read local file which is either just downloaded or given in config.
-	log.Println("Read local file...")
-	fileContents, err := ioutil.ReadFile(localThingSchemaFile)
+		// Add schema to database
+		for _, class := range cfv.schema.Classes {
+			// for _, prop := range class.Properties {
+			for _ = range class.Properties {
+				// Add Dgraph-schema for every property of individual nodes
+				// err = f.client.AddSchema(protos.SchemaUpdate{
+				// 	Predicate: "schema." + prop.Name,
+				// 	ValueType: uint32(types.UidID),
+				// 	Directive: protos.SchemaUpdate_REVERSE,
+				// })
 
-	// Return error when error is given reading file.
-	if err != nil {
-		return err
-	}
+				// if err != nil {
+				// 	return err
+				// }
 
-	// Merge JSON into Schema objects
-	thingSchema := &schema.Schema{}
-	err = json.Unmarshal([]byte(fileContents), &thingSchema)
-	log.Println("File is loaded.")
+				// TODO: Add specific schema for datatypes
+				// http://schema.org/DataType
+			}
 
-	// Return error when error is given reading file.
-	if err != nil {
-		log.Println("Can not parse schema.")
-		return err
+			// Create the class name by concatinating context with class
+			// TODO: Do not concatinate, split and add classname and context seperatly to node?
+			className := cfv.schema.Context + "/" + class.Class
+
+			if _, err := f.getClassFromResult(className, allClasses); err != nil {
+				// Add node and edge for every class
+				// TODO: Only add if not exists
+				node, err := f.client.NodeBlank(class.Class)
+
+				if err != nil {
+					return err
+				}
+
+				// Add class edge
+				edge := node.Edge("class")
+				err = edge.SetValueString(className)
+
+				if err != nil {
+					return err
+				}
+
+				// Add class edge to batch
+				err = f.client.BatchSet(edge)
+
+				if err != nil {
+					return err
+				}
+
+				flushIt = true
+			}
+		}
 	}
 
 	// Add class schema in Dgraph
@@ -209,63 +277,6 @@ func (f *Dgraph) Init() error {
 			Count:     true,
 		}); err != nil {
 			return err
-		}
-	}
-
-	// Get all classes to verify we do not create duplicates
-	allClasses, err := f.getAllClasses()
-
-	// Init flush variable
-	flushIt := false
-
-	// Add schema to database
-	for _, class := range thingSchema.Classes {
-		// for _, prop := range class.Properties {
-		for _ = range class.Properties {
-			// Add Dgraph-schema for every property of individual nodes
-			// err = f.client.AddSchema(protos.SchemaUpdate{
-			// 	Predicate: "schema." + prop.Name,
-			// 	ValueType: uint32(types.UidID),
-			// 	Directive: protos.SchemaUpdate_REVERSE,
-			// })
-
-			// if err != nil {
-			// 	return err
-			// }
-
-			// TODO: Add specific schema for datatypes
-			// http://schema.org/DataType
-		}
-
-		// Create the class name by concatinating context with class
-		// TODO: Do not concatinate, split and add classname and context seperatly to node?
-		className := thingSchema.Context + "/" + class.Class
-
-		if _, err := f.getClassFromResult(className, allClasses); err != nil {
-			// Add node and edge for every class
-			// TODO: Only add if not exists
-			node, err := f.client.NodeBlank(class.Class)
-
-			if err != nil {
-				return err
-			}
-
-			// Add class edge
-			edge := node.Edge("class")
-			err = edge.SetValueString(className)
-
-			if err != nil {
-				return err
-			}
-
-			// Add class edge to batch
-			err = f.client.BatchSet(edge)
-
-			if err != nil {
-				return err
-			}
-
-			flushIt = true
 		}
 	}
 
@@ -603,7 +614,7 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
 	return actionGetResponse, nil
 }
 
-// ListAction lists actions for a specific thing
+// ListActions lists actions for a specific thing
 func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.ActionsListResponse, error) {
 	actionsListResponse := models.ActionsListResponse{}
 

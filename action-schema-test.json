@@ -1,7 +1,7 @@
 {
-    "@context": "http://schema.org",
+    "@context": "http://example.org",
     "type": "action",
-    "name": "schema.org - Action",
+    "name": "example.org - Action",
     "maintainer": "yourfriends@weaviate.com",
     "classes": [
         {
