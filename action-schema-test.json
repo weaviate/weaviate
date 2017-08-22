@@ -1,5 +1,5 @@
 {
-    "@context": "http://example.org",
+    "@context": "http://schema.org",
     "type": "action",
     "name": "example.org - Action",
     "maintainer": "yourfriends@weaviate.com",

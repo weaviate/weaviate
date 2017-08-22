@@ -392,7 +392,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingID := strfmt.UUID(params.ThingID)
 
 		actionCreateJSON, _ := json.Marshal(params.Body)
-		action := models.Action{}
+		action := &models.Action{}
 		json.Unmarshal([]byte(actionCreateJSON), action)
 		action.ThingID = thingID
 		action.UserKey = "??" // TODO
@@ -403,7 +403,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		UUID := connector_utils.GenerateUUID()
 
-		insertErr := databaseConnector.AddAction(&action, UUID)
+		insertErr := databaseConnector.AddAction(action, UUID)
 
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
@@ -411,7 +411,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Initialize a response object
 		responseObject := &models.ActionGetResponse{}
-		responseObject.Action = action
+		responseObject.Action = *action
 		responseObject.ActionID = UUID
 		responseObject.Kind = getKind(responseObject)
 
