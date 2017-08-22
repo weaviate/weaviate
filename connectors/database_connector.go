@@ -44,11 +44,16 @@ type DatabaseConnector interface {
 	DeleteKey(string) error
 	GetChildObjects(string, bool) ([]connector_utils.DatabaseUsersObject, error)
 
-	AddThing(*models.ThingCreate, strfmt.UUID) error // TODO: response: ThingGetResponse
+	AddThing(*models.ThingCreate, strfmt.UUID) error // TODO: response: ThingGetResponse?
 	GetThing(strfmt.UUID) (models.ThingGetResponse, error)
 	ListThings(int, int) (models.ThingsListResponse, error)
 	UpdateThing(*models.ThingUpdate, strfmt.UUID) error
 	DeleteThing(strfmt.UUID) error
+
+	AddAction(*models.Action, strfmt.UUID) error
+	GetAction(strfmt.UUID) (models.ActionGetResponse, error)
+	ListActions(strfmt.UUID, int, int) (models.ActionsListResponse, error)
+	UpdateAction(*models.Action, strfmt.UUID) error
 }
 
 // GetAllConnectors contains all available connectors

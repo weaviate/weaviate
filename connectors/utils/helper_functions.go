@@ -16,6 +16,7 @@ package connector_utils
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/go-openapi/strfmt"
 	"time"
 
 	gouuid "github.com/satori/go.uuid"
@@ -41,7 +42,7 @@ func (f *DatabaseObject) SetCreateTimeMsToNow() {
 
 // GenerateAndSetUUID generates and sets a new Uuid
 func (f *DatabaseObject) GenerateAndSetUUID() {
-	f.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
+	f.Uuid = string(GenerateUUID())
 }
 
 // MakeObjectDeleted gives the Object the current time in mili seconds and marks it as deleted
@@ -132,4 +133,9 @@ func CreateFirstUserObject() DatabaseUsersObject {
 // NowUnix returns the current Unix time
 func NowUnix() int64 {
 	return time.Now().UnixNano() / int64(time.Millisecond)
+}
+
+// GenerateUUID returns a new UUID
+func GenerateUUID() strfmt.UUID {
+	return strfmt.UUID(fmt.Sprintf("%v", gouuid.NewV4()))
 }

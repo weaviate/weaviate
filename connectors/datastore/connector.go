@@ -374,3 +374,27 @@ func (f *Datastore) UpdateThing(thing *models.ThingUpdate, UUID strfmt.UUID) err
 func (f *Datastore) DeleteThing(UUID strfmt.UUID) error {
 	return nil
 }
+
+// AddAction updates a specific action
+func (f *Datastore) AddAction(action *models.Action, UUID strfmt.UUID) error {
+	return nil
+}
+
+// GetAction returns an action from the database
+func (f *Datastore) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
+	actionGetResponse := models.ActionGetResponse{}
+
+	return actionGetResponse, nil
+}
+
+// ListAction lists actions for a specific thing
+func (f *Datastore) ListActions(UUID strfmt.UUID, limit int, page int) (models.ActionsListResponse, error) {
+	actionsListResponse := models.ActionsListResponse{}
+
+	return actionsListResponse, nil
+}
+
+// UpdateAction updates a specific action
+func (f *Datastore) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
+	return nil
+}
