@@ -670,8 +670,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Set the generate JSON to save to the database
 		dbObject.MergeRequestBodyIntoObject(params.Body)
 
+		UUID := connector_utils.GenerateUUID()
+
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := databaseConnector.AddThing(params.Body, connector_utils.GenerateUUID()) // TODO: go-routine?
+		insertErr := databaseConnector.AddThing(params.Body, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -681,7 +683,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
 		json.Unmarshal([]byte(dbObject.Object), responseObject)
-		responseObject.ThingID = strfmt.UUID(dbObject.Uuid)
+		responseObject.ThingID = UUID
 		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
