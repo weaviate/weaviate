@@ -391,29 +391,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get ThingID from URL
 		thingID := strfmt.UUID(params.ThingID)
 
-		// Create basic DataBase object
-		dbObject := *connector_utils.NewDatabaseObjectFromPrincipal(principal, refTypeAction)
+		actionCreateJSON, _ := json.Marshal(params.Body)
+		action := models.Action{}
+		json.Unmarshal([]byte(actionCreateJSON), action)
+		action.ThingID = thingID
+		action.UserKey = "??" // TODO
+		action.CreationTimeUnix = connector_utils.NowUnix()
+		action.LastUpdateTimeUnix = 0
 
-		// Set the generate JSON to save to the database
-		dbObject.MergeRequestBodyIntoObject(params.Body)
-		dbObject.RelatedObjects.ThingID = thingID
+		// TODO: Validate Action? Same as on /validate
+
+		UUID := connector_utils.GenerateUUID()
+
+		insertErr := databaseConnector.AddAction(&action, UUID)
+
+		if insertErr != nil {
+			log.Println("InsertErr:", insertErr)
+		}
 
 		// Initialize a response object
 		responseObject := &models.ActionGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), responseObject)
-		responseObject.CreationTimeUnix = connector_utils.NowUnix()
-		responseObject.ThingID = thingID
-		responseObject.UserKey = strfmt.UUID(dbObject.Owner)
-
-		// Put data back into object
-		objectJSON, _ := json.Marshal(responseObject)
-		dbObject.Object = string(objectJSON)
-
-		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go databaseConnector.Add(dbObject)
-
-		// Add vars to response Object from create object.
-		responseObject.ActionID = strfmt.UUID(dbObject.Uuid)
+		responseObject.Action = action
+		responseObject.ActionID = UUID
 		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
@@ -663,6 +662,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsCreateForbidden()
 		}
 
+		// TODO: remove use of DB objects
+		// TODO: dont use 'thingcreate'-model in add, just 'thing'-model
 		// Create basic DataBase object
 		dbObject := *connector_utils.NewDatabaseObjectFromPrincipal(principal, refTypeThing)
 
@@ -670,7 +671,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		dbObject.MergeRequestBodyIntoObject(params.Body)
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := databaseConnector.AddThing(params.Body, strfmt.UUID(dbObject.Uuid)) // TODO: go-routine?
+		insertErr := databaseConnector.AddThing(params.Body, connector_utils.GenerateUUID()) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}

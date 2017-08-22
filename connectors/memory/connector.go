@@ -461,3 +461,27 @@ func (f *Memory) UpdateThing(thing *models.ThingUpdate, UUID strfmt.UUID) error 
 func (f *Memory) DeleteThing(UUID strfmt.UUID) error {
 	return nil
 }
+
+// AddAction updates a specific action
+func (f *Memory) AddAction(action *models.Action, UUID strfmt.UUID) error {
+	return nil
+}
+
+// GetAction returns an action from the database
+func (f *Memory) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
+	actionGetResponse := models.ActionGetResponse{}
+
+	return actionGetResponse, nil
+}
+
+// ListAction lists actions for a specific thing
+func (f *Memory) ListActions(UUID strfmt.UUID, limit int, page int) (models.ActionsListResponse, error) {
+	actionsListResponse := models.ActionsListResponse{}
+
+	return actionsListResponse, nil
+}
+
+// UpdateAction updates a specific action
+func (f *Memory) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
+	return nil
+}

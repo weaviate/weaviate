@@ -509,6 +509,112 @@ func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
 	return nil
 }
 
+// AddAction adds an Action to the Dgraph database with the given UUID
+func (f *Dgraph) AddAction(thing *models.Action, UUID strfmt.UUID) error {
+	// TODO: make type interactive
+	// thingType := thing.AtContext + "/" + models.ThingCreate.type
+	// thingType := thing.AtContext + "/OnOffAction"
+
+	// // Search for the class to make the connection, create variables
+	// variables := make(map[string]string)
+	// variables["$a"] = thingType
+
+	// // Create the query for existing class
+	// req := dgraphClient.Req{}
+	// req.SetQueryWithVariables(`{
+	// 	class(func: eq(class, $a)) {
+	// 		_uid_
+	// 		class
+	// 	}
+	// }`, variables)
+
+	// // Run the query
+	// resp, err := f.client.Run(f.getContext(), &req)
+
+	// if err != nil {
+	// 	return err
+	// }
+
+	// // Unmarshal the result
+	// var dClass ClassResult
+	// err = dgraphClient.Unmarshal(resp.N, &dClass)
+
+	// if err != nil {
+	// 	return err
+	// }
+
+	// // Create the classNode from the result
+	// classNode := f.client.NodeUid(dClass.Root.ID)
+
+	// // Node has been found, create new one and connect it
+	// newThingNode, err := f.client.NodeBlank(fmt.Sprintf("%v", gouuid.NewV4()))
+
+	// if err != nil {
+	// 	return err
+	// }
+
+	// // Add edge between New Thing and Class Node
+	// typeEdge := newThingNode.ConnectTo("type", classNode)
+
+	// // Add class edge to batch
+	// req = dgraphClient.Req{}
+	// err = req.Set(typeEdge)
+
+	// if err != nil {
+	// 	return err
+	// }
+
+	// // Add UUID node
+	// uuidNode, err := f.client.NodeBlank(string(UUID))
+
+	// // Add UUID edge
+	// uuidEdge := newThingNode.ConnectTo("id", uuidNode)
+	// if err = req.Set(uuidEdge); err != nil {
+	// 	return err
+	// }
+
+	// // Add UUID to UUID node
+	// // TODO: Search for uuid edge/node before making new??
+	// edge := uuidNode.Edge("uuid")
+	// if err = edge.SetValueString(string(UUID)); err != nil {
+	// 	return err
+	// }
+	// if err = req.Set(edge); err != nil {
+	// 	return err
+	// }
+
+	// // Call run after all mutations are added
+	// _, err = f.client.Run(f.getContext(), &req)
+
+	// // Add all given information to the new node
+	// err = f.updateNodeEdges(newThingNode, &thing.Thing)
+
+	// if err != nil {
+	// 	return err
+	// }
+
+	return nil
+}
+
+// GetAction returns an action from the database
+func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
+	actionGetResponse := models.ActionGetResponse{}
+
+	return actionGetResponse, nil
+}
+
+// ListAction lists actions for a specific thing
+func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.ActionsListResponse, error) {
+	actionsListResponse := models.ActionsListResponse{}
+
+	return actionsListResponse, nil
+}
+
+// UpdateAction updates a specific action
+func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
+	return nil
+}
+
 // updateNodeEdges updates all the edges of the node, used with a new node or to update/patch a node
 func (f *Dgraph) updateNodeEdges(node dgraphClient.Node, thing *models.Thing) error {
 	// Create update request
