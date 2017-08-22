@@ -1,15 +1,26 @@
-language: go
-go:
-  - 1.8
-env:
-  - "PATH=/home/travis/gopath/bin:$PATH"
+sudo: required
+language: ruby
+services:
+  - docker
+before_script:
+  - mkdir -p ~/gopath
+  - mkdir -p ~/gopath/src
+  - mkdir -p ~/gopath/src/github.com
+  - mkdir -p ~/gopath/bin
+  - mv ~/build/weaviate ~/gopath/src/github.com/weaviate
+  - cd ~/gopath/src/github.com/weaviate/weaviate
 before_install:
-  - go get ./...
+  - docker pull dgraph/dgraph
+  - mkdir -p ~/dgraph
+  - docker run -d -p 8080:8080 -p 9080:9080 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraph --bindall=true --memory_mb 2048
 script:
-  - curl https://get.dgraph.io -sSf | bash
-  - sleep 60
-  - dgraph --memory_mb 2048
-  - go run ./cmd/weaviate-server/main.go --scheme=http --port=8070 --host=localhost --config=graph --config-file=weaviate.conf.json
+  - wget https://storage.googleapis.com/golang/go1.8.3.linux-amd64.tar.gz
+  - sudo tar -xf go1.8.3.linux-amd64.tar.gz
+  - sudo mv go /usr/local
+  - export GOROOT=/usr/local/go
+  - export GOPATH=/home/travis/gopath
+  - export PATH=$GOPATH/bin:$GOROOT/bin:$PATH
+  - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8070 --host=localhost --config=graph --config-file=weaviate.conf.json &
   - sleep 40
   # - export WEAVIATEKEY=$(grep "ROOTKEY=" nohup.out | cut -d "=" -f 2)
-  - go test -v ./test -args -api-key=$WEAVIATEKEY --server-port=8070 --server-host=localhost
+  - go test -v ./test -args -api-key=327a2fc9-fcd8-4508-94fe-d3e8b6cf1c6e --server-port=8070 --server-host=localhost
