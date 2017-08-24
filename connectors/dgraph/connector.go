@@ -364,7 +364,7 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 	// Merge the results into the model to return
 	nodes := resp.GetN()
 	for _, node := range nodes {
-		f.mergeNodeInResponse(node, &thingResponse)
+		f.mergeThingNodeInResponse(node, &thingResponse)
 	}
 
 	return thingResponse, nil
@@ -398,7 +398,7 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 	for i, node := range nodes[0].Children {
 		thingResponse := &models.ThingGetResponse{}
 		thingResponse.Schema = map[string]models.JSONObject{}
-		f.mergeNodeInResponse(node, thingResponse)
+		f.mergeThingNodeInResponse(node, thingResponse)
 		thingsResponse.Things[i] = thingResponse
 	}
 
@@ -493,9 +493,49 @@ func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 
 // GetAction returns an action from the database
 func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
-	actionGetResponse := models.ActionGetResponse{}
+	// Initialize response
+	actionResponse := models.ActionGetResponse{}
+	actionResponse.Schema = map[string]models.JSONObject{}
 
-	return actionGetResponse, nil
+	// Do a query to get all node-information based on the given UUID
+	variables := make(map[string]string)
+	variables["$uuid"] = string(UUID)
+
+	req := dgraphClient.Req{}
+	req.SetQueryWithVariables(`{
+		get(func: eq(uuid, $uuid)) { 
+			uuid
+			~id {
+				expand(_all_) {
+					expand(_all_) {
+						expand(_all_) 
+					}
+				}
+				~action.of {
+					id {
+						uuid
+					}
+					type {
+						class
+					}
+				}
+			}
+		}
+	}`, variables)
+
+	// Run query created above
+	resp, err := f.client.Run(f.getContext(), &req)
+	if err != nil {
+		return actionResponse, err
+	}
+
+	// Merge the results into the model to return
+	nodes := resp.GetN()
+	for _, node := range nodes {
+		f.mergeActionNodeInResponse(node, &actionResponse, "")
+	}
+
+	return actionResponse, nil
 }
 
 // ListActions lists actions for a specific thing
@@ -682,7 +722,7 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 
 	// Add subject Thing by $ref TODO: make interactive
 	// subjectNode, err := f.getThingNodeByUUID(action.Subject.RefValue?)
-	subjectNode, err := f.getThingNodeByUUID("d37fed7d-d380-4928-aba5-db7f36ce037b")
+	subjectNode, err := f.getThingNodeByUUID("e1f6c203-b78c-4c41-8247-8212fbdff290")
 	if err != nil {
 		return err
 	}
@@ -730,8 +770,8 @@ func (f *Dgraph) connectRef(req dgraphClient.Req, nodeFrom dgraphClient.Node, ed
 	return nil
 }
 
-// mergeNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
-func (f *Dgraph) mergeNodeInResponse(node *protos.Node, thingResponse *models.ThingGetResponse) {
+// mergeThingNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
+func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *models.ThingGetResponse) {
 	attribute := node.Attribute
 
 	for _, prop := range node.GetProperties() {
@@ -751,9 +791,9 @@ func (f *Dgraph) mergeNodeInResponse(node *protos.Node, thingResponse *models.Th
 			}
 		} else if attribute == "type" {
 			if prop.Prop == "context" {
-				thingResponse.AtContext = prop.GetValue().GetStrVal()
-			} else if prop.Prop == "class" {
 				// thingResponse.AtType = "Person" TODO: FIX?
+			} else if prop.Prop == "class" {
+				thingResponse.AtContext = prop.GetValue().GetStrVal()
 			}
 		} else if attribute == "id" {
 			if prop.Prop == "uuid" {
@@ -763,7 +803,61 @@ func (f *Dgraph) mergeNodeInResponse(node *protos.Node, thingResponse *models.Th
 	}
 
 	for _, child := range node.Children {
-		f.mergeNodeInResponse(child, thingResponse)
+		f.mergeThingNodeInResponse(child, thingResponse)
+	}
+
+}
+
+// mergeActionNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
+func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *models.ActionGetResponse, parentAttribute string) {
+	attribute := node.Attribute
+
+	for _, prop := range node.GetProperties() {
+		if attribute == "~id" || attribute == "actions" {
+			if prop.Prop == "creationTimeUnix" {
+				actionResponse.CreationTimeUnix = prop.GetValue().GetIntVal()
+			} else if prop.Prop == "lastUpdateTimeUnix" {
+				actionResponse.LastUpdateTimeUnix = prop.GetValue().GetIntVal()
+			} else {
+				actionResponse.Schema[prop.Prop] = map[string]models.JSONValue{
+					"value": prop.GetValue().GetStrVal(),
+				}
+			}
+		} else if attribute == "type" && parentAttribute == "~id" {
+			if prop.Prop == "context" {
+				// actionResponse.AtType = "Person" TODO: FIX?
+			} else if prop.Prop == "class" {
+				actionResponse.AtContext = prop.GetValue().GetStrVal()
+			}
+		} else if attribute == "id" && parentAttribute == "~id" {
+			if prop.Prop == "uuid" {
+				actionResponse.ActionID = strfmt.UUID(prop.GetValue().GetStrVal())
+			}
+		} else if attribute == "type" && parentAttribute == "action.target" {
+			if prop.Prop == "context" {
+				// actionResponse.AtType = "Person" TODO: FIX?
+			} else if prop.Prop == "class" {
+				// actionResponse.ThingID = prop.GetValue().GetStrVal() // TODO: THING ID has to be fixed, it is a REF object
+			}
+		} else if attribute == "id" && parentAttribute == "action.target" {
+			if prop.Prop == "uuid" {
+				actionResponse.ThingID = strfmt.UUID(prop.GetValue().GetStrVal())
+			}
+		} else if attribute == "type" && parentAttribute == "~action.of" {
+			if prop.Prop == "context" {
+				// actionResponse.AtType = "Person" TODO: FIX?
+			} else if prop.Prop == "class" {
+				// actionResponse.Subject = prop.GetValue().GetStrVal() // TODO: Subject ID has to be fixed
+			}
+		} else if attribute == "id" && parentAttribute == "~action.of" {
+			if prop.Prop == "uuid" {
+				// actionResponse.Subject = strfmt.UUID(prop.GetValue().GetStrVal())
+			}
+		}
+	}
+
+	for _, child := range node.Children {
+		f.mergeActionNodeInResponse(child, actionResponse, attribute)
 	}
 
 }

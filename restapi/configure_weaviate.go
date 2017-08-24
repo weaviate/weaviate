@@ -309,26 +309,23 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams, principal interface{}) middleware.Responder {
 		// Get item from database
-		dbObject, err := databaseConnector.Get(string(params.ActionID))
+		actionGetResponse, err := databaseConnector.GetAction(params.ActionID)
 
 		// Object is deleted eleted
-		if dbObject.Deleted || err != nil {
+		if err != nil {
 			return actions.NewWeaviateActionsGetNotFound()
 		}
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, dbObject.Owner); !allowed {
-			return actions.NewWeaviateActionsGetForbidden()
-		}
+		// if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, dbObject.Owner); !allowed {
+		// 	return actions.NewWeaviateActionsGetForbidden()
+		// }
 
-		// Create object to return
-		responseObject := &models.ActionGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), &responseObject)
-		responseObject.ActionID = strfmt.UUID(dbObject.Uuid)
-		responseObject.Kind = getKind(responseObject)
+		// Add kind to object to return
+		actionGetResponse.Kind = getKind(actionGetResponse)
 
 		// Get is successful
-		return actions.NewWeaviateActionsGetOK().WithPayload(responseObject)
+		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
 	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to write?
