@@ -885,28 +885,31 @@ func Test__weaviate_actions_things_create_JSON(t *testing.T) {
 // 	testKind(t, string(*respObject.Kind), "weaviate#actionsListResponse")
 // }
 
-// // weaviate.action.get
-// func Test__weaviate_action_get_JSON(t *testing.T) {
-// 	// Create get request
-// 	response := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine)
+// weaviate.action.get
+func Test__weaviate_action_get_JSON(t *testing.T) {
+	// Create get request
+	response := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine)
 
-// 	// Check status code get request
-// 	testStatusCode(t, response.StatusCode, http.StatusOK)
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
-// 	body := getResponseBody(response)
+	body := getResponseBody(response)
 
-// 	respObject := &models.ActionGetResponse{}
-// 	json.Unmarshal(body, respObject)
+	respObject := &models.ActionGetResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	// Check ID of object
-// 	testID(t, string(respObject.ActionID), actionID)
+	// Check ID of object
+	testID(t, string(respObject.ActionID), actionID)
 
-// 	// Check kind
-// 	testKind(t, string(*respObject.Kind), "weaviate#actionGetResponse")
+	// Check ID of object
+	//testID(t, string(respObject.ThingID), thingID) TODO: Connecting to thingID does not work, REQ not placed?
 
-// 	// Create get request with non-existing ID
-// 	testNotExistsRequest(t, "/actions", "GET", "application/json", nil, apiKeyCmdLine)
-// }
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#actionGetResponse")
+
+	// Create get request with non-existing ID
+	testNotExistsRequest(t, "/actions", "GET", "application/json", nil, apiKeyCmdLine)
+}
 
 // // weaviate.action.patch
 // func Test__weaviate_action_patch_JSON(t *testing.T) {
