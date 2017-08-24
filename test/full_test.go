@@ -796,67 +796,71 @@ func Test__weaviate_thing_delete_JSON(t *testing.T) {
 //  * ACTIONS TESTS
 //  ******************/
 
-// // weaviate.actions.things.create
-// func Test__weaviate_actions_things_create_JSON(t *testing.T) {
-// 	// Create create request
-// 	jsonStr := bytes.NewBuffer([]byte(`
-// 	{
-// 		"command": {
-// 			"commandParameters": {}
-// 		},
-// 		"timeMs": 0,
-// 		"userkey": "` + rootID + `"
-// 	}
-// 	`))
-// 	response := doRequest("/things/"+thingID+"/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
+// weaviate.actions.things.create
+func Test__weaviate_actions_things_create_JSON(t *testing.T) {
+	// Create create request
+	jsonStr := bytes.NewBuffer([]byte(`
+	{
+		"@context": "http://schema.org",
+		"@type": "OnOffAction",
+		"schema": {
+			"hue": { "value": "123"},
+			"saturation": { "value": "231"},
+			"on": { "value": "true" }
+		}
+	}
+	`))
+	response := doRequest("/things/"+thingID+"/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
-// 	// Check status code of create
-// 	testStatusCode(t, response.StatusCode, http.StatusAccepted)
+	// Check status code of create
+	testStatusCode(t, response.StatusCode, http.StatusAccepted)
 
-// 	body := getResponseBody(response)
+	body := getResponseBody(response)
 
-// 	respObject := &models.ActionGetResponse{}
-// 	json.Unmarshal(body, respObject)
+	respObject := &models.ActionGetResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	// Check whether generated UUID is added
-// 	actionID = string(respObject.ActionID)
-// 	testIDFormat(t, actionID)
+	// Check whether generated UUID is added
+	actionID = string(respObject.ActionID)
+	testIDFormat(t, actionID)
 
-// 	// Check thing is set to known ThingID
-// 	testID(t, string(respObject.ThingID), thingID)
+	// Check thing is set to known ThingID
+	testID(t, string(respObject.ThingID), thingID)
 
-// 	// Check set user key is rootID
-// 	testID(t, string(respObject.UserKey), rootID)
+	// Check set user key is rootID
+	// testID(t, string(respObject.UserKey), rootID) TODO
 
-// 	// Check given creation time is after now, but not in the future
-// 	now := connector_utils.NowUnix()
-// 	if respObject.CreationTimeUnix > now {
-// 		t.Errorf("CreationTimeUnix is incorrect, it was set in the future.")
-// 	}
+	// Check given creation time is after now, but not in the future
+	now := connector_utils.NowUnix()
+	if respObject.CreationTimeUnix > now {
+		t.Errorf("CreationTimeUnix is incorrect, it was set in the future.")
+	}
 
-// 	if respObject.CreationTimeUnix < now-2000 {
-// 		t.Errorf("CreationTimeUnix is incorrect, it was set to far back.")
-// 	}
+	if respObject.CreationTimeUnix < now-2000 {
+		t.Errorf("CreationTimeUnix is incorrect, it was set to far back.")
+	}
 
-// 	// Check kind
-// 	testKind(t, string(*respObject.Kind), "weaviate#actionGetResponse")
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#actionGetResponse")
 
-// 	// Add another action for another thing
-// 	jsonStr2 := bytes.NewBuffer([]byte(`
-// 	{
-// 		"command": {
-// 			"commandParameters": {}
-// 		},
-// 		"timeMs": 0,
-// 		"userkey": "` + rootID + `"
-// 	}
-// 	`))
-// 	responseSecond := doRequest("/things/"+fakeID+"/actions", "POST", "application/json", jsonStr2, apiKeyCmdLine)
-// 	testStatusCode(t, responseSecond.StatusCode, http.StatusAccepted)
+	// Add another action for another thing
+	jsonStr2 := bytes.NewBuffer([]byte(`
+	{
+		"@context": "http://schema.org",
+		"@type": "OnOffAction",
+		"schema": {
+			"hue": { "value": "123"},
+			"saturation": { "value": "231"},
+			"on": { "value": "true" }
+		}
+	}
+	`))
+	responseSecond := doRequest("/things/"+fakeID+"/actions", "POST", "application/json", jsonStr2, apiKeyCmdLine)
+	testStatusCode(t, responseSecond.StatusCode, http.StatusAccepted)
 
-// 	// Test is faster than adding to DB.
-// 	time.Sleep(2 * time.Second)
-// }
+	// Test is faster than adding to DB.
+	time.Sleep(2 * time.Second)
+}
 
 // // weaviate.action.things.list
 // func Test__weaviate_action_things_list_JSON(t *testing.T) {
