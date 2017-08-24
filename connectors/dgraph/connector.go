@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 
 	dgraphClient "github.com/dgraph-io/dgraph/client"
 	"github.com/dgraph-io/dgraph/protos"
@@ -423,6 +424,8 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 		return thingsResponse, nil
 	}
 
+	printNode(0, resp.N[0])
+
 	// Set the total results
 	thingsResponse.TotalResults = totalResult.Root.Count
 
@@ -540,9 +543,70 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
 
 // ListActions lists actions for a specific thing
 func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.ActionsListResponse, error) {
-	actionsListResponse := models.ActionsListResponse{}
+	// Initialize response
+	actionsResponse := models.ActionsListResponse{}
+	actionsResponse.Actions = make([]*models.ActionGetResponse, limit)
 
-	return actionsListResponse, nil
+	// Do a query to get all node-information
+	req := dgraphClient.Req{}
+	req.SetQuery(fmt.Sprintf(`{
+		actions(func: eq(uuid, "%s")) { 
+			uuid
+			~id {
+				actions: ~action.target (orderdesc: creationTimeUnix) (first: %d, offset: %d) {
+					expand(_all_) {
+						expand(_all_)
+					}
+				}
+			}
+		}
+	}`, UUID, limit, (page-1)*limit))
+
+	// Run query created above
+	resp, err := f.client.Run(f.getContext(), &req)
+	if err != nil {
+		return actionsResponse, err
+	}
+
+	// Merge the results into the model to return
+	nodes := resp.GetN()
+	for i, node := range nodes[0].Children[0].Children[0].Children {
+		actionResponse := &models.ActionGetResponse{}
+		actionResponse.Schema = map[string]models.JSONObject{}
+		actionResponse.ThingID = UUID
+		f.mergeActionNodeInResponse(node, actionResponse, "")
+		actionsResponse.Actions[i] = actionResponse
+	}
+
+	// Create query to count total results
+	req = dgraphClient.Req{}
+	req.SetQuery(fmt.Sprintf(`{
+		totalResults(func: eq(uuid, "%s")) {
+			~id {
+				~action.target {
+					count()
+				}
+			}
+		}
+	}`, UUID))
+
+	// Run query created above
+	resp, err = f.client.Run(f.getContext(), &req)
+	if err != nil {
+		return actionsResponse, err
+	}
+
+	// Unmarshal the dgraph response into a struct
+	var totalResult TotalResultsResult
+	err = dgraphClient.Unmarshal(resp.N, &totalResult)
+	if err != nil {
+		return actionsResponse, nil
+	}
+
+	// Set the total results
+	actionsResponse.TotalResults = totalResult.Root.Count // TODO: NOT WORKING, MISSING 'totalResults' IN RETURN OBJ
+
+	return actionsResponse, nil
 }
 
 // UpdateAction updates a specific action
@@ -823,13 +887,13 @@ func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *mo
 					"value": prop.GetValue().GetStrVal(),
 				}
 			}
-		} else if attribute == "type" && parentAttribute == "~id" {
+		} else if attribute == "type" && (parentAttribute == "~id" || parentAttribute == "actions") {
 			if prop.Prop == "context" {
 				// actionResponse.AtType = "Person" TODO: FIX?
 			} else if prop.Prop == "class" {
 				actionResponse.AtContext = prop.GetValue().GetStrVal()
 			}
-		} else if attribute == "id" && parentAttribute == "~id" {
+		} else if attribute == "id" && (parentAttribute == "~id" || parentAttribute == "actions") {
 			if prop.Prop == "uuid" {
 				actionResponse.ActionID = strfmt.UUID(prop.GetValue().GetStrVal())
 			}
@@ -1000,4 +1064,21 @@ func (f *Dgraph) getClassFromResult(className string, allClasses AllClassesResul
 
 func (f *Dgraph) getContext() context.Context {
 	return context.Background()
+}
+
+// TODO REMOVE, JUST FOR TEST
+func printNode(depth int, node *protos.Node) {
+
+	fmt.Println(strings.Repeat(" ", depth), "Atrribute : ", node.Attribute)
+
+	// the values at this level
+	for _, prop := range node.GetProperties() {
+		fmt.Println(strings.Repeat(" ", depth), "Prop : ", prop.Prop, " Value : ", prop.Value, " Type : %T", prop.Value)
+	}
+
+	for _, child := range node.Children {
+		fmt.Println(strings.Repeat(" ", depth), "+")
+		printNode(depth+1, child)
+	}
+
 }

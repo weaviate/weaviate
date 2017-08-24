@@ -426,31 +426,38 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		page := getPage(params.Page)
 
 		// Set reference filter object
-		referenceFilter := &connector_utils.ObjectReferences{ThingID: params.ThingID}
+		// referenceFilter := &connector_utils.ObjectReferences{ThingID: params.ThingID}
 
-		// Get user out of principal
-		usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// // Get user out of principal
+		// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
+		// // List all results
+		// actionsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeAction, usersObject.Uuid, limit, page, referenceFilter)
 
 		// List all results
-		actionsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeAction, usersObject.Uuid, limit, page, referenceFilter)
+		actionsResponse, err := databaseConnector.ListActions(params.ThingID, limit, page)
 
-		// Convert to an response object
-		responseObject := &models.ActionsListResponse{}
-		responseObject.Actions = make([]*models.ActionGetResponse, len(actionsDatabaseObjects))
-
-		// Loop to fill response project
-		for i, actionsDatabaseObject := range actionsDatabaseObjects {
-			actionObject := &models.ActionGetResponse{}
-			json.Unmarshal([]byte(actionsDatabaseObject.Object), actionObject)
-			actionObject.ActionID = strfmt.UUID(actionsDatabaseObject.Uuid)
-			responseObject.Actions[i] = actionObject
+		if err != nil {
+			log.Println("ERROR", err)
 		}
 
-		// Add totalResults to response object.
-		responseObject.TotalResults = totalResults
-		responseObject.Kind = getKind(responseObject)
+		// // Convert to an response object
+		// responseObject := &models.ActionsListResponse{}
+		// responseObject.Actions = make([]*models.ActionGetResponse, len(actionsDatabaseObjects))
 
-		return actions.NewWeaviateThingsActionsListOK().WithPayload(responseObject)
+		// // Loop to fill response project
+		// for i, actionsDatabaseObject := range actionsDatabaseObjects {
+		// 	actionObject := &models.ActionGetResponse{}
+		// 	json.Unmarshal([]byte(actionsDatabaseObject.Object), actionObject)
+		// 	actionObject.ActionID = strfmt.UUID(actionsDatabaseObject.Uuid)
+		// 	responseObject.Actions[i] = actionObject
+		// }
+
+		// // Add totalResults to response object.
+		// responseObject.TotalResults = totalResults
+		actionsResponse.Kind = getKind(actionsResponse)
+
+		return actions.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
 	})
 
 	/*
