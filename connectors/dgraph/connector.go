@@ -259,6 +259,26 @@ func (f *Dgraph) Init() error {
 		return err
 	}
 
+	// Add 'action.of' schema in Dgraph
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: "action.of",
+		ValueType: uint32(types.UidID),
+		Directive: protos.SchemaUpdate_REVERSE,
+		Count:     true,
+	}); err != nil {
+		return err
+	}
+
+	// Add 'action.target' schema in Dgraph
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: "action.target",
+		ValueType: uint32(types.UidID),
+		Directive: protos.SchemaUpdate_REVERSE,
+		Count:     true,
+	}); err != nil {
+		return err
+	}
+
 	// Add search possibilities for every "timing"
 	thingTimings := []string{
 		"creationTimeMs",
@@ -650,6 +670,27 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 		err = f.addPropertyEdge(req, node, propKey, propValue)
 	}
 
+	// Add Thing that gets the action
+	objectNode, err := f.getThingNodeByUUID(action.ThingID)
+	if err != nil {
+		return err
+	}
+	err = f.connectRef(req, node, "action.target", objectNode)
+	if err != nil {
+		return err
+	}
+
+	// Add subject Thing by $ref TODO: make interactive
+	// subjectNode, err := f.getThingNodeByUUID(action.Subject.RefValue?)
+	subjectNode, err := f.getThingNodeByUUID("d37fed7d-d380-4928-aba5-db7f36ce037b")
+	if err != nil {
+		return err
+	}
+	err = f.connectRef(req, subjectNode, "action.of", node)
+	if err != nil {
+		return err
+	}
+
 	// Call run after all mutations are added
 	_, err = f.client.Run(f.getContext(), &req)
 
@@ -675,12 +716,17 @@ func (f *Dgraph) addPropertyEdge(req dgraphClient.Req, node dgraphClient.Node, p
 		if err != nil {
 			return err
 		}
-		relatedEdge := node.ConnectTo(edgeName, refThingNode)
-		if err = req.Set(relatedEdge); err != nil {
-			return err
-		}
+		err = f.connectRef(req, node, edgeName, refThingNode)
 	}
 
+	return nil
+}
+
+func (f *Dgraph) connectRef(req dgraphClient.Req, nodeFrom dgraphClient.Node, edgeName string, nodeTo dgraphClient.Node) error {
+	relatedEdge := nodeFrom.ConnectTo(edgeName, nodeTo)
+	if err := req.Set(relatedEdge); err != nil {
+		return err
+	}
 	return nil
 }
 
