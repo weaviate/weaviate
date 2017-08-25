@@ -334,11 +334,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get and transform object
-		UUID := string(params.ActionID)
-		dbObject, errGet := databaseConnector.Get(UUID)
+		UUID := strfmt.UUID(params.ActionID)
+		actionGetResponse, errGet := databaseConnector.GetAction(UUID)
 
 		// Return error if UUID is not found.
-		if dbObject.Deleted || errGet != nil {
+		if errGet != nil {
 			return actions.NewWeaviateActionsPatchNotFound()
 		}
 
@@ -350,28 +350,36 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsPatchBadRequest()
 		}
 
+		// Convert ActionGetResponse object to JSON
+		actionUpdateJSON, marshalErr := json.Marshal(actionGetResponse)
+		if marshalErr != nil {
+			return actions.NewWeaviateActionsPatchBadRequest()
+		}
+
 		// Apply the patch
-		updatedJSON, applyErr := patchObject.Apply([]byte(dbObject.Object))
+		updatedJSON, applyErr := patchObject.Apply(actionUpdateJSON)
 
 		if applyErr != nil {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity()
 		}
 
-		// Update the last updated time in the response object
-		responseObject := &models.ActionGetResponse{}
-		json.Unmarshal([]byte(updatedJSON), &responseObject)
-		responseObject.LastUpdateTimeUnix = connector_utils.NowUnix()
+		// TODO Add update-time automatically
 
-		// Set patched JSON back in dbObject
-		updatedJSONWithTime, _ := json.Marshal(responseObject)
-		dbObject.Object = string(updatedJSONWithTime)
+		// Turn it into a Action object
+		action := &models.Action{}
+		json.Unmarshal([]byte(updatedJSON), &action)
 
-		// Add create time
-		dbObject.SetCreateTimeMsToNow()
-		go databaseConnector.Add(dbObject)
+		// dbObject.SetCreateTimeMsToNow() TODO
+		// Update the database
+		insertErr := databaseConnector.UpdateAction(action, UUID) // TODO: go-routine?
+		if insertErr != nil {
+			log.Println("InsertErr:", insertErr)
+		}
 
 		// Create return Object
-		responseObject.ActionID = strfmt.UUID(dbObject.Uuid)
+		responseObject := &models.ActionGetResponse{}
+		json.Unmarshal([]byte(updatedJSON), &responseObject)
+		responseObject.ActionID = UUID
 		responseObject.Kind = getKind(responseObject)
 
 		return actions.NewWeaviateActionsPatchOK().WithPayload(responseObject)
@@ -425,14 +433,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
-		// Set reference filter object
-		// referenceFilter := &connector_utils.ObjectReferences{ThingID: params.ThingID}
-
 		// // Get user out of principal
 		// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
-
-		// // List all results
-		// actionsDatabaseObjects, totalResults, _ := databaseConnector.List(refTypeAction, usersObject.Uuid, limit, page, referenceFilter)
 
 		// List all results
 		actionsResponse, err := databaseConnector.ListActions(params.ThingID, limit, page)
@@ -441,20 +443,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			log.Println("ERROR", err)
 		}
 
-		// // Convert to an response object
-		// responseObject := &models.ActionsListResponse{}
-		// responseObject.Actions = make([]*models.ActionGetResponse, len(actionsDatabaseObjects))
-
-		// // Loop to fill response project
-		// for i, actionsDatabaseObject := range actionsDatabaseObjects {
-		// 	actionObject := &models.ActionGetResponse{}
-		// 	json.Unmarshal([]byte(actionsDatabaseObject.Object), actionObject)
-		// 	actionObject.ActionID = strfmt.UUID(actionsDatabaseObject.Uuid)
-		// 	responseObject.Actions[i] = actionObject
-		// }
-
-		// // Add totalResults to response object.
-		// responseObject.TotalResults = totalResults
 		actionsResponse.Kind = getKind(actionsResponse)
 
 		return actions.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)

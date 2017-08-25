@@ -434,7 +434,7 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 
 // UpdateThing updates the Thing in the DB at the given UUID.
 func (f *Dgraph) UpdateThing(thing *models.ThingUpdate, UUID strfmt.UUID) error {
-	refThingNode, err := f.getThingNodeByUUID(UUID)
+	refThingNode, err := f.getNodeByUUID(UUID)
 
 	if err != nil {
 		return err
@@ -579,6 +579,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 	}
 
 	// Create query to count total results
+	// TODO: Combine the total results code with the code of the 'things
 	req = dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{
 		totalResults(func: eq(uuid, "%s")) {
@@ -604,14 +605,22 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 	}
 
 	// Set the total results
-	actionsResponse.TotalResults = totalResult.Root.Count // TODO: NOT WORKING, MISSING 'totalResults' IN RETURN OBJ
+	actionsResponse.TotalResults = totalResult.Root.Count // TODO: NOT WORKING, MISSING 'totalResults' IN RETURN OBJ, DGRAPH bug?s
 
 	return actionsResponse, nil
 }
 
 // UpdateAction updates a specific action
 func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
-	return nil
+	refActionNode, err := f.getNodeByUUID(UUID)
+
+	if err != nil {
+		return err
+	}
+
+	err = f.updateActionNodeEdges(refActionNode, action)
+
+	return err
 }
 
 func (f *Dgraph) addNewNode(nodeContext string, nodeClass string, UUID strfmt.UUID) (dgraphClient.Node, error) {
@@ -775,7 +784,7 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 	}
 
 	// Add Thing that gets the action
-	objectNode, err := f.getThingNodeByUUID(action.ThingID)
+	objectNode, err := f.getNodeByUUID(action.ThingID)
 	if err != nil {
 		return err
 	}
@@ -785,8 +794,8 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 	}
 
 	// Add subject Thing by $ref TODO: make interactive
-	// subjectNode, err := f.getThingNodeByUUID(action.Subject.RefValue?)
-	subjectNode, err := f.getThingNodeByUUID("e1f6c203-b78c-4c41-8247-8212fbdff290")
+	// subjectNode, err := f.getNodeByUUID(action.Subject.RefValue?)
+	subjectNode, err := f.getNodeByUUID("fdcecd93-bb6b-41d1-9635-4596eb98f694")
 	if err != nil {
 		return err
 	}
@@ -816,7 +825,7 @@ func (f *Dgraph) addPropertyEdge(req dgraphClient.Req, node dgraphClient.Node, p
 			return err
 		}
 	} else if val, ok = propValue["ref"]; ok {
-		refThingNode, err := f.getThingNodeByUUID(strfmt.UUID(val.(string)))
+		refThingNode, err := f.getNodeByUUID(strfmt.UUID(val.(string)))
 		if err != nil {
 			return err
 		}
@@ -926,7 +935,7 @@ func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *mo
 
 }
 
-func (f *Dgraph) getThingNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
+func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
 	// Search for the class to make the connection, create variables
 	variables := make(map[string]string)
 	variables["$uuid"] = string(UUID)
@@ -934,7 +943,7 @@ func (f *Dgraph) getThingNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error)
 	// Create the query for existing class
 	req := dgraphClient.Req{}
 	req.SetQueryWithVariables(`{ 
-		thing(func: eq(uuid, $uuid)) {
+		node(func: eq(uuid, $uuid)) {
 			uuid
 			~id {
 				_uid_
@@ -950,7 +959,7 @@ func (f *Dgraph) getThingNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error)
 	}
 
 	// Unmarshal the result
-	var idResult ThingIDResult
+	var idResult NodeIDResult
 	err = dgraphClient.Unmarshal(resp.N, &idResult)
 
 	if err != nil {
