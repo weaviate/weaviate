@@ -106,7 +106,7 @@ func getKind(object interface{}) *string {
 }
 
 // isOwnKeyOrLowerInTree returns whether a key is his own or in his children
-func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.UsersObject, userKeyID string, databaseConnector dbconnector.DatabaseConnector) bool {
+func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.Key, userKeyID string, databaseConnector dbconnector.DatabaseConnector) bool {
 	// If is own key, return true
 	if strings.EqualFold(userKeyID, currentUsersObject.UUID) {
 		return true

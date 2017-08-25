@@ -15,18 +15,18 @@ package connector_utils
 
 import ()
 
-// UsersObject for a new row in de database
-type UsersObject struct {
-	UUID           string // uuid, also used in Object's id
-	KeyToken       string // uuid, token to login
-	KeyExpiresUnix int64  // expiry time in unix timestamp
-	Object         string // type, as defined
-	Parent         string // Parent Uuid (not key)
-	Deleted        bool   // if true, it does not exsist anymore
+// Key for a new row in de database
+type Key struct {
+	UUID           string         // uuid, also used in Object's id
+	KeyToken       string         // uuid, token to login
+	KeyExpiresUnix int64          // expiry time in unix timestamp
+	Permissions    KeyPermissions // type, as defined
+	Parent         string         // Parent Uuid (not key)
+	Deleted        bool           // if true, it does not exsist anymore
 }
 
-// UsersObjectsObject is an Object of UsersObject
-type UsersObjectsObject struct {
+// KeyPermissions is an Object of Key
+type KeyPermissions struct {
 	Delete   bool     `json:"delete"`
 	Email    string   `json:"email"`
 	Execute  bool     `json:"execute"`
