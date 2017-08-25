@@ -396,7 +396,12 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 
 	// Merge the results into the model to return
 	nodes := resp.GetN()
-	for i, node := range nodes[0].Children {
+	resultItems := nodes[0].Children
+
+	// Set the return array length
+	thingsResponse.Things = make([]*models.ThingGetResponse, len(resultItems))
+
+	for i, node := range resultItems {
 		thingResponse := &models.ThingGetResponse{}
 		thingResponse.Schema = map[string]models.JSONObject{}
 		f.mergeThingNodeInResponse(node, thingResponse)
@@ -543,7 +548,6 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
 func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.ActionsListResponse, error) {
 	// Initialize response
 	actionsResponse := models.ActionsListResponse{}
-	actionsResponse.Actions = make([]*models.ActionGetResponse, limit)
 
 	// Do a query to get all node-information
 	req := dgraphClient.Req{}
@@ -568,8 +572,13 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 
 	// Merge the results into the model to return
 	nodes := resp.GetN()
+	resultItems := nodes[0].Children[0].Children[0].Children
 
-	for i, node := range nodes[0].Children[0].Children[0].Children {
+	// Set the return array length
+	actionsResponse.Actions = make([]*models.ActionGetResponse, len(resultItems))
+
+	// Loop to add all items in the return object
+	for i, node := range resultItems {
 		actionResponse := &models.ActionGetResponse{}
 		actionResponse.Schema = map[string]models.JSONObject{}
 		actionResponse.ThingID = UUID
