@@ -79,7 +79,7 @@ func (f *Dgraph) Connect() error {
 	// defer conn.Close()
 
 	// Create temp-folder for caching
-	dir, err := ioutil.TempDir("", "weaviate_dgraph")
+	dir, err := ioutil.TempDir("temp", "weaviate_dgraph")
 
 	if err != nil {
 		return err
