@@ -23,6 +23,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 	"unicode"
@@ -60,6 +61,13 @@ func init() {
 	discard := ioutil.Discard
 	myGRPCLogger := log.New(discard, "", log.LstdFlags)
 	grpclog.SetLogger(myGRPCLogger)
+
+	// Create temp folder if it does not exist
+	tempFolder := "temp"
+	if _, err := os.Stat(tempFolder); os.IsNotExist(err) {
+		log.Println("Temp folder created...")
+		os.Mkdir(tempFolder, 0766)
+	}
 }
 
 // getLimit returns the maximized limit
