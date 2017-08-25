@@ -18,7 +18,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	errors_ "errors"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"math"
@@ -37,7 +36,6 @@ import (
 	graceful "github.com/tylerb/graceful"
 
 	"github.com/go-openapi/swag"
-	gouuid "github.com/satori/go.uuid"
 	"github.com/weaviate/weaviate/connectors"
 	"github.com/weaviate/weaviate/connectors/config"
 	"github.com/weaviate/weaviate/connectors/utils"
@@ -136,32 +134,32 @@ func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.DatabaseUsersObjec
 
 // GetKeyChildren returns children recursivly based on its parameters.
 func GetKeyChildren(databaseConnector dbconnector.DatabaseConnector, parentUUID string, filterOutDeleted bool, allIDs []string, maxDepth int, depth int) []string {
-	if depth > 0 {
-		allIDs = append(allIDs, parentUUID)
-	}
+	// if depth > 0 {
+	// 	allIDs = append(allIDs, parentUUID)
+	// }
 
-	childUserObjects, _ := databaseConnector.GetChildObjects(parentUUID, filterOutDeleted)
+	// childUserObjects, _ := databaseConnector.GetChildObjects(parentUUID, filterOutDeleted)
 
-	if maxDepth == 0 || depth < maxDepth {
-		for _, childUserObject := range childUserObjects {
-			allIDs = GetKeyChildren(databaseConnector, childUserObject.Uuid, filterOutDeleted, allIDs, maxDepth, depth+1)
-		}
-	}
+	// if maxDepth == 0 || depth < maxDepth {
+	// 	for _, childUserObject := range childUserObjects {
+	// 		allIDs = GetKeyChildren(databaseConnector, childUserObject.Uuid, filterOutDeleted, allIDs, maxDepth, depth+1)
+	// 	}
+	// }
 
 	return allIDs
 }
 
 func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID string) {
-	// Find its children
-	var allIDs []string
-	allIDs = GetKeyChildren(databaseConnector, parentUUID, false, allIDs, 0, 0)
+	// // Find its children
+	// var allIDs []string
+	// allIDs = GetKeyChildren(databaseConnector, parentUUID, false, allIDs, 0, 0)
 
-	allIDs = append(allIDs, parentUUID)
+	// allIDs = append(allIDs, parentUUID)
 
-	// Delete for every child
-	for _, keyID := range allIDs {
-		go databaseConnector.DeleteKey(keyID)
-	}
+	// // Delete for every child
+	// for _, keyID := range allIDs {
+	// 	go databaseConnector.DeleteKey(keyID)
+	// }
 }
 
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
@@ -287,29 +285,30 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.APIKeyAuth = func(token string) (interface{}, error) {
 
 		// Check if the user has access, true if yes
-		validatedKeys, _ := databaseConnector.ValidateKey(token)
+		// validatedKeys, _ := databaseConnector.ValidateKey(token)
 
-		if len(validatedKeys) == 0 {
-			return nil, errors.New(401, "Provided key does not exist.")
-		}
+		// if len(validatedKeys) == 0 {
+		// 	return nil, errors.New(401, "Provided key does not exist.")
+		// }
 
-		// Get the only key
-		validatedKey := validatedKeys[0]
+		// // Get the only key
+		// validatedKey := validatedKeys[0]
 
-		// Validate key on deleted flag
-		if validatedKey.Deleted {
-			return nil, errors.New(401, "Provided key has been deleted.")
-		}
+		// // Validate key on deleted flag
+		// if validatedKey.Deleted {
+		// 	return nil, errors.New(401, "Provided key has been deleted.")
+		// }
 
-		// Validate the key on expiry time
-		currentUnix := connector_utils.NowUnix()
-		if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
-			return nil, errors.New(401, "Provided key has been expired.")
-		}
+		// // Validate the key on expiry time
+		// currentUnix := connector_utils.NowUnix()
+		// if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
+		// 	return nil, errors.New(401, "Provided key has been expired.")
+		// }
 
-		// key is valid, next step is allowing per Handler handling
-		return validatedKey, nil
+		// // key is valid, next step is allowing per Handler handling
+		// return validatedKey, nil
 
+		return nil, nil
 	}
 
 	/*
@@ -459,196 +458,202 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
 		// Create current User object from principal
-		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
-		// Fill the new User object
-		newUsersObject := &connector_utils.DatabaseUsersObject{}
-		newUsersObject.Deleted = false
-		newUsersObject.KeyExpiresUnix = int64(params.Body.KeyExpiresUnix)
-		newUsersObject.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
-		newUsersObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
-		newUsersObject.Parent = currentUsersObject.Uuid
+		// // Fill the new User object
+		// newUsersObject := &connector_utils.DatabaseUsersObject{}
+		// newUsersObject.Deleted = false
+		// newUsersObject.KeyExpiresUnix = int64(params.Body.KeyExpiresUnix)
+		// newUsersObject.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
+		// newUsersObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
+		// newUsersObject.Parent = currentUsersObject.Uuid
 
-		// Key expiry time is in the past
-		currentUnix := connector_utils.NowUnix()
-		if newUsersObject.KeyExpiresUnix != -1 && newUsersObject.KeyExpiresUnix < currentUnix {
-			println("past")
-			return keys.NewWeaviateKeyCreateUnprocessableEntity()
-		}
+		// // Key expiry time is in the past
+		// currentUnix := connector_utils.NowUnix()
+		// if newUsersObject.KeyExpiresUnix != -1 && newUsersObject.KeyExpiresUnix < currentUnix {
+		// 	println("past")
+		// 	return keys.NewWeaviateKeyCreateUnprocessableEntity()
+		// }
 
-		// Key expiry time is later than the expiry time of parent
-		if currentUsersObject.KeyExpiresUnix != -1 && currentUsersObject.KeyExpiresUnix < newUsersObject.KeyExpiresUnix {
-			return keys.NewWeaviateKeyCreateUnprocessableEntity()
-		}
+		// // Key expiry time is later than the expiry time of parent
+		// if currentUsersObject.KeyExpiresUnix != -1 && currentUsersObject.KeyExpiresUnix < newUsersObject.KeyExpiresUnix {
+		// 	return keys.NewWeaviateKeyCreateUnprocessableEntity()
+		// }
 
-		// Fill in the string-Object of the User
-		objectsBody, _ := json.Marshal(params.Body)
-		newUsersObjectsObject := &connector_utils.DatabaseUsersObjectsObject{}
-		json.Unmarshal(objectsBody, newUsersObjectsObject)
-		databaseBody, _ := json.Marshal(newUsersObjectsObject)
-		newUsersObject.Object = string(databaseBody)
+		// // Fill in the string-Object of the User
+		// objectsBody, _ := json.Marshal(params.Body)
+		// newUsersObjectsObject := &connector_utils.DatabaseUsersObjectsObject{}
+		// json.Unmarshal(objectsBody, newUsersObjectsObject)
+		// databaseBody, _ := json.Marshal(newUsersObjectsObject)
+		// newUsersObject.Object = string(databaseBody)
 
-		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go databaseConnector.AddKey(currentUsersObject.Uuid, *newUsersObject)
+		// // Save to DB, this needs to be a Go routine because we will return an accepted
+		// go databaseConnector.AddKey(currentUsersObject.Uuid, *newUsersObject)
 
-		// Create response Object from create object.
-		responseObject := &models.KeyTokenGetResponse{}
-		json.Unmarshal([]byte(newUsersObject.Object), responseObject)
-		responseObject.KeyID = strfmt.UUID(newUsersObject.Uuid)
-		responseObject.Kind = getKind(responseObject)
-		responseObject.Key = newUsersObject.KeyToken
-		responseObject.Parent = newUsersObject.Parent
-		responseObject.KeyExpiresUnix = newUsersObject.KeyExpiresUnix
+		// // Create response Object from create object.
+		// responseObject := &models.KeyTokenGetResponse{}
+		// json.Unmarshal([]byte(newUsersObject.Object), responseObject)
+		// responseObject.KeyID = strfmt.UUID(newUsersObject.Uuid)
+		// responseObject.Kind = getKind(responseObject)
+		// responseObject.Key = newUsersObject.KeyToken
+		// responseObject.Parent = newUsersObject.Parent
+		// responseObject.KeyExpiresUnix = newUsersObject.KeyExpiresUnix
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return keys.NewWeaviateKeyCreateAccepted().WithPayload(responseObject)
+		// return keys.NewWeaviateKeyCreateAccepted().WithPayload(responseObject)
+		return keys.NewWeaviateKeyCreateNotImplemented()
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
+		// userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
 
-		// Not found
-		if userObject.Deleted || errGet != nil {
-			return keys.NewWeaviateKeysChildrenGetNotFound()
-		}
+		// // Not found
+		// if userObject.Deleted || errGet != nil {
+		// 	return keys.NewWeaviateKeysChildrenGetNotFound()
+		// }
 
-		// Check on permissions
-		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
-		if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
-			return keys.NewWeaviateKeysChildrenGetForbidden()
-		}
+		// // Check on permissions
+		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+		// 	return keys.NewWeaviateKeysChildrenGetForbidden()
+		// }
 
-		// Get the children
-		var childIDs []string
-		childIDs = GetKeyChildren(databaseConnector, string(params.KeyID), true, childIDs, 1, 0)
+		// // Get the children
+		// var childIDs []string
+		// childIDs = GetKeyChildren(databaseConnector, string(params.KeyID), true, childIDs, 1, 0)
 
-		// Format the IDs for the response
-		childUUIDs := make([]strfmt.UUID, len(childIDs))
-		for i, v := range childIDs {
-			childUUIDs[i] = strfmt.UUID(v)
-		}
+		// // Format the IDs for the response
+		// childUUIDs := make([]strfmt.UUID, len(childIDs))
+		// for i, v := range childIDs {
+		// 	childUUIDs[i] = strfmt.UUID(v)
+		// }
 
-		// Initiate response object
-		responseObject := &models.KeyChildrenGetResponse{}
-		responseObject.Children = childUUIDs
+		// // Initiate response object
+		// responseObject := &models.KeyChildrenGetResponse{}
+		// responseObject.Children = childUUIDs
 
-		// Return children with 'OK'
-		return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
+		// // Return children with 'OK'
+		// return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
+		return keys.NewWeaviateKeysChildrenGetNotImplemented()
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
+		// userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
 
-		// Not found
-		if userObject.Deleted || errGet != nil {
-			return keys.NewWeaviateKeysDeleteNotFound()
-		}
+		// // Not found
+		// if userObject.Deleted || errGet != nil {
+		// 	return keys.NewWeaviateKeysDeleteNotFound()
+		// }
 
-		// Check on permissions
-		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
-		if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
-			return keys.NewWeaviateKeysDeleteForbidden()
-		}
+		// // Check on permissions
+		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+		// 	return keys.NewWeaviateKeysDeleteForbidden()
+		// }
 
-		// Remove key from database if found
-		deleteKey(databaseConnector, userObject.Uuid)
+		// // Remove key from database if found
+		// deleteKey(databaseConnector, userObject.Uuid)
 
-		// Return 'No Content'
-		return keys.NewWeaviateKeysDeleteNoContent()
+		// // Return 'No Content'
+		// return keys.NewWeaviateKeysDeleteNoContent()
+		return keys.NewWeaviateKeysDeleteNotImplemented()
 	})
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
-		// Get item from database
-		userObject, err := databaseConnector.GetKey(string(params.KeyID))
+		// // Get item from database
+		// userObject, err := databaseConnector.GetKey(string(params.KeyID))
 
-		// Object is deleted or not-existing
-		if userObject.Deleted || err != nil {
-			return keys.NewWeaviateKeysGetNotFound()
-		}
+		// // Object is deleted or not-existing
+		// if userObject.Deleted || err != nil {
+		// 	return keys.NewWeaviateKeysGetNotFound()
+		// }
 
-		// Check on permissions
-		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
-		if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
-			return keys.NewWeaviateKeysDeleteForbidden()
-		}
+		// // Check on permissions
+		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+		// 	return keys.NewWeaviateKeysDeleteForbidden()
+		// }
 
-		// Create response Object from create object.
-		responseObject := &models.KeyGetResponse{}
-		json.Unmarshal([]byte(userObject.Object), responseObject)
-		responseObject.KeyID = strfmt.UUID(userObject.Uuid)
-		responseObject.Kind = getKind(responseObject)
-		responseObject.Parent = userObject.Parent
-		responseObject.KeyExpiresUnix = userObject.KeyExpiresUnix
+		// // Create response Object from create object.
+		// responseObject := &models.KeyGetResponse{}
+		// json.Unmarshal([]byte(userObject.Object), responseObject)
+		// responseObject.KeyID = strfmt.UUID(userObject.Uuid)
+		// responseObject.Kind = getKind(responseObject)
+		// responseObject.Parent = userObject.Parent
+		// responseObject.KeyExpiresUnix = userObject.KeyExpiresUnix
 
-		// Get is successful
-		return keys.NewWeaviateKeysGetOK().WithPayload(responseObject)
+		// // Get is successful
+		// return keys.NewWeaviateKeysGetOK().WithPayload(responseObject)
+		return keys.NewWeaviateKeysGetNotImplemented()
 	})
 	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
-		// Create current User object from principal
-		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// // Create current User object from principal
+		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
-		// Object is deleted or not-existing
-		if currentUsersObject.Deleted {
-			return keys.NewWeaviateKeysMeChildrenGetNotFound()
-		}
+		// // Object is deleted or not-existing
+		// if currentUsersObject.Deleted {
+		// 	return keys.NewWeaviateKeysMeChildrenGetNotFound()
+		// }
 
-		// Get the children
-		var childIDs []string
-		childIDs = GetKeyChildren(databaseConnector, currentUsersObject.Uuid, true, childIDs, 1, 0)
+		// // Get the children
+		// var childIDs []string
+		// childIDs = GetKeyChildren(databaseConnector, currentUsersObject.Uuid, true, childIDs, 1, 0)
 
-		// Format the IDs for the response
-		childUUIDs := make([]strfmt.UUID, len(childIDs))
-		for i, v := range childIDs {
-			childUUIDs[i] = strfmt.UUID(v)
-		}
+		// // Format the IDs for the response
+		// childUUIDs := make([]strfmt.UUID, len(childIDs))
+		// for i, v := range childIDs {
+		// 	childUUIDs[i] = strfmt.UUID(v)
+		// }
 
-		// Initiate response object
-		responseObject := &models.KeyChildrenGetResponse{}
-		responseObject.Children = childUUIDs
+		// // Initiate response object
+		// responseObject := &models.KeyChildrenGetResponse{}
+		// responseObject.Children = childUUIDs
 
-		// Return children with 'OK'
-		return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)
+		// // Return children with 'OK'
+		// return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)
+		return keys.NewWeaviateKeysMeChildrenGetNotImplemented()
 	})
 	api.KeysWeaviateKeysMeDeleteHandler = keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
-		// Create current User object from principal
-		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// // Create current User object from principal
+		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
-		// Object is deleted or not-existing
-		if currentUsersObject.Deleted {
-			return keys.NewWeaviateKeysMeDeleteNotFound()
-		}
+		// // Object is deleted or not-existing
+		// if currentUsersObject.Deleted {
+		// 	return keys.NewWeaviateKeysMeDeleteNotFound()
+		// }
 
-		// Change to Deleted
-		currentUsersObject.Deleted = true
+		// // Change to Deleted
+		// currentUsersObject.Deleted = true
 
-		// Remove key from database if found
-		deleteKey(databaseConnector, currentUsersObject.Uuid)
+		// // Remove key from database if found
+		// deleteKey(databaseConnector, currentUsersObject.Uuid)
 
-		// Return 'No Content'
-		return keys.NewWeaviateKeysMeDeleteNoContent()
-
+		// // Return 'No Content'
+		// return keys.NewWeaviateKeysMeDeleteNoContent()
+		return keys.NewWeaviateKeysMeDeleteNotImplemented()
 	})
 	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
-		// Create current User object from principal
-		currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// // Create current User object from principal
+		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
-		// Init object
-		responseObject := &models.KeyTokenGetResponse{}
+		// // Init object
+		// responseObject := &models.KeyTokenGetResponse{}
 
-		// Object is deleted or not-existing
-		if currentUsersObject.Deleted {
-			return keys.NewWeaviateKeysMeGetNotFound()
-		}
+		// // Object is deleted or not-existing
+		// if currentUsersObject.Deleted {
+		// 	return keys.NewWeaviateKeysMeGetNotFound()
+		// }
 
-		// Create response Object from create object.
-		json.Unmarshal([]byte(currentUsersObject.Object), responseObject)
-		responseObject.KeyID = strfmt.UUID(currentUsersObject.Uuid)
-		responseObject.Kind = getKind(responseObject)
-		responseObject.Parent = currentUsersObject.Parent
-		responseObject.Key = currentUsersObject.KeyToken
-		responseObject.KeyExpiresUnix = currentUsersObject.KeyExpiresUnix
+		// // Create response Object from create object.
+		// json.Unmarshal([]byte(currentUsersObject.Object), responseObject)
+		// responseObject.KeyID = strfmt.UUID(currentUsersObject.Uuid)
+		// responseObject.Kind = getKind(responseObject)
+		// responseObject.Parent = currentUsersObject.Parent
+		// responseObject.Key = currentUsersObject.KeyToken
+		// responseObject.KeyExpiresUnix = currentUsersObject.KeyExpiresUnix
 
-		// Get is successful
-		return keys.NewWeaviateKeysMeGetOK().WithPayload(responseObject)
+		// // Get is successful
+		// return keys.NewWeaviateKeysMeGetOK().WithPayload(responseObject)
+		return keys.NewWeaviateKeysMeGetNotImplemented()
 	})
 
 	/*
