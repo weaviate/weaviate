@@ -336,6 +336,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get and transform object
 		UUID := strfmt.UUID(params.ActionID)
 		actionGetResponse, errGet := databaseConnector.GetAction(UUID)
+		actionGetResponse.LastUpdateTimeUnix = connector_utils.NowUnix()
 
 		// Return error if UUID is not found.
 		if errGet != nil {
@@ -363,13 +364,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity()
 		}
 
-		// TODO Add update-time automatically
-
 		// Turn it into a Action object
 		action := &models.Action{}
 		json.Unmarshal([]byte(updatedJSON), &action)
 
-		// dbObject.SetCreateTimeMsToNow() TODO
 		// Update the database
 		insertErr := databaseConnector.UpdateAction(action, UUID) // TODO: go-routine?
 		if insertErr != nil {
@@ -772,6 +770,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get and transform object
 		UUID := strfmt.UUID(params.ThingID)
 		thingGetResponse, errGet := databaseConnector.GetThing(UUID)
+		thingGetResponse.LastUpdateTimeMs = connector_utils.NowUnix()
 
 		// Return error if UUID is not found.
 		if errGet != nil {
@@ -836,10 +835,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsUpdateNotFound()
 		}
 
-		// TODO Add update-time automatically
-
-		// dbObject.SetCreateTimeMsToNow() TODO
 		// Update the database
+		params.Body.LastUpdateTimeMs = connector_utils.NowUnix()
 		insertErr := databaseConnector.UpdateThing(params.Body, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)

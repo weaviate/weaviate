@@ -424,8 +424,6 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 		return thingsResponse, nil
 	}
 
-	printNode(0, resp.N[0])
-
 	// Set the total results
 	thingsResponse.TotalResults = totalResult.Root.Count
 
@@ -570,6 +568,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 
 	// Merge the results into the model to return
 	nodes := resp.GetN()
+
 	for i, node := range nodes[0].Children[0].Children[0].Children {
 		actionResponse := &models.ActionGetResponse{}
 		actionResponse.Schema = map[string]models.JSONObject{}
@@ -605,7 +604,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 	}
 
 	// Set the total results
-	actionsResponse.TotalResults = totalResult.Root.Count // TODO: NOT WORKING, MISSING 'totalResults' IN RETURN OBJ, DGRAPH bug?s
+	actionsResponse.TotalResults = totalResult.Root.Count // TODO: NOT WORKING, MISSING 'totalResults' IN RETURN OBJ, DGRAPH bug?
 
 	return actionsResponse, nil
 }

@@ -710,6 +710,16 @@ func Test__weaviate_thing_update_JSON(t *testing.T) {
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#thingGetResponse")
 
+	// Check given update time is after now, but not in the future
+	now := connector_utils.NowUnix()
+	if respObject.LastUpdateTimeMs > now {
+		t.Errorf("LastUpdateTimeMs is incorrect, it was set in the future.")
+	}
+
+	if respObject.LastUpdateTimeMs < now-2000 {
+		t.Errorf("LastUpdateTimeMs is incorrect, it was set to far back.")
+	}
+
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
 
@@ -749,6 +759,16 @@ func Test__weaviate_thing_patch_JSON(t *testing.T) {
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#thingGetResponse")
 
+	// Check given update time is after now, but not in the future
+	now := connector_utils.NowUnix()
+	if respObject.LastUpdateTimeMs > now {
+		t.Errorf("LastUpdateTimeMs is incorrect, it was set in the future.")
+	}
+
+	if respObject.LastUpdateTimeMs < now-2000 {
+		t.Errorf("LastUpdateTimeMs is incorrect, it was set to far back.")
+	}
+
 	//dTest is faster than adding to DB.
 	time.Sleep(1 * time.Second)
 
@@ -769,27 +789,6 @@ func Test__weaviate_thing_patch_JSON(t *testing.T) {
 
 	// Check patch on non-existing ID
 	testNotExistsRequest(t, "/things", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
-}
-
-// weaviate.thing.delete
-func Test__weaviate_thing_delete_JSON(t *testing.T) {
-	// Create delete request
-	response := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
-
-	// Check status code get request
-	testStatusCode(t, response.StatusCode, http.StatusNoContent)
-
-	// Test is faster than adding to DB.
-	time.Sleep(1 * time.Second)
-
-	// Create delete request
-	responseAlreadyDeleted := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
-
-	// Check status code already deleted
-	testStatusCode(t, responseAlreadyDeleted.StatusCode, http.StatusNotFound)
-
-	// Create get request with non-existing ID
-	testNotExistsRequest(t, "/things", "DELETE", "application/json", nil, apiKeyCmdLine)
 }
 
 // /******************
@@ -862,28 +861,28 @@ func Test__weaviate_actions_things_create_JSON(t *testing.T) {
 	time.Sleep(2 * time.Second)
 }
 
-// // weaviate.action.things.list
-// func Test__weaviate_action_things_list_JSON(t *testing.T) {
-// 	// Create list request
-// 	response := doRequest("/things/"+thingID+"/actions", "GET", "application/json", nil, apiKeyCmdLine)
+// weaviate.action.things.list
+func Test__weaviate_action_things_list_JSON(t *testing.T) {
+	// Create list request
+	response := doRequest("/things/"+thingID+"/actions", "GET", "application/json", nil, apiKeyCmdLine)
 
-// 	// Check status code of list
-// 	testStatusCode(t, response.StatusCode, http.StatusOK)
+	// Check status code of list
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
-// 	body := getResponseBody(response)
+	body := getResponseBody(response)
 
-// 	respObject := &models.ActionsListResponse{}
-// 	json.Unmarshal(body, respObject)
+	respObject := &models.ActionsListResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	// Check most recent
-// 	testID(t, string(respObject.Actions[0].ActionID), actionID)
+	// Check most recent
+	testID(t, string(respObject.Actions[0].ActionID), actionID)
 
-// 	// Check there is only one action
-// 	testIntegerValues(t, 1, len(respObject.Actions))
+	// Check there is only one action
+	// testIntegerValues(t, 1, len(respObject.Actions)) // TODO: ISSUE ON GITHUB #142
 
-// 	// Check kind
-// 	testKind(t, string(*respObject.Kind), "weaviate#actionsListResponse")
-// }
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#actionsListResponse")
+}
 
 // weaviate.action.get
 func Test__weaviate_action_get_JSON(t *testing.T) {
@@ -902,7 +901,7 @@ func Test__weaviate_action_get_JSON(t *testing.T) {
 	testID(t, string(respObject.ActionID), actionID)
 
 	// Check ID of object
-	//testID(t, string(respObject.ThingID), thingID) TODO: Connecting to thingID does not work, REQ not placed?
+	testID(t, string(respObject.ThingID), thingID)
 
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#actionGetResponse")
@@ -911,58 +910,58 @@ func Test__weaviate_action_get_JSON(t *testing.T) {
 	testNotExistsRequest(t, "/actions", "GET", "application/json", nil, apiKeyCmdLine)
 }
 
-// // weaviate.action.patch
-// func Test__weaviate_action_patch_JSON(t *testing.T) {
-// 	// Create patch request
-// 	newValue := "queued"
+// weaviate.action.patch
+func Test__weaviate_action_patch_JSON(t *testing.T) {
+	// Create patch request
+	newValue := "1337"
 
-// 	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/commandProgress", "value": "` + newValue + `"}]`))
-// 	response := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/creationTimeUnix", "value": ` + newValue + `}]`))
+	response := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
-// 	body := getResponseBody(response)
+	body := getResponseBody(response)
 
-// 	respObject := &models.ActionGetResponse{}
-// 	json.Unmarshal(body, respObject)
+	respObject := &models.ActionGetResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	// Check status code
-// 	testStatusCode(t, response.StatusCode, http.StatusOK)
+	// Check status code
+	testStatusCode(t, response.StatusCode, http.StatusOK)
 
-// 	// Check ID is the same
-// 	testID(t, string(respObject.ActionID), actionID)
+	// Check ID is the same
+	testID(t, string(respObject.ActionID), actionID)
 
-// 	// Check given creation time is after now, but not in the future
-// 	now := connector_utils.NowUnix()
-// 	if respObject.LastUpdateTimeUnix > now {
-// 		t.Errorf("LastUpdateTimeUnix is incorrect, it was set in the future.")
-// 	}
+	// Check given creation time is after now, but not in the future
+	now := connector_utils.NowUnix()
+	if respObject.LastUpdateTimeUnix > now {
+		t.Errorf("LastUpdateTimeUnix is incorrect, it was set in the future.")
+	}
 
-// 	if respObject.LastUpdateTimeUnix < now-2000 {
-// 		t.Errorf("LastUpdateTimeUnix is incorrect, it was set to far back.")
-// 	}
+	if respObject.LastUpdateTimeUnix < now-2000 {
+		t.Errorf("LastUpdateTimeUnix is incorrect, it was set to far back.")
+	}
 
-// 	// Check kind
-// 	testKind(t, string(*respObject.Kind), "weaviate#actionGetResponse")
+	// Check kind
+	testKind(t, string(*respObject.Kind), "weaviate#actionGetResponse")
 
-// 	// Test is faster than adding to DB.
-// 	time.Sleep(1 * time.Second)
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 
-// 	// Check if patch is also applied on object when using a new GET request on same object
-// 	responseGet := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine)
+	// Check if patch is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine)
 
-// 	bodyGet := getResponseBody(responseGet)
+	bodyGet := getResponseBody(responseGet)
 
-// 	// Test response obj
-// 	respObjectGet := &models.ActionGetResponse{}
-// 	json.Unmarshal(bodyGet, respObjectGet)
+	// Test response obj
+	respObjectGet := &models.ActionGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
 
-// 	// Check patch with incorrect contents
-// 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/commandProgress", "value": "` + newValue + `"}`))
-// 	responseError := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
-// 	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
+	// Check patch with incorrect contents
+	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/xxxx", "value": "` + newValue + `"}`))
+	responseError := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
 
-// 	// Check patch on non-existing ID
-// 	testNotExistsRequest(t, "/actions", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
-// }
+	// Check patch on non-existing ID
+	testNotExistsRequest(t, "/actions", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
+}
 
 // // weaviate.key.me.delete
 // func Test__weaviate_key_me_delete_JSON(t *testing.T) {
@@ -970,3 +969,28 @@ func Test__weaviate_action_get_JSON(t *testing.T) {
 // 	responseKeyIDDeleted := doRequest("/keys/me", "DELETE", "application/json", nil, newAPIToken)
 // 	testStatusCode(t, responseKeyIDDeleted.StatusCode, http.StatusNoContent)
 // }
+
+// /******************
+//  * REMOVE THING TESTS
+//  ******************/
+
+// weaviate.thing.delete
+func Test__weaviate_thing_delete_JSON(t *testing.T) {
+	// Create delete request
+	response := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusNoContent)
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Create delete request
+	responseAlreadyDeleted := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code already deleted
+	testStatusCode(t, responseAlreadyDeleted.StatusCode, http.StatusNotFound)
+
+	// Create get request with non-existing ID
+	testNotExistsRequest(t, "/things", "DELETE", "application/json", nil, apiKeyCmdLine)
+}
