@@ -27,53 +27,49 @@ import (
 // NewDatabaseObjectFromPrincipal creates a new object with default values, out of principle object
 // func NewDatabaseObjectFromPrincipal(principal interface{}, refType string) *DatabaseObject {
 // 	// Get user object
-// 	UsersObject, _ := PrincipalMarshalling(principal)
+// 	Key, _ := PrincipalMarshalling(principal)
 
 // 	// Generate DatabaseObject without JSON-object in it.
-// 	dbObject := NewDatabaseObject(UsersObject.Uuid, refType)
+// 	key := NewDatabaseObject(Key.Uuid, refType)
 
-// 	return dbObject
+// 	return key
 // }
 
 // PrincipalMarshalling Marhshall and Unmarshall Principal and Principals Objects
-func PrincipalMarshalling(Object interface{}) (UsersObject, UsersObjectsObject) {
+func PrincipalMarshalling(Object interface{}) (Key, KeyPermissions) {
 	// marshall principal
 	principalMarshall, _ := json.Marshal(Object)
-	var Principal UsersObject
-	json.Unmarshal(principalMarshall, &Principal)
+	var key Key
+	json.Unmarshal(principalMarshall, &key)
 
-	// Unmarshall the Object inside the Principal (aka ObjectsObject)
-	var ObjectsObject UsersObjectsObject
-	json.Unmarshal([]byte(Principal.Object), &ObjectsObject)
-
-	return Principal, ObjectsObject
+	return key, key.Permissions
 }
 
 // CreateFirstUserObject creates a new user with new API key when none exists when starting server
-func CreateFirstUserObject() UsersObject {
-	dbObject := UsersObject{}
+func CreateFirstUserObject() Key {
+	key := Key{}
 
 	// Create key token
-	dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
+	key.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
 
 	// Uuid + name
 	uuid := fmt.Sprintf("%v", gouuid.NewV4())
 
 	// Auto set the parent ID to root *
-	dbObject.Parent = "*"
+	key.Parent = "*"
 
 	// Set Uuid
-	dbObject.UUID = uuid
+	key.UUID = uuid
 
 	// Set expiry to unlimited
-	dbObject.KeyExpiresUnix = -1
+	key.KeyExpiresUnix = -1
 
 	// Set chmod variables
-	dbObjectObject := UsersObjectsObject{}
-	dbObjectObject.Read = true
-	dbObjectObject.Write = true
-	dbObjectObject.Delete = true
-	dbObjectObject.Execute = true
+	keyPermissions := KeyPermissions{}
+	keyPermissions.Read = true
+	keyPermissions.Write = true
+	keyPermissions.Delete = true
+	keyPermissions.Execute = true
 
 	// Get ips as v6
 	var ips []string
@@ -94,18 +90,17 @@ func CreateFirstUserObject() UsersObject {
 		}
 	}
 
-	dbObjectObject.IPOrigin = ips
+	keyPermissions.IPOrigin = ips
 
 	// Marshall and add to object
-	dbObjectObjectJSON, _ := json.Marshal(dbObjectObject)
-	dbObject.Object = string(dbObjectObjectJSON)
+	key.Permissions = keyPermissions
 
 	// Print the key
 	log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/weaviate/weaviate/blob/develop/README.md#authentication")
-	log.Println("INFO: Auto set allowed IPs to: ", dbObjectObject.IPOrigin)
-	log.Println("ROOTKEY=" + dbObject.KeyToken)
+	log.Println("INFO: Auto set allowed IPs to: ", keyPermissions.IPOrigin)
+	log.Println("ROOTKEY=" + key.KeyToken)
 
-	return dbObject
+	return key
 }
 
 // NowUnix returns the current Unix time

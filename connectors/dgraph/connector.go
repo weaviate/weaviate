@@ -299,6 +299,57 @@ func (f *Dgraph) Init() error {
 		}
 	}
 
+	// KEYS
+	// Add index for keys
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: "key.child",
+		ValueType: uint32(types.UidID),
+		Directive: protos.SchemaUpdate_REVERSE,
+		Count:     true,
+	}); err != nil {
+		return err
+	}
+
+	// Add key for searching root
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: "key.root",
+		ValueType: uint32(types.BoolID),
+		Tokenizer: []string{"bool"},
+		Directive: protos.SchemaUpdate_INDEX,
+		Count:     true,
+	}); err != nil {
+		return err
+	}
+
+	// Add ROOT-key if not exists
+	// Search for Root key
+	// req := dgraphClient.Req{}
+	// req.SetQuery(`{
+	// 	totalResults(func: eq(key.root, 1))  {
+	// 		count()
+	// 	}
+	// }`)
+
+	// // Run query created above
+	// var resp *protos.Response
+	// if resp, err = f.client.Run(f.getContext(), &req); err != nil {
+	// 	return err
+	// }
+
+	// // Unmarshal the dgraph response into a struct
+	// var totalResult TotalResultsResult
+	// if err = dgraphClient.Unmarshal(resp.N, &totalResult); err != nil {
+	// 	return err
+	// }
+
+	// // Set the total results
+	// if totalResult.Root.Count == 0 {
+	// 	log.Println("NO ROOTKEY YET")
+	// 	userObject := connector_utils.CreateFirstUserObject()
+
+	// 	log.Println(userObject)
+	// }
+
 	// Call flush to flush buffers after all mutations are added
 	if flushIt {
 		err = f.client.BatchFlush()
