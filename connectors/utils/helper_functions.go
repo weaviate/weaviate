@@ -25,55 +25,33 @@ import (
 )
 
 // NewDatabaseObjectFromPrincipal creates a new object with default values, out of principle object
-func NewDatabaseObjectFromPrincipal(principal interface{}, refType string) *DatabaseObject {
-	// Get user object
-	UsersObject, _ := PrincipalMarshalling(principal)
+// func NewDatabaseObjectFromPrincipal(principal interface{}, refType string) *DatabaseObject {
+// 	// Get user object
+// 	UsersObject, _ := PrincipalMarshalling(principal)
 
-	// Generate DatabaseObject without JSON-object in it.
-	dbObject := NewDatabaseObject(UsersObject.Uuid, refType)
+// 	// Generate DatabaseObject without JSON-object in it.
+// 	dbObject := NewDatabaseObject(UsersObject.Uuid, refType)
 
-	return dbObject
-}
-
-// SetCreateTimeMsToNow gives the Object the current time in mili seconds
-func (f *DatabaseObject) SetCreateTimeMsToNow() {
-	f.CreateTimeMs = time.Now().UnixNano() / int64(time.Millisecond)
-}
-
-// GenerateAndSetUUID generates and sets a new Uuid
-func (f *DatabaseObject) GenerateAndSetUUID() {
-	f.Uuid = string(GenerateUUID())
-}
-
-// MakeObjectDeleted gives the Object the current time in mili seconds and marks it as deleted
-func (f *DatabaseObject) MakeObjectDeleted() {
-	f.Deleted = true
-	f.SetCreateTimeMsToNow()
-}
-
-// MergeRequestBodyIntoObject merges the Object with right body
-func (f *DatabaseObject) MergeRequestBodyIntoObject(body interface{}) {
-	databaseBody, _ := json.Marshal(body)
-	f.Object = string(databaseBody)
-}
+// 	return dbObject
+// }
 
 // PrincipalMarshalling Marhshall and Unmarshall Principal and Principals Objects
-func PrincipalMarshalling(Object interface{}) (DatabaseUsersObject, DatabaseUsersObjectsObject) {
+func PrincipalMarshalling(Object interface{}) (UsersObject, UsersObjectsObject) {
 	// marshall principal
 	principalMarshall, _ := json.Marshal(Object)
-	var Principal DatabaseUsersObject
+	var Principal UsersObject
 	json.Unmarshal(principalMarshall, &Principal)
 
 	// Unmarshall the Object inside the Principal (aka ObjectsObject)
-	var ObjectsObject DatabaseUsersObjectsObject
+	var ObjectsObject UsersObjectsObject
 	json.Unmarshal([]byte(Principal.Object), &ObjectsObject)
 
 	return Principal, ObjectsObject
 }
 
 // CreateFirstUserObject creates a new user with new API key when none exists when starting server
-func CreateFirstUserObject() DatabaseUsersObject {
-	dbObject := DatabaseUsersObject{}
+func CreateFirstUserObject() UsersObject {
+	dbObject := UsersObject{}
 
 	// Create key token
 	dbObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
@@ -85,13 +63,13 @@ func CreateFirstUserObject() DatabaseUsersObject {
 	dbObject.Parent = "*"
 
 	// Set Uuid
-	dbObject.Uuid = uuid
+	dbObject.UUID = uuid
 
 	// Set expiry to unlimited
 	dbObject.KeyExpiresUnix = -1
 
 	// Set chmod variables
-	dbObjectObject := DatabaseUsersObjectsObject{}
+	dbObjectObject := UsersObjectsObject{}
 	dbObjectObject.Read = true
 	dbObjectObject.Write = true
 	dbObjectObject.Delete = true
