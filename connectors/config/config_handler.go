@@ -17,9 +17,14 @@ import (
 	"github.com/go-openapi/swag"
 )
 
+// DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "~/weaviate.conf.json"
+
+// DefaultEnvironment is the default env when no env is provided
 const DefaultEnvironment string = "development"
-const DefaultDatabaseName string = "memory"
+
+// DefaultDatabaseName is the default db when no db is provided
+const DefaultDatabaseName string = "dgraph"
 
 // ConfigFlags are input options
 type ConfigFlags struct {

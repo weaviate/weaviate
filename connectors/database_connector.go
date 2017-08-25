@@ -23,26 +23,15 @@ import (
 	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/connectors/config"
-	"github.com/weaviate/weaviate/connectors/datastore"
 	"github.com/weaviate/weaviate/connectors/dgraph"
-	"github.com/weaviate/weaviate/connectors/memory"
-	"github.com/weaviate/weaviate/connectors/utils"
 )
 
 // DatabaseConnector is the interface that all connectors should have
 type DatabaseConnector interface {
 	Connect() error
 	Init() error
-	Add(connector_utils.DatabaseObject) (string, error)
-	Get(string) (connector_utils.DatabaseObject, error)
-	List(string, string, int, int, *connector_utils.ObjectReferences) (connector_utils.DatabaseObjects, int64, error)
-	ValidateKey(string) ([]connector_utils.DatabaseUsersObject, error)
-	GetKey(string) (connector_utils.DatabaseUsersObject, error)
-	AddKey(string, connector_utils.DatabaseUsersObject) (connector_utils.DatabaseUsersObject, error)
 	GetName() string
 	SetConfig(connectorConfig.Environment)
-	DeleteKey(string) error
-	GetChildObjects(string, bool) ([]connector_utils.DatabaseUsersObject, error)
 
 	AddThing(*models.ThingCreate, strfmt.UUID) error // TODO: response: ThingGetResponse?
 	GetThing(strfmt.UUID) (models.ThingGetResponse, error)
@@ -60,8 +49,6 @@ type DatabaseConnector interface {
 func GetAllConnectors() []DatabaseConnector {
 	// Set all existing connectors
 	connectors := []DatabaseConnector{
-		&datastore.Datastore{},
-		&memory.Memory{},
 		&dgraph.Dgraph{},
 	}
 
@@ -118,7 +105,7 @@ func CreateDatabaseConnector(flags *swag.CommandLineOptionsGroup) DatabaseConnec
 	}
 
 	// Make default database if name is not found
-	var defaultDatabase DatabaseConnector = &memory.Memory{}
+	var defaultDatabase DatabaseConnector = &dgraph.Dgraph{}
 
 	// Get all connectors
 	connectors := GetAllConnectors()

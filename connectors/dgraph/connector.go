@@ -282,10 +282,8 @@ func (f *Dgraph) Init() error {
 
 	// Add search possibilities for every "timing"
 	thingTimings := []string{
-		"creationTimeMs",
-		"lastSeenTimeMs",
-		"lastUpdateTimeMs",
-		"lastUseTimeMs",
+		"creationTimeUnix",
+		"lastUpdateTimeUnix",
 	}
 
 	// For every timing, add them in the DB
