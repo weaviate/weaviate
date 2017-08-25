@@ -106,15 +106,15 @@ func getKind(object interface{}) *string {
 }
 
 // isOwnKeyOrLowerInTree returns whether a key is his own or in his children
-func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.DatabaseUsersObject, userKeyID string, databaseConnector dbconnector.DatabaseConnector) bool {
+func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.UsersObject, userKeyID string, databaseConnector dbconnector.DatabaseConnector) bool {
 	// If is own key, return true
-	if strings.EqualFold(userKeyID, currentUsersObject.Uuid) {
+	if strings.EqualFold(userKeyID, currentUsersObject.UUID) {
 		return true
 	}
 
 	// Get all child id's
 	var childIDs []string
-	childIDs = GetKeyChildren(databaseConnector, currentUsersObject.Uuid, true, childIDs, 0, 0)
+	childIDs = GetKeyChildren(databaseConnector, currentUsersObject.UUID, true, childIDs, 0, 0)
 
 	// Check ID is in childIds
 	isChildID := false
@@ -308,7 +308,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// // key is valid, next step is allowing per Handler handling
 		// return validatedKey, nil
 
-		return nil, nil
+		return true, nil
 	}
 
 	/*
@@ -667,12 +667,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// TODO: remove use of DB objects
 		// TODO: dont use 'thingcreate'-model in add, just 'thing'-model
-		// Create basic DataBase object
-		dbObject := *connector_utils.NewDatabaseObjectFromPrincipal(principal, refTypeThing)
-
-		// Set the generate JSON to save to the database
-		dbObject.MergeRequestBodyIntoObject(params.Body)
-
 		UUID := connector_utils.GenerateUUID()
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
@@ -685,7 +679,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
-		json.Unmarshal([]byte(dbObject.Object), responseObject)
+		responseObject.Thing = params.Body.Thing
 		responseObject.ThingID = UUID
 		responseObject.Kind = getKind(responseObject)
 
