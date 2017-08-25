@@ -649,6 +649,7 @@ func Test__weaviate_thing_list_JSON(t *testing.T) {
 	testID(t, string(respObject.Things[0].ThingID), thingID)
 
 	// TODO: Add maxResults and page tests.
+	testIntegerValues(t, 1, len(respObject.Things))
 
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#thingsListResponse")
@@ -878,7 +879,7 @@ func Test__weaviate_action_things_list_JSON(t *testing.T) {
 	testID(t, string(respObject.Actions[0].ActionID), actionID)
 
 	// Check there is only one action
-	// testIntegerValues(t, 1, len(respObject.Actions)) // TODO: ISSUE ON GITHUB #142
+	testIntegerValues(t, 1, len(respObject.Actions))
 
 	// Check kind
 	testKind(t, string(*respObject.Kind), "weaviate#actionsListResponse")
