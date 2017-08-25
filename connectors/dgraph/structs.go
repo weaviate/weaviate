@@ -41,19 +41,19 @@ type Count struct {
 	Count int64 `dgraph:"count"`
 }
 
-// ThingIDResult is the struct for getting the thing with an UUID
-type ThingIDResult struct {
-	Root ThingID `dgraph:"thing"`
+// NodeIDResult is the struct for getting the thing with an UUID
+type NodeIDResult struct {
+	Root NodeID `dgraph:"node"`
 }
 
-// ThingID reversed thing-id
-type ThingID struct {
-	UUID string    `dgraph:"uuid"`
-	ID   uint64    `dgraph:"_uid_"`
-	Node ThingNode `dgraph:"~id"`
+// NodeID reversed thing-id
+type NodeID struct {
+	UUID string   `dgraph:"uuid"`
+	ID   uint64   `dgraph:"_uid_"`
+	Node UUIDNode `dgraph:"~id"`
 }
 
-// ThingNode by Thing ID
-type ThingNode struct {
+// UUIDNode by Thing ID
+type UUIDNode struct {
 	ID uint64 `dgraph:"_uid_"`
 }
