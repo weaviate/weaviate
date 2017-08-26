@@ -1,18 +1,14 @@
 hash: b92da3be152de3f23467dbe1226a9202fef257f1c3843dd33a9deb102fa2059a
-updated: 2017-08-14T13:58:53.998885783+02:00
+updated: 2017-08-26T13:59:30.515890267+02:00
 imports:
 - name: cloud.google.com/go
   version: 44bcd0b2078ba5e7fedbeb36808d1ed893534750
   subpackages:
-  - compute/metadata
   - datastore
-  - internal/atomiccache
-  - internal/fields
-  - internal/version
 - name: github.com/AndreasBriese/bbloom
   version: 28f7e881ca57bc00e028f9ede9f0d9104cfeef5e
 - name: github.com/asaskevich/govalidator
-  version: 15028e809df8c71964e8efa6c11e81d5c0262302
+  version: 2c14e1cca90af49b3b21fe2d7aaa8cc7f9da2ff8
 - name: github.com/beorn7/perks
   version: 4c0e84591b9aa9e6dcfdf3e020114cd81f89d5f9
   subpackages:
@@ -20,14 +16,14 @@ imports:
 - name: github.com/codahale/hdrhistogram
   version: 3a0bb77429bd3a61596f5e8a3172445844342120
 - name: github.com/dgraph-io/badger
-  version: 3ff26e3fb5b49c8aad5c17f0a2fbc88cd8e28307
+  version: 7a092bf8b86cc6a234892737a242c4250eeebdf6
   subpackages:
   - protos
   - skl
   - table
   - "y"
 - name: github.com/dgraph-io/dgraph
-  version: e4b731d2751bb4a5ec18e14f4292c8e4318a2912
+  version: 46fbd24567f8ec1c3260f7d0094f8379700b88c6
   subpackages:
   - client
   - protos
@@ -42,17 +38,19 @@ imports:
 - name: github.com/evanphx/json-patch
   version: 944e07253867aacae43c04b2e6a239005443f33a
 - name: github.com/go-openapi/analysis
-  version: 8ed83f2ea9f00f945516462951a288eaa68bf0d6
+  version: d5a75b7d751ca3f11ad5d93cfe97405f2c3f6a47
 - name: github.com/go-openapi/errors
-  version: 03cfca65330da08a5a440053faf994a3c682b5bf
+  version: fc3f73a224499b047eda7191e5d22e1e9631e86f
 - name: github.com/go-openapi/jsonpointer
   version: 779f45308c19820f1a69e9a4cd965f496e0da10f
 - name: github.com/go-openapi/jsonreference
   version: 36d33bfe519efae5632669801b180bf1a245da3b
 - name: github.com/go-openapi/loads
-  version: a80dea3052f00e5f032e860dd7355cd0cc67e24d
+  version: 6bb6486231e079ea125c0f39994ed3d0c53399ed
+  subpackages:
+  - fmts
 - name: github.com/go-openapi/runtime
-  version: d6605b7c17ac3b1033ca794886e6142a4141f5b0
+  version: 0cb5480dd0e075d0530ff20681dcd77c249501fb
   subpackages:
   - flagext
   - middleware
@@ -62,13 +60,13 @@ imports:
   - security
   - yamlpc
 - name: github.com/go-openapi/spec
-  version: 3faa0055dbbf2110abc1f3b4e3adbb22721e96e7
+  version: e51c28f07047ad90caff03f6450908720d337e0c
 - name: github.com/go-openapi/strfmt
   version: 93a31ef21ac23f317792fff78f9539219dd74619
 - name: github.com/go-openapi/swag
-  version: f3f9494671f93fcff853e3c6e9e948b3eb71e590
+  version: aa30237cf993e01e1a1e467eead45d1ce5ad155e
 - name: github.com/go-openapi/validate
-  version: 8a82927c942c94794a5cd8b8b50ce2f48a955c0c
+  version: 035dcd74f1f61e83debe1c22950dc53556e7e4b2
 - name: github.com/golang/geo
   version: 31fb0106dc4a947e5aaee1fe186e56447f839510
   subpackages:
@@ -78,26 +76,18 @@ imports:
   - s1
   - s2
 - name: github.com/golang/protobuf
-  version: 1909bc2f63dc92bb931deace8b8312c4db72d12f
+  version: ab9f9a6dab164b7d1246e0e688b0ab7b94d8553e
   subpackages:
   - proto
-  - protoc-gen-go/descriptor
   - ptypes/any
-  - ptypes/struct
-  - ptypes/timestamp
-  - ptypes/wrappers
-- name: github.com/hashicorp/go-immutable-radix
-  version: 8aac2701530899b64bdea735a1de8da899815220
+- name: github.com/gorilla/context
+  version: 08b5f424b9271eedf6f9f0ce86cb9396ed337a42
 - name: github.com/hashicorp/go-memdb
   version: 2b2d6c35e14e7557ea1003e707d5e179fa315028
-- name: github.com/hashicorp/golang-lru
-  version: 0a025b7e63adc15a622f29b0b2c4c3848243bbf6
-  subpackages:
-  - simplelru
 - name: github.com/jessevdk/go-flags
   version: 96dc06278ce32a0e9d957d590bb987c81ee66407
 - name: github.com/mailru/easyjson
-  version: 2f5df55504ebc322e4d52d34df6a1f5b503bf26d
+  version: 2af9a745a611440bab0528e5ac19b2805a1c50eb
   subpackages:
   - buffer
   - jlexer
@@ -107,11 +97,11 @@ imports:
   subpackages:
   - pbutil
 - name: github.com/mitchellh/mapstructure
-  version: d0303fe809921458f417bcf828397a65db30a7e4
+  version: cc8532a8e9a55ea36402aa21efdf403a60d34096
 - name: github.com/pkg/errors
-  version: c605e284fe17294bda444b34710735b29d1a9d90
+  version: ff09b135c25aae272398c51a07235b90a75aa4f0
 - name: github.com/prometheus/client_golang
-  version: 94ff84a9a6ebb5e6eb9172897c221a64df3443bc
+  version: 3eb912b336976e0f66a5eb9a434adfbba8dff646
   subpackages:
   - prometheus
 - name: github.com/prometheus/client_model
@@ -129,9 +119,9 @@ imports:
   subpackages:
   - xfs
 - name: github.com/PuerkitoBio/purell
-  version: 7cf257f0a33260797b0febf39f95fccd86aab2a3
+  version: b938d81255b5473c57635324295cb0fe398c7a58
 - name: github.com/PuerkitoBio/urlesc
-  version: de5bf2ad457846296e2031421a34e2568e304e35
+  version: bbf7a2afc14f93e1e0a5c06df524fbd75e5031e5
 - name: github.com/satori/go.uuid
   version: 879c5887cd475cd7864858769793b2ceb0d44feb
 - name: github.com/twpayne/go-geom
@@ -143,15 +133,14 @@ imports:
 - name: github.com/tylerb/graceful
   version: 4654dfbb6ad53cb5e27f37d99b02e16c1872fbbb
 - name: golang.org/x/crypto
-  version: b176d7def5d71bdd214203491f89843ed217f420
+  version: 81e90905daefcd6fd217b62423c0908922eadb30
   subpackages:
   - bcrypt
   - blowfish
 - name: golang.org/x/net
-  version: 1c05540f6879653db88113bc4a2b70aec4bd491f
+  version: 57efc9c3d9f91fb3277f8da1cff370539c4d3dc5
   subpackages:
   - context
-  - context/ctxhttp
   - http2
   - http2/hpack
   - idna
@@ -160,59 +149,28 @@ imports:
   - proxy
   - trace
   - websocket
-- name: golang.org/x/oauth2
-  version: 9a379c6b3e95a790ffc43293c2a78dee0d7b6e20
-  subpackages:
-  - google
-  - internal
-  - jws
-  - jwt
 - name: golang.org/x/sys
-  version: c84c1ab9fd18cdd4c23dd021c10f5f46dea95e46
+  version: 2d6f6f883a06fc0d5f4b14a81e4c28705ea64c15
   subpackages:
   - unix
 - name: golang.org/x/text
-  version: b19bf474d317b857955b12035d2c5acb57ce8b01
+  version: ac87088df8ef557f1e32cd00ed0b6fbc3f7ddafb
   subpackages:
   - secure/bidirule
   - transform
   - unicode/bidi
   - unicode/norm
   - width
-- name: google.golang.org/api
-  version: 98825bb0065da4054e5da6db34f5fc598e50bc24
-  subpackages:
-  - internal
-  - iterator
-  - option
-  - transport/grpc
-- name: google.golang.org/appengine
-  version: c5a90ac045b779001847fec87403f5cba090deae
-  subpackages:
-  - internal
-  - internal/app_identity
-  - internal/base
-  - internal/datastore
-  - internal/log
-  - internal/modules
-  - internal/remote_api
-  - internal/socket
-  - internal/urlfetch
-  - socket
-  - urlfetch
 - name: google.golang.org/genproto
-  version: 09f6ed296fc66555a25fe4ce95173148778dfa85
+  version: ee236bd376b077c7a89f260c026c4735b195e459
   subpackages:
-  - googleapis/api/annotations
-  - googleapis/datastore/v1
   - googleapis/rpc/status
-  - googleapis/type/latlng
 - name: google.golang.org/grpc
-  version: b8669c35455183da6d5c474ea6e72fbf55183274
+  version: b3ddf786825de56a4178401b7e174ee332173b66
   subpackages:
   - codes
+  - connectivity
   - credentials
-  - credentials/oauth
   - grpclb/grpc_lb_v1
   - grpclog
   - internal
@@ -230,5 +188,5 @@ imports:
   - bson
   - internal/json
 - name: gopkg.in/yaml.v2
-  version: eb3733d160e74a9c7e442f435eb3bea458e1d19f
+  version: cd8b52f8269e0feb286dfeef29f8fe4d5b397e0b
 testImports: []
