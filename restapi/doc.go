@@ -21,7 +21,7 @@ Semantic Graphql, RESTful and MQTT Web of Things platform.
       https
     Host: localhost
     BasePath: /weaviate/v1
-    Version: v0.4.0
+    Version: v0.5.0
     Contact: Weaviate<yourfriends@weaviate.com> https://weaviate.com
 
     Consumes:
