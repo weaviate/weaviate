@@ -328,9 +328,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// 	return actions.NewWeaviateActionsGetForbidden()
 		// }
 
-		// Add kind to object to return
-		actionGetResponse.Kind = getKind(actionGetResponse)
-
 		// Get is successful
 		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
@@ -385,27 +382,27 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ActionGetResponse{}
 		json.Unmarshal([]byte(updatedJSON), &responseObject)
 		responseObject.ActionID = UUID
-		responseObject.Kind = getKind(responseObject)
 
 		return actions.NewWeaviateActionsPatchOK().WithPayload(responseObject)
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation actions.WeaviateActionsValidate has not yet been implemented")
 	})
-	api.ActionsWeaviateThingsActionsCreateHandler = actions.WeaviateThingsActionsCreateHandlerFunc(func(params actions.WeaviateThingsActionsCreateParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
 		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed {
-			return actions.NewWeaviateThingsActionsCreateForbidden()
+			return actions.NewWeaviateActionsCreateForbidden()
 		}
 
 		// Get ThingID from URL
-		thingID := strfmt.UUID(params.ThingID)
-
 		actionCreateJSON, _ := json.Marshal(params.Body)
 		action := &models.Action{}
 		json.Unmarshal([]byte(actionCreateJSON), action)
-		action.ThingID = thingID
-		action.UserKey = "??" // TODO
+		action.Key = &models.SingleRef{
+			// LocationURL:  "http://localhost/",
+			NrDollarCref: "hoi", // TODO principal
+			Type:         "Key",
+		}
 		action.CreationTimeUnix = connector_utils.NowUnix()
 		action.LastUpdateTimeUnix = 0
 
@@ -423,35 +420,32 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ActionGetResponse{}
 		responseObject.Action = *action
 		responseObject.ActionID = UUID
-		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return actions.NewWeaviateThingsActionsCreateAccepted().WithPayload(responseObject)
+		return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
 	})
-	api.ActionsWeaviateThingsActionsListHandler = actions.WeaviateThingsActionsListHandlerFunc(func(params actions.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed {
-			return actions.NewWeaviateThingsActionsListForbidden()
-		}
+	// api.ActionsWeaviateThingsActionsListHandler = actions.WeaviateThingsActionsListHandlerFunc(func(params actions.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
+	// 	// This is a read function, validate if allowed to read?
+	// 	if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed {
+	// 		return actions.NewWeaviateThingsActionsListForbidden()
+	// 	}
 
-		// Get limit and page
-		limit := getLimit(params.MaxResults)
-		page := getPage(params.Page)
+	// 	// Get limit and page
+	// 	limit := getLimit(params.MaxResults)
+	// 	page := getPage(params.Page)
 
-		// // Get user out of principal
-		// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+	// 	// // Get user out of principal
+	// 	// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
-		// List all results
-		actionsResponse, err := databaseConnector.ListActions(params.ThingID, limit, page)
+	// 	// List all results
+	// 	actionsResponse, err := databaseConnector.ListActions(params.ThingID, limit, page)
 
-		if err != nil {
-			log.Println("ERROR", err)
-		}
+	// 	if err != nil {
+	// 		log.Println("ERROR", err)
+	// 	}
 
-		actionsResponse.Kind = getKind(actionsResponse)
-
-		return actions.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
-	})
+	// 	return actions.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
+	// })
 
 	/*
 	 * HANDLE KEYS
@@ -494,7 +488,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// responseObject := &models.KeyTokenGetResponse{}
 		// json.Unmarshal([]byte(newUsersObject.Object), responseObject)
 		// responseObject.KeyID = strfmt.UUID(newUsersObject.Uuid)
-		// responseObject.Kind = getKind(responseObject)
 		// responseObject.Key = newUsersObject.KeyToken
 		// responseObject.Parent = newUsersObject.Parent
 		// responseObject.KeyExpiresUnix = newUsersObject.KeyExpiresUnix
@@ -577,7 +570,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// responseObject := &models.KeyGetResponse{}
 		// json.Unmarshal([]byte(userObject.Object), responseObject)
 		// responseObject.KeyID = strfmt.UUID(userObject.Uuid)
-		// responseObject.Kind = getKind(responseObject)
 		// responseObject.Parent = userObject.Parent
 		// responseObject.KeyExpiresUnix = userObject.KeyExpiresUnix
 
@@ -646,7 +638,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// // Create response Object from create object.
 		// json.Unmarshal([]byte(currentUsersObject.Object), responseObject)
 		// responseObject.KeyID = strfmt.UUID(currentUsersObject.Uuid)
-		// responseObject.Kind = getKind(responseObject)
 		// responseObject.Parent = currentUsersObject.Parent
 		// responseObject.Key = currentUsersObject.KeyToken
 		// responseObject.KeyExpiresUnix = currentUsersObject.KeyExpiresUnix
@@ -665,23 +656,26 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsCreateForbidden()
 		}
 
-		// TODO: remove use of DB objects
-		// TODO: dont use 'thingcreate'-model in add, just 'thing'-model
+		// Generate UUID and assemble the object
 		UUID := connector_utils.GenerateUUID()
 
+		// Make Thing-Object
+		thingCreateJSON, _ := json.Marshal(params.Body)
+		thing := &models.Thing{}
+		json.Unmarshal([]byte(thingCreateJSON), thing)
+		thing.CreationTimeUnix = connector_utils.NowUnix()
+		thing.LastUpdateTimeUnix = 0
+
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := databaseConnector.AddThing(params.Body, UUID) // TODO: go-routine?
+		insertErr := databaseConnector.AddThing(thing, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
 
-		// TODO Add create-time automatically
-
 		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
-		responseObject.Thing = params.Body.Thing
+		responseObject.Thing = *thing
 		responseObject.ThingID = UUID
-		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
@@ -724,7 +718,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// responseObject := &models.ThingGetResponse{}
 		// json.Unmarshal([]byte(dbObject.Object), &responseObject)
 		// responseObject.ThingID = strfmt.UUID(params.ThingID)
-		responseObject.Kind = getKind(responseObject)
 
 		// Get is successful
 		return things.NewWeaviateThingsGetOK().WithPayload(&responseObject)
@@ -758,13 +751,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// 	thingObject := &models.ThingGetResponse{}
 		// 	json.Unmarshal([]byte(thingDatabaseObject.Object), thingObject)
 		// 	thingObject.ThingID = strfmt.UUID(thingDatabaseObject.Uuid)
-		// 	thingObject.Kind = getKind(thingObject)
 		// 	responseObject.Things[i] = thingObject
 		// }
 
 		// Add totalResults to response object.
 		// responseObject.TotalResults = int64(totalResults)
-		thingsResponse.Kind = getKind(thingsResponse)
 
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
 	})
@@ -777,7 +768,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get and transform object
 		UUID := strfmt.UUID(params.ThingID)
 		thingGetResponse, errGet := databaseConnector.GetThing(UUID)
-		thingGetResponse.LastUpdateTimeMs = connector_utils.NowUnix()
+		thingGetResponse.LastUpdateTimeUnix = connector_utils.NowUnix()
 
 		// Return error if UUID is not found.
 		if errGet != nil {
@@ -805,15 +796,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsPatchUnprocessableEntity()
 		}
 
-		// TODO Add update-time automatically
+		// Turn it into a Thing object
+		thing := &models.Thing{}
+		json.Unmarshal([]byte(updatedJSON), &thing)
 
-		// Turn it into a ThingUpdate object
-		thingUpdate := &models.ThingUpdate{}
-		json.Unmarshal([]byte(updatedJSON), &thingUpdate)
-
-		// dbObject.SetCreateTimeMsToNow() TODO
 		// Update the database
-		insertErr := databaseConnector.UpdateThing(thingUpdate, UUID) // TODO: go-routine?
+		insertErr := databaseConnector.UpdateThing(thing, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -822,7 +810,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ThingGetResponse{}
 		json.Unmarshal([]byte(updatedJSON), &responseObject)
 		responseObject.ThingID = UUID
-		responseObject.Kind = getKind(responseObject)
 
 		return things.NewWeaviateThingsPatchOK().WithPayload(responseObject)
 	})
@@ -843,8 +830,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Update the database
-		params.Body.LastUpdateTimeMs = connector_utils.NowUnix()
-		insertErr := databaseConnector.UpdateThing(params.Body, UUID) // TODO: go-routine?
+		params.Body.LastUpdateTimeUnix = connector_utils.NowUnix()
+		insertErr := databaseConnector.UpdateThing(&params.Body.Thing, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -853,7 +840,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ThingGetResponse{}
 		responseObject.Thing = params.Body.Thing
 		responseObject.ThingID = UUID
-		responseObject.Kind = getKind(responseObject)
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return things.NewWeaviateThingsUpdateOK().WithPayload(responseObject)
