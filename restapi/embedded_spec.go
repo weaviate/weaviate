@@ -93,7 +93,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Can not validate, check the body."
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -131,7 +131,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Can not validate, check the body."
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -302,7 +302,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Can not validate, check the body."
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -340,7 +340,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "422": {
-            "description": "Can not validate, check the body."
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -615,7 +615,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Can not validate, check the body."
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -653,7 +653,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Can not validate, check the body."
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -744,7 +744,7 @@ func init() {
             "description": "Successful query result but no resource was found."
           },
           "422": {
-            "description": "Can not validate, check the body."
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -877,12 +877,12 @@ func init() {
     "ActionCreate": {
       "type": "object",
       "properties": {
-        "@context": {
-          "description": "Available context schema.",
+        "@class": {
+          "description": "Type of the Action, defined in the schema.",
           "type": "string"
         },
-        "@type": {
-          "description": "Type of the Thing, defined in the schema.",
+        "@context": {
+          "description": "Available context schema.",
           "type": "string"
         },
         "schema": {
@@ -1128,12 +1128,12 @@ func init() {
     "ThingCreate": {
       "type": "object",
       "properties": {
-        "@context": {
-          "description": "Available context schema.",
+        "@class": {
+          "description": "Class of the Thing, defined in the schema.",
           "type": "string"
         },
-        "@type": {
-          "description": "Type of the Thing, defined in the schema.",
+        "@context": {
+          "description": "Available context schema.",
           "type": "string"
         },
         "schema": {
