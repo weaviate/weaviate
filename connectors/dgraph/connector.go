@@ -16,7 +16,7 @@ package dgraph
 import (
 	"context"
 	"encoding/json"
-	// errors_ "errors"
+	errors_ "errors"
 	"fmt"
 	"github.com/go-openapi/strfmt"
 	"google.golang.org/grpc"
@@ -710,9 +710,8 @@ func (f *Dgraph) updateThingNodeEdges(node dgraphClient.Node, thing *models.Thin
 	var err error
 
 	// Add Thing properties
-	// TODO: How to save this in Graph DB?
 	for propKey, propValue := range thing.Schema.(map[string]interface{}) {
-		err = f.addPropertyEdge(req, node, propKey, propValue)
+		err = f.addPropertyEdge(&req, node, propKey, propValue)
 	}
 
 	// Call run after all mutations are added
@@ -731,7 +730,7 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 
 	// Add Action properties
 	for propKey, propValue := range action.Schema.(map[string]interface{}) {
-		err = f.addPropertyEdge(req, node, propKey, propValue)
+		err = f.addPropertyEdge(&req, node, propKey, propValue)
 	}
 
 	// Add Thing that gets the action
@@ -740,7 +739,7 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 	if err != nil {
 		return err
 	}
-	err = f.connectRef(req, node, "action.target", objectNode)
+	err = f.connectRef(&req, node, "action.target", objectNode)
 	if err != nil {
 		return err
 	}
@@ -751,7 +750,7 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 	if err != nil {
 		return err
 	}
-	err = f.connectRef(req, subjectNode, "action.of", node)
+	err = f.connectRef(&req, subjectNode, "action.of", node)
 	if err != nil {
 		return err
 	}
@@ -762,13 +761,14 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 	return err
 }
 
-func (f *Dgraph) addPropertyEdge(req dgraphClient.Req, node dgraphClient.Node, propKey string, propValue interface{}) error {
-	// TODO: add property: string/int/connection other object, now everything is string
+func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, propKey string, propValue interface{}) error {
 	// TODO: Add 'schema.' to a global var, if this is the nicest way to fix
 	edgeName := propKey // add "schema." + ??
 
+	// Get the type of the given value
 	typeVar := fmt.Sprintf("%T", propValue)
 
+	// If it is an interface, then it should contain a "cref" reference to another object. Use it to connect nodes.
 	if typeVar == "map[string]interface {}" {
 		refProperties := propValue.(map[string]interface{})
 		refThingNode, err := f.getNodeByUUID(strfmt.UUID(refProperties["$cref"].(string)))
@@ -776,31 +776,40 @@ func (f *Dgraph) addPropertyEdge(req dgraphClient.Req, node dgraphClient.Node, p
 			return err
 		}
 		err = f.connectRef(req, node, edgeName, refThingNode)
-
 	} else {
-		log.Println("Nbee", typeVar)
-	}
+		// Otherwise, the data should be added by type.
+		edge := node.Edge(edgeName)
+		if strings.Contains(typeVar, "bool") {
+			if err := edge.SetValueBool(propValue.(bool)); err != nil {
+				return err
+			}
+		} else if strings.Contains(typeVar, "int") {
+			if err := edge.SetValueInt(propValue.(int64)); err != nil {
+				return err
+			}
+		} else if strings.Contains(typeVar, "float") {
+			if err := edge.SetValueFloat(propValue.(float64)); err != nil {
+				return err
+			}
+		} else if strings.Contains(typeVar, "string") {
+			if err := edge.SetValueString(propValue.(string)); err != nil {
+				return err
+			}
+		} else {
+			return errors_.New("given type can not be saved to the database")
+		}
 
-	// if strings.Contains(typeVar, "bool") {
-	// 	edge := node.Edge(edgeName)
-	// 	if err = edge.SetValueString(propValue.sValue); err != nil {
-	// 		return err
-	// 	}
-	// 	if err = req.Set(edge); err != nil {
-	// 		return err
-	// 	}
-	// } else if propValue.sType == "cref" {
-	// 	refThingNode, err := f.getNodeByUUID(strfmt.UUID(propValue.sValue))
-	// 	if err != nil {
-	// 		return err
-	// 	}
-	// 	err = f.connectRef(req, node, edgeName, refThingNode)
-	// }
+		// Set 'edge' specified above.
+		if err := req.Set(edge); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
 
-func (f *Dgraph) connectRef(req dgraphClient.Req, nodeFrom dgraphClient.Node, edgeName string, nodeTo dgraphClient.Node) error {
+// connectRef function to connect two nodes.
+func (f *Dgraph) connectRef(req *dgraphClient.Req, nodeFrom dgraphClient.Node, edgeName string, nodeTo dgraphClient.Node) error {
 	relatedEdge := nodeFrom.ConnectTo(edgeName, nodeTo)
 	if err := req.Set(relatedEdge); err != nil {
 		return err
@@ -906,9 +915,7 @@ func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
 	req.SetQueryWithVariables(`{ 
 		node(func: eq(uuid, $uuid)) {
 			uuid
-			~id {
-				_uid_
-			}
+			_uid_
 		}
 	}`, variables)
 
@@ -928,7 +935,7 @@ func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
 	}
 
 	// Create the classNode from the result
-	node := f.client.NodeUid(idResult.Root.Node.ID)
+	node := f.client.NodeUid(idResult.Root.ID)
 
 	return node, err
 }
