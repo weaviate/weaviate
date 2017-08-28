@@ -14,7 +14,7 @@
 
 package models
 
-
+ 
  
 
 import (
@@ -31,7 +31,7 @@ import (
 type ActionsListResponse struct {
 
 	// The actual list of actions.
-	Things []*ActionGetResponse `json:"things"`
+	Actions []*ActionGetResponse `json:"actions"`
 
 	// The total number of actions for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int64 `json:"totalResults,omitempty"`
@@ -41,7 +41,7 @@ type ActionsListResponse struct {
 func (m *ActionsListResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateThings(formats); err != nil {
+	if err := m.validateActions(formats); err != nil {
 		// prop
 		res = append(res, err)
 	}
@@ -52,23 +52,23 @@ func (m *ActionsListResponse) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *ActionsListResponse) validateThings(formats strfmt.Registry) error {
+func (m *ActionsListResponse) validateActions(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.Things) { // not required
+	if swag.IsZero(m.Actions) { // not required
 		return nil
 	}
 
-	for i := 0; i < len(m.Things); i++ {
+	for i := 0; i < len(m.Actions); i++ {
 
-		if swag.IsZero(m.Things[i]) { // not required
+		if swag.IsZero(m.Actions[i]) { // not required
 			continue
 		}
 
-		if m.Things[i] != nil {
+		if m.Actions[i] != nil {
 
-			if err := m.Things[i].Validate(formats); err != nil {
+			if err := m.Actions[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("things" + "." + strconv.Itoa(i))
+					return ve.ValidateName("actions" + "." + strconv.Itoa(i))
 				}
 				return err
 			}

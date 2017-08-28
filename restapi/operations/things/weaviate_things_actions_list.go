@@ -14,7 +14,7 @@
 
 package things
 
-
+ 
 // Editing this file might prove futile when you re-run the generate command
 
 import (
@@ -23,42 +23,42 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-// WeaviateThingsActionsGetHandlerFunc turns a function with the right signature into a weaviate things actions get handler
-type WeaviateThingsActionsGetHandlerFunc func(WeaviateThingsActionsGetParams, interface{}) middleware.Responder
+// WeaviateThingsActionsListHandlerFunc turns a function with the right signature into a weaviate things actions list handler
+type WeaviateThingsActionsListHandlerFunc func(WeaviateThingsActionsListParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsActionsGetHandlerFunc) Handle(params WeaviateThingsActionsGetParams, principal interface{}) middleware.Responder {
+func (fn WeaviateThingsActionsListHandlerFunc) Handle(params WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
 	return fn(params, principal)
 }
 
-// WeaviateThingsActionsGetHandler interface for that can handle valid weaviate things actions get params
-type WeaviateThingsActionsGetHandler interface {
-	Handle(WeaviateThingsActionsGetParams, interface{}) middleware.Responder
+// WeaviateThingsActionsListHandler interface for that can handle valid weaviate things actions list params
+type WeaviateThingsActionsListHandler interface {
+	Handle(WeaviateThingsActionsListParams, interface{}) middleware.Responder
 }
 
-// NewWeaviateThingsActionsGet creates a new http.Handler for the weaviate things actions get operation
-func NewWeaviateThingsActionsGet(ctx *middleware.Context, handler WeaviateThingsActionsGetHandler) *WeaviateThingsActionsGet {
-	return &WeaviateThingsActionsGet{Context: ctx, Handler: handler}
+// NewWeaviateThingsActionsList creates a new http.Handler for the weaviate things actions list operation
+func NewWeaviateThingsActionsList(ctx *middleware.Context, handler WeaviateThingsActionsListHandler) *WeaviateThingsActionsList {
+	return &WeaviateThingsActionsList{Context: ctx, Handler: handler}
 }
 
-/*WeaviateThingsActionsGet swagger:route GET /things/{thingId}/actions things weaviateThingsActionsGet
+/*WeaviateThingsActionsList swagger:route GET /things/{thingId}/actions things weaviateThingsActionsList
 
 Get a thing based on its uuid related to this thing. Also available as MQTT.
 
-Returns the actions of a thing.
+Returns the actions of a thing in a list.
 
 */
-type WeaviateThingsActionsGet struct {
+type WeaviateThingsActionsList struct {
 	Context *middleware.Context
-	Handler WeaviateThingsActionsGetHandler
+	Handler WeaviateThingsActionsListHandler
 }
 
-func (o *WeaviateThingsActionsGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *WeaviateThingsActionsList) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewWeaviateThingsActionsGetParams()
+	var Params = NewWeaviateThingsActionsListParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {

@@ -14,7 +14,7 @@
 
 package restapi
 
-
+ 
  
 
 import (
@@ -57,7 +57,7 @@ func init() {
       "url": "https://weaviate.com",
       "email": "yourfriends@weaviate.com"
     },
-    "version": "v0.5.0"
+    "version": "v0.5.3"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -848,12 +848,12 @@ func init() {
     },
     "/things/{thingId}/actions": {
       "get": {
-        "description": "Returns the actions of a thing.",
+        "description": "Returns the actions of a thing in a list.",
         "tags": [
           "things"
         ],
         "summary": "Get a thing based on its uuid related to this thing. Also available as MQTT.",
-        "operationId": "weaviate.things.actions.get",
+        "operationId": "weaviate.things.actions.list",
         "parameters": [
           {
             "type": "string",
@@ -862,6 +862,12 @@ func init() {
             "name": "thingId",
             "in": "path",
             "required": true
+          },
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
           }
         ],
         "responses": {
@@ -963,7 +969,7 @@ func init() {
       "description": "List of actions for specific Thing.",
       "type": "object",
       "properties": {
-        "things": {
+        "actions": {
           "description": "The actual list of actions.",
           "type": "array",
           "items": {
