@@ -394,6 +394,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsCreateForbidden()
 		}
 
+		// TODO: Validate Action? Same as on /validate
+		// Send back 422. Read file functions in dgraph/connector.go:112-173
+
 		// Get ThingID from URL
 		actionCreateJSON, _ := json.Marshal(params.Body)
 		action := &models.Action{}
@@ -405,8 +408,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 		action.CreationTimeUnix = connector_utils.NowUnix()
 		action.LastUpdateTimeUnix = 0
-
-		// TODO: Validate Action? Same as on /validate
 
 		UUID := connector_utils.GenerateUUID()
 
@@ -424,28 +425,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
 	})
-	// api.ActionsWeaviateThingsActionsListHandler = actions.WeaviateThingsActionsListHandlerFunc(func(params actions.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
-	// 	// This is a read function, validate if allowed to read?
-	// 	if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed {
-	// 		return actions.NewWeaviateThingsActionsListForbidden()
-	// 	}
+	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
+		// This is a read function, validate if allowed to read?
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed {
+			return things.NewWeaviateThingsActionsListForbidden()
+		}
 
-	// 	// Get limit and page
-	// 	limit := getLimit(params.MaxResults)
-	// 	page := getPage(params.Page)
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
 
-	// 	// // Get user out of principal
-	// 	// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// // Get user out of principal
+		// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
-	// 	// List all results
-	// 	actionsResponse, err := databaseConnector.ListActions(params.ThingID, limit, page)
+		// List all results
+		actionsResponse, err := databaseConnector.ListActions(params.ThingID, limit, page)
 
-	// 	if err != nil {
-	// 		log.Println("ERROR", err)
-	// 	}
+		if err != nil {
+			log.Println("ERROR", err)
+		}
 
-	// 	return actions.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
-	// })
+		return things.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
+	})
 
 	/*
 	 * HANDLE KEYS
@@ -658,6 +659,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Generate UUID and assemble the object
 		UUID := connector_utils.GenerateUUID()
+
+		// TODO: Validate Things? Same as on /validate
+		// Send back 422
 
 		// Make Thing-Object
 		thingCreateJSON, _ := json.Marshal(params.Body)
