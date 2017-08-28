@@ -16,7 +16,7 @@ package dgraph
 import (
 	"context"
 	"encoding/json"
-	errors_ "errors"
+	// errors_ "errors"
 	"fmt"
 	"github.com/go-openapi/strfmt"
 	"google.golang.org/grpc"
@@ -111,8 +111,8 @@ func (f *Dgraph) Init() error {
 		&f.thingSchema,
 	}
 
-	// Get all classes to verify we do not create duplicates
-	allClasses, err := f.getAllClasses()
+	// Err var
+	var err error
 
 	// Init flush variable
 	flushIt := false
@@ -184,43 +184,12 @@ func (f *Dgraph) Init() error {
 				// TODO: Add specific schema for datatypes
 				// http://schema.org/DataType
 			}
-
-			// Create the class name by concatinating context with class
-			// TODO: Do not concatinate, split and add classname and context seperatly to node?
-			className := cfv.schema.Context + "/" + class.Class
-
-			if _, err := f.getClassFromResult(className, allClasses); err != nil {
-				// Add node and edge for every class
-				// TODO: Only add if not exists
-				node, err := f.client.NodeBlank(class.Class)
-
-				if err != nil {
-					return err
-				}
-
-				// Add class edge
-				edge := node.Edge("class")
-				err = edge.SetValueString(className)
-
-				if err != nil {
-					return err
-				}
-
-				// Add class edge to batch
-				err = f.client.BatchSet(edge)
-
-				if err != nil {
-					return err
-				}
-
-				flushIt = true
-			}
 		}
 	}
 
 	// Add class schema in Dgraph
 	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "class",
+		Predicate: "atClass",
 		ValueType: uint32(types.StringID),
 		Tokenizer: []string{"exact", "term"},
 		Directive: protos.SchemaUpdate_INDEX,
@@ -229,21 +198,12 @@ func (f *Dgraph) Init() error {
 		return err
 	}
 
-	// Add type schema in Dgraph
+	// Add context schema in Dgraph
 	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "type",
-		ValueType: uint32(types.UidID),
-		Directive: protos.SchemaUpdate_REVERSE,
-		Count:     true,
-	}); err != nil {
-		return err
-	}
-
-	// Add ID schema in Dgraph
-	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "id",
-		ValueType: uint32(types.UidID),
-		Directive: protos.SchemaUpdate_REVERSE,
+		Predicate: "atContext",
+		ValueType: uint32(types.StringID),
+		Tokenizer: []string{"exact", "term"},
+		Directive: protos.SchemaUpdate_INDEX,
 		Count:     true,
 	}); err != nil {
 		return err
@@ -363,16 +323,16 @@ func (f *Dgraph) Init() error {
 }
 
 // AddThing adds a thing to the Dgraph database with the given UUID
-func (f *Dgraph) AddThing(thing *models.ThingCreate, UUID strfmt.UUID) error {
-	// TODO: make type interactive
-	newNode, err := f.addNewNode(thing.AtContext, "Event", UUID)
+func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
+	// Create new node with base vars
+	newNode, err := f.addNewNode(thing.AtContext, thing.AtClass, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, UUID)
 
 	if err != nil {
 		return err
 	}
 
 	// Add all given information to the new node
-	err = f.updateThingNodeEdges(newNode, &thing.Thing)
+	err = f.updateThingNodeEdges(newNode, thing)
 
 	if err != nil {
 		return err
@@ -485,14 +445,14 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 }
 
 // UpdateThing updates the Thing in the DB at the given UUID.
-func (f *Dgraph) UpdateThing(thing *models.ThingUpdate, UUID strfmt.UUID) error {
+func (f *Dgraph) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 	refThingNode, err := f.getNodeByUUID(UUID)
 
 	if err != nil {
 		return err
 	}
 
-	err = f.updateThingNodeEdges(refThingNode, &thing.Thing)
+	err = f.updateThingNodeEdges(refThingNode, thing)
 
 	return err
 }
@@ -530,7 +490,7 @@ func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
 // AddAction adds an Action to the Dgraph database with the given UUID
 func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	// TODO: make type interactive
-	newNode, err := f.addNewNode(action.AtContext, "OnOffAction", UUID)
+	newNode, err := f.addNewNode(action.AtContext, action.AtClass, action.CreationTimeUnix, action.LastUpdateTimeUnix, UUID)
 
 	if err != nil {
 		return err
@@ -594,78 +554,78 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
 }
 
 // ListActions lists actions for a specific thing
-func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.ActionsListResponse, error) {
-	// Initialize response
-	actionsResponse := models.ActionsListResponse{}
+// func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.ActionsListResponse, error) {
+// 	// Initialize response
+// 	actionsResponse := models.ActionsListResponse{}
 
-	// Do a query to get all node-information
-	req := dgraphClient.Req{}
-	req.SetQuery(fmt.Sprintf(`{
-		actions(func: eq(uuid, "%s")) { 
-			uuid
-			~id {
-				actions: ~action.target (orderdesc: creationTimeUnix) (first: %d, offset: %d) {
-					expand(_all_) {
-						expand(_all_)
-					}
-				}
-			}
-		}
-	}`, UUID, limit, (page-1)*limit))
+// 	// Do a query to get all node-information
+// 	req := dgraphClient.Req{}
+// 	req.SetQuery(fmt.Sprintf(`{
+// 		actions(func: eq(uuid, "%s")) {
+// 			uuid
+// 			~id {
+// 				actions: ~action.target (orderdesc: creationTimeUnix) (first: %d, offset: %d) {
+// 					expand(_all_) {
+// 						expand(_all_)
+// 					}
+// 				}
+// 			}
+// 		}
+// 	}`, UUID, limit, (page-1)*limit))
 
-	// Run query created above
-	resp, err := f.client.Run(f.getContext(), &req)
-	if err != nil {
-		return actionsResponse, err
-	}
+// 	// Run query created above
+// 	resp, err := f.client.Run(f.getContext(), &req)
+// 	if err != nil {
+// 		return actionsResponse, err
+// 	}
 
-	// Merge the results into the model to return
-	nodes := resp.GetN()
-	resultItems := nodes[0].Children[0].Children[0].Children
+// 	// Merge the results into the model to return
+// 	nodes := resp.GetN()
+// 	resultItems := nodes[0].Children[0].Children[0].Children
 
-	// Set the return array length
-	actionsResponse.Actions = make([]*models.ActionGetResponse, len(resultItems))
+// 	// Set the return array length
+// 	actionsResponse.Actions = make([]*models.ActionGetResponse, len(resultItems))
 
-	// Loop to add all items in the return object
-	for i, node := range resultItems {
-		actionResponse := &models.ActionGetResponse{}
-		actionResponse.Schema = map[string]models.JSONObject{}
-		actionResponse.ThingID = UUID
-		f.mergeActionNodeInResponse(node, actionResponse, "")
-		actionsResponse.Actions[i] = actionResponse
-	}
+// 	// Loop to add all items in the return object
+// 	for i, node := range resultItems {
+// 		actionResponse := &models.ActionGetResponse{}
+// 		actionResponse.Schema = map[string]models.JSONObject{}
+// 		// TODO: Add object and subject
+// 		f.mergeActionNodeInResponse(node, actionResponse, "")
+// 		actionsResponse.Actions[i] = actionResponse
+// 	}
 
-	// Create query to count total results
-	// TODO: Combine the total results code with the code of the 'things
-	req = dgraphClient.Req{}
-	req.SetQuery(fmt.Sprintf(`{
-		totalResults(func: eq(uuid, "%s")) {
-			~id {
-				~action.target {
-					count()
-				}
-			}
-		}
-	}`, UUID))
+// 	// Create query to count total results
+// 	// TODO: Combine the total results code with the code of the 'things
+// 	req = dgraphClient.Req{}
+// 	req.SetQuery(fmt.Sprintf(`{
+// 		totalResults(func: eq(uuid, "%s")) {
+// 			~id {
+// 				~action.target {
+// 					count()
+// 				}
+// 			}
+// 		}
+// 	}`, UUID))
 
-	// Run query created above
-	resp, err = f.client.Run(f.getContext(), &req)
-	if err != nil {
-		return actionsResponse, err
-	}
+// 	// Run query created above
+// 	resp, err = f.client.Run(f.getContext(), &req)
+// 	if err != nil {
+// 		return actionsResponse, err
+// 	}
 
-	// Unmarshal the dgraph response into a struct
-	var totalResult TotalResultsResult
-	err = dgraphClient.Unmarshal(resp.N, &totalResult)
-	if err != nil {
-		return actionsResponse, nil
-	}
+// 	// Unmarshal the dgraph response into a struct
+// 	var totalResult TotalResultsResult
+// 	err = dgraphClient.Unmarshal(resp.N, &totalResult)
+// 	if err != nil {
+// 		return actionsResponse, nil
+// 	}
 
-	// Set the total results
-	actionsResponse.TotalResults = totalResult.Root.Count // TODO: NOT WORKING, MISSING 'totalResults' IN RETURN OBJ, DGRAPH bug?
+// 	// Set the total results
+// 	actionsResponse.TotalResults = totalResult.Root.Count // TODO: NOT WORKING, MISSING 'totalResults' IN RETURN OBJ, DGRAPH bug?
 
-	return actionsResponse, nil
-}
+// 	return actionsResponse, nil
+// }
 
 // UpdateAction updates a specific action
 func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
@@ -680,72 +640,55 @@ func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 	return err
 }
 
-func (f *Dgraph) addNewNode(nodeContext string, nodeClass string, UUID strfmt.UUID) (dgraphClient.Node, error) {
-	// TODO: separate both?
-	nodeType := nodeContext + "/" + nodeClass
-
-	// Search for the class to make the connection, create variables
-	variables := make(map[string]string)
-	variables["$a"] = nodeType
-
-	// Create the query for existing class
-	req := dgraphClient.Req{}
-	req.SetQueryWithVariables(`{
-		class(func: eq(class, $a)) {
-			_uid_
-			class
-		}
-	}`, variables)
-
-	// Run the query
-	resp, err := f.client.Run(f.getContext(), &req)
-
-	if err != nil {
-		return dgraphClient.Node{}, err
-	}
-
-	// Unmarshal the result
-	var dClass ClassResult
-	err = dgraphClient.Unmarshal(resp.N, &dClass)
-
-	if err != nil {
-		return dgraphClient.Node{}, err
-	}
-
-	// Create the classNode from the result
-	classNode := f.client.NodeUid(dClass.Root.ID)
-
-	// Node has been found, create new one and connect it
+func (f *Dgraph) addNewNode(nodeContext string, nodeClass string, creationTimeUnix int64, lastUpdateTimeUnix int64, UUID strfmt.UUID) (dgraphClient.Node, error) {
+	// Create new one and connect it
 	newNode, err := f.client.NodeBlank(fmt.Sprintf("%v", gouuid.NewV4()))
 
 	if err != nil {
 		return dgraphClient.Node{}, err
 	}
 
-	// Add edge between New Node and Class Node
-	typeEdge := newNode.ConnectTo("type", classNode)
+	// Init the request
+	req := dgraphClient.Req{}
 
-	// Add class edge to batch
-	req = dgraphClient.Req{}
-	err = req.Set(typeEdge)
-
-	if err != nil {
-		return dgraphClient.Node{}, err
-	}
-
-	// Add UUID node
-	uuidNode, err := f.client.NodeBlank(string(UUID))
-
-	// Add UUID edge
-	uuidEdge := newNode.ConnectTo("id", uuidNode)
-	if err = req.Set(uuidEdge); err != nil {
-		return dgraphClient.Node{}, err
-	}
-
-	// Add UUID to UUID node
+	// Add UUID to node
 	// TODO: Search for uuid edge/node before making new??
-	edge := uuidNode.Edge("uuid")
+	edge := newNode.Edge("uuid")
 	if err = edge.SetValueString(string(UUID)); err != nil {
+		return dgraphClient.Node{}, err
+	}
+	if err = req.Set(edge); err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	// Add context and type to node
+	edge = newNode.Edge("atContext")
+	if err = edge.SetValueString(nodeContext); err != nil {
+		return dgraphClient.Node{}, err
+	}
+	if err = req.Set(edge); err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	edge = newNode.Edge("atClass")
+	if err = edge.SetValueString(nodeClass); err != nil {
+		return dgraphClient.Node{}, err
+	}
+	if err = req.Set(edge); err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	// Add timing nodes
+	edge = newNode.Edge("creationTimeUnix")
+	if err = edge.SetValueInt(creationTimeUnix); err != nil {
+		return dgraphClient.Node{}, err
+	}
+	if err = req.Set(edge); err != nil {
+		return dgraphClient.Node{}, err
+	}
+
+	edge = newNode.Edge("lastUpdateTimeUnix")
+	if err = edge.SetValueInt(lastUpdateTimeUnix); err != nil {
 		return dgraphClient.Node{}, err
 	}
 	if err = req.Set(edge); err != nil {
@@ -766,41 +709,9 @@ func (f *Dgraph) updateThingNodeEdges(node dgraphClient.Node, thing *models.Thin
 	// Init error var
 	var err error
 
-	// Add timing nodes
-	edge := node.Edge("creationTimeMs")
-	if err = edge.SetValueInt(thing.CreationTimeMs); err != nil {
-		return err
-	}
-	if err = req.Set(edge); err != nil {
-		return err
-	}
-
-	edge = node.Edge("lastSeenTimeMs")
-	if err = edge.SetValueInt(thing.LastSeenTimeMs); err != nil {
-		return err
-	}
-	if err = req.Set(edge); err != nil {
-		return err
-	}
-
-	edge = node.Edge("lastUpdateTimeMs")
-	if err = edge.SetValueInt(thing.LastUpdateTimeMs); err != nil {
-		return err
-	}
-	if err = req.Set(edge); err != nil {
-		return err
-	}
-
-	edge = node.Edge("lastUseTimeMs")
-	if err = edge.SetValueInt(thing.LastUseTimeMs); err != nil {
-		return err
-	}
-	if err = req.Set(edge); err != nil {
-		return err
-	}
-
 	// Add Thing properties
-	for propKey, propValue := range thing.Schema {
+	// TODO: How to save this in Graph DB?
+	for propKey, propValue := range thing.Schema.(map[string]interface{}) {
 		err = f.addPropertyEdge(req, node, propKey, propValue)
 	}
 
@@ -818,30 +729,14 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 	// Init error var
 	var err error
 
-	// Add timing nodes
-	edge := node.Edge("creationTimeUnix")
-	if err = edge.SetValueInt(action.CreationTimeUnix); err != nil {
-		return err
-	}
-	if err = req.Set(edge); err != nil {
-		return err
-	}
-
-	edge = node.Edge("lastUpdateTimeUnix")
-	if err = edge.SetValueInt(action.LastUpdateTimeUnix); err != nil {
-		return err
-	}
-	if err = req.Set(edge); err != nil {
-		return err
-	}
-
 	// Add Action properties
-	for propKey, propValue := range action.Schema {
+	for propKey, propValue := range action.Schema.(map[string]interface{}) {
 		err = f.addPropertyEdge(req, node, propKey, propValue)
 	}
 
 	// Add Thing that gets the action
-	objectNode, err := f.getNodeByUUID(action.ThingID)
+	// TODO: Use 'locationUrl' and 'type'
+	objectNode, err := f.getNodeByUUID(strfmt.UUID(action.Things.Object.NrDollarCref))
 	if err != nil {
 		return err
 	}
@@ -851,8 +746,8 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 	}
 
 	// Add subject Thing by $ref TODO: make interactive
-	// subjectNode, err := f.getNodeByUUID(action.Subject.RefValue?)
-	subjectNode, err := f.getNodeByUUID("fdcecd93-bb6b-41d1-9635-4596eb98f694")
+	// TODO: Use 'locationUrl' and 'type'
+	subjectNode, err := f.getNodeByUUID(strfmt.UUID(action.Things.Subject.NrDollarCref))
 	if err != nil {
 		return err
 	}
@@ -867,27 +762,40 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 	return err
 }
 
-func (f *Dgraph) addPropertyEdge(req dgraphClient.Req, node dgraphClient.Node, propKey string, propValue models.JSONObject) error {
+func (f *Dgraph) addPropertyEdge(req dgraphClient.Req, node dgraphClient.Node, propKey string, propValue interface{}) error {
 	// TODO: add property: string/int/connection other object, now everything is string
 	// TODO: Add 'schema.' to a global var, if this is the nicest way to fix
-	var err error
-
 	edgeName := propKey // add "schema." + ??
-	if val, ok := propValue["value"]; ok {
-		edge := node.Edge(edgeName)
-		if err = edge.SetValueString(val.(string)); err != nil {
-			return err
-		}
-		if err = req.Set(edge); err != nil {
-			return err
-		}
-	} else if val, ok = propValue["ref"]; ok {
-		refThingNode, err := f.getNodeByUUID(strfmt.UUID(val.(string)))
+
+	typeVar := fmt.Sprintf("%T", propValue)
+
+	if typeVar == "map[string]interface {}" {
+		refProperties := propValue.(map[string]interface{})
+		refThingNode, err := f.getNodeByUUID(strfmt.UUID(refProperties["$cref"].(string)))
 		if err != nil {
 			return err
 		}
 		err = f.connectRef(req, node, edgeName, refThingNode)
+
+	} else {
+		log.Println("Nbee", typeVar)
 	}
+
+	// if strings.Contains(typeVar, "bool") {
+	// 	edge := node.Edge(edgeName)
+	// 	if err = edge.SetValueString(propValue.sValue); err != nil {
+	// 		return err
+	// 	}
+	// 	if err = req.Set(edge); err != nil {
+	// 		return err
+	// 	}
+	// } else if propValue.sType == "cref" {
+	// 	refThingNode, err := f.getNodeByUUID(strfmt.UUID(propValue.sValue))
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	err = f.connectRef(req, node, edgeName, refThingNode)
+	// }
 
 	return nil
 }
@@ -906,18 +814,14 @@ func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *mode
 
 	for _, prop := range node.GetProperties() {
 		if attribute == "~id" || attribute == "things" {
-			if prop.Prop == "creationTimeMs" {
-				thingResponse.CreationTimeMs = prop.GetValue().GetIntVal()
-			} else if prop.Prop == "lastSeenTimeMs" {
-				thingResponse.LastSeenTimeMs = prop.GetValue().GetIntVal()
-			} else if prop.Prop == "lastUpdateTimeMs" {
-				thingResponse.LastUpdateTimeMs = prop.GetValue().GetIntVal()
-			} else if prop.Prop == "lastUseTimeMs" {
-				thingResponse.LastUseTimeMs = prop.GetValue().GetIntVal()
+			if prop.Prop == "creationTimeUnix" {
+				thingResponse.CreationTimeUnix = prop.GetValue().GetIntVal()
+			} else if prop.Prop == "lastUpdateTimeUnix" {
+				thingResponse.LastUpdateTimeUnix = prop.GetValue().GetIntVal()
 			} else {
-				thingResponse.Schema[prop.Prop] = map[string]models.JSONValue{
-					"value": prop.GetValue().GetStrVal(),
-				}
+				// thingResponse.Schema = map[string]interface{
+				// 	"value": prop.GetValue().GetStrVal(),
+				// }
 			}
 		} else if attribute == "type" {
 			if prop.Prop == "context" {
@@ -949,9 +853,9 @@ func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *mo
 			} else if prop.Prop == "lastUpdateTimeUnix" {
 				actionResponse.LastUpdateTimeUnix = prop.GetValue().GetIntVal()
 			} else {
-				actionResponse.Schema[prop.Prop] = map[string]models.JSONValue{
-					"value": prop.GetValue().GetStrVal(),
-				}
+				// actionResponse.Schema[prop.Prop] = map[string]models.JSONValue{
+				// 	"value": prop.GetValue().GetStrVal(),
+				// }
 			}
 		} else if attribute == "type" && (parentAttribute == "~id" || parentAttribute == "actions") {
 			if prop.Prop == "context" {
@@ -971,7 +875,7 @@ func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *mo
 			}
 		} else if attribute == "id" && parentAttribute == "action.target" {
 			if prop.Prop == "uuid" {
-				actionResponse.ThingID = strfmt.UUID(prop.GetValue().GetStrVal())
+				actionResponse.Things.Object.NrDollarCref = prop.GetValue().GetStrVal()
 			}
 		} else if attribute == "type" && parentAttribute == "~action.of" {
 			if prop.Prop == "context" {
@@ -1027,41 +931,6 @@ func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
 	node := f.client.NodeUid(idResult.Root.Node.ID)
 
 	return node, err
-}
-
-func (f *Dgraph) getAllClasses() (AllClassesResult, error) {
-	// Search for all existing classes
-	req := dgraphClient.Req{}
-
-	req.SetQuery(`{
-		classes(func: has(class)) {
-			_uid_
-			class
-		}
-	}`)
-
-	resp, err := f.client.Run(f.getContext(), &req)
-	if err != nil {
-		return AllClassesResult{}, err
-	}
-
-	var allClasses AllClassesResult
-	err = dgraphClient.Unmarshal(resp.N, &allClasses)
-
-	if err != nil {
-		return AllClassesResult{}, err
-	}
-
-	return allClasses, nil
-}
-
-func (f *Dgraph) getClassFromResult(className string, allClasses AllClassesResult) (*DgraphClass, error) {
-	for _, class := range allClasses.Root {
-		if class.Class == className {
-			return class, nil
-		}
-	}
-	return &DgraphClass{}, errors_.New("class not found")
 }
 
 func (f *Dgraph) getContext() context.Context {
