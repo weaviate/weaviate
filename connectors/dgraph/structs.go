@@ -30,14 +30,8 @@ type NodeIDResult struct {
 	Root NodeID `dgraph:"node"`
 }
 
-// NodeID reversed thing-id
+// NodeID to get node-uid
 type NodeID struct {
-	UUID string   `dgraph:"uuid"`
-	ID   uint64   `dgraph:"_uid_"`
-	Node UUIDNode `dgraph:"~id"`
-}
-
-// UUIDNode by Thing ID
-type UUIDNode struct {
-	ID uint64 `dgraph:"_uid_"`
+	UUID string `dgraph:"uuid"`
+	ID   uint64 `dgraph:"_uid_"`
 }
