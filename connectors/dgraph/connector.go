@@ -18,8 +18,6 @@ import (
 	"encoding/json"
 	errors_ "errors"
 	"fmt"
-	"github.com/go-openapi/strfmt"
-	"google.golang.org/grpc"
 	"io"
 	"io/ioutil"
 	"log"
@@ -28,6 +26,9 @@ import (
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/go-openapi/strfmt"
+	"google.golang.org/grpc"
 
 	dgraphClient "github.com/dgraph-io/dgraph/client"
 	"github.com/dgraph-io/dgraph/protos"
@@ -147,14 +148,23 @@ func (f *Dgraph) Init() error {
 			b, _ := io.Copy(schemaFile, resp.Body)
 			log.Println("Download complete, file size: ", b)
 		} else {
-			log.Println("Given schema location is not a valid URL, looking for local file...")
+			log.Println("Given schema location is not a valid URL, using local file.")
+
+			// Set to weaviate.conf.json is this flag is not set.
+			if len(cfv.configLocation) == 0 {
+				// Given schema location is not a valid URL, assume it is a local file
+				// No local file is set so use weaviate.config.json
+				cfv.configLocation = "weaviate.conf.json"
+			}
 
 			// Given schema location is not a valid URL, assume it is a local file
 			cfv.localFile = cfv.configLocation
+
 		}
 
 		// Read local file which is either just downloaded or given in config.
-		log.Println("Read local file...")
+		log.Println("Read local file " + cfv.localFile)
+
 		fileContents, err := ioutil.ReadFile(cfv.localFile)
 
 		// Return error when error is given reading file.
