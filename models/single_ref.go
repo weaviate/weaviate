@@ -32,7 +32,7 @@ import (
 type SingleRef struct {
 
 	// Location of the cross reference.
-	NrDollarCref string `json:"$cref,omitempty"`
+	NrDollarCref strfmt.UUID `json:"$cref,omitempty"`
 
 	// url of location. http://localhost means this database. This option can be used to refer to other databases.
 	LocationURL *string `json:"locationUrl,omitempty"`

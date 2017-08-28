@@ -178,7 +178,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": true
+        "x-available-in-mqtt": false
       },
       "delete": {
         "description": "Deletes an action from the system.",
@@ -845,6 +845,47 @@ func init() {
         },
         "x-available-in-mqtt": false
       }
+    },
+    "/things/{thingId}/actions": {
+      "get": {
+        "description": "Returns the actions of a thing.",
+        "tags": [
+          "things"
+        ],
+        "summary": "Get a thing based on its uuid related to this thing. Also available as MQTT.",
+        "operationId": "weaviate.things.actions.get",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the thing.",
+            "name": "thingId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": true
+      }
     }
   },
   "definitions": {
@@ -917,6 +958,24 @@ func init() {
           "$ref": "#/definitions/ActionCreate"
         }
       ]
+    },
+    "ActionsListResponse": {
+      "description": "List of actions for specific Thing.",
+      "type": "object",
+      "properties": {
+        "things": {
+          "description": "The actual list of actions.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ActionGetResponse"
+          }
+        },
+        "totalResults": {
+          "description": "The total number of actions for the query. The number of items in a response may be smaller due to paging.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
     },
     "GraphQLResponse": {
       "description": "GraphQL based repsonse: http://graphql.org/learn/",
@@ -1084,7 +1143,8 @@ func init() {
       "properties": {
         "$cref": {
           "description": "Location of the cross reference.",
-          "type": "string"
+          "type": "string",
+          "format": "uuid"
         },
         "locationUrl": {
           "description": "url of location. http://localhost means this database. This option can be used to refer to other databases.",
