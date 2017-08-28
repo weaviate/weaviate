@@ -28,18 +28,18 @@ import (
 	strfmt "github.com/go-openapi/strfmt"
 )
 
-// NewWeaviateThingsListParams creates a new WeaviateThingsListParams object
+// NewWeaviateThingsActionsListParams creates a new WeaviateThingsActionsListParams object
 // with the default values initialized.
-func NewWeaviateThingsListParams() WeaviateThingsListParams {
+func NewWeaviateThingsActionsListParams() WeaviateThingsActionsListParams {
 	var ()
-	return WeaviateThingsListParams{}
+	return WeaviateThingsActionsListParams{}
 }
 
-// WeaviateThingsListParams contains all the bound params for the weaviate things list operation
+// WeaviateThingsActionsListParams contains all the bound params for the weaviate things actions list operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters weaviate.things.list
-type WeaviateThingsListParams struct {
+// swagger:parameters weaviate.things.actions.list
+type WeaviateThingsActionsListParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request
@@ -52,11 +52,16 @@ type WeaviateThingsListParams struct {
 	  In: query
 	*/
 	Page *int64
+	/*Unique ID of the thing.
+	  Required: true
+	  In: path
+	*/
+	ThingID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls
-func (o *WeaviateThingsListParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+func (o *WeaviateThingsActionsListParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 	o.HTTPRequest = r
 
@@ -72,13 +77,18 @@ func (o *WeaviateThingsListParams) BindRequest(r *http.Request, route *middlewar
 		res = append(res, err)
 	}
 
+	rThingID, rhkThingID, _ := route.Params.GetOK("thingId")
+	if err := o.bindThingID(rThingID, rhkThingID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
 	return nil
 }
 
-func (o *WeaviateThingsListParams) bindMaxResults(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *WeaviateThingsActionsListParams) bindMaxResults(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -96,7 +106,7 @@ func (o *WeaviateThingsListParams) bindMaxResults(rawData []string, hasKey bool,
 	return nil
 }
 
-func (o *WeaviateThingsListParams) bindPage(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *WeaviateThingsActionsListParams) bindPage(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -110,6 +120,21 @@ func (o *WeaviateThingsListParams) bindPage(rawData []string, hasKey bool, forma
 		return errors.InvalidType("page", "query", "int64", raw)
 	}
 	o.Page = &value
+
+	return nil
+}
+
+func (o *WeaviateThingsActionsListParams) bindThingID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	value, err := formats.Parse("uuid", raw)
+	if err != nil {
+		return errors.InvalidType("thingId", "path", "strfmt.UUID", raw)
+	}
+	o.ThingID = *(value.(*strfmt.UUID))
 
 	return nil
 }

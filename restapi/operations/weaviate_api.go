@@ -14,7 +14,7 @@
 
 package operations
 
-
+ 
  
 
 import (
@@ -104,8 +104,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		KeysWeaviateKeysMeGetHandler: keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation KeysWeaviateKeysMeGet has not yet been implemented")
 		}),
-		ThingsWeaviateThingsActionsGetHandler: things.WeaviateThingsActionsGetHandlerFunc(func(params things.WeaviateThingsActionsGetParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsWeaviateThingsActionsGet has not yet been implemented")
+		ThingsWeaviateThingsActionsListHandler: things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsActionsList has not yet been implemented")
 		}),
 		ThingsWeaviateThingsCreateHandler: things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsCreate has not yet been implemented")
@@ -216,8 +216,8 @@ type WeaviateAPI struct {
 	KeysWeaviateKeysMeDeleteHandler keys.WeaviateKeysMeDeleteHandler
 	// KeysWeaviateKeysMeGetHandler sets the operation handler for the weaviate keys me get operation
 	KeysWeaviateKeysMeGetHandler keys.WeaviateKeysMeGetHandler
-	// ThingsWeaviateThingsActionsGetHandler sets the operation handler for the weaviate things actions get operation
-	ThingsWeaviateThingsActionsGetHandler things.WeaviateThingsActionsGetHandler
+	// ThingsWeaviateThingsActionsListHandler sets the operation handler for the weaviate things actions list operation
+	ThingsWeaviateThingsActionsListHandler things.WeaviateThingsActionsListHandler
 	// ThingsWeaviateThingsCreateHandler sets the operation handler for the weaviate things create operation
 	ThingsWeaviateThingsCreateHandler things.WeaviateThingsCreateHandler
 	// ThingsWeaviateThingsDeleteHandler sets the operation handler for the weaviate things delete operation
@@ -399,8 +399,8 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "keys.WeaviateKeysMeGetHandler")
 	}
 
-	if o.ThingsWeaviateThingsActionsGetHandler == nil {
-		unregistered = append(unregistered, "things.WeaviateThingsActionsGetHandler")
+	if o.ThingsWeaviateThingsActionsListHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsActionsListHandler")
 	}
 
 	if o.ThingsWeaviateThingsCreateHandler == nil {
@@ -631,7 +631,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/things/{thingId}/actions"] = things.NewWeaviateThingsActionsGet(o.context, o.ThingsWeaviateThingsActionsGetHandler)
+	o.handlers["GET"]["/things/{thingId}/actions"] = things.NewWeaviateThingsActionsList(o.context, o.ThingsWeaviateThingsActionsListHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
