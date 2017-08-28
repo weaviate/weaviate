@@ -29,7 +29,7 @@ const DefaultDatabaseName string = "dgraph"
 // ConfigFlags are input options
 type ConfigFlags struct {
 	ConfigSection string `long:"config" description:"the section inside the config file that has to be used"`
-	ConfigFile    string `long:"config-file" description:"path to config file (default: ~/weaviate.conf.json)"`
+	ConfigFile    string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
 }
 
 // ConfigFile gives the outline of the config file
@@ -60,7 +60,7 @@ type Schemas struct {
 // GetConfigOptionGroup creates a option group for swagger
 func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 	commandLineOptionsGroup := swag.CommandLineOptionsGroup{
-		ShortDescription: "Connector config usage:",
+		ShortDescription: "Connector config usage",
 		LongDescription:  "",
 		Options:          &ConfigFlags{},
 	}
