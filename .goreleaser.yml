@@ -1,34 +1,36 @@
 project_name: weaviate
 builds:
-  - goos:
-      #- windows
+  - binary: weaviate
+    main: ./cmd/weaviate-server/main.go
+    goos:
+      # - windows
       - darwin
-      #- linux
+      - linux
     goarch:
-      - amd64
-    ignore:
-      - goos: darwin
-        goarch: amd64
-      - goos: windows
-        goarch: amd64
-      - goos: linux
-        goarch: arm64
-      - goos: linux
-        goarch: ppc64
-      - goos: linux
-        goarch: mips
-      - goos: linux
-        goarch: mipsle
-      - goos: linux
-        goarch: mips64
-      - goos: linux
-        goarch: ppc64le
-      - goos: linux
-        goarch: amd64
-      - goos: linux
-        goarch: mips64le
-      - goos: linux
-        goarch: arm6
+      - 386
+    #ignore:
+    #  - goos: darwin
+    #    goarch: amd64
+    #  - goos: windows
+    #    goarch: amd64
+    #  - goos: linux
+    #    goarch: arm64
+    #  - goos: linux
+    #    goarch: ppc64
+    #  - goos: linux
+    #    goarch: mips
+    #  - goos: linux
+    #    goarch: mipsle
+    #  - goos: linux
+    #    goarch: mips64
+    #  - goos: linux
+    #    goarch: ppc64le
+    #  - goos: linux
+    #    goarch: amd64
+    #  - goos: linux
+    #    goarch: mips64le
+    #  - goos: linux
+    #    goarch: arm6
 archive:
   format: tar.gz
   name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
