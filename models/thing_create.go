@@ -28,11 +28,11 @@ import (
 // swagger:model ThingCreate
 type ThingCreate struct {
 
+	// Class of the Thing, defined in the schema.
+	AtClass string `json:"@class,omitempty"`
+
 	// Available context schema.
 	AtContext string `json:"@context,omitempty"`
-
-	// Type of the Thing, defined in the schema.
-	AtType string `json:"@type,omitempty"`
 
 	// schema
 	Schema Schema `json:"schema,omitempty"`

@@ -156,7 +156,7 @@ func (o *WeavaiteGraphqlPostForbidden) WriteResponse(rw http.ResponseWriter, pro
 // WeavaiteGraphqlPostUnprocessableEntityCode is the HTTP code returned for type WeavaiteGraphqlPostUnprocessableEntity
 const WeavaiteGraphqlPostUnprocessableEntityCode int = 422
 
-/*WeavaiteGraphqlPostUnprocessableEntity Can not validate, check the body.
+/*WeavaiteGraphqlPostUnprocessableEntity Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response weavaiteGraphqlPostUnprocessableEntity
 */

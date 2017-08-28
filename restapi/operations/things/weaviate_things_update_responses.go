@@ -134,7 +134,7 @@ func (o *WeaviateThingsUpdateNotFound) WriteResponse(rw http.ResponseWriter, pro
 // WeaviateThingsUpdateUnprocessableEntityCode is the HTTP code returned for type WeaviateThingsUpdateUnprocessableEntity
 const WeaviateThingsUpdateUnprocessableEntityCode int = 422
 
-/*WeaviateThingsUpdateUnprocessableEntity Can not validate, check the body.
+/*WeaviateThingsUpdateUnprocessableEntity Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response weaviateThingsUpdateUnprocessableEntity
 */
