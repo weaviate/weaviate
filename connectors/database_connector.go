@@ -14,16 +14,12 @@
 package dbconnector
 
 import (
-	"encoding/json"
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/models"
-	"io/ioutil"
-	"log"
 
-	"github.com/go-openapi/swag"
-
-	"github.com/weaviate/weaviate/connectors/config"
+	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors/dgraph"
+	"github.com/weaviate/weaviate/models"
+	"github.com/weaviate/weaviate/schema"
 )
 
 // DatabaseConnector is the interface that all connectors should have
@@ -31,7 +27,8 @@ type DatabaseConnector interface {
 	Connect() error
 	Init() error
 	GetName() string
-	SetConfig(connectorConfig.Environment)
+	SetConfig(*config.Environment)
+	SetSchema(*schema.WeaviateSchema)
 
 	AddThing(*models.Thing, strfmt.UUID) error // TODO: response: ThingGetResponse?
 	GetThing(strfmt.UUID) (models.ThingGetResponse, error)
@@ -56,70 +53,16 @@ func GetAllConnectors() []DatabaseConnector {
 }
 
 // CreateDatabaseConnector gets the database connector by name from config
-func CreateDatabaseConnector(flags *swag.CommandLineOptionsGroup) DatabaseConnector {
-	// Get command line flags
-	configEnvironment := flags.Options.(*connectorConfig.ConfigFlags).ConfigSection
-	configFileName := flags.Options.(*connectorConfig.ConfigFlags).ConfigFile
-
-	databaseName := connectorConfig.DefaultDatabaseName
-
-	// Set default if not given
-	if configFileName == "" {
-		configFileName = connectorConfig.DefaultConfigFile
-		log.Println("INFO: Using default file location '" + connectorConfig.DefaultConfigFile + "'.")
-	}
-
-	// Read config file
-	file, e := ioutil.ReadFile(configFileName)
-	if e != nil {
-		log.Println("INFO: File '" + configFileName + "' not found.")
-	}
-
-	// Set default env if not given
-	if e != nil || configEnvironment == "" {
-		configEnvironment = connectorConfig.DefaultEnvironment
-		log.Println("INFO: Using default environment '" + connectorConfig.DefaultEnvironment + "'.")
-	}
-
-	// Read from the config file and add it to an object
-	var configFile connectorConfig.ConfigFile
-	json.Unmarshal(file, &configFile)
-
-	// Loop through all values in object to see whether the given connection-name exists
-	var databaseConfig connectorConfig.Environment
-	foundName := false
-	for _, env := range configFile.Environments {
-		if env.Name == configEnvironment {
-			databaseName = env.Database.Name
-			foundName = true
-
-			// Get config interface data
-			databaseConfig = env
-		}
-	}
-
-	// Return default database because no good config is found
-	if !foundName {
-		log.Println("INFO: Using default database '" + connectorConfig.DefaultDatabaseName + "'.")
-		databaseName = connectorConfig.DefaultDatabaseName
-	}
-
-	// Make default database if name is not found
-	var defaultDatabase DatabaseConnector = &dgraph.Dgraph{}
-
+func CreateDatabaseConnector(env *config.Environment) DatabaseConnector {
 	// Get all connectors
 	connectors := GetAllConnectors()
 
 	// Loop through all connectors and determine its name
 	for _, connector := range connectors {
-		if connector.GetName() == databaseName {
-			// Add config interface data to connector, so the connector could do it's own trick with it.
-			connector.SetConfig(databaseConfig)
+		if connector.GetName() == env.Database.Name {
 			return connector
 		}
 	}
 
-	// Return default Database
-	log.Println("INFO: Using default database '" + defaultDatabase.GetName() + "', because '" + databaseName + "' does not exist.")
-	return defaultDatabase
+	return nil
 }
