@@ -50,12 +50,12 @@ import (
 	"google.golang.org/grpc/grpclog"
 )
 
-const refTypeAction string = "#/paths/actions"
-const refTypeThing string = "#/paths/things"
 const maxResultsOverride int64 = 100
 const pageOverride int64 = 1
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
+var databaseSchema schema.WeaviateSchema
+var databaseConfig config.WeaviateConfig
 
 func init() {
 	discard := ioutil.Discard
@@ -67,6 +67,24 @@ func init() {
 	if _, err := os.Stat(tempFolder); os.IsNotExist(err) {
 		log.Println("Temp folder created...")
 		os.Mkdir(tempFolder, 0766)
+	}
+
+	// Load the config using the flags
+	databaseConfig := config.WeaviateConfig{}
+	err := databaseConfig.LoadConfig(connectorOptionGroup)
+
+	// Fatal error loading config file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
+	}
+
+	// Load the schema using the config
+	databaseSchema = schema.WeaviateSchema{}
+	err = databaseSchema.LoadSchema(&databaseConfig.Environment)
+
+	// Fatal error loading schema file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
 	}
 }
 
@@ -229,24 +247,6 @@ func configureFlags(api *operations.WeaviateAPI) {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	// Load the config using the flags
-	databaseConfig := config.WeaviateConfig{}
-	err := databaseConfig.LoadConfig(connectorOptionGroup)
-
-	// Fatal error loading config file
-	if err != nil {
-		weaviate_error.ExitError(78, err.Error())
-	}
-
-	// Load the schema using the config
-	databaseSchema := schema.WeaviateSchema{}
-	err = databaseSchema.LoadSchema(&databaseConfig.Environment)
-
-	// Fatal error loading schema file
-	if err != nil {
-		weaviate_error.ExitError(78, err.Error())
-	}
-
 	// Create the database connector usint the config
 	databaseConnector := dbconnector.CreateDatabaseConnector(&databaseConfig.Environment)
 
