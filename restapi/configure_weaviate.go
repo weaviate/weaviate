@@ -36,15 +36,17 @@ import (
 	graceful "github.com/tylerb/graceful"
 
 	"github.com/go-openapi/swag"
+	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors"
-	"github.com/weaviate/weaviate/connectors/config"
 	"github.com/weaviate/weaviate/connectors/utils"
+	weaviate_error "github.com/weaviate/weaviate/error"
 	"github.com/weaviate/weaviate/models"
 	"github.com/weaviate/weaviate/mqtt"
 	"github.com/weaviate/weaviate/restapi/operations"
 	"github.com/weaviate/weaviate/restapi/operations/actions"
 	"github.com/weaviate/weaviate/restapi/operations/keys"
 	"github.com/weaviate/weaviate/restapi/operations/things"
+	"github.com/weaviate/weaviate/schema"
 	"google.golang.org/grpc/grpclog"
 )
 
@@ -219,7 +221,7 @@ func ActionsAllowed(actions []string, validateObject interface{}, databaseConnec
 }
 
 func configureFlags(api *operations.WeaviateAPI) {
-	connectorOptionGroup = connectorConfig.GetConfigOptionGroup()
+	connectorOptionGroup = config.GetConfigOptionGroup()
 
 	api.CommandLineOptionsGroups = []swag.CommandLineOptionsGroup{
 		*connectorOptionGroup,
@@ -227,11 +229,35 @@ func configureFlags(api *operations.WeaviateAPI) {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	// configure database connection
-	var databaseConnector dbconnector.DatabaseConnector
+	// Load the config using the flags
+	databaseConfig := config.WeaviateConfig{}
+	err := databaseConfig.LoadConfig(connectorOptionGroup)
 
-	// Determine the database name and use that name to create a connection.
-	databaseConnector = dbconnector.CreateDatabaseConnector(connectorOptionGroup)
+	// Fatal error loading config file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
+	}
+
+	// Load the schema using the config
+	databaseSchema := schema.WeaviateSchema{}
+	err = databaseSchema.LoadSchema(&databaseConfig.Environment)
+
+	// Fatal error loading schema file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
+	}
+
+	// Create the database connector usint the config
+	databaseConnector := dbconnector.CreateDatabaseConnector(&databaseConfig.Environment)
+
+	// Error the system when the database connector returns no connector
+	if databaseConnector == nil {
+		weaviate_error.ExitError(78, "database with the name '"+databaseConfig.Environment.Database.Name+"' couldn't be loaded")
+	}
+
+	// Set connector vars
+	databaseConnector.SetConfig(&databaseConfig.Environment)
+	databaseConnector.SetSchema(&databaseSchema)
 
 	// connect the database
 	errConnect := databaseConnector.Connect()

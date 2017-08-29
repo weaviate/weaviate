@@ -15,16 +15,11 @@ package dgraph
 
 import (
 	"context"
-	"encoding/json"
 	errors_ "errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"math"
-	"net/http"
-	"net/url"
-	"os"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
@@ -35,9 +30,8 @@ import (
 	"github.com/dgraph-io/dgraph/types"
 	gouuid "github.com/satori/go.uuid"
 
-	"github.com/weaviate/weaviate/connectors/config"
+	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors/utils"
-	"github.com/weaviate/weaviate/error"
 	"github.com/weaviate/weaviate/models"
 	"github.com/weaviate/weaviate/schema"
 )
@@ -46,19 +40,10 @@ import (
 type Dgraph struct {
 	client *dgraphClient.Dgraph
 	kind   string
-
-	actionSchema schemaProperties
-	thingSchema  schemaProperties
 }
 
 const refTypePointer string = "_type_"
 const schemaPrefix string = "schema."
-
-type schemaProperties struct {
-	localFile      string
-	configLocation string
-	schema         schema.Schema
-}
 
 // GetName returns a unique connector name
 func (f *Dgraph) GetName() string {
@@ -66,9 +51,13 @@ func (f *Dgraph) GetName() string {
 }
 
 // SetConfig is used to fill in a struct with config variables
-func (f *Dgraph) SetConfig(configInput connectorConfig.Environment) {
-	f.thingSchema.configLocation = configInput.Schemas.Thing
-	f.actionSchema.configLocation = configInput.Schemas.Action
+func (f *Dgraph) SetConfig(configInput *config.Environment) {
+
+}
+
+// SetSchema is used to fill in a struct with schema
+func (f *Dgraph) SetSchema(schemaInput *schema.WeaviateSchema) {
+
 }
 
 // Connect creates connection and tables if not already available
@@ -111,94 +100,30 @@ func (f *Dgraph) Init() error {
 	// Generate a basic DB object and print it's key.
 	// dbObject := connector_utils.CreateFirstUserObject()
 
-	configFiles := map[string]*schemaProperties{
-		"Action": &f.actionSchema,
-		"Thing":  &f.thingSchema,
-	}
-
-	// Err var
 	var err error
 
 	// Init flush variable
 	flushIt := false
 
-	for cfk, cfv := range configFiles {
-		// Continue loop if the file is not set in the config.
-		if len(cfv.configLocation) == 0 {
-			errorHandler.ExitError(78, "schema file for '"+cfk+"' not given in config (path: *env*/schemas/"+cfk+"')")
-			continue
-		}
+	// Add schema to database
+	// for _, class := range cfv.schema.Classes {
+	// 	// for _, prop := range class.Properties {
+	// 	for _ = range class.Properties {
+	// 		// Add Dgraph-schema for every property of individual nodes
+	// 		// err = f.client.AddSchema(protos.SchemaUpdate{
+	// 		// 	Predicate: "schema." + prop.Name,
+	// 		// 	ValueType: uint32(types.UidID),
+	// 		// 	Directive: protos.SchemaUpdate_REVERSE,
+	// 		// })
 
-		// Validate if given location is URL or local file
-		_, err := url.ParseRequestURI(cfv.configLocation)
+	// 		// if err != nil {
+	// 		// 	return err
+	// 		// }
 
-		// With no error, it is an URL
-		if err == nil {
-			log.Println(cfk + ": Downloading schema file...")
-			cfv.localFile = "temp/schema" + string(connector_utils.GenerateUUID()) + ".json"
-
-			// Create local file
-			schemaFile, _ := os.Create(cfv.localFile)
-			defer schemaFile.Close()
-
-			// Get the file from online
-			resp, err := http.Get(cfv.configLocation)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-
-			// Write file to local file
-			b, _ := io.Copy(schemaFile, resp.Body)
-			log.Println(cfk+": Download complete, file size: ", b)
-		} else {
-			log.Println(cfk + ": Given schema location is not a valid URL, using local file.")
-
-			// Given schema location is not a valid URL, assume it is a local file
-			cfv.localFile = cfv.configLocation
-		}
-
-		// Read local file which is either just downloaded or given in config.
-		log.Println(cfk + ": Read local file " + cfv.localFile)
-
-		fileContents, err := ioutil.ReadFile(cfv.localFile)
-
-		// Return error when error is given reading file.
-		if err != nil {
-			log.Println(cfk + ": Schema file '" + cfv.localFile + "' could not be found.")
-			return err
-		}
-
-		// Merge JSON into Schema objects
-		err = json.Unmarshal([]byte(fileContents), &cfv.schema)
-		log.Println(cfk + ": File is loaded.")
-
-		// Return error when error is given reading file.
-		if err != nil {
-			log.Println(cfk + ": Can not parse schema.")
-			return err
-		}
-
-		// Add schema to database
-		for _, class := range cfv.schema.Classes {
-			// for _, prop := range class.Properties {
-			for _ = range class.Properties {
-				// Add Dgraph-schema for every property of individual nodes
-				// err = f.client.AddSchema(protos.SchemaUpdate{
-				// 	Predicate: "schema." + prop.Name,
-				// 	ValueType: uint32(types.UidID),
-				// 	Directive: protos.SchemaUpdate_REVERSE,
-				// })
-
-				// if err != nil {
-				// 	return err
-				// }
-
-				// TODO: Add specific schema for datatypes
-				// http://schema.org/DataType
-			}
-		}
-	}
+	// 		// TODO: Add specific schema for datatypes
+	// 		// http://schema.org/DataType
+	// 	}
+	// }
 
 	// Add class schema in Dgraph
 	if err := f.client.AddSchema(protos.SchemaUpdate{
@@ -870,7 +795,6 @@ func (f *Dgraph) connectRef(req *dgraphClient.Req, nodeFrom dgraphClient.Node, e
 func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *models.ThingGetResponse) {
 	attribute := node.Attribute
 
-	printNode(0, node)
 	if attribute == "things" {
 		thingResponse.Schema = make(map[string]interface{})
 		for _, prop := range node.GetProperties() {

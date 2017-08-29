@@ -11,7 +11,7 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-package errorHandler
+package error
 
 import (
 	"log"
