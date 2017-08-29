@@ -426,7 +426,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionsPatchOK().WithPayload(responseObject)
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation actions.WeaviateActionsValidate has not yet been implemented")
+		// Validate Schema given in body with the weaviate schema
+		validated := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		if !validated {
+			return actions.NewWeaviateActionsValidateUnprocessableEntity()
+		}
+
+		return actions.NewWeaviateActionsValidateOK()
 	})
 	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
@@ -893,6 +899,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return things.NewWeaviateThingsUpdateOK().WithPayload(responseObject)
+	})
+	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
+		// Validate Schema given in body with the weaviate schema
+		validated := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		if !validated {
+			return things.NewWeaviateThingsValidateUnprocessableEntity()
+		}
+
+		return things.NewWeaviateThingsValidateOK()
 	})
 
 	api.ServerShutdown = func() {}
