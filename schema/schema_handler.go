@@ -30,23 +30,23 @@ import (
 type schemaProperties struct {
 	localFile                string
 	schemaLocationFromConfig string
-	schema                   Schema
+	Schema                   Schema
 }
 
 // WeaviateSchema represents the used schema's
 type WeaviateSchema struct {
-	actionSchema schemaProperties
-	thingSchema  schemaProperties
+	ActionSchema schemaProperties
+	ThingSchema  schemaProperties
 }
 
 // LoadSchema from config locations
 func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
-	f.thingSchema.schemaLocationFromConfig = usedConfig.Schemas.Thing
-	f.actionSchema.schemaLocationFromConfig = usedConfig.Schemas.Action
+	f.ThingSchema.schemaLocationFromConfig = usedConfig.Schemas.Thing
+	f.ActionSchema.schemaLocationFromConfig = usedConfig.Schemas.Action
 
 	configFiles := map[string]*schemaProperties{
-		"Action": &f.actionSchema,
-		"Thing":  &f.thingSchema,
+		"Action": &f.ActionSchema,
+		"Thing":  &f.ThingSchema,
 	}
 
 	for cfk, cfv := range configFiles {
@@ -98,7 +98,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 		}
 
 		// Merge JSON into Schema objects
-		err = json.Unmarshal([]byte(fileContents), &cfv.schema)
+		err = json.Unmarshal([]byte(fileContents), &cfv.Schema)
 		log.Println(cfk + ": File is loaded.")
 
 		// Return error when error is given reading file.
