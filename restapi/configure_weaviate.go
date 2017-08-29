@@ -68,24 +68,6 @@ func init() {
 		log.Println("Temp folder created...")
 		os.Mkdir(tempFolder, 0766)
 	}
-
-	// Load the config using the flags
-	databaseConfig := config.WeaviateConfig{}
-	err := databaseConfig.LoadConfig(connectorOptionGroup)
-
-	// Fatal error loading config file
-	if err != nil {
-		weaviate_error.ExitError(78, err.Error())
-	}
-
-	// Load the schema using the config
-	databaseSchema = schema.WeaviateSchema{}
-	err = databaseSchema.LoadSchema(&databaseConfig.Environment)
-
-	// Fatal error loading schema file
-	if err != nil {
-		weaviate_error.ExitError(78, err.Error())
-	}
 }
 
 // getLimit returns the maximized limit
@@ -247,12 +229,30 @@ func configureFlags(api *operations.WeaviateAPI) {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
+	// Load the config using the flags
+	databaseConfig := config.WeaviateConfig{}
+	err := databaseConfig.LoadConfig(connectorOptionGroup)
+
+	// Fatal error loading config file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
+	}
+
+	// Load the schema using the config
+	databaseSchema = schema.WeaviateSchema{}
+	err = databaseSchema.LoadSchema(&databaseConfig.Environment)
+
+	// Fatal error loading schema file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
+	}
+
 	// Create the database connector usint the config
 	databaseConnector := dbconnector.CreateDatabaseConnector(&databaseConfig.Environment)
 
 	// Error the system when the database connector returns no connector
 	if databaseConnector == nil {
-		weaviate_error.ExitError(78, "database with the name '"+databaseConfig.Environment.Database.Name+"' couldn't be loaded")
+		weaviate_error.ExitError(78, "database with the name '"+databaseConfig.Environment.Database.Name+"' couldn't be loaded from the config")
 	}
 
 	// Set connector vars
@@ -262,13 +262,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// connect the database
 	errConnect := databaseConnector.Connect()
 	if errConnect != nil {
-		panic(errConnect)
+		weaviate_error.ExitError(1, "database with the name '"+databaseConfig.Environment.Database.Name+"' gave an error when connecting: "+errConnect.Error())
 	}
 
 	// init the database
 	errInit := databaseConnector.Init()
 	if errInit != nil {
-		panic(errInit)
+		weaviate_error.ExitError(1, "database with the name '"+databaseConfig.Environment.Database.Name+"' gave an error when initializing: "+errConnect.Error())
 	}
 
 	// connect to mqtt

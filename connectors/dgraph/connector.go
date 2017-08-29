@@ -18,7 +18,6 @@ import (
 	errors_ "errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"math"
 	"strings"
 
@@ -68,7 +67,7 @@ func (f *Dgraph) Connect() error {
 
 	conn, err := grpc.Dial(dgraphGrpcAddress, grpc.WithInsecure())
 	if err != nil {
-		log.Println("dail error", err)
+		return errors_.New("error while connecting to the database")
 	}
 	// defer conn.Close()
 
@@ -76,7 +75,7 @@ func (f *Dgraph) Connect() error {
 	dir, err := ioutil.TempDir("temp", "weaviate_dgraph")
 
 	if err != nil {
-		return err
+		return errors_.New("error while creating temp directory")
 	}
 	// defer os.RemoveAll(dir)
 
@@ -133,7 +132,7 @@ func (f *Dgraph) Init() error {
 		Directive: protos.SchemaUpdate_INDEX,
 		Count:     true,
 	}); err != nil {
-		return err
+		return errors_.New("error while adding 'atClass' Dgraph-schema")
 	}
 
 	// Add context schema in Dgraph
@@ -144,7 +143,7 @@ func (f *Dgraph) Init() error {
 		Directive: protos.SchemaUpdate_INDEX,
 		Count:     true,
 	}); err != nil {
-		return err
+		return errors_.New("error while adding 'atContext' Dgraph-schema")
 	}
 
 	// Add UUID schema in Dgraph
@@ -155,7 +154,7 @@ func (f *Dgraph) Init() error {
 		Directive: protos.SchemaUpdate_INDEX,
 		Count:     true,
 	}); err != nil {
-		return err
+		return errors_.New("error while adding 'uuid' Dgraph-schema")
 	}
 
 	// Add refTypePointer schema in Dgraph
@@ -166,7 +165,7 @@ func (f *Dgraph) Init() error {
 		Directive: protos.SchemaUpdate_INDEX,
 		Count:     true,
 	}); err != nil {
-		return err
+		return errors_.New("error while adding '" + refTypePointer + "' Dgraph-schema")
 	}
 
 	// Add 'action.of' schema in Dgraph
@@ -176,7 +175,7 @@ func (f *Dgraph) Init() error {
 		Directive: protos.SchemaUpdate_REVERSE,
 		Count:     true,
 	}); err != nil {
-		return err
+		return errors_.New("error while adding 'action.of' Dgraph-schema")
 	}
 
 	// Add 'action.target' schema in Dgraph
@@ -186,7 +185,7 @@ func (f *Dgraph) Init() error {
 		Directive: protos.SchemaUpdate_REVERSE,
 		Count:     true,
 	}); err != nil {
-		return err
+		return errors_.New("error while adding 'action.target' Dgraph-schema")
 	}
 
 	// Add search possibilities for every "timing"
@@ -204,7 +203,7 @@ func (f *Dgraph) Init() error {
 			Directive: protos.SchemaUpdate_INDEX,
 			Count:     true,
 		}); err != nil {
-			return err
+			return errors_.New("error while adding '" + ms + "' Dgraph-schema")
 		}
 	}
 
@@ -216,7 +215,7 @@ func (f *Dgraph) Init() error {
 		Directive: protos.SchemaUpdate_REVERSE,
 		Count:     true,
 	}); err != nil {
-		return err
+		return errors_.New("error while adding 'key.child' Dgraph-schema")
 	}
 
 	// Add key for searching root
@@ -227,7 +226,7 @@ func (f *Dgraph) Init() error {
 		Directive: protos.SchemaUpdate_INDEX,
 		Count:     true,
 	}); err != nil {
-		return err
+		return errors_.New("error while adding 'key.root' Dgraph-schema")
 	}
 
 	// Add ROOT-key if not exists
@@ -264,7 +263,7 @@ func (f *Dgraph) Init() error {
 		err = f.client.BatchFlush()
 
 		if err != nil {
-			return err
+			return errors_.New("error while performing BatchFlush()")
 		}
 	}
 
