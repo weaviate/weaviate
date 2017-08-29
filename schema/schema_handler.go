@@ -28,9 +28,9 @@ import (
 )
 
 type schemaProperties struct {
-	localFile      string
-	configLocation string
-	schema         Schema
+	localFile                string
+	schemaLocationFromConfig string
+	schema                   Schema
 }
 
 // WeaviateSchema represents the used schema's
@@ -41,8 +41,8 @@ type WeaviateSchema struct {
 
 // LoadSchema from config locations
 func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
-	f.thingSchema.configLocation = usedConfig.Schemas.Thing
-	f.actionSchema.configLocation = usedConfig.Schemas.Action
+	f.thingSchema.schemaLocationFromConfig = usedConfig.Schemas.Thing
+	f.actionSchema.schemaLocationFromConfig = usedConfig.Schemas.Action
 
 	configFiles := map[string]*schemaProperties{
 		"Action": &f.actionSchema,
@@ -51,13 +51,13 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 
 	for cfk, cfv := range configFiles {
 		// Continue loop if the file is not set in the config.
-		if len(cfv.configLocation) == 0 {
+		if len(cfv.schemaLocationFromConfig) == 0 {
 			weaviate_error.ExitError(78, "schema file for '"+cfk+"' not given in config (path: *env*/schemas/"+cfk+"')")
 			continue
 		}
 
 		// Validate if given location is URL or local file
-		_, err := url.ParseRequestURI(cfv.configLocation)
+		_, err := url.ParseRequestURI(cfv.schemaLocationFromConfig)
 
 		// With no error, it is an URL
 		if err == nil {
@@ -69,7 +69,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 			defer schemaFile.Close()
 
 			// Get the file from online
-			resp, err := http.Get(cfv.configLocation)
+			resp, err := http.Get(cfv.schemaLocationFromConfig)
 			if err != nil {
 				log.Println("ERROR: " + cfk + ": Schema file '" + cfv.localFile + "' could not be downloaded.")
 				return err
@@ -83,7 +83,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 			log.Println(cfk + ": Given schema location is not a valid URL, using local file.")
 
 			// Given schema location is not a valid URL, assume it is a local file
-			cfv.localFile = cfv.configLocation
+			cfv.localFile = cfv.schemaLocationFromConfig
 		}
 
 		// Read local file which is either just downloaded or given in config.
