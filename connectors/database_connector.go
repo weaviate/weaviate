@@ -27,8 +27,8 @@ type DatabaseConnector interface {
 	Connect() error
 	Init() error
 	GetName() string
-	SetConfig(*config.Environment)
-	SetSchema(*schema.WeaviateSchema)
+	SetConfig(*config.Environment) error
+	SetSchema(*schema.WeaviateSchema) error
 
 	AddThing(*models.Thing, strfmt.UUID) error // TODO: response: ThingGetResponse?
 	GetThing(strfmt.UUID) (models.ThingGetResponse, error)

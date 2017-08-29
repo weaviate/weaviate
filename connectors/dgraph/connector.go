@@ -17,7 +17,9 @@ import (
 	"context"
 	errors_ "errors"
 	"fmt"
+	"github.com/mitchellh/mapstructure"
 	"io/ioutil"
+	"log"
 	"math"
 	"strings"
 
@@ -39,6 +41,19 @@ import (
 type Dgraph struct {
 	client *dgraphClient.Dgraph
 	kind   string
+
+	config Config
+}
+
+// Config represents the config outline for Dgraph. The Database config shoud be of the following form:
+// "database_config" : {
+//     "host": "127.0.0.1",
+//     "port": 9080
+// }
+// Notice that the port is the GRPC-port.
+type Config struct {
+	Host string
+	Port int
 }
 
 const refTypePointer string = "_type_"
@@ -50,20 +65,28 @@ func (f *Dgraph) GetName() string {
 }
 
 // SetConfig is used to fill in a struct with config variables
-func (f *Dgraph) SetConfig(configInput *config.Environment) {
+func (f *Dgraph) SetConfig(configInput *config.Environment) error {
+	err := mapstructure.Decode(configInput.Database.DatabaseConfig, &f.config)
 
+	if err != nil || len(f.config.Host) == 0 || f.config.Port == 0 {
+		return errors_.New("could not get Dgraph host/port from config")
+	}
+
+	return nil
 }
 
 // SetSchema is used to fill in a struct with schema
-func (f *Dgraph) SetSchema(schemaInput *schema.WeaviateSchema) {
+func (f *Dgraph) SetSchema(schemaInput *schema.WeaviateSchema) error {
+	return nil
 
 }
 
 // Connect creates connection and tables if not already available
 func (f *Dgraph) Connect() error {
 	// Connect with Dgraph host, create connection dail
-	// TODO: Put hostname in config using the SetConfig function (configInput.Database.DatabaseConfig and making custom struct)
-	dgraphGrpcAddress := "127.0.0.1:9080"
+	dgraphGrpcAddress := fmt.Sprintf("%s:%d", f.config.Host, f.config.Port)
+
+	log.Println(dgraphGrpcAddress)
 
 	conn, err := grpc.Dial(dgraphGrpcAddress, grpc.WithInsecure())
 	if err != nil {

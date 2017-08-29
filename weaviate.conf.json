@@ -14,7 +14,11 @@
         {
             "name": "graph",
             "database": {
-                "name": "dgraph"
+                "name": "dgraph",
+                "database_config" : {
+                    "host": "127.0.0.1",
+                    "port": 9080
+                }
             },
             "schemas": {
                 "Thing": "thing-schema-test.json",
