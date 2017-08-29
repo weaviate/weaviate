@@ -164,6 +164,10 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strin
 	// }
 }
 
+func validateSchemaInBody(weaviateSchema *schema.Schema, bodySchema *models.Schema, className string) bool {
+	return true
+}
+
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
 func ActionsAllowed(actions []string, validateObject interface{}, databaseConnector dbconnector.DatabaseConnector, objectOwnerKeyID interface{}) (bool, error) {
 	return true, nil
@@ -420,8 +424,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsCreateForbidden()
 		}
 
-		// TODO: Validate Action? Same as on /validate
-		// Send back 422. Read file functions in dgraph/connector.go:112-173
+		// Validate Schema given in body with the weaviate schema
+		validated := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		if !validated {
+			return actions.NewWeaviateActionsCreateUnprocessableEntity()
+		}
 
 		// Get ThingID from URL
 		actionCreateJSON, _ := json.Marshal(params.Body)
@@ -686,8 +693,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Generate UUID and assemble the object
 		UUID := connector_utils.GenerateUUID()
 
-		// TODO: Validate Things? Same as on /validate
-		// Send back 422
+		// Validate Schema given in body with the weaviate schema
+		validated := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		if !validated {
+			return things.NewWeaviateThingsCreateUnprocessableEntity()
+		}
 
 		// Make Thing-Object
 		thingCreateJSON, _ := json.Marshal(params.Body)
