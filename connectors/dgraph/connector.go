@@ -334,11 +334,8 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 	req := dgraphClient.Req{}
 	req.SetQueryWithVariables(`{ 
 		get(func: eq(uuid, $uuid)) {
-			uuid
-			~id {
-				expand(_all_) {
-					expand(_all_)
-				}
+			expand(_all_) {
+				expand(_all_)
 			}
 		}
 	}`, variables)
@@ -815,11 +812,17 @@ func (f *Dgraph) connectRef(req *dgraphClient.Req, nodeFrom dgraphClient.Node, e
 
 // mergeThingNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
 func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *models.ThingGetResponse) {
+	// Get node attribute, this is the name of the parent node.
 	attribute := node.Attribute
 
-	if attribute == "things" {
+	// Depending on the given function name in the query or depth in response, switch on the attribute.
+	if attribute == "things" || attribute == "get" {
+		// Initiate thing response schema
 		thingResponse.Schema = make(map[string]interface{})
+
+		// For all properties, fill them.
 		for _, prop := range node.GetProperties() {
+			// Fill basic properties of each thing.
 			if prop.Prop == "creationTimeUnix" {
 				thingResponse.CreationTimeUnix = prop.GetValue().GetIntVal()
 			} else if prop.Prop == "lastUpdateTimeUnix" {
@@ -831,6 +834,8 @@ func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *mode
 			} else if prop.Prop == "uuid" {
 				thingResponse.ThingID = strfmt.UUID(prop.GetValue().GetStrVal())
 			} else if strings.HasPrefix(prop.Prop, schemaPrefix) {
+				// Fill all the properties starting with 'schema.'
+				// That are the properties that are specific for a class
 				propValueObj := prop.GetValue().GetVal()
 
 				var propValue interface{}
@@ -862,10 +867,13 @@ func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *mode
 					propValue = prop.GetValue().GetDefaultVal()
 				}
 
+				// Add the 'schema.' value to the response.
 				thingResponse.Schema.(map[string]interface{})[strings.TrimPrefix(prop.Prop, schemaPrefix)] = propValue
 			}
 		}
 	} else if strings.HasPrefix(attribute, schemaPrefix) {
+		// When the attribute has 'schema.' in it, it is 1 level deeper.
+		// Create the 'cref'-node for the response.
 		crefObj := map[string]string{
 			"location": "http://localhost/", // TODO, make relative in 2.0.0
 		}
@@ -876,9 +884,12 @@ func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *mode
 				crefObj["type"] = prop.GetValue().GetStrVal() // TODO, make key relative?
 			}
 		}
+
+		// Add the 'cref'-node into the response.
 		thingResponse.Schema.(map[string]interface{})[strings.TrimPrefix(attribute, schemaPrefix)] = crefObj
 	}
 
+	// Go level deeper to find cref nodes.
 	for _, child := range node.Children {
 		f.mergeThingNodeInResponse(child, thingResponse)
 	}
