@@ -165,6 +165,7 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strin
 }
 
 func validateSchemaInBody(weaviateSchema *schema.Schema, bodySchema *models.Schema, className string) bool {
+	// TODO: Implementation required
 	return true
 }
 
@@ -260,8 +261,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	// Set connector vars
-	databaseConnector.SetConfig(&databaseConfig.Environment)
-	databaseConnector.SetSchema(&databaseSchema)
+	err = databaseConnector.SetConfig(&databaseConfig.Environment)
+	// Fatal error loading config file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
+	}
+
+	err = databaseConnector.SetSchema(&databaseSchema)
+	// Fatal error loading schema file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
+	}
 
 	// connect the database
 	errConnect := databaseConnector.Connect()
