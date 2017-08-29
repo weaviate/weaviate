@@ -21,8 +21,8 @@
                 }
             },
             "schemas": {
-                "Thing": "thing-schema-test.json",
-                "Action": "action-schema-test.json"
+                 "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org-simple.json",
+                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org-simple.json"
             },
             "mqttEnabled": false
         }
