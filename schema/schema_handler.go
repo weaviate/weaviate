@@ -15,6 +15,7 @@ package schema
 
 import (
 	"encoding/json"
+	errors_ "errors"
 	"io"
 	"io/ioutil"
 	"log"
@@ -24,7 +25,6 @@ import (
 
 	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors/utils"
-	weaviate_error "github.com/weaviate/weaviate/error"
 )
 
 type schemaProperties struct {
@@ -52,8 +52,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 	for cfk, cfv := range configFiles {
 		// Continue loop if the file is not set in the config.
 		if len(cfv.schemaLocationFromConfig) == 0 {
-			weaviate_error.ExitError(78, "schema file for '"+cfk+"' not given in config (path: *env*/schemas/"+cfk+"')")
-			continue
+			return errors_.New("schema file for '" + cfk + "' not given in config (path: *env*/schemas/" + cfk + "')")
 		}
 
 		// Validate if given location is URL or local file

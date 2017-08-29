@@ -127,7 +127,7 @@ func (f *Dgraph) Init() error {
 	// Init flush variable
 	flushIt := false
 
-	// Add schema to database
+	// Add schema to database TODO
 	// for _, class := range cfv.schema.Classes {
 	// 	// for _, prop := range class.Properties {
 	// 	for _ = range class.Properties {
@@ -365,13 +365,13 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 	// TODO: Only return Things and no actions
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{ 
-		things(func: has(atContext), orderdesc: creationTimeUnix, first: %d, offset: %d)  {
+		things(func: eq(%s, %s), orderdesc: creationTimeUnix, first: %d, offset: %d)  {
 			expand(_all_) {
 				expand(_all_)
 			}
 		}
 	}
-	`, limit, (page-1)*limit))
+	`, refTypePointer, connector_utils.RefTypeThing, limit, (page-1)*limit))
 
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
