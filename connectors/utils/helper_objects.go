@@ -15,6 +15,15 @@ package connector_utils
 
 import ()
 
+// RefTypeAction used for actions in DB and requests
+const RefTypeAction string = "Action"
+
+// RefTypeKey used for keys in DB and requests
+const RefTypeKey string = "Key"
+
+// RefTypeThing used for things in DB and requests
+const RefTypeThing string = "Thing"
+
 // Key for a new row in de database
 type Key struct {
 	UUID           string         // uuid, also used in Object's id

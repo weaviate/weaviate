@@ -50,9 +50,6 @@ type Dgraph struct {
 	thingSchema  schemaProperties
 }
 
-const refTypeAction string = "Action"
-const refTypeKey string = "Key"
-const refTypeThing string = "Thing"
 const refTypePointer string = "_type_"
 const schemaPrefix string = "schema."
 
@@ -150,13 +147,6 @@ func (f *Dgraph) Init() error {
 		} else {
 			log.Println("Given schema location is not a valid URL, using local file.")
 
-			// Set to weaviate.conf.json is this flag is not set.
-			if len(cfv.configLocation) == 0 {
-				// Given schema location is not a valid URL, assume it is a local file
-				// No local file is set so use weaviate.config.json
-				cfv.configLocation = "weaviate.conf.json"
-			}
-
 			// Given schema location is not a valid URL, assume it is a local file
 			cfv.localFile = cfv.configLocation
 
@@ -228,6 +218,17 @@ func (f *Dgraph) Init() error {
 	// Add UUID schema in Dgraph
 	if err := f.client.AddSchema(protos.SchemaUpdate{
 		Predicate: "uuid",
+		ValueType: uint32(types.StringID),
+		Tokenizer: []string{"exact", "term"},
+		Directive: protos.SchemaUpdate_INDEX,
+		Count:     true,
+	}); err != nil {
+		return err
+	}
+
+	// Add refTypePointer schema in Dgraph
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: refTypePointer,
 		ValueType: uint32(types.StringID),
 		Tokenizer: []string{"exact", "term"},
 		Directive: protos.SchemaUpdate_INDEX,
@@ -342,7 +343,7 @@ func (f *Dgraph) Init() error {
 func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Create new node with base vars
 	newNode, err := f.addNewNode(
-		refTypeThing,
+		connector_utils.RefTypeThing,
 		thing.AtContext,
 		thing.AtClass,
 		thing.CreationTimeUnix,
@@ -415,7 +416,7 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 	req.SetQuery(fmt.Sprintf(`{ 
 		things(func: has(atContext), orderdesc: creationTimeUnix, first: %d, offset: %d)  {
 			expand(_all_) {
-				uuid
+				expand(_all_)
 			}
 		}
 	}
@@ -443,11 +444,11 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 
 	// Create query to count total results
 	req = dgraphClient.Req{}
-	req.SetQuery(`{ 
-  		totalResults(func: has(type))  {
+	req.SetQuery(fmt.Sprintf(`{ 
+  		totalResults(func: eq(_type_, "%s"))  {
     		count()
   		}
-	}`)
+	}`, connector_utils.RefTypeThing))
 
 	// Run query created above
 	resp, err = f.client.Run(f.getContext(), &req)
@@ -515,7 +516,7 @@ func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
 func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	// TODO: make type interactive
 	newNode, err := f.addNewNode(
-		refTypeAction,
+		connector_utils.RefTypeAction,
 		action.AtContext,
 		action.AtClass,
 		action.CreationTimeUnix,
@@ -862,10 +863,10 @@ func (f *Dgraph) connectRef(req *dgraphClient.Req, nodeFrom dgraphClient.Node, e
 func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *models.ThingGetResponse) {
 	attribute := node.Attribute
 
-	schemaProps := make(map[string]interface{})
-
-	for _, prop := range node.GetProperties() {
-		if attribute == "~id" || attribute == "things" {
+	printNode(0, node)
+	if attribute == "things" {
+		thingResponse.Schema = make(map[string]interface{})
+		for _, prop := range node.GetProperties() {
 			if prop.Prop == "creationTimeUnix" {
 				thingResponse.CreationTimeUnix = prop.GetValue().GetIntVal()
 			} else if prop.Prop == "lastUpdateTimeUnix" {
@@ -877,12 +878,53 @@ func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *mode
 			} else if prop.Prop == "uuid" {
 				thingResponse.ThingID = strfmt.UUID(prop.GetValue().GetStrVal())
 			} else if strings.HasPrefix(prop.Prop, schemaPrefix) {
-				schemaProps[strings.TrimPrefix(prop.Prop, schemaPrefix)] = prop.GetValue().GetStrVal()
+				propValueObj := prop.GetValue().GetVal()
+
+				var propValue interface{}
+
+				switch propType := fmt.Sprintf("%T", propValueObj); propType {
+				case "*protos.Value_DefaultVal":
+					propValue = prop.GetValue().GetDefaultVal()
+				case "*protos.Value_StrVal":
+					propValue = prop.GetValue().GetStrVal()
+				case "*protos.Value_PasswordVal":
+					propValue = prop.GetValue().GetPasswordVal()
+				case "*protos.Value_IntVal":
+					propValue = prop.GetValue().GetIntVal()
+				case "*protos.Value_BoolVal":
+					propValue = prop.GetValue().GetBoolVal()
+				case "*protos.Value_DoubleVal":
+					propValue = prop.GetValue().GetDoubleVal()
+				case "*protos.Value_BytesVal":
+					propValue = prop.GetValue().GetBytesVal()
+				case "*protos.Value_GeoVal":
+					propValue = prop.GetValue().GetGeoVal()
+				case "*protos.Value_DateVal":
+					propValue = prop.GetValue().GetDateVal()
+				case "*protos.Value_DatetimeVal":
+					propValue = prop.GetValue().GetDatetimeVal()
+				case "*protos.Value_UidVal":
+					propValue = prop.GetValue().GetUidVal()
+				default:
+					propValue = prop.GetValue().GetDefaultVal()
+				}
+
+				thingResponse.Schema.(map[string]interface{})[strings.TrimPrefix(prop.Prop, schemaPrefix)] = propValue
 			}
 		}
+	} else if strings.HasPrefix(attribute, schemaPrefix) {
+		crefObj := map[string]string{
+			"location": "http://localhost/", // TODO, make relative in 2.0.0
+		}
+		for _, prop := range node.GetProperties() {
+			if prop.Prop == "uuid" {
+				crefObj["$cref"] = prop.GetValue().GetStrVal() // TODO, make key relative?
+			} else if prop.Prop == refTypePointer {
+				crefObj["type"] = prop.GetValue().GetStrVal() // TODO, make key relative?
+			}
+		}
+		thingResponse.Schema.(map[string]interface{})[strings.TrimPrefix(attribute, schemaPrefix)] = crefObj
 	}
-
-	thingResponse.Schema = schemaProps
 
 	for _, child := range node.Children {
 		f.mergeThingNodeInResponse(child, thingResponse)
