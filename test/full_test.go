@@ -814,31 +814,6 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 		t.Errorf("CreationTimeUnix is incorrect, it was set to far back.")
 	}
 
-	// Add another action for another thing
-	jsonStr2 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
-		"@context": "http://schema.org",
-		"@class": "OnOffAction",
-		"schema": {
-			"hue": 123,
-			"saturation": 32121,
-			"on": 3412
-		},
-		"things": {
-			"object": {
-				"$cref": "%s",
-				"locationUrl": "http://localhost/",
-				"type": "Thing"
-			},
-			"subject": {
-				"$cref": "%s",
-				"locationUrl": "http://localhost/",
-				"type": "Thing"
-			}
-		}
-	}`, thingID, thingID))) // TODO add second thing
-	responseSecond := doRequest("/actions", "POST", "application/json", jsonStr2, apiKeyCmdLine)
-	testStatusCode(t, responseSecond.StatusCode, http.StatusAccepted)
-
 	// Test is faster than adding to DB.
 	time.Sleep(2 * time.Second)
 }
@@ -856,11 +831,11 @@ func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 	respObject := &models.ActionsListResponse{}
 	json.Unmarshal(body, respObject)
 
-	// // Check most recent
-	// testID(t, string(respObject.Actions[0].ActionID), actionID)
+	// Check most recent
+	testID(t, string(respObject.Actions[0].ActionID), actionID)
 
-	// // Check there is only one action
-	// testIntegerValues(t, 1, len(respObject.Actions))
+	// Check there is only one action
+	testIntegerValues(t, 1, len(respObject.Actions))
 }
 
 // weaviate.action.get
