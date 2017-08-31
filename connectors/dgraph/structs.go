@@ -20,6 +20,16 @@ type TotalResultsResult struct {
 	Root Count `dgraph:"totalResults"`
 }
 
+// TotalResultsRelatedResult is the root of a single node with the result count
+type TotalResultsRelatedResult struct {
+	Root RelatedCount `dgraph:"totalResults"`
+}
+
+// RelatedCount is the root of a single node with the result count
+type RelatedCount struct {
+	Related Count `dgraph:"related"`
+}
+
 // Count is the struct for the counter
 type Count struct {
 	Count int64 `dgraph:"count"`

@@ -368,7 +368,6 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, error) {
 	// Initialize response
 	thingsResponse := models.ThingsListResponse{}
-	thingsResponse.Things = make([]*models.ThingGetResponse, limit)
 
 	// Do a query to get all node-information
 	// TODO: Only return Things and no actions
@@ -516,10 +515,6 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
 	req := dgraphClient.Req{}
 	req.SetQueryWithVariables(`{ 
 		get(func: eq(uuid, $uuid)) {
-			~things.subject {
-				uuid
-				_type_
-			}
 			expand(_all_) {
 				expand(_all_)
 			}
@@ -537,7 +532,7 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
 
 	// No nodes = not found error. First level is root (always exists) so check children.
 	if len(nodes[0].GetChildren()) == 0 {
-		return actionResponse, errors_.New("Thing not found in database.")
+		return actionResponse, errors_.New("Actions not found in database.")
 	}
 
 	// Merge the results into the model to return
@@ -556,12 +551,11 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 	// Do a query to get all node-information
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{
-		actions(func: eq(uuid, "%s")) {
-			uuid
-			~id {
-				actions: ~things.object (orderdesc: creationTimeUnix) (first: %d, offset: %d) {
-					expand(_all_) {
-						expand(_all_)
+		things(func: eq(uuid, "%s")) {
+      		actions: ~things.object (orderdesc: creationTimeUnix) (first: %d, offset: %d) {
+      			expand(_all_) {
+        			expand(_all_) {
+          				expand(_all_)
 					}
 				}
 			}
@@ -576,7 +570,14 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 
 	// Merge the results into the model to return
 	nodes := resp.GetN()
-	resultItems := nodes[0].Children[0].Children[0].Children
+
+	// No nodes = not found error. First level is root (always exists) so check children.
+	if len(nodes[0].GetChildren()) == 0 {
+		return actionsResponse, errors_.New("No actions found in database.")
+	}
+
+	// Get subitems because we use a query with related actions of a thing
+	resultItems := nodes[0].Children[0].Children
 
 	// Set the return array length
 	actionsResponse.Actions = make([]*models.ActionGetResponse, len(resultItems))
@@ -585,20 +586,18 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 	for i, node := range resultItems {
 		actionResponse := &models.ActionGetResponse{}
 		actionResponse.Schema = map[string]models.JSONObject{}
-		// TODO: Add object and subject
+		actionResponse.Things = &models.ObjectSubject{}
 		f.mergeActionNodeInResponse(node, actionResponse, "")
 		actionsResponse.Actions[i] = actionResponse
 	}
 
 	// Create query to count total results
-	// TODO: Combine the total results code with the code of the 'things
+	// TODO: Combine the total results code with the code of the 'things'
 	req = dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{
 		totalResults(func: eq(uuid, "%s")) {
-			~id {
-				~things.object {
-					count()
-				}
+			related: ~things.object {
+				count()
 			}
 		}
 	}`, UUID))
@@ -610,14 +609,15 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 	}
 
 	// Unmarshal the dgraph response into a struct
-	var totalResult TotalResultsResult
+	var totalResult TotalResultsRelatedResult
 	err = dgraphClient.Unmarshal(resp.N, &totalResult)
 	if err != nil {
 		return actionsResponse, nil
 	}
 
 	// Set the total results
-	actionsResponse.TotalResults = totalResult.Root.Count // TODO: NOT WORKING, MISSING 'totalResults' IN RETURN OBJ, DGRAPH bug?
+	actionsResponse.TotalResults = totalResult.Root.Related.Count
+	// TODO: NOT WORKING WITH @NORMALIZE, 1 level deeper now, MISSING 'totalResults' IN RETURN OBJ, DGRAPH bug?
 
 	return actionsResponse, nil
 }
@@ -774,7 +774,7 @@ func (f *Dgraph) updateActionRelatedThings(node dgraphClient.Node, action *model
 	if err != nil {
 		return err
 	}
-	err = f.connectRef(&req, subjectNode, "things.subject", node)
+	err = f.connectRef(&req, node, "things.subject", subjectNode)
 	if err != nil {
 		return err
 	}
@@ -982,7 +982,7 @@ func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *mo
 
 		// Add the 'cref'-node into the response.
 		actionResponse.Schema.(map[string]interface{})[strings.TrimPrefix(attribute, schemaPrefix)] = *crefObj
-	} else if attribute == "~things.subject" {
+	} else if attribute == "things.subject" {
 		// Add the 'cref'-node into the response.
 		actionResponse.Things.Subject = f.createCrefObject(node)
 	} else if attribute == "things.object" {
