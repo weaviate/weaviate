@@ -40,6 +40,7 @@ type DatabaseConnector interface {
 	GetAction(strfmt.UUID) (models.ActionGetResponse, error)
 	ListActions(strfmt.UUID, int, int) (models.ActionsListResponse, error)
 	UpdateAction(*models.Action, strfmt.UUID) error
+	DeleteAction(strfmt.UUID) error
 }
 
 // GetAllConnectors contains all available connectors

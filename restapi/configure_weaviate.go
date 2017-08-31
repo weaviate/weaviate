@@ -363,7 +363,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsGetNotFound()
 		}
 
-		// This is a read function, validate if allowed to read?
+		// // This is a read function, validate if allowed to read?
 		// if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, dbObject.Owner); !allowed {
 		// 	return actions.NewWeaviateActionsGetForbidden()
 		// }
@@ -440,13 +440,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsCreateForbidden()
 		}
 
+		// Generate UUID for the new object
+		UUID := connector_utils.GenerateUUID()
+
 		// Validate Schema given in body with the weaviate schema
 		validated := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
 		if !validated {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity()
 		}
 
-		// Get ThingID from URL
+		// Make Action-Object
 		actionCreateJSON, _ := json.Marshal(params.Body)
 		action := &models.Action{}
 		json.Unmarshal([]byte(actionCreateJSON), action)
@@ -458,10 +461,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		action.CreationTimeUnix = connector_utils.NowUnix()
 		action.LastUpdateTimeUnix = 0
 
-		UUID := connector_utils.GenerateUUID()
-
-		insertErr := databaseConnector.AddAction(action, UUID)
-
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		insertErr := databaseConnector.AddAction(action, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -474,27 +475,25 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
 	})
-	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed {
-			return things.NewWeaviateThingsActionsListForbidden()
+	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal interface{}) middleware.Responder {
+		// Get item from database
+		_, errGet := databaseConnector.GetAction(params.ActionID)
+
+		// Not found
+		if errGet != nil {
+			return actions.NewWeaviateActionsDeleteNotFound()
 		}
 
-		// Get limit and page
-		limit := getLimit(params.MaxResults)
-		page := getPage(params.Page)
+		// This is a delete function, validate if allowed to delete? TODO
+		// if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, dbObject.Owner); !allowed {
+		// 	return things.NewWeaviateThingsDeleteForbidden()
+		// }
 
-		// // Get user out of principal
-		// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// Add new row as GO-routine
+		go databaseConnector.DeleteAction(params.ActionID)
 
-		// List all results
-		actionsResponse, err := databaseConnector.ListActions(params.ThingID, limit, page)
-
-		if err != nil {
-			log.Println("ERROR", err)
-		}
-
-		return things.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
+		// Return 'No Content'
+		return actions.NewWeaviateActionsDeleteNoContent()
 	})
 
 	/*
@@ -706,7 +705,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsCreateForbidden()
 		}
 
-		// Generate UUID and assemble the object
+		// Generate UUID for the new object
 		UUID := connector_utils.GenerateUUID()
 
 		// Validate Schema given in body with the weaviate schema
@@ -745,7 +744,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsDeleteNotFound()
 		}
 
-		// This is a delete function, validate if allowed to delete?
+		// This is a delete function, validate if allowed to delete? TODO
 		// if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, dbObject.Owner); !allowed {
 		// 	return things.NewWeaviateThingsDeleteForbidden()
 		// }
@@ -765,15 +764,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsGetNotFound()
 		}
 
-		// // This is a read function, validate if allowed to read?
+		// // This is a read function, validate if allowed to read? TODO
 		// if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, dbObject.Owner); !allowed {
 		// 	return things.NewWeaviateThingsGetForbidden()
 		// }
-
-		// // Create object to return
-		// responseObject := &models.ThingGetResponse{}
-		// json.Unmarshal([]byte(dbObject.Object), &responseObject)
-		// responseObject.ThingID = strfmt.UUID(params.ThingID)
 
 		// Get is successful
 		return things.NewWeaviateThingsGetOK().WithPayload(&responseObject)
@@ -788,7 +782,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
-		// Get user out of principal
+		// Get user out of principal TODO
 		// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
 		// List all results
@@ -797,21 +791,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err != nil {
 			log.Println("ERROR", err)
 		}
-
-		// // Convert to an response object
-		// responseObject := &models.ThingsListResponse{}
-		// responseObject.Things = make([]*models.ThingGetResponse, len(thingDatabaseObjects))
-
-		// // Loop to fill response project
-		// for i, thingDatabaseObject := range thingDatabaseObjects {
-		// 	thingObject := &models.ThingGetResponse{}
-		// 	json.Unmarshal([]byte(thingDatabaseObject.Object), thingObject)
-		// 	thingObject.ThingID = strfmt.UUID(thingDatabaseObject.Uuid)
-		// 	responseObject.Things[i] = thingObject
-		// }
-
-		// Add totalResults to response object.
-		// responseObject.TotalResults = int64(totalResults)
 
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
 	})
@@ -885,6 +864,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsUpdateNotFound()
 		}
 
+		// Validate Schema given in body with the weaviate schema
+		validated := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		if !validated {
+			return things.NewWeaviateThingsUpdateUnprocessableEntity()
+		}
+
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connector_utils.NowUnix()
 		params.Body.CreationTimeUnix = databaseResponseObject.CreationTimeUnix
@@ -909,6 +894,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		return things.NewWeaviateThingsValidateOK()
+	})
+	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
+		// This is a read function, validate if allowed to read?
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed {
+			return things.NewWeaviateThingsActionsListForbidden()
+		}
+
+		// Get limit and page
+		limit := getLimit(params.MaxResults)
+		page := getPage(params.Page)
+
+		// // Get user out of principal TODO
+		// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+
+		// List all results
+		actionsResponse, err := databaseConnector.ListActions(params.ThingID, limit, page)
+
+		if err != nil {
+			log.Println("ERROR", err)
+		}
+
+		return things.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
 	})
 
 	api.ServerShutdown = func() {}
