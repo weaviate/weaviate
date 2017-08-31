@@ -464,32 +464,9 @@ func (f *Dgraph) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 // DeleteThing deletes the Thing in the DB at the given UUID.
 func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
-	// Create the query for removing query
-	variables := make(map[string]string)
-	variables["$uuid"] = string(UUID)
-
-	req := dgraphClient.Req{}
-	req.SetQueryWithVariables(`{
-		var(func: eq(uuid, $uuid)) {
-			node_to_delete as ~id
-		}
-		
-		id_node_to_delete as var(func: eq(uuid, $uuid))
-	}
-	mutation {
-		delete {
-			uid(node_to_delete) * * .
-			uid(id_node_to_delete) * * .
-		}
-	}`, variables)
-
-	_, err := f.client.Run(f.getContext(), &req)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
+	// Call function for deleting node
+	err := f.deleteNodeByUUID(UUID)
+	return err
 }
 
 // AddAction adds an Action to the Dgraph database with the given UUID
@@ -654,6 +631,13 @@ func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 
 	err = f.updateActionNodeEdges(refActionNode, action)
 
+	return err
+}
+
+// DeleteAction deletes the Action in the DB at the given UUID.
+func (f *Dgraph) DeleteAction(UUID strfmt.UUID) error {
+	// Call function for deleting node
+	err := f.deleteNodeByUUID(UUID)
 	return err
 }
 
@@ -1033,6 +1017,30 @@ func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
 	node := f.client.NodeUid(idResult.Root.ID)
 
 	return node, err
+}
+
+func (f *Dgraph) deleteNodeByUUID(UUID strfmt.UUID) error {
+	// Create the query for removing query
+	variables := make(map[string]string)
+	variables["$uuid"] = string(UUID)
+
+	req := dgraphClient.Req{}
+	req.SetQueryWithVariables(`{
+		id_node_to_delete as var(func: eq(uuid, $uuid))
+	}
+	mutation {
+		delete {
+			uid(id_node_to_delete) * * .
+		}
+	}`, variables)
+
+	_, err := f.client.Run(f.getContext(), &req)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (f *Dgraph) getContext() context.Context {

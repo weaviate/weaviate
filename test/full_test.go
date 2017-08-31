@@ -822,8 +822,8 @@ func Test__weaviate_actions_things_create_JSON(t *testing.T) {
 	time.Sleep(2 * time.Second)
 }
 
-// weaviate.action.things.list
-func Test__weaviate_action_things_list_JSON(t *testing.T) {
+// weaviate.things.actions.list
+func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 	// Create list request
 	response := doRequest("/things/"+thingID+"/actions", "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -946,4 +946,25 @@ func Test__weaviate_thing_delete_JSON(t *testing.T) {
 
 	// Create get request with non-existing ID
 	testNotExistsRequest(t, "/things", "DELETE", "application/json", nil, apiKeyCmdLine)
+}
+
+// weaviate.action.delete
+func Test__weaviate_action_delete_JSON(t *testing.T) {
+	// Create delete request
+	response := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	testStatusCode(t, response.StatusCode, http.StatusNoContent)
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Create delete request
+	responseAlreadyDeleted := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code already deleted
+	testStatusCode(t, responseAlreadyDeleted.StatusCode, http.StatusNotFound)
+
+	// Create get request with non-existing ID
+	testNotExistsRequest(t, "/actions", "DELETE", "application/json", nil, apiKeyCmdLine)
 }
