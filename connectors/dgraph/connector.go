@@ -297,12 +297,21 @@ func (f *Dgraph) Init() error {
 func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Create new node with base vars
 	newNode, err := f.addNewNode(
+		UUID,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	// Add first level properties to node
+	newNode, err = f.addNodeFirstLevelProperties(
 		connector_utils.RefTypeThing,
 		thing.AtContext,
 		thing.AtClass,
 		thing.CreationTimeUnix,
 		thing.LastUpdateTimeUnix,
-		UUID,
+		newNode,
 	)
 
 	if err != nil {
@@ -312,11 +321,7 @@ func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Add all given information to the new node
 	err = f.updateThingNodeEdges(newNode, thing)
 
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 
 	// TODO: Reset batch before and flush after every function??
 }
@@ -346,8 +351,15 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 		return thingResponse, err
 	}
 
-	// Merge the results into the model to return
+	// Get nodes from response
 	nodes := resp.GetN()
+
+	// No nodes = not found error. First level is root (always exists) so check children.
+	if len(nodes[0].GetChildren()) == 0 {
+		return thingResponse, errors_.New("Thing not found in database.")
+	}
+
+	// Merge the results into the model to return
 	for _, node := range nodes {
 		f.mergeThingNodeInResponse(node, &thingResponse)
 	}
@@ -422,13 +434,30 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 
 // UpdateThing updates the Thing in the DB at the given UUID.
 func (f *Dgraph) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
-	refThingNode, err := f.getNodeByUUID(UUID)
+	// Get the thing-node from the database
+	updateNode, err := f.getNodeByUUID(UUID)
 
 	if err != nil {
 		return err
 	}
 
-	err = f.updateThingNodeEdges(refThingNode, thing)
+	// Update first level properties to node
+	updateNode, err = f.addNodeFirstLevelProperties(
+		connector_utils.RefTypeThing,
+		thing.AtContext,
+		thing.AtClass,
+		thing.CreationTimeUnix,
+		thing.LastUpdateTimeUnix,
+		updateNode,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	// Update in DB
+	// TODO: rename updateThingNodeEdges function as it only updates schema, or combine with addNodeFirstLevelProperties
+	err = f.updateThingNodeEdges(updateNode, thing)
 
 	return err
 }
@@ -467,12 +496,21 @@ func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
 func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	// TODO: make type interactive
 	newNode, err := f.addNewNode(
-		connector_utils.RefTypeAction,
+		UUID,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	// Add first level properties to node
+	newNode, err = f.addNodeFirstLevelProperties(
+		connector_utils.RefTypeThing,
 		action.AtContext,
 		action.AtClass,
 		action.CreationTimeUnix,
 		action.LastUpdateTimeUnix,
-		UUID,
+		newNode,
 	)
 
 	if err != nil {
@@ -482,11 +520,7 @@ func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	// Add all given information to the new node
 	err = f.updateActionNodeEdges(newNode, action)
 
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 // GetAction returns an action from the database
@@ -623,7 +657,7 @@ func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 	return err
 }
 
-func (f *Dgraph) addNewNode(nType string, nodeContext string, nodeClass string, creationTimeUnix int64, lastUpdateTimeUnix int64, UUID strfmt.UUID) (dgraphClient.Node, error) {
+func (f *Dgraph) addNewNode(UUID strfmt.UUID) (dgraphClient.Node, error) {
 	// TODO: Search for uuid edge/node before making new??
 
 	// Create new one and connect it
@@ -639,57 +673,73 @@ func (f *Dgraph) addNewNode(nType string, nodeContext string, nodeClass string, 
 	// Add UUID to node
 	edge := newNode.Edge("uuid")
 	if err = edge.SetValueString(string(UUID)); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 	if err = req.Set(edge); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 
+	// Call run after all mutations are added
+	if _, err = f.client.Run(f.getContext(), &req); err != nil {
+		return newNode, err
+	}
+
+	return newNode, nil
+}
+
+func (f *Dgraph) addNodeFirstLevelProperties(nType string, nodeContext string, nodeClass string, creationTimeUnix int64, lastUpdateTimeUnix int64, newNode dgraphClient.Node) (dgraphClient.Node, error) {
+	// Init the request
+	req := dgraphClient.Req{}
+
+	var err error
+
 	// Add type (thing/key/action)
-	edge = newNode.Edge(refTypePointer)
+	edge := newNode.Edge(refTypePointer)
 	if err = edge.SetValueString(nType); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 	if err = req.Set(edge); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 
 	// Add context and class to node
 	edge = newNode.Edge("atContext")
 	if err = edge.SetValueString(nodeContext); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 	if err = req.Set(edge); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 
 	edge = newNode.Edge("atClass")
 	if err = edge.SetValueString(nodeClass); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 	if err = req.Set(edge); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 
 	// Add timing nodes
 	edge = newNode.Edge("creationTimeUnix")
 	if err = edge.SetValueInt(creationTimeUnix); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 	if err = req.Set(edge); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 
 	edge = newNode.Edge("lastUpdateTimeUnix")
 	if err = edge.SetValueInt(lastUpdateTimeUnix); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 	if err = req.Set(edge); err != nil {
-		return dgraphClient.Node{}, err
+		return newNode, err
 	}
 
 	// Call run after all mutations are added
-	_, err = f.client.Run(f.getContext(), &req)
+	if _, err = f.client.Run(f.getContext(), &req); err != nil {
+		return newNode, err
+	}
 
 	return newNode, nil
 }
