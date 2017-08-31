@@ -20,6 +20,7 @@ script:
   - export GOROOT=/usr/local/go
   - export GOPATH=/home/travis/gopath
   - export PATH=$GOPATH/bin:$GOROOT/bin:$PATH
+  - go get ./...
   - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8070 --host=localhost --config=graph --config-file=weaviate.conf.json &
   - sleep 40
   # - export WEAVIATEKEY=$(grep "ROOTKEY=" nohup.out | cut -d "=" -f 2)
