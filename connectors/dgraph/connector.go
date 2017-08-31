@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"github.com/mitchellh/mapstructure"
 	"io/ioutil"
-	"log"
 	"math"
 	"strings"
 
@@ -85,8 +84,6 @@ func (f *Dgraph) SetSchema(schemaInput *schema.WeaviateSchema) error {
 func (f *Dgraph) Connect() error {
 	// Connect with Dgraph host, create connection dail
 	dgraphGrpcAddress := fmt.Sprintf("%s:%d", f.config.Host, f.config.Port)
-
-	log.Println(dgraphGrpcAddress)
 
 	conn, err := grpc.Dial(dgraphGrpcAddress, grpc.WithInsecure())
 	if err != nil {
@@ -191,24 +188,24 @@ func (f *Dgraph) Init() error {
 		return errors_.New("error while adding '" + refTypePointer + "' Dgraph-schema")
 	}
 
-	// Add 'action.of' schema in Dgraph
+	// Add 'things.subject' schema in Dgraph
 	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "action.of",
+		Predicate: "things.subject",
 		ValueType: uint32(types.UidID),
 		Directive: protos.SchemaUpdate_REVERSE,
 		Count:     true,
 	}); err != nil {
-		return errors_.New("error while adding 'action.of' Dgraph-schema")
+		return errors_.New("error while adding 'things.subject' Dgraph-schema")
 	}
 
-	// Add 'action.target' schema in Dgraph
+	// Add 'things.object' schema in Dgraph
 	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "action.target",
+		Predicate: "things.object",
 		ValueType: uint32(types.UidID),
 		Directive: protos.SchemaUpdate_REVERSE,
 		Count:     true,
 	}); err != nil {
-		return errors_.New("error while adding 'action.target' Dgraph-schema")
+		return errors_.New("error while adding 'things.object' Dgraph-schema")
 	}
 
 	// Add search possibilities for every "timing"
@@ -297,6 +294,7 @@ func (f *Dgraph) Init() error {
 func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Create new node with base vars
 	newNode, err := f.addNewNode(
+		connector_utils.RefTypeThing,
 		UUID,
 	)
 
@@ -306,7 +304,6 @@ func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 	// Add first level properties to node
 	newNode, err = f.addNodeFirstLevelProperties(
-		connector_utils.RefTypeThing,
 		thing.AtContext,
 		thing.AtClass,
 		thing.CreationTimeUnix,
@@ -318,8 +315,8 @@ func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 		return err
 	}
 
-	// Add all given information to the new node
-	err = f.updateThingNodeEdges(newNode, thing)
+	// Add all given schema-information to the new node
+	err = f.updateNodeSchemaProperties(newNode, thing.Schema)
 
 	return err
 
@@ -443,7 +440,6 @@ func (f *Dgraph) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 	// Update first level properties to node
 	updateNode, err = f.addNodeFirstLevelProperties(
-		connector_utils.RefTypeThing,
 		thing.AtContext,
 		thing.AtClass,
 		thing.CreationTimeUnix,
@@ -456,8 +452,7 @@ func (f *Dgraph) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 	}
 
 	// Update in DB
-	// TODO: rename updateThingNodeEdges function as it only updates schema, or combine with addNodeFirstLevelProperties
-	err = f.updateThingNodeEdges(updateNode, thing)
+	err = f.updateNodeSchemaProperties(updateNode, thing.Schema)
 
 	return err
 }
@@ -471,8 +466,9 @@ func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
 
 // AddAction adds an Action to the Dgraph database with the given UUID
 func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
-	// TODO: make type interactive
+	// Add new node
 	newNode, err := f.addNewNode(
+		connector_utils.RefTypeAction,
 		UUID,
 	)
 
@@ -482,7 +478,6 @@ func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 
 	// Add first level properties to node
 	newNode, err = f.addNodeFirstLevelProperties(
-		connector_utils.RefTypeThing,
 		action.AtContext,
 		action.AtClass,
 		action.CreationTimeUnix,
@@ -494,8 +489,15 @@ func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 		return err
 	}
 
-	// Add all given information to the new node
-	err = f.updateActionNodeEdges(newNode, action)
+	// Add all given schema-information to the new node
+	err = f.updateNodeSchemaProperties(newNode, action.Schema)
+
+	if err != nil {
+		return err
+	}
+
+	// Add given thing-object and thing-subject
+	err = f.updateActionRelatedThings(newNode, action)
 
 	return err
 }
@@ -505,29 +507,21 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
 	// Initialize response
 	actionResponse := models.ActionGetResponse{}
 	actionResponse.Schema = map[string]models.JSONObject{}
+	actionResponse.Things = &models.ObjectSubject{}
 
 	// Do a query to get all node-information based on the given UUID
 	variables := make(map[string]string)
 	variables["$uuid"] = string(UUID)
 
 	req := dgraphClient.Req{}
-	req.SetQueryWithVariables(`{
-		get(func: eq(uuid, $uuid)) { 
-			uuid
-			~id {
-				expand(_all_) {
-					expand(_all_) {
-						expand(_all_) 
-					}
-				}
-				~action.of {
-					id {
-						uuid
-					}
-					type {
-						class
-					}
-				}
+	req.SetQueryWithVariables(`{ 
+		get(func: eq(uuid, $uuid)) {
+			~things.subject {
+				uuid
+				_type_
+			}
+			expand(_all_) {
+				expand(_all_)
 			}
 		}
 	}`, variables)
@@ -538,8 +532,15 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
 		return actionResponse, err
 	}
 
-	// Merge the results into the model to return
+	// Get nodes from response
 	nodes := resp.GetN()
+
+	// No nodes = not found error. First level is root (always exists) so check children.
+	if len(nodes[0].GetChildren()) == 0 {
+		return actionResponse, errors_.New("Thing not found in database.")
+	}
+
+	// Merge the results into the model to return
 	for _, node := range nodes {
 		f.mergeActionNodeInResponse(node, &actionResponse, "")
 	}
@@ -558,7 +559,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 		actions(func: eq(uuid, "%s")) {
 			uuid
 			~id {
-				actions: ~action.target (orderdesc: creationTimeUnix) (first: %d, offset: %d) {
+				actions: ~things.object (orderdesc: creationTimeUnix) (first: %d, offset: %d) {
 					expand(_all_) {
 						expand(_all_)
 					}
@@ -595,7 +596,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 	req.SetQuery(fmt.Sprintf(`{
 		totalResults(func: eq(uuid, "%s")) {
 			~id {
-				~action.target {
+				~things.object {
 					count()
 				}
 			}
@@ -629,7 +630,8 @@ func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 		return err
 	}
 
-	err = f.updateActionNodeEdges(refActionNode, action)
+	// Update the schema properties of the node
+	err = f.updateNodeSchemaProperties(refActionNode, action.Schema)
 
 	return err
 }
@@ -641,7 +643,7 @@ func (f *Dgraph) DeleteAction(UUID strfmt.UUID) error {
 	return err
 }
 
-func (f *Dgraph) addNewNode(UUID strfmt.UUID) (dgraphClient.Node, error) {
+func (f *Dgraph) addNewNode(nType string, UUID strfmt.UUID) (dgraphClient.Node, error) {
 	// TODO: Search for uuid edge/node before making new??
 
 	// Create new one and connect it
@@ -663,6 +665,15 @@ func (f *Dgraph) addNewNode(UUID strfmt.UUID) (dgraphClient.Node, error) {
 		return newNode, err
 	}
 
+	// Add type (thing/key/action)
+	edge = newNode.Edge(refTypePointer)
+	if err = edge.SetValueString(nType); err != nil {
+		return newNode, err
+	}
+	if err = req.Set(edge); err != nil {
+		return newNode, err
+	}
+
 	// Call run after all mutations are added
 	if _, err = f.client.Run(f.getContext(), &req); err != nil {
 		return newNode, err
@@ -671,24 +682,15 @@ func (f *Dgraph) addNewNode(UUID strfmt.UUID) (dgraphClient.Node, error) {
 	return newNode, nil
 }
 
-func (f *Dgraph) addNodeFirstLevelProperties(nType string, nodeContext string, nodeClass string, creationTimeUnix int64, lastUpdateTimeUnix int64, newNode dgraphClient.Node) (dgraphClient.Node, error) {
+func (f *Dgraph) addNodeFirstLevelProperties(nodeContext string, nodeClass string, creationTimeUnix int64, lastUpdateTimeUnix int64, newNode dgraphClient.Node) (dgraphClient.Node, error) {
 	// Init the request
 	req := dgraphClient.Req{}
 
 	var err error
 
-	// Add type (thing/key/action)
-	edge := newNode.Edge(refTypePointer)
-	if err = edge.SetValueString(nType); err != nil {
-		return newNode, err
-	}
-	if err = req.Set(edge); err != nil {
-		return newNode, err
-	}
-
 	// Add context and class to node
-	edge = newNode.Edge("atContext")
-	if err = edge.SetValueString(nodeContext); err != nil {
+	edge := newNode.Edge("atContext")
+	if err := edge.SetValueString(nodeContext); err != nil {
 		return newNode, err
 	}
 	if err = req.Set(edge); err != nil {
@@ -728,8 +730,8 @@ func (f *Dgraph) addNodeFirstLevelProperties(nType string, nodeContext string, n
 	return newNode, nil
 }
 
-// updateThingNodeEdges updates all the edges of the node, used with a new node or to update/patch a node
-func (f *Dgraph) updateThingNodeEdges(node dgraphClient.Node, thing *models.Thing) error {
+// updateNodeSchemaProperties updates all the edges of the node in 'schema', used with a new node or to update/patch a node
+func (f *Dgraph) updateNodeSchemaProperties(node dgraphClient.Node, nodeSchema models.Schema) error {
 	// Create update request
 	req := dgraphClient.Req{}
 
@@ -737,7 +739,7 @@ func (f *Dgraph) updateThingNodeEdges(node dgraphClient.Node, thing *models.Thin
 	var err error
 
 	// Add Thing properties
-	for propKey, propValue := range thing.Schema.(map[string]interface{}) {
+	for propKey, propValue := range nodeSchema.(map[string]interface{}) {
 		err = f.addPropertyEdge(&req, node, propKey, propValue)
 	}
 
@@ -747,18 +749,13 @@ func (f *Dgraph) updateThingNodeEdges(node dgraphClient.Node, thing *models.Thin
 	return err
 }
 
-// updateActionNodeEdges updates all the edges of the node, used with a new node or to update/patch a node
-func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Action) error {
+// updateActionRelatedThings updates all the edges of the node, used with a new node or to update/patch a node
+func (f *Dgraph) updateActionRelatedThings(node dgraphClient.Node, action *models.Action) error {
 	// Create update request
 	req := dgraphClient.Req{}
 
 	// Init error var
 	var err error
-
-	// Add Action properties
-	for propKey, propValue := range action.Schema.(map[string]interface{}) {
-		err = f.addPropertyEdge(&req, node, propKey, propValue)
-	}
 
 	// Add Thing that gets the action
 	// TODO: Use 'locationUrl' and 'type'
@@ -766,7 +763,7 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 	if err != nil {
 		return err
 	}
-	err = f.connectRef(&req, node, "action.target", objectNode)
+	err = f.connectRef(&req, node, "things.object", objectNode)
 	if err != nil {
 		return err
 	}
@@ -777,7 +774,7 @@ func (f *Dgraph) updateActionNodeEdges(node dgraphClient.Node, action *models.Ac
 	if err != nil {
 		return err
 	}
-	err = f.connectRef(&req, subjectNode, "action.of", node)
+	err = f.connectRef(&req, subjectNode, "things.subject", node)
 	if err != nil {
 		return err
 	}
@@ -870,36 +867,7 @@ func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *mode
 			} else if strings.HasPrefix(prop.Prop, schemaPrefix) {
 				// Fill all the properties starting with 'schema.'
 				// That are the properties that are specific for a class
-				propValueObj := prop.GetValue().GetVal()
-
-				var propValue interface{}
-
-				switch propType := fmt.Sprintf("%T", propValueObj); propType {
-				case "*protos.Value_DefaultVal":
-					propValue = prop.GetValue().GetDefaultVal()
-				case "*protos.Value_StrVal":
-					propValue = prop.GetValue().GetStrVal()
-				case "*protos.Value_PasswordVal":
-					propValue = prop.GetValue().GetPasswordVal()
-				case "*protos.Value_IntVal":
-					propValue = prop.GetValue().GetIntVal()
-				case "*protos.Value_BoolVal":
-					propValue = prop.GetValue().GetBoolVal()
-				case "*protos.Value_DoubleVal":
-					propValue = prop.GetValue().GetDoubleVal()
-				case "*protos.Value_BytesVal":
-					propValue = prop.GetValue().GetBytesVal()
-				case "*protos.Value_GeoVal":
-					propValue = prop.GetValue().GetGeoVal()
-				case "*protos.Value_DateVal":
-					propValue = prop.GetValue().GetDateVal()
-				case "*protos.Value_DatetimeVal":
-					propValue = prop.GetValue().GetDatetimeVal()
-				case "*protos.Value_UidVal":
-					propValue = prop.GetValue().GetUidVal()
-				default:
-					propValue = prop.GetValue().GetDefaultVal()
-				}
+				propValue := f.getPropValue(prop)
 
 				// Add the 'schema.' value to the response.
 				thingResponse.Schema.(map[string]interface{})[strings.TrimPrefix(prop.Prop, schemaPrefix)] = propValue
@@ -907,17 +875,7 @@ func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *mode
 		}
 	} else if strings.HasPrefix(attribute, schemaPrefix) {
 		// When the attribute has 'schema.' in it, it is 1 level deeper.
-		// Create the 'cref'-node for the response.
-		crefObj := map[string]string{
-			"location": "http://localhost/", // TODO, make relative in 2.0.0
-		}
-		for _, prop := range node.GetProperties() {
-			if prop.Prop == "uuid" {
-				crefObj["$cref"] = prop.GetValue().GetStrVal() // TODO, make key relative?
-			} else if prop.Prop == refTypePointer {
-				crefObj["type"] = prop.GetValue().GetStrVal() // TODO, make key relative?
-			}
-		}
+		crefObj := f.createCrefObject(node)
 
 		// Add the 'cref'-node into the response.
 		thingResponse.Schema.(map[string]interface{})[strings.TrimPrefix(attribute, schemaPrefix)] = crefObj
@@ -930,58 +888,112 @@ func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *mode
 
 }
 
+func (f *Dgraph) getPropValue(prop *protos.Property) interface{} {
+	// Get the propvalye object
+	propValueObj := prop.GetValue().GetVal()
+
+	var propValue interface{}
+
+	// Switch on every possible type in the proptype
+	switch propType := fmt.Sprintf("%T", propValueObj); propType {
+	case "*protos.Value_DefaultVal":
+		propValue = prop.GetValue().GetDefaultVal()
+	case "*protos.Value_StrVal":
+		propValue = prop.GetValue().GetStrVal()
+	case "*protos.Value_PasswordVal":
+		propValue = prop.GetValue().GetPasswordVal()
+	case "*protos.Value_IntVal":
+		propValue = prop.GetValue().GetIntVal()
+	case "*protos.Value_BoolVal":
+		propValue = prop.GetValue().GetBoolVal()
+	case "*protos.Value_DoubleVal":
+		propValue = prop.GetValue().GetDoubleVal()
+	case "*protos.Value_BytesVal":
+		propValue = prop.GetValue().GetBytesVal()
+	case "*protos.Value_GeoVal":
+		propValue = prop.GetValue().GetGeoVal()
+	case "*protos.Value_DateVal":
+		propValue = prop.GetValue().GetDateVal()
+	case "*protos.Value_DatetimeVal":
+		propValue = prop.GetValue().GetDatetimeVal()
+	case "*protos.Value_UidVal":
+		propValue = prop.GetValue().GetUidVal()
+	default:
+		propValue = prop.GetValue().GetDefaultVal()
+	}
+
+	return propValue
+}
+
+func (f *Dgraph) createCrefObject(node *protos.Node) *models.SingleRef {
+	// Create the 'cref'-node for the response.
+	url := "http://localhost/" // TODO, make relative in 2.0.0
+	crefObj := models.SingleRef{
+		LocationURL: &url,
+	}
+
+	// Loop through the given node properties to generate response object
+	for _, prop := range node.GetProperties() {
+		if prop.Prop == "uuid" {
+			crefObj.NrDollarCref = strfmt.UUID(prop.GetValue().GetStrVal()) // TODO, make key relative?
+		} else if prop.Prop == refTypePointer {
+			crefObj.Type = prop.GetValue().GetStrVal() // TODO, make key relative?
+		}
+	}
+
+	return &crefObj
+}
+
 // mergeActionNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
 func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *models.ActionGetResponse, parentAttribute string) {
+	// Get node attribute, this is the name of the parent node.
 	attribute := node.Attribute
 
-	for _, prop := range node.GetProperties() {
-		if attribute == "~id" || attribute == "actions" {
+	// Depending on the given function name in the query or depth in response, switch on the attribute.
+	if attribute == "actions" || attribute == "get" {
+		// Initiate thing response schema
+		actionResponse.Schema = make(map[string]interface{})
+
+		// For all properties, fill them.
+		for _, prop := range node.GetProperties() {
+			// Fill basic properties of each thing.
 			if prop.Prop == "creationTimeUnix" {
 				actionResponse.CreationTimeUnix = prop.GetValue().GetIntVal()
 			} else if prop.Prop == "lastUpdateTimeUnix" {
 				actionResponse.LastUpdateTimeUnix = prop.GetValue().GetIntVal()
-			} else {
-				// actionResponse.Schema[prop.Prop] = map[string]models.JSONValue{
-				// 	"value": prop.GetValue().GetStrVal(),
-				// }
-			}
-		} else if attribute == "type" && (parentAttribute == "~id" || parentAttribute == "actions") {
-			if prop.Prop == "context" {
-				// actionResponse.AtType = "Person" TODO: FIX?
-			} else if prop.Prop == "class" {
+			} else if prop.Prop == "atContext" {
 				actionResponse.AtContext = prop.GetValue().GetStrVal()
-			}
-		} else if attribute == "id" && (parentAttribute == "~id" || parentAttribute == "actions") {
-			if prop.Prop == "uuid" {
+			} else if prop.Prop == "atClass" {
+				actionResponse.AtClass = prop.GetValue().GetStrVal()
+			} else if prop.Prop == "uuid" {
 				actionResponse.ActionID = strfmt.UUID(prop.GetValue().GetStrVal())
-			}
-		} else if attribute == "type" && parentAttribute == "action.target" {
-			if prop.Prop == "context" {
-				// actionResponse.AtType = "Person" TODO: FIX?
-			} else if prop.Prop == "class" {
-				// actionResponse.ThingID = prop.GetValue().GetStrVal() // TODO: THING ID has to be fixed, it is a REF object
-			}
-		} else if attribute == "id" && parentAttribute == "action.target" {
-			if prop.Prop == "uuid" {
-				actionResponse.Things.Object.NrDollarCref = strfmt.UUID(prop.GetValue().GetStrVal())
-			}
-		} else if attribute == "type" && parentAttribute == "~action.of" {
-			if prop.Prop == "context" {
-				// actionResponse.AtType = "Person" TODO: FIX?
-			} else if prop.Prop == "class" {
-				// actionResponse.Subject = prop.GetValue().GetStrVal() // TODO: Subject ID has to be fixed
-			}
-		} else if attribute == "id" && parentAttribute == "~action.of" {
-			if prop.Prop == "uuid" {
-				// actionResponse.Subject = strfmt.UUID(prop.GetValue().GetStrVal())
+			} else if strings.HasPrefix(prop.Prop, schemaPrefix) {
+				// Fill all the properties starting with 'schema.'
+				// That are the properties that are specific for a class
+				propValue := f.getPropValue(prop)
+
+				// Add the 'schema.' value to the response.
+				actionResponse.Schema.(map[string]interface{})[strings.TrimPrefix(prop.Prop, schemaPrefix)] = propValue
 			}
 		}
+	} else if strings.HasPrefix(attribute, schemaPrefix) {
+		// When the attribute has 'schema.' in it, it is 1 level deeper.
+		crefObj := f.createCrefObject(node)
+
+		// Add the 'cref'-node into the response.
+		actionResponse.Schema.(map[string]interface{})[strings.TrimPrefix(attribute, schemaPrefix)] = *crefObj
+	} else if attribute == "~things.subject" {
+		// Add the 'cref'-node into the response.
+		actionResponse.Things.Subject = f.createCrefObject(node)
+	} else if attribute == "things.object" {
+		// Add the 'cref'-node into the response.
+		actionResponse.Things.Object = f.createCrefObject(node)
 	}
 
+	// Go level deeper to find cref nodes.
 	for _, child := range node.Children {
 		f.mergeActionNodeInResponse(child, actionResponse, attribute)
 	}
-
 }
 
 func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
