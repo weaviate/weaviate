@@ -18,6 +18,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	errors_ "errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"math"
@@ -164,9 +165,15 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strin
 	// }
 }
 
-func validateSchemaInBody(weaviateSchema *schema.Schema, bodySchema *models.Schema, className string) bool {
+func validateSchemaInBody(weaviateSchema *schema.Schema, bodySchema *models.Schema, className string) error {
 	// TODO: Implementation required
-	return true
+	// log.Println(weaviateSchema)
+	// log.Println(*bodySchema)
+	// log.Println(className)
+
+	// Validated error-message
+	// return errors_.New("no valid schema used")
+	return nil
 }
 
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
@@ -427,9 +434,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 		// Validate Schema given in body with the weaviate schema
-		validated := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
-		if !validated {
-			return actions.NewWeaviateActionsValidateUnprocessableEntity()
+		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		if validatedErr != nil {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(422)
+				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
+			})
 		}
 
 		return actions.NewWeaviateActionsValidateOK()
@@ -444,9 +454,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connector_utils.GenerateUUID()
 
 		// Validate Schema given in body with the weaviate schema
-		validated := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
-		if !validated {
-			return actions.NewWeaviateActionsCreateUnprocessableEntity()
+		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		if validatedErr != nil {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(422)
+				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
+			})
 		}
 
 		// Make Action-Object
@@ -709,9 +722,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connector_utils.GenerateUUID()
 
 		// Validate Schema given in body with the weaviate schema
-		validated := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
-		if !validated {
-			return things.NewWeaviateThingsCreateUnprocessableEntity()
+		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		if validatedErr != nil {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(422)
+				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
+			})
 		}
 
 		// Make Thing-Object
@@ -865,9 +881,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate Schema given in body with the weaviate schema
-		validated := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
-		if !validated {
-			return things.NewWeaviateThingsUpdateUnprocessableEntity()
+		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		if validatedErr != nil {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(422)
+				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
+			})
 		}
 
 		// Update the database
@@ -888,9 +907,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
 		// Validate Schema given in body with the weaviate schema
-		validated := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
-		if !validated {
-			return things.NewWeaviateThingsValidateUnprocessableEntity()
+		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		if validatedErr != nil {
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(422)
+				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
+			})
 		}
 
 		return things.NewWeaviateThingsValidateOK()
