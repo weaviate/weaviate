@@ -658,17 +658,12 @@ func Test__weaviate_thing_update_JSON(t *testing.T) {
 	newValue := "New Name!"
 	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 		"@context": "http://schema.org",
-		"@type": "Person",
+		"@class": "Person",
 		"schema": {
-			"givenName": { "value": "%s"},
-			"faxNumber": { "value": "+1234567890"}
-		},
-		"potentialActionIds": [],
-		"creationTimeMs": %d,
-		"lastSeenTimeMs": 2,
-		"lastUpdateTimeMs": 3,
-		"lastUseTimeMs": 4
-	}`, newValue, connector_utils.NowUnix())))
+			"givenName": "%s",
+			"faxNumber": 1337
+		}
+	}`, newValue)))
 	response := doRequest("/things/"+thingID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
@@ -696,15 +691,14 @@ func Test__weaviate_thing_update_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Check if update is also applied on object when using a new GET request on same object
-	// responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
+	responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
 
-	// bodyGet := getResponseBody(responseGet)
+	bodyGet := getResponseBody(responseGet)
 
 	// Test response obj
-	// respObjectGet := &models.ThingGetResponse{}
-	// json.Unmarshal(bodyGet, respObjectGet)
-	// testValues(t, newValue, respObject.Schema["givenName"]["value"].(string))
-	// TODO
+	respObjectGet := &models.ThingGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
+	testValues(t, newValue, respObject.Schema.(map[string]interface{})["givenName"].(string))
 
 	// Check put on non-existing ID
 	testNotExistsRequest(t, "/things", "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
@@ -715,7 +709,7 @@ func Test__weaviate_thing_patch_JSON(t *testing.T) {
 	// Create patch request
 	newValue := "New name patched!"
 
-	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/givenName/value", "value": "` + newValue + `"}]`))
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/givenName", "value": "` + newValue + `"}]`))
 	response := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
@@ -743,15 +737,14 @@ func Test__weaviate_thing_patch_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Check if patch is also applied on object when using a new GET request on same object
-	// responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
+	responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
 
-	// bodyGet := getResponseBody(responseGet)
+	bodyGet := getResponseBody(responseGet)
 
 	// Test response obj
-	// respObjectGet := &models.ThingGetResponse{}
-	// json.Unmarshal(bodyGet, respObjectGet)
-	// testValues(t, newValue, respObject.Schema["givenName"]["value"].(string))
-	// TODO
+	respObjectGet := &models.ThingGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
+	testValues(t, newValue, respObject.Schema.(map[string]interface{})["givenName"].(string))
 
 	// Check patch with incorrect contents
 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newValue + `"}`))

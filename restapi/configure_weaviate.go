@@ -877,7 +877,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get item from database
 		UUID := strfmt.UUID(params.ThingID)
-		_, errGet := databaseConnector.GetThing(UUID)
+		databaseResponseObject, errGet := databaseConnector.GetThing(UUID)
 
 		// If there are no results, there is an error
 		if errGet != nil {
@@ -887,6 +887,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connector_utils.NowUnix()
+		params.Body.CreationTimeUnix = databaseResponseObject.CreationTimeUnix
 		insertErr := databaseConnector.UpdateThing(&params.Body.Thing, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
