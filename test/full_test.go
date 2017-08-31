@@ -759,21 +759,32 @@ func Test__weaviate_thing_patch_JSON(t *testing.T) {
 //  * ACTIONS TESTS
 //  ******************/
 
-// weaviate.actions.things.create
-func Test__weaviate_actions_things_create_JSON(t *testing.T) {
+// weaviate.actions.create
+func Test__weaviate_actions_create_JSON(t *testing.T) {
 	// Create create request
-	jsonStr := bytes.NewBuffer([]byte(`
-	{
+	// TODO: Add second thing
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 		"@context": "http://schema.org",
-		"@type": "OnOffAction",
+		"@class": "OnOffAction",
 		"schema": {
-			"hue": { "value": "123"},
-			"saturation": { "value": "231"},
-			"on": { "value": "true" }
+			"hue": 123,
+			"saturation": 32121,
+			"on": 3412
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "http://localhost/",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "http://localhost/",
+				"type": "Thing"
+			}
 		}
-	}
-	`))
-	response := doRequest("/things/"+thingID+"/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
+	}`, thingID, thingID)))
+	response := doRequest("/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
 	// Check status code of create
 	testStatusCode(t, response.StatusCode, http.StatusAccepted)
@@ -804,18 +815,28 @@ func Test__weaviate_actions_things_create_JSON(t *testing.T) {
 	}
 
 	// Add another action for another thing
-	jsonStr2 := bytes.NewBuffer([]byte(`
-	{
+	jsonStr2 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 		"@context": "http://schema.org",
-		"@type": "OnOffAction",
+		"@class": "OnOffAction",
 		"schema": {
-			"hue": { "value": "123"},
-			"saturation": { "value": "231"},
-			"on": { "value": "true" }
+			"hue": 123,
+			"saturation": 32121,
+			"on": 3412
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "http://localhost/",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "http://localhost/",
+				"type": "Thing"
+			}
 		}
-	}
-	`))
-	responseSecond := doRequest("/things/"+fakeID+"/actions", "POST", "application/json", jsonStr2, apiKeyCmdLine)
+	}`, thingID, thingID))) // TODO add second thing
+	responseSecond := doRequest("/actions", "POST", "application/json", jsonStr2, apiKeyCmdLine)
 	testStatusCode(t, responseSecond.StatusCode, http.StatusAccepted)
 
 	// Test is faster than adding to DB.

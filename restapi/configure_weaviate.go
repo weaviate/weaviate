@@ -466,11 +466,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionCreateJSON, _ := json.Marshal(params.Body)
 		action := &models.Action{}
 		json.Unmarshal([]byte(actionCreateJSON), action)
-		action.Key = &models.SingleRef{
-			// LocationURL:  "http://localhost/",
-			NrDollarCref: "hoi", // TODO principal
-			Type:         "Key",
-		}
+		// action.Key = &models.SingleRef{
+		// 	// LocationURL:  "http://localhost/",
+		// 	NrDollarCref: "hoi", // TODO principal
+		// 	Type:         "Key",
+		// }
 		action.CreationTimeUnix = connector_utils.NowUnix()
 		action.LastUpdateTimeUnix = 0
 
