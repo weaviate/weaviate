@@ -36,19 +36,19 @@ You can download one of our nightly builds here:
 
 | OS and Architecture
 | -------------------
-| [weaviate_nightly_darwin_386.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_darwin_386.tar.gz?raw=true)
-| [weaviate_nightly_darwin_amd64.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_darwin_amd64.tar.gz?raw=true)
-| [weaviate_nightly_linux_386.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_386.tar.gz?raw=true)
-| [weaviate_nightly_linux_amd64.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_amd64.tar.gz?raw=true)
-| [weaviate_nightly_linux_arm.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_arm.tar.gz?raw=true)
-| [weaviate_nightly_linux_mips.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mips.tar.gz?raw=true)
-| [weaviate_nightly_linux_mips64.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mips64.tar.gz?raw=true)
-| [weaviate_nightly_linux_mips64le.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mips64le.tar.gz?raw=true)
-| [weaviate_nightly_linux_mipsle.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mipsle.tar.gz?raw=true)
-| [weaviate_nightly_linux_ppc64.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_ppc64.tar.gz?raw=true)
-| [weaviate_nightly_linux_ppc64le.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_ppc64le.tar.gz?raw=true)
-| [weaviate_nightly_windows_386.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_windows_386.tar.gz?raw=true)
-| [weaviate_nightly_windows_amd64.tar.gz](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_windows_amd64.tar.gz?raw=true)
+| [weaviate_nightly_darwin_386.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_darwin_386.zip?raw=true)
+| [weaviate_nightly_darwin_amd64.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_darwin_amd64.zip?raw=true)
+| [weaviate_nightly_linux_386.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_386.zip?raw=true)
+| [weaviate_nightly_linux_amd64.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_amd64.zip?raw=true)
+| [weaviate_nightly_linux_arm.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_arm.zip?raw=true)
+| [weaviate_nightly_linux_mips.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mips.zip?raw=true)
+| [weaviate_nightly_linux_mips64.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mips64.zip?raw=true)
+| [weaviate_nightly_linux_mips64le.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mips64le.zip?raw=true)
+| [weaviate_nightly_linux_mipsle.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mipsle.zip?raw=true)
+| [weaviate_nightly_linux_ppc64.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_ppc64.zip?raw=true)
+| [weaviate_nightly_linux_ppc64le.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_ppc64le.zip?raw=true)
+| [weaviate_nightly_windows_386.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_windows_386.zip?raw=true)
+| [weaviate_nightly_windows_amd64.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_windows_amd64.zip?raw=true)
 
 [Checksum file](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_checksums.txt).
 
