@@ -624,14 +624,28 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 
 // UpdateAction updates a specific action
 func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
-	refActionNode, err := f.getNodeByUUID(UUID)
+	// Get the thing-node from the database
+	updateNode, err := f.getNodeByUUID(UUID)
 
 	if err != nil {
 		return err
 	}
 
-	// Update the schema properties of the node
-	err = f.updateNodeSchemaProperties(refActionNode, action.Schema)
+	// Update first level properties to node
+	updateNode, err = f.addNodeFirstLevelProperties(
+		action.AtContext,
+		action.AtClass,
+		action.CreationTimeUnix,
+		action.LastUpdateTimeUnix,
+		updateNode,
+	)
+
+	if err != nil {
+		return err
+	}
+
+	// Update in DB
+	err = f.updateNodeSchemaProperties(updateNode, action.Schema)
 
 	return err
 }
