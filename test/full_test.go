@@ -111,6 +111,8 @@ var newAPIKeyID string
 var newSubAPIToken string
 var newSubAPIKeyID string
 var thingID string
+var thingIDs [10]string
+var thingIDsubject string
 var rootID string
 var unixTimeExpire int64
 
@@ -541,6 +543,35 @@ func Test__weaviate_thing_create_JSON(t *testing.T) {
 	// Globally set actionID
 	thingID = string(respObject.ThingID)
 
+	// Add multiple things to the database to check List functions
+	// Fill database with things and set the IDs to the global thingIDs-array
+	thingIDs[9] = thingID
+
+	for i := 8; i >= 0; i-- {
+		// Handle request
+		jsonStr := bytes.NewBuffer([]byte(`{
+			"@context": "http://schema.org",
+			"@class": "Person",
+			"schema": {
+				"givenName": "Bob",
+				"faxNumber": 1337
+			}
+		}`))
+		response := doRequest("/things", "POST", "application/json", jsonStr, apiKeyCmdLine)
+		body := getResponseBody(response)
+		respObject := &models.ThingGetResponse{}
+		json.Unmarshal(body, respObject)
+
+		// Set subjectThingID
+		if i == 1 {
+			thingIDsubject = string(respObject.ThingID)
+		}
+
+		// Fill array and time out for unlucky sorting issues
+		thingIDs[i] = string(respObject.ThingID)
+		time.Sleep(1 * time.Second)
+	}
+
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
 }
@@ -560,11 +591,36 @@ func Test__weaviate_thing_list_JSON(t *testing.T) {
 
 	// Check most recent
 	require.Regexp(t, strfmt.UUIDPattern, respObject.Things[0].ThingID)
-	require.Regexp(t, strfmt.UUIDPattern, thingID)
-	require.Equal(t, thingID, string(respObject.Things[0].ThingID))
+	require.Regexp(t, strfmt.UUIDPattern, thingIDs[0])
+	require.Equal(t, thingIDs[0], string(respObject.Things[0].ThingID))
 
-	// TODO: Add maxResults and page tests.
-	// require.Len(t, respObject.Things, 1)
+	// Query whole list just created
+	listResponse := doRequest("/things?maxResults=3", "GET", "application/json", nil, apiKeyCmdLine)
+	listResponseObject := &models.ThingsListResponse{}
+	json.Unmarshal(getResponseBody(listResponse), listResponseObject)
+
+	// Test total results
+	require.Conditionf(t, func() bool { return listResponseObject.TotalResults >= 10 }, "Total results have to be higher or equal to 10.")
+
+	// Test amount in current response
+	require.Len(t, listResponseObject.Things, 3)
+
+	// Test ID in the middle of the 3 results
+	require.Equal(t, thingIDs[1], string(listResponseObject.Things[1].ThingID))
+
+	// Query whole list just created
+	listResponse2 := doRequest("/things?maxResults=5&page=2", "GET", "application/json", nil, apiKeyCmdLine)
+	listResponseObject2 := &models.ThingsListResponse{}
+	json.Unmarshal(getResponseBody(listResponse2), listResponseObject2)
+
+	// Test total results
+	require.Conditionf(t, func() bool { return listResponseObject2.TotalResults >= 10 }, "Total results have to be higher or equal to 10.")
+
+	// Test amount in current response
+	require.Len(t, listResponseObject2.Things, 5)
+
+	// Test ID in the middle
+	require.Equal(t, thingIDs[7], string(listResponseObject2.Things[2].ThingID))
 }
 
 // weaviate.thing.get
@@ -696,7 +752,6 @@ func Test__weaviate_thing_patch_JSON(t *testing.T) {
 // weaviate.actions.create
 func Test__weaviate_actions_create_JSON(t *testing.T) {
 	// Create create request
-	// TODO: Add second thing
 	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 		"@context": "http://schema.org",
 		"@class": "OnOffAction",
@@ -717,7 +772,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 				"type": "Thing"
 			}
 		}
-	}`, thingID, thingID)))
+	}`, thingID, thingIDsubject)))
 	response := doRequest("/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
 	// Check status code of create
@@ -738,6 +793,11 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Object.NrDollarCref)
 	require.Regexp(t, strfmt.UUIDPattern, thingID)
 	require.Equal(t, thingID, string(respObject.Things.Object.NrDollarCref))
+
+	// Check thing is set to known ThingIDSubject
+	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Subject.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
+	require.Equal(t, thingIDsubject, string(respObject.Things.Subject.NrDollarCref))
 
 	// Check set user key is rootID
 	// testID(t, string(respObject.UserKey), rootID) TODO
@@ -793,11 +853,15 @@ func Test__weaviate_action_get_JSON(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, actionID)
 	require.Equal(t, actionID, string(respObject.ActionID))
 
-	// Check ID of object
+	// Check ID of thing-object
 	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Object.NrDollarCref)
 	require.Regexp(t, strfmt.UUIDPattern, thingID)
 	require.Equal(t, thingID, string(respObject.Things.Object.NrDollarCref))
-	// TODO CHECK SUBJECT THING
+
+	// Check ID of thing-subject
+	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Subject.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
+	require.Equal(t, thingIDsubject, string(respObject.Things.Subject.NrDollarCref))
 
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "GET", "application/json", nil, apiKeyCmdLine)
