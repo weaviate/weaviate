@@ -3,36 +3,51 @@ builds:
   - binary: weaviate
     main: ./cmd/weaviate-server/main.go
     goos:
-      # - windows
+      # - android
+      - windows
       - darwin
       - linux
+      # - dragonfly
+      # - freebsd
+      # - netbsd
+      # - openbsd
+      # - plan9
+      # - solaris
     goarch:
       - 386
-    #ignore:
-    #  - goos: darwin
-    #    goarch: amd64
-    #  - goos: windows
-    #    goarch: amd64
-    #  - goos: linux
-    #    goarch: arm64
-    #  - goos: linux
-    #    goarch: ppc64
-    #  - goos: linux
-    #    goarch: mips
-    #  - goos: linux
-    #    goarch: mipsle
-    #  - goos: linux
-    #    goarch: mips64
-    #  - goos: linux
-    #    goarch: ppc64le
-    #  - goos: linux
-    #    goarch: amd64
-    #  - goos: linux
-    #    goarch: mips64le
-    #  - goos: linux
-    #    goarch: arm6
+      - arm
+      - amd64
+      - ppc64
+      - ppc64le
+      - mips
+      - mipsle
+      - mips64
+      - mips64le
+    ignore:
+      #- goos: darwin
+      #  goarch: amd64
+      #- goos: windows
+      #  goarch: amd64
+      #- goos: linux
+      #  goarch: arm64
+      #- goos: linux
+      #  goarch: ppc64
+      #- goos: linux
+      #  goarch: mips
+      #- goos: linux
+      #  goarch: mipsle
+      #- goos: linux
+      #  goarch: mips64
+      #- goos: linux
+      #  goarch: ppc64le
+      #- goos: linux
+      #  goarch: amd64
+      #- goos: linux
+      #  goarch: mips64le
+      #- goos: linux
+      #  goarch: arm6
 archive:
   format: tar.gz
   name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 snapshot:
-  name_template: SNAPSHOT-{{.Commit}}
+  name_template: nightly
