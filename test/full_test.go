@@ -20,19 +20,16 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
-	// "github.com/weaviate/weaviate/connectors"
-	// "github.com/weaviate/weaviate/connectors/datastore"
-	"runtime"
-	"strings"
-
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/models"
-	// "sort"
-	// "strconv"
 )
 
 /*
@@ -78,66 +75,6 @@ func decorate() (string, int) {
 	}
 
 	return file, line
-}
-
-// testNotExistsRequest with starting endpoint
-func testNotExistsRequest(t *testing.T, endpointStartsWith string, method string, accept string, body io.Reader, apiKey string) {
-	// Create get request with non-existing ID
-	responseNotFound := doRequest(endpointStartsWith+"/"+fakeID, method, accept, body, apiKey)
-
-	// Check response of non-existing ID
-	testStatusCode(t, responseNotFound.StatusCode, http.StatusNotFound)
-}
-
-// testStatusCode standard with response
-func testStatusCode(t *testing.T, responseStatusCode int, httpStatusCode int) {
-	file, line := decorate()
-	if responseStatusCode != httpStatusCode {
-		t.Errorf("%s:%d: Expected response code %d. Got %d\n", file, line, httpStatusCode, responseStatusCode)
-	}
-}
-
-// testID globally saved id with response
-func testID(t *testing.T, responseID string, shouldBeID string) {
-	testIDFormat(t, responseID)
-	testIDFormat(t, shouldBeID)
-
-	file, line := decorate()
-	if string(responseID) != shouldBeID {
-		t.Errorf("%s:%d: Expected ID %s. Got %s\n", file, line, shouldBeID, responseID)
-	}
-}
-
-// testIDFormat tests whether an ID is of a valid UUID format
-func testIDFormat(t *testing.T, responseID string) {
-	file, line := decorate()
-	if !strfmt.IsUUID(responseID) {
-		t.Errorf("%s:%d: ID is not of expected UUID-format. Got %s.\n", file, line, responseID)
-	}
-}
-
-// testValues tests whether two values are the same
-func testValues(t *testing.T, expected string, got string) {
-	file, line := decorate()
-	if expected != got {
-		t.Errorf("%s:%d: Expected value is '%s'. Got '%s'\n", file, line, expected, got)
-	}
-}
-
-// testIntegerValues tests whether two integers are the same
-func testIntegerValues(t *testing.T, expected int, got int) {
-	file, line := decorate()
-	if expected != got {
-		t.Errorf("%s:%d: Expected value is %d. Got %d\n", file, line, expected, got)
-	}
-}
-
-// testBooleanValues tests wheter two booleans are the same
-func testBooleanValues(t *testing.T, expected bool, got bool) {
-	file, line := decorate()
-	if expected != got {
-		t.Errorf("%s:%d: Expected value is %t. Got %t\n", file, line, expected, got)
-	}
 }
 
 // getResponseBody converts response body to bytes
@@ -205,7 +142,7 @@ func init() {
 // 	response := doRequest("/keys", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
 // 	// Check status code of create
-// 	testStatusCode(t, response.StatusCode, http.StatusAccepted)
+// 	require.Equal(t, http.StatusAccepted, response.StatusCode)
 
 // 	body := getResponseBody(response)
 
@@ -319,8 +256,8 @@ func init() {
 // 	// Create get request
 // 	response := doRequest("/keys/me", "GET", "application/json", nil, newAPIToken)
 
-// 	// Check status code get request
-// 	testStatusCode(t, response.StatusCode, http.StatusOK)
+// 	// Check status code get requestsOK
+// require.Equal(t, http.StatusOK, response.StatusCode)
 
 // 	body := getResponseBody(response)
 
@@ -352,8 +289,8 @@ func init() {
 // 	// Create get request
 // 	response := doRequest("/keys/"+newAPIKeyID, "GET", "application/json", nil, apiKeyCmdLine)
 
-// 	// Check status code get request
-// 	testStatusCode(t, response.StatusCode, http.StatusOK)
+// 	// Check status code get requestsOK)
+// require.Equal(t, http.StatusOK, response.StatusCode)
 
 // 	body := getResponseBody(response)
 
@@ -372,7 +309,7 @@ func init() {
 // 	// Check status code forbidden request
 // 	testStatusCode(t, responseForbidden.StatusCode, http.StatusForbidden)
 
-// 	// Create get request with non-existing ID
+// 	// Create get request with non-existing ID, check its responsecode
 // 	testNotExistsRequest(t, "/keys", "GET", "application/json", nil, apiKeyCmdLine)
 // }
 
@@ -403,8 +340,8 @@ func init() {
 // 	// Create get request
 // 	response := doRequest("/keys/"+newAPIKeyID+"/children", "GET", "application/json", nil, apiKeyCmdLine)
 
-// 	// Check status code get request
-// 	testStatusCode(t, response.StatusCode, http.StatusOK)
+// 	// Check status code get requestsOK)
+// require.Equal(t, http.StatusOK, response.StatusCode)
 
 // 	body := getResponseBody(response)
 
@@ -439,11 +376,10 @@ func init() {
 // 	// Check status code forbidden request
 // 	testStatusCode(t, responseForbidden.StatusCode, http.StatusForbidden)
 
-// 	// Create get request with non-existing ID
+// 	// Create get request with non-existing ID, check its responsecode
 // 	responseNotFound := doRequest("keys/"+fakeID+"/children", "GET", "application/json", nil, newAPIToken)
 
-// 	// Check response of non-existing ID
-// 	testStatusCode(t, responseNotFound.StatusCode, http.StatusNotFound)
+// 	require.Equal(t, http.StatusOK, response.StatusCode)
 // }
 
 // // weaviate.key.me.children.get
@@ -451,8 +387,8 @@ func init() {
 // 	// Create get request
 // 	response := doRequest("/keys/me/children", "GET", "application/json", nil, newAPIToken)
 
-// 	// Check status code get request
-// 	testStatusCode(t, response.StatusCode, http.StatusOK)
+// 	// Check status code get requestsOK)
+// require.Equal(t, http.StatusOK, response.StatusCode)
 
 // 	body := getResponseBody(response)
 
@@ -592,9 +528,7 @@ func Test__weaviate_thing_create_JSON(t *testing.T) {
 	response := doRequest("/things", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
 	// Check status code of create
-	if response.StatusCode != http.StatusAccepted {
-		t.Errorf("Expected response code %d. Got %d\n", http.StatusAccepted, response.StatusCode)
-	}
+	require.Equal(t, http.StatusAccepted, response.StatusCode)
 
 	body := getResponseBody(response)
 
@@ -602,11 +536,10 @@ func Test__weaviate_thing_create_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check whether generated UUID is added
-	thingID = string(respObject.ThingID)
+	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
 
-	if !strfmt.IsUUID(thingID) {
-		t.Errorf("ID is not what expected. Got %s.\n", thingID)
-	}
+	// Globally set actionID
+	thingID = string(respObject.ThingID)
 
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
@@ -618,7 +551,7 @@ func Test__weaviate_thing_list_JSON(t *testing.T) {
 	response := doRequest("/things", "GET", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code of list
-	testStatusCode(t, response.StatusCode, http.StatusOK)
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	body := getResponseBody(response)
 
@@ -626,10 +559,12 @@ func Test__weaviate_thing_list_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check most recent
-	testID(t, string(respObject.Things[0].ThingID), thingID)
+	require.Regexp(t, strfmt.UUIDPattern, respObject.Things[0].ThingID)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, string(respObject.Things[0].ThingID))
 
 	// TODO: Add maxResults and page tests.
-	testIntegerValues(t, 1, len(respObject.Things))
+	// require.Len(t, respObject.Things, 1)
 }
 
 // weaviate.thing.get
@@ -638,7 +573,7 @@ func Test__weaviate_thing_get_JSON(t *testing.T) {
 	response := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code get request
-	testStatusCode(t, response.StatusCode, http.StatusOK)
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	body := getResponseBody(response)
 
@@ -646,10 +581,13 @@ func Test__weaviate_thing_get_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check ID of object
-	testID(t, string(respObject.ThingID), thingID)
+	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, string(respObject.ThingID))
 
-	//dCreate get request with non-existing thing
-	testNotExistsRequest(t, "/things", "GET", "application/json", nil, apiKeyCmdLine)
+	// Create get request with non-existing ID, check its responsecode
+	responseNotFound := doRequest("/things/"+fakeID, "GET", "application/json", nil, apiKeyCmdLine)
+	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
 // weaviate.thing.update
@@ -672,20 +610,17 @@ func Test__weaviate_thing_update_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check status code
-	testStatusCode(t, response.StatusCode, http.StatusOK)
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	// Check thing ID is same
-	testID(t, string(respObject.ThingID), thingID)
+	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, string(respObject.ThingID))
 
 	// Check given update time is after now, but not in the future
 	now := connector_utils.NowUnix()
-	if respObject.LastUpdateTimeUnix > now {
-		t.Errorf("LastUpdateTimeUnix is incorrect, it was set in the future.")
-	}
-
-	if respObject.LastUpdateTimeUnix < now-2000 {
-		t.Errorf("LastUpdateTimeUnix is incorrect, it was set to far back.")
-	}
+	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix > now) }, "LastUpdateTimeUnix is incorrect, it was set in the future.")
+	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix < now-2000) }, "LastUpdateTimeUnix is incorrect, it was set to far back.")
 
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
@@ -698,10 +633,11 @@ func Test__weaviate_thing_update_JSON(t *testing.T) {
 	// Test response obj
 	respObjectGet := &models.ThingGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
-	testValues(t, newValue, respObject.Schema.(map[string]interface{})["givenName"].(string))
+	require.Equal(t, newValue, respObject.Schema.(map[string]interface{})["givenName"].(string))
 
-	// Check put on non-existing ID
-	testNotExistsRequest(t, "/things", "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
+	// Create get request with non-existing ID, check its responsecode
+	responseNotFound := doRequest("/things/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
+	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
 // weaviate.thing.patch
@@ -718,20 +654,17 @@ func Test__weaviate_thing_patch_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check status code
-	testStatusCode(t, response.StatusCode, http.StatusOK)
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	// Check ID is the same
-	testID(t, string(respObject.ThingID), thingID)
+	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, string(respObject.ThingID))
 
 	// Check given update time is after now, but not in the future
 	now := connector_utils.NowUnix()
-	if respObject.LastUpdateTimeUnix > now {
-		t.Errorf("LastUpdateTimeUnix is incorrect, it was set in the future.")
-	}
-
-	if respObject.LastUpdateTimeUnix < now-2000 {
-		t.Errorf("LastUpdateTimeUnix is incorrect, it was set to far back.")
-	}
+	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix > now) }, "LastUpdateTimeUnix is incorrect, it was set in the future.")
+	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix < now-2000) }, "LastUpdateTimeUnix is incorrect, it was set to far back.")
 
 	//dTest is faster than adding to DB.
 	time.Sleep(1 * time.Second)
@@ -744,15 +677,16 @@ func Test__weaviate_thing_patch_JSON(t *testing.T) {
 	// Test response obj
 	respObjectGet := &models.ThingGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
-	testValues(t, newValue, respObject.Schema.(map[string]interface{})["givenName"].(string))
+	require.Equal(t, newValue, respObject.Schema.(map[string]interface{})["givenName"].(string))
 
 	// Check patch with incorrect contents
 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newValue + `"}`))
 	responseError := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
-	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
+	require.Equal(t, http.StatusBadRequest, responseError.StatusCode)
 
-	// Check patch on non-existing ID
-	testNotExistsRequest(t, "/things", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
+	// Create get request with non-existing ID, check its responsecode
+	responseNotFound := doRequest("/things/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
+	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
 // /******************
@@ -787,7 +721,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 	response := doRequest("/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
 	// Check status code of create
-	testStatusCode(t, response.StatusCode, http.StatusAccepted)
+	require.Equal(t, http.StatusAccepted, response.StatusCode)
 
 	body := getResponseBody(response)
 
@@ -795,24 +729,23 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check whether generated UUID is added
+	require.Regexp(t, strfmt.UUIDPattern, respObject.ActionID)
+
+	// Globally set actionID
 	actionID = string(respObject.ActionID)
-	testIDFormat(t, actionID)
 
 	// Check thing is set to known ThingID
-	testID(t, string(respObject.Things.Object.NrDollarCref), thingID)
+	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Object.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, string(respObject.Things.Object.NrDollarCref))
 
 	// Check set user key is rootID
 	// testID(t, string(respObject.UserKey), rootID) TODO
 
 	// Check given creation time is after now, but not in the future
 	now := connector_utils.NowUnix()
-	if respObject.CreationTimeUnix > now {
-		t.Errorf("CreationTimeUnix is incorrect, it was set in the future.")
-	}
-
-	if respObject.CreationTimeUnix < now-2000 {
-		t.Errorf("CreationTimeUnix is incorrect, it was set to far back.")
-	}
+	require.Conditionf(t, func() bool { return !(respObject.CreationTimeUnix > now) }, "CreationTimeUnix is incorrect, it was set in the future.")
+	require.Conditionf(t, func() bool { return !(respObject.CreationTimeUnix < now-2000) }, "CreationTimeUnix is incorrect, it was set to far back.")
 
 	// Test is faster than adding to DB.
 	time.Sleep(2 * time.Second)
@@ -824,7 +757,7 @@ func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 	response := doRequest("/things/"+thingID+"/actions", "GET", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code of list
-	testStatusCode(t, response.StatusCode, http.StatusOK)
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	body := getResponseBody(response)
 
@@ -832,12 +765,14 @@ func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check most recent
-	testID(t, string(respObject.Actions[0].ActionID), actionID)
+	require.Regexp(t, strfmt.UUIDPattern, respObject.Actions[0].ActionID)
+	require.Regexp(t, strfmt.UUIDPattern, actionID)
+	require.Equal(t, actionID, string(respObject.Actions[0].ActionID))
 
 	// TODO: List none?
 
 	// Check there is only one action
-	testIntegerValues(t, 1, len(respObject.Actions))
+	require.Len(t, respObject.Actions, 1)
 }
 
 // weaviate.action.get
@@ -846,7 +781,7 @@ func Test__weaviate_action_get_JSON(t *testing.T) {
 	response := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code get request
-	testStatusCode(t, response.StatusCode, http.StatusOK)
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	body := getResponseBody(response)
 
@@ -854,14 +789,19 @@ func Test__weaviate_action_get_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check ID of object
-	testID(t, string(respObject.ActionID), actionID)
+	require.Regexp(t, strfmt.UUIDPattern, respObject.ActionID)
+	require.Regexp(t, strfmt.UUIDPattern, actionID)
+	require.Equal(t, actionID, string(respObject.ActionID))
 
-	// // Check ID of object
-	// testID(t, string(respObject.ThingID), thingID)
-	// TODO
+	// Check ID of object
+	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Object.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, string(respObject.Things.Object.NrDollarCref))
+	// TODO CHECK SUBJECT THING
 
-	// Create get request with non-existing ID
-	testNotExistsRequest(t, "/actions", "GET", "application/json", nil, apiKeyCmdLine)
+	// Create get request with non-existing ID, check its responsecode
+	responseNotFound := doRequest("/actions/"+fakeID, "GET", "application/json", nil, apiKeyCmdLine)
+	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
 // weaviate.action.patch
@@ -879,20 +819,17 @@ func Test__weaviate_action_patch_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check status code
-	testStatusCode(t, response.StatusCode, http.StatusOK)
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	// Check ID is the same
-	testID(t, string(respObject.ActionID), actionID)
+	require.Regexp(t, strfmt.UUIDPattern, respObject.ActionID)
+	require.Regexp(t, strfmt.UUIDPattern, actionID)
+	require.Equal(t, actionID, string(respObject.ActionID))
 
 	// Check given creation time is after now, but not in the future
 	now := connector_utils.NowUnix()
-	if respObject.LastUpdateTimeUnix > now {
-		t.Errorf("LastUpdateTimeUnix is incorrect, it was set in the future.")
-	}
-
-	if respObject.LastUpdateTimeUnix < now-2000 {
-		t.Errorf("LastUpdateTimeUnix is incorrect, it was set to far back.")
-	}
+	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix > now) }, "LastUpdateTimeUnix is incorrect, it was set in the future.")
+	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix < now-2000) }, "LastUpdateTimeUnix is incorrect, it was set to far back.")
 
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
@@ -905,15 +842,16 @@ func Test__weaviate_action_patch_JSON(t *testing.T) {
 	// Test response obj
 	respObjectGet := &models.ActionGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
-	testIntegerValues(t, newValue, int(respObject.Schema.(map[string]interface{})["hue"].(float64)))
+	require.Equal(t, float64(newValue), respObject.Schema.(map[string]interface{})["hue"].(float64))
 
 	// Check patch with incorrect contents
 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/xxxx", "value": "` + string(newValue) + `"}`))
 	responseError := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
-	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
+	require.Equal(t, http.StatusBadRequest, responseError.StatusCode)
 
-	// Check patch on non-existing ID
-	testNotExistsRequest(t, "/actions", "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
+	// Create get request with non-existing ID, check its responsecode
+	responseNotFound := doRequest("/actions/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
+	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
 // // weaviate.key.me.delete
@@ -933,7 +871,7 @@ func Test__weaviate_thing_delete_JSON(t *testing.T) {
 	response := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code get request
-	testStatusCode(t, response.StatusCode, http.StatusNoContent)
+	require.Equal(t, http.StatusNoContent, response.StatusCode)
 
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
@@ -942,10 +880,11 @@ func Test__weaviate_thing_delete_JSON(t *testing.T) {
 	responseAlreadyDeleted := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code already deleted
-	testStatusCode(t, responseAlreadyDeleted.StatusCode, http.StatusNotFound)
+	require.Equal(t, http.StatusNotFound, responseAlreadyDeleted.StatusCode)
 
-	// Create get request with non-existing ID
-	testNotExistsRequest(t, "/things", "DELETE", "application/json", nil, apiKeyCmdLine)
+	// Create get request with non-existing ID, check its responsecode
+	responseNotFound := doRequest("/things/"+fakeID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
 // weaviate.action.delete
@@ -954,7 +893,7 @@ func Test__weaviate_action_delete_JSON(t *testing.T) {
 	response := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code get request
-	testStatusCode(t, response.StatusCode, http.StatusNoContent)
+	require.Equal(t, http.StatusNoContent, response.StatusCode)
 
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
@@ -963,8 +902,9 @@ func Test__weaviate_action_delete_JSON(t *testing.T) {
 	responseAlreadyDeleted := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code already deleted
-	testStatusCode(t, responseAlreadyDeleted.StatusCode, http.StatusNotFound)
+	require.Equal(t, http.StatusNotFound, responseAlreadyDeleted.StatusCode)
 
-	// Create get request with non-existing ID
-	testNotExistsRequest(t, "/actions", "DELETE", "application/json", nil, apiKeyCmdLine)
+	// Create get request with non-existing ID, check its responsecode
+	responseNotFound := doRequest("/actions/"+fakeID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
