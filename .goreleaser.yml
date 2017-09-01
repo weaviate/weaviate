@@ -47,7 +47,7 @@ builds:
       #- goos: linux
       #  goarch: arm6
 archive:
-  format: tar.gz
+  format: zip
   name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 snapshot:
   name_template: nightly
