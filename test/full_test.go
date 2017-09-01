@@ -834,6 +834,8 @@ func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 	// Check most recent
 	testID(t, string(respObject.Actions[0].ActionID), actionID)
 
+	// TODO: List none?
+
 	// Check there is only one action
 	testIntegerValues(t, 1, len(respObject.Actions))
 }
@@ -865,9 +867,10 @@ func Test__weaviate_action_get_JSON(t *testing.T) {
 // weaviate.action.patch
 func Test__weaviate_action_patch_JSON(t *testing.T) {
 	// Create patch request
-	newValue := "1337"
+	newValue := 1337
 
-	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/creationTimeUnix", "value": ` + newValue + `}]`))
+	// Create JSON and do the request
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/hue", "value": %d}]`, newValue)))
 	response := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
@@ -902,9 +905,10 @@ func Test__weaviate_action_patch_JSON(t *testing.T) {
 	// Test response obj
 	respObjectGet := &models.ActionGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
+	testIntegerValues(t, newValue, int(respObject.Schema.(map[string]interface{})["hue"].(float64)))
 
 	// Check patch with incorrect contents
-	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/xxxx", "value": "` + newValue + `"}`))
+	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/xxxx", "value": "` + string(newValue) + `"}`))
 	responseError := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
 	testStatusCode(t, responseError.StatusCode, http.StatusBadRequest)
 
