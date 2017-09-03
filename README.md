@@ -18,7 +18,7 @@ Want to know more about what happens under the hood or do you want to contribute
 
 ## How does it work?
 
-Weaviate is based on the concepts of Semantic Internet of Things, Web 3.0 and RDF. If you want to learn more about the concept you can do so by going to this [blogpost](https://bob.wtf).
+Weaviate is based on the concepts of Semantic Internet of Things, Web 3.0 and RDF. If you want to learn more about the concept [you can do so by going to this blogpost](https://bob.wtf/semantic-internet-of-things-42811e1ca7a7).
 
 Your platforms or devices can interact with the service via the RESTful API or the MQTT buses. To see the Swagger documentation click [here](https://github.com/weaviate/weaviate-swagger).
 
