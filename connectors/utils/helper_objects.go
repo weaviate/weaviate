@@ -14,6 +14,8 @@
 package connector_utils
 
 import ()
+import "github.com/go-openapi/strfmt"
+import "github.com/weaviate/weaviate/models"
 
 // RefTypeAction used for actions in DB and requests
 const RefTypeAction string = "Action"
@@ -26,20 +28,9 @@ const RefTypeThing string = "Thing"
 
 // Key for a new row in de database
 type Key struct {
-	UUID           string         // uuid, also used in Object's id
-	KeyToken       string         // uuid, token to login
-	KeyExpiresUnix int64          // expiry time in unix timestamp
-	Permissions    KeyPermissions // type, as defined
-	Parent         string         // Parent Uuid (not key)
-	Deleted        bool           // if true, it does not exsist anymore
-}
-
-// KeyPermissions is an Object of Key
-type KeyPermissions struct {
-	Delete   bool     `json:"delete"`
-	Email    string   `json:"email"`
-	Execute  bool     `json:"execute"`
-	IPOrigin []string `json:"ipOrigin"`
-	Read     bool     `json:"read"`
-	Write    bool     `json:"write"`
+	KeyToken strfmt.UUID // UUID, token to login
+	Parent   string      // UUID or *
+	Root     bool
+	UUID     strfmt.UUID // UUID, object's key
+	models.KeyCreate
 }
