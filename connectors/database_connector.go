@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors/dgraph"
+	"github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/models"
 	"github.com/weaviate/weaviate/schema"
 )
@@ -41,6 +42,9 @@ type DatabaseConnector interface {
 	ListActions(strfmt.UUID, int, int) (models.ActionsListResponse, error)
 	UpdateAction(*models.Action, strfmt.UUID) error
 	DeleteAction(strfmt.UUID) error
+
+	AddKey(*connector_utils.Key, strfmt.UUID) error
+	ValidateToken(strfmt.UUID) (connector_utils.Key, error)
 }
 
 // GetAllConnectors contains all available connectors

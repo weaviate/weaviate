@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"github.com/mitchellh/mapstructure"
 	"io/ioutil"
+	"log"
 	"math"
 	"strings"
 
@@ -57,6 +58,7 @@ type Config struct {
 
 const refTypePointer string = "_type_"
 const schemaPrefix string = "schema."
+const ipOriginDelimiter string = ";"
 
 // GetName returns a unique connector name
 func (f *Dgraph) GetName() string {
@@ -124,7 +126,7 @@ func (f *Dgraph) Init() error {
 	// Init flush variable
 	flushIt := false
 
-	// Add schema to database TODO
+	// Add schema to database TODO, needed for reversing nodes?
 	// for _, class := range cfv.schema.Classes {
 	// 	// for _, prop := range class.Properties {
 	// 	for _ = range class.Properties {
@@ -238,6 +240,16 @@ func (f *Dgraph) Init() error {
 		return errors_.New("error while adding 'key.child' Dgraph-schema")
 	}
 
+	// Add index for keys parent
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: "key.parent",
+		ValueType: uint32(types.UidID),
+		Directive: protos.SchemaUpdate_REVERSE,
+		Count:     true,
+	}); err != nil {
+		return errors_.New("error while adding 'key.parent' Dgraph-schema")
+	}
+
 	// Add key for searching root
 	if err := f.client.AddSchema(protos.SchemaUpdate{
 		Predicate: "key.root",
@@ -249,34 +261,51 @@ func (f *Dgraph) Init() error {
 		return errors_.New("error while adding 'key.root' Dgraph-schema")
 	}
 
+	// Add token schema in Dgraph
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: "key.token",
+		ValueType: uint32(types.StringID),
+		Tokenizer: []string{"exact", "term"},
+		Directive: protos.SchemaUpdate_INDEX,
+		Count:     true,
+	}); err != nil {
+		return errors_.New("error while adding 'key.token' Dgraph-schema")
+	}
+
 	// Add ROOT-key if not exists
 	// Search for Root key
-	// req := dgraphClient.Req{}
-	// req.SetQuery(`{
-	// 	totalResults(func: eq(key.root, 1))  {
-	// 		count()
-	// 	}
-	// }`)
+	req := dgraphClient.Req{}
+	req.SetQuery(`{
+		totalResults(func: eq(key.root, true))  {
+			count()
+		}
+	}`)
 
-	// // Run query created above
-	// var resp *protos.Response
-	// if resp, err = f.client.Run(f.getContext(), &req); err != nil {
-	// 	return err
-	// }
+	// Run query created above
+	var resp *protos.Response
+	if resp, err = f.client.Run(f.getContext(), &req); err != nil {
+		return err
+	}
 
-	// // Unmarshal the dgraph response into a struct
-	// var totalResult TotalResultsResult
-	// if err = dgraphClient.Unmarshal(resp.N, &totalResult); err != nil {
-	// 	return err
-	// }
+	// Unmarshal the dgraph response into a struct
+	var totalResult TotalResultsResult
+	if err = dgraphClient.Unmarshal(resp.N, &totalResult); err != nil {
+		return err
+	}
 
-	// // Set the total results
-	// if totalResult.Root.Count == 0 {
-	// 	log.Println("NO ROOTKEY YET")
-	// 	userObject := connector_utils.CreateFirstUserObject()
+	// Set the total results
+	if totalResult.Root.Count == 0 {
+		log.Println("No root-key found.")
+		keyObject := connector_utils.CreateFirstUserObject()
 
-	// 	log.Println(userObject)
-	// }
+		err = f.AddKey(keyObject, connector_utils.GenerateUUID())
+
+		if err != nil {
+			return err
+		}
+	}
+
+	// END KEYS
 
 	// Call flush to flush buffers after all mutations are added
 	if flushIt {
@@ -370,7 +399,6 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 	thingsResponse := models.ThingsListResponse{}
 
 	// Do a query to get all node-information
-	// TODO: Only return Things and no actions
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{ 
 		things(func: eq(%s, %s), orderdesc: creationTimeUnix, first: %d, offset: %d)  {
@@ -592,7 +620,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 	}
 
 	// Create query to count total results
-	// TODO: Combine the total results code with the code of the 'things'
+	// TODO: Combine the total results code with the code of the 'things' if possible
 	req = dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{
 		totalResults(func: eq(uuid, "%s")) {
@@ -655,6 +683,145 @@ func (f *Dgraph) DeleteAction(UUID strfmt.UUID) error {
 	// Call function for deleting node
 	err := f.deleteNodeByUUID(UUID)
 	return err
+}
+
+// AddKey adds a key to the Dgraph database with the given UUID
+func (f *Dgraph) AddKey(key *connector_utils.Key, UUID strfmt.UUID) error {
+	// Create new node with base vars
+	newNode, err := f.addNewNode(
+		connector_utils.RefTypeKey,
+		UUID,
+	)
+
+	// Init the request
+	req := dgraphClient.Req{}
+
+	// Add root value to edge
+	edge := newNode.Edge("key.root")
+	if err := edge.SetValueBool(key.Root); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Add delete-rights value to edge
+	edge = newNode.Edge("key.delete")
+	if err := edge.SetValueBool(key.Delete); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Add execute-rights value to edge
+	edge = newNode.Edge("key.execute")
+	if err := edge.SetValueBool(key.Execute); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Add read-rights value to edge
+	edge = newNode.Edge("key.read")
+	if err := edge.SetValueBool(key.Read); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Add write-rights value to edge
+	edge = newNode.Edge("key.write")
+	if err := edge.SetValueBool(key.Write); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Add email value to edge
+	edge = newNode.Edge("key.email")
+	if err := edge.SetValueString(key.Email); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Add token value to edge
+	edge = newNode.Edge("key.token")
+	if err := edge.SetValueString(string(key.KeyToken)); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Add expiry value to edge
+	edge = newNode.Edge("key.expiry")
+	if err := edge.SetValueInt(key.KeyExpiresUnix); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Add ip-origin value to edge
+	edge = newNode.Edge("key.iporigin")
+	if err := edge.SetValueString(strings.Join(key.IPOrigin, ipOriginDelimiter)); err != nil {
+		return err
+	}
+	if err = req.Set(edge); err != nil {
+		return err
+	}
+
+	// Parent does not have to be set
+
+	// Call run after all mutations are added
+	if _, err = f.client.Run(f.getContext(), &req); err != nil {
+		return err
+	}
+
+	return err
+	// TODO: Reset batch before and flush after every function??
+}
+
+// ValidateToken adds a key to the Dgraph database with the given UUID
+func (f *Dgraph) ValidateToken(UUID strfmt.UUID) (connector_utils.Key, error) {
+	// Create key
+	key := connector_utils.Key{}
+
+	// Search for Root key
+	req := dgraphClient.Req{}
+	req.SetQuery(fmt.Sprintf(`{
+		get(func: eq(key.token, "%s"))  {
+			expand(_all_)
+		}
+	}`, UUID))
+
+	// Run query created above
+	var err error
+	var resp *protos.Response
+	if resp, err = f.client.Run(f.getContext(), &req); err != nil {
+		return key, err
+	}
+
+	// Unmarshal the dgraph response into a struct
+	nodes := resp.GetN()
+
+	// No nodes = not found error. First level is root (always exists) so check children.
+	if len(nodes[0].GetChildren()) == 0 {
+		return key, errors_.New("Key not found in database.")
+	}
+
+	// Merge the results into the model to return
+	for _, node := range nodes {
+		f.mergeKeyNodeInResponse(node, &key)
+	}
+
+	return key, nil
 }
 
 func (f *Dgraph) addNewNode(nType string, UUID strfmt.UUID) (dgraphClient.Node, error) {
@@ -1071,6 +1238,47 @@ func (f *Dgraph) deleteNodeByUUID(UUID strfmt.UUID) error {
 
 func (f *Dgraph) getContext() context.Context {
 	return context.Background()
+}
+
+// mergeKeyNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
+func (f *Dgraph) mergeKeyNodeInResponse(node *protos.Node, key *connector_utils.Key) {
+	// Get node attribute, this is the name of the parent node.
+	attribute := node.Attribute
+
+	// Depending on the given function name in the query or depth in response, switch on the attribute.
+	if attribute == "get" {
+		// For all properties, fill them.
+		for _, prop := range node.GetProperties() {
+			// Fill basic properties of each thing.
+			if prop.Prop == "key.delete" {
+				key.Delete = prop.GetValue().GetBoolVal()
+			} else if prop.Prop == "key.email" {
+				key.Email = prop.GetValue().GetStrVal()
+			} else if prop.Prop == "key.execute" {
+				key.Execute = prop.GetValue().GetBoolVal()
+			} else if prop.Prop == "key.expiry" {
+				key.KeyExpiresUnix = prop.GetValue().GetIntVal()
+			} else if prop.Prop == "key.iporigin" {
+				key.IPOrigin = strings.Split(prop.GetValue().GetStrVal(), ipOriginDelimiter)
+			} else if prop.Prop == "key.read" {
+				key.Read = prop.GetValue().GetBoolVal()
+			} else if prop.Prop == "key.emrootail" {
+				key.Root = prop.GetValue().GetBoolVal()
+			} else if prop.Prop == "key.token" {
+				key.KeyToken = strfmt.UUID(prop.GetValue().GetStrVal())
+			} else if prop.Prop == "key.write" {
+				key.Write = prop.GetValue().GetBoolVal()
+			} else if prop.Prop == "uuid" {
+				key.UUID = strfmt.UUID(prop.GetValue().GetStrVal())
+			}
+		}
+	}
+
+	// Go level deeper to find cref nodes.
+	for _, child := range node.Children {
+		f.mergeKeyNodeInResponse(child, key)
+	}
+
 }
 
 // TODO REMOVE, JUST FOR TEST

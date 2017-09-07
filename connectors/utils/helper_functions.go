@@ -36,40 +36,28 @@ import (
 // }
 
 // PrincipalMarshalling Marhshall and Unmarshall Principal and Principals Objects
-func PrincipalMarshalling(Object interface{}) (Key, KeyPermissions) {
+func PrincipalMarshalling(Object interface{}) Key {
 	// marshall principal
 	principalMarshall, _ := json.Marshal(Object)
 	var key Key
 	json.Unmarshal(principalMarshall, &key)
 
-	return key, key.Permissions
+	return key
 }
 
 // CreateFirstUserObject creates a new user with new API key when none exists when starting server
-func CreateFirstUserObject() Key {
+func CreateFirstUserObject() *Key {
 	key := Key{}
 
 	// Create key token
-	key.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
-
-	// Uuid + name
-	uuid := fmt.Sprintf("%v", gouuid.NewV4())
+	key.KeyToken = GenerateUUID()
 
 	// Auto set the parent ID to root *
 	key.Parent = "*"
-
-	// Set Uuid
-	key.UUID = uuid
+	key.Root = true
 
 	// Set expiry to unlimited
-	key.KeyExpiresUnix = -1
-
-	// Set chmod variables
-	keyPermissions := KeyPermissions{}
-	keyPermissions.Read = true
-	keyPermissions.Write = true
-	keyPermissions.Delete = true
-	keyPermissions.Execute = true
+	key.KeyExpiresUnix = 1
 
 	// Get ips as v6
 	var ips []string
@@ -90,17 +78,23 @@ func CreateFirstUserObject() Key {
 		}
 	}
 
-	keyPermissions.IPOrigin = ips
+	key.IPOrigin = ips
 
-	// Marshall and add to object
-	key.Permissions = keyPermissions
+	// Set chmod variables
+	key.Read = true
+	key.Write = true
+	key.Delete = true
+	key.Execute = true
+
+	// Set Mail
+	key.Email = "weaviate@weaviate.nl"
 
 	// Print the key
 	log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/weaviate/weaviate/blob/develop/README.md#authentication")
-	log.Println("INFO: Auto set allowed IPs to: ", keyPermissions.IPOrigin)
+	log.Println("INFO: Auto set allowed IPs to: ", key.IPOrigin)
 	log.Println("ROOTKEY=" + key.KeyToken)
 
-	return key
+	return &key
 }
 
 // NowUnix returns the current Unix time
