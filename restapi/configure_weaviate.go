@@ -109,28 +109,28 @@ func getKind(object interface{}) *string {
 }
 
 // isOwnKeyOrLowerInTree returns whether a key is his own or in his children
-func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.Key, userKeyID string, databaseConnector dbconnector.DatabaseConnector) bool {
-	// If is own key, return true
-	if strings.EqualFold(userKeyID, currentUsersObject.UUID) {
-		return true
-	}
+func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.Key, userKeyID strfmt.UUID, databaseConnector dbconnector.DatabaseConnector) bool {
+	// // If is own key, return true
+	// if strings.EqualFold(userKeyID, currentUsersObject.UUID) {
+	// 	return true
+	// }
 
-	// Get all child id's
-	var childIDs []string
-	childIDs = GetKeyChildren(databaseConnector, currentUsersObject.UUID, true, childIDs, 0, 0)
+	// // Get all child id's
+	// var childIDs []string
+	// childIDs = GetKeyChildren(databaseConnector, currentUsersObject.UUID, true, childIDs, 0, 0)
 
-	// Check ID is in childIds
-	isChildID := false
-	for _, childID := range childIDs {
-		if childID == userKeyID {
-			isChildID = true
-		}
-	}
+	// // Check ID is in childIds
+	// isChildID := false
+	// for _, childID := range childIDs {
+	// 	if childID == userKeyID {
+	// 		isChildID = true
+	// 	}
+	// }
 
-	// This is a delete function, validate if allowed to do action with own/parent.
-	if isChildID {
-		return true
-	}
+	// // This is a delete function, validate if allowed to do action with own/parent.
+	// if isChildID {
+	// 	return true
+	// }
 
 	return false
 }
@@ -152,7 +152,7 @@ func GetKeyChildren(databaseConnector dbconnector.DatabaseConnector, parentUUID 
 	return allIDs
 }
 
-func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID string) {
+func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID) {
 	// // Find its children
 	// var allIDs []string
 	// allIDs = GetKeyChildren(databaseConnector, parentUUID, false, allIDs, 0, 0)
@@ -177,18 +177,25 @@ func validateSchemaInBody(weaviateSchema *schema.Schema, bodySchema *models.Sche
 }
 
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
-func ActionsAllowed(actions []string, validateObject interface{}, databaseConnector dbconnector.DatabaseConnector, objectOwnerKeyID interface{}) (bool, error) {
-	return true, nil
-
+func ActionsAllowed(actions []string, validateObject interface{}, databaseConnector dbconnector.DatabaseConnector, objectOwnerUUID interface{}) (bool, error) {
 	// Get the user by the given principal
-	usersObject, usersObjectsObject := connector_utils.PrincipalMarshalling(validateObject)
+	keyObject := connector_utils.PrincipalMarshalling(validateObject)
+
+	log.Println(validateObject)
+
+	return true, nil
 
 	// Check whether the given owner of the object is in the children, if the ownerID is given
 	correctChild := false
-	if objectOwnerKeyID != nil {
-		correctChild = isOwnKeyOrLowerInTree(usersObject, objectOwnerKeyID.(string), databaseConnector)
+	if objectOwnerUUID != nil {
+		correctChild = isOwnKeyOrLowerInTree(keyObject, objectOwnerUUID.(strfmt.UUID), databaseConnector)
 	} else {
 		correctChild = true
+	}
+
+	// Return false if the object's owner is not the logged in user or one of its childs.
+	if !correctChild {
+		return false, errors_.New("the object does not belong to the given token or to one of the token's children")
 	}
 
 	// All possible actions in a map to check it more easily
@@ -205,28 +212,23 @@ func ActionsAllowed(actions []string, validateObject interface{}, databaseConnec
 	}
 
 	// Check every action on its rights, if rights are needed and the key has not that kind of rights, return false.
-	if actionsToCheck["read"] && !usersObjectsObject.Read {
+	if actionsToCheck["read"] && !keyObject.Read {
 		return false, errors_.New("read rights are needed to perform this action")
 	}
 
 	// Idem
-	if actionsToCheck["write"] && !usersObjectsObject.Write {
+	if actionsToCheck["write"] && !keyObject.Write {
 		return false, errors_.New("write rights are needed to perform this action")
 	}
 
 	// Idem
-	if actionsToCheck["delete"] && !usersObjectsObject.Delete {
+	if actionsToCheck["delete"] && !keyObject.Delete {
 		return false, errors_.New("delete rights are needed to perform this action")
 	}
 
 	// Idem
-	if actionsToCheck["execute"] && !usersObjectsObject.Execute {
+	if actionsToCheck["execute"] && !keyObject.Execute {
 		return false, errors_.New("execute rights are needed to perform this action")
-	}
-
-	// Return false if the object's owner is not the logged in user or one of its childs.
-	if !correctChild {
-		return false, errors_.New("the object does not belong to the given token or to one of the token's children")
 	}
 
 	return true, nil
@@ -289,7 +291,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// init the database
 	errInit := databaseConnector.Init()
 	if errInit != nil {
-		weaviate_error.ExitError(1, "database with the name '"+databaseConfig.Environment.Database.Name+"' gave an error when initializing: "+errConnect.Error())
+		weaviate_error.ExitError(1, "database with the name '"+databaseConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
 	}
 
 	// connect to mqtt
@@ -330,32 +332,22 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	// Applies when the "X-API-KEY" header is set
 	api.APIKeyAuth = func(token string) (interface{}, error) {
-
 		// Check if the user has access, true if yes
-		// validatedKeys, _ := databaseConnector.ValidateKey(token)
+		validatedKey, err := databaseConnector.ValidateToken(strfmt.UUID(token))
 
-		// if len(validatedKeys) == 0 {
-		// 	return nil, errors.New(401, "Provided key does not exist.")
-		// }
+		// Error printing
+		if err != nil {
+			return nil, errors.New(401, err.Error())
+		}
 
-		// // Get the only key
-		// validatedKey := validatedKeys[0]
+		// Validate the key on expiry time
+		currentUnix := connector_utils.NowUnix()
+		if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
+			return nil, errors.New(401, "Provided key has expired.")
+		}
 
-		// // Validate key on deleted flag
-		// if validatedKey.Deleted {
-		// 	return nil, errors.New(401, "Provided key has been deleted.")
-		// }
-
-		// // Validate the key on expiry time
-		// currentUnix := connector_utils.NowUnix()
-		// if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
-		// 	return nil, errors.New(401, "Provided key has been expired.")
-		// }
-
-		// // key is valid, next step is allowing per Handler handling
-		// return validatedKey, nil
-
-		return true, nil
+		// key is valid, next step is allowing per Handler handling
+		return validatedKey, nil
 	}
 
 	/*
@@ -780,10 +772,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsGetNotFound()
 		}
 
-		// // This is a read function, validate if allowed to read? TODO
-		// if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, dbObject.Owner); !allowed {
-		// 	return things.NewWeaviateThingsGetForbidden()
-		// }
+		// This is a read function, validate if allowed to read? TODO
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed {
+			return things.NewWeaviateThingsGetForbidden()
+		}
 
 		// Get is successful
 		return things.NewWeaviateThingsGetOK().WithPayload(&responseObject)
