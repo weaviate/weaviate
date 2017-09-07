@@ -181,22 +181,18 @@ func ActionsAllowed(actions []string, validateObject interface{}, databaseConnec
 	// Get the user by the given principal
 	keyObject := connector_utils.PrincipalMarshalling(validateObject)
 
-	log.Println(validateObject)
+	// // Check whether the given owner of the object is in the children, if the ownerID is given
+	// correctChild := false
+	// if objectOwnerUUID != nil {
+	// 	correctChild = isOwnKeyOrLowerInTree(keyObject, objectOwnerUUID.(strfmt.UUID), databaseConnector)
+	// } else {
+	// 	correctChild = true
+	// }
 
-	return true, nil
-
-	// Check whether the given owner of the object is in the children, if the ownerID is given
-	correctChild := false
-	if objectOwnerUUID != nil {
-		correctChild = isOwnKeyOrLowerInTree(keyObject, objectOwnerUUID.(strfmt.UUID), databaseConnector)
-	} else {
-		correctChild = true
-	}
-
-	// Return false if the object's owner is not the logged in user or one of its childs.
-	if !correctChild {
-		return false, errors_.New("the object does not belong to the given token or to one of the token's children")
-	}
+	// // Return false if the object's owner is not the logged in user or one of its childs.
+	// if !correctChild {
+	// 	return false, errors_.New("the object does not belong to the given token or to one of the token's children")
+	// }
 
 	// All possible actions in a map to check it more easily
 	actionsToCheck := map[string]bool{
@@ -362,20 +358,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsGetNotFound()
 		}
 
-		// // This is a read function, validate if allowed to read?
-		// if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, dbObject.Owner); !allowed {
-		// 	return actions.NewWeaviateActionsGetForbidden()
-		// }
+		// This is a read function, validate if allowed to read?
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed { // TODO: Add key actionGetResponse.Key.NrDollarCref
+			return actions.NewWeaviateActionsGetForbidden()
+		}
 
 		// Get is successful
 		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
 	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal interface{}) middleware.Responder {
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed {
-			return actions.NewWeaviateActionsPatchForbidden()
-		}
-
 		// Get and transform object
 		UUID := strfmt.UUID(params.ActionID)
 		actionGetResponse, errGet := databaseConnector.GetAction(UUID)
@@ -384,6 +375,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return error if UUID is not found.
 		if errGet != nil {
 			return actions.NewWeaviateActionsPatchNotFound()
+		}
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed { // TODO: Add key actionGetResponse.Key.NrDollarCref
+			return actions.NewWeaviateActionsPatchForbidden()
 		}
 
 		// Get PATCH params in format RFC 6902
@@ -490,9 +486,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a delete function, validate if allowed to delete? TODO
-		// if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, dbObject.Owner); !allowed {
-		// 	return things.NewWeaviateThingsDeleteForbidden()
-		// }
+		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, nil); !allowed { // TODO: Add key actionGetResponse.Key.NrDollarCref
+			return things.NewWeaviateThingsDeleteForbidden()
+		}
 
 		// Add new row as GO-routine
 		go databaseConnector.DeleteAction(params.ActionID)
@@ -753,9 +749,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a delete function, validate if allowed to delete? TODO
-		// if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, dbObject.Owner); !allowed {
-		// 	return things.NewWeaviateThingsDeleteForbidden()
-		// }
+		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, nil); !allowed { // TODO: Add key thingGetResponse.Key.NrDollarCref
+			return things.NewWeaviateThingsDeleteForbidden()
+		}
 
 		// Add new row as GO-routine
 		go databaseConnector.DeleteThing(params.ThingID)
@@ -772,8 +768,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsGetNotFound()
 		}
 
-		// This is a read function, validate if allowed to read? TODO
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed {
+		// This is a read function, validate if allowed to read?
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed { // TODO: Add key responseObject.Key.NrDollarCref
 			return things.NewWeaviateThingsGetForbidden()
 		}
 
@@ -803,11 +799,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
 	})
 	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal interface{}) middleware.Responder {
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed {
-			return things.NewWeaviateThingsPatchForbidden()
-		}
-
 		// Get and transform object
 		UUID := strfmt.UUID(params.ThingID)
 		thingGetResponse, errGet := databaseConnector.GetThing(UUID)
@@ -816,6 +807,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Return error if UUID is not found.
 		if errGet != nil {
 			return things.NewWeaviateThingsPatchNotFound()
+		}
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed { // TODO: Add key thingGetResponse.Key.NrDollarCref
+			return things.NewWeaviateThingsPatchForbidden()
 		}
 
 		// Get PATCH params in format RFC 6902
@@ -857,11 +853,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsPatchOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed {
-			return things.NewWeaviateThingsUpdateForbidden()
-		}
-
 		// Get item from database
 		UUID := strfmt.UUID(params.ThingID)
 		databaseResponseObject, errGet := databaseConnector.GetThing(UUID)
@@ -870,6 +861,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if errGet != nil {
 			// Object not found response.
 			return things.NewWeaviateThingsUpdateNotFound()
+		}
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed { // TODO: Add key databaseResponseObject.Key.NrDollarCref
+			return things.NewWeaviateThingsUpdateForbidden()
 		}
 
 		// Validate Schema given in body with the weaviate schema
