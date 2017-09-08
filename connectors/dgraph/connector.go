@@ -190,6 +190,16 @@ func (f *Dgraph) Init() error {
 		return errors_.New("error while adding '" + refTypePointer + "' Dgraph-schema")
 	}
 
+	// Add key connection schema in Dgraph
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: "key",
+		ValueType: uint32(types.UidID),
+		Directive: protos.SchemaUpdate_REVERSE,
+		Count:     true,
+	}); err != nil {
+		return errors_.New("error while adding 'key' Dgraph-schema")
+	}
+
 	// Add 'things.subject' schema in Dgraph
 	if err := f.client.AddSchema(protos.SchemaUpdate{
 		Predicate: "things.subject",
@@ -320,7 +330,7 @@ func (f *Dgraph) Init() error {
 }
 
 // AddThing adds a thing to the Dgraph database with the given UUID
-func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
+func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID, keyUUID strfmt.UUID) error {
 	// Create new node with base vars
 	newNode, err := f.addNewNode(
 		connector_utils.RefTypeThing,
@@ -330,6 +340,9 @@ func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	if err != nil {
 		return err
 	}
+
+	// Connect the Key to the Thing
+	err = f.connectKey(newNode, keyUUID)
 
 	// Add first level properties to node
 	newNode, err = f.addNodeFirstLevelProperties(
@@ -492,12 +505,19 @@ func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
 }
 
 // AddAction adds an Action to the Dgraph database with the given UUID
-func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
+func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID, keyUUID strfmt.UUID) error {
 	// Add new node
 	newNode, err := f.addNewNode(
 		connector_utils.RefTypeAction,
 		UUID,
 	)
+
+	if err != nil {
+		return err
+	}
+
+	// Connect the Key to the Action
+	err = f.connectKey(newNode, keyUUID)
 
 	if err != nil {
 		return err
@@ -1020,6 +1040,29 @@ func (f *Dgraph) connectRef(req *dgraphClient.Req, nodeFrom dgraphClient.Node, e
 		return err
 	}
 	return nil
+}
+
+// connectKey function to connect two nodes.
+func (f *Dgraph) connectKey(nodeFrom dgraphClient.Node, keyUUID strfmt.UUID) error {
+	// Create update request
+	req := dgraphClient.Req{}
+
+	// Find the
+	keyNode, err := f.getNodeByUUID(keyUUID)
+	if err != nil {
+		return err
+	}
+
+	err = f.connectRef(&req, nodeFrom, "key", keyNode)
+
+	if err != nil {
+		return err
+	}
+
+	// Call run after all mutations are added
+	_, err = f.client.Run(f.getContext(), &req)
+
+	return err
 }
 
 // mergeThingNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
