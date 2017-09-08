@@ -179,7 +179,7 @@ func validateSchemaInBody(weaviateSchema *schema.Schema, bodySchema *models.Sche
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
 func ActionsAllowed(actions []string, validateObject interface{}, databaseConnector dbconnector.DatabaseConnector, objectOwnerUUID interface{}) (bool, error) {
 	// Get the user by the given principal
-	keyObject := connector_utils.PrincipalMarshalling(validateObject)
+	keyObject := validateObject.(models.KeyTokenGetResponse)
 
 	// // Check whether the given owner of the object is in the children, if the ownerID is given
 	// correctChild := false
@@ -510,7 +510,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
 		// Create current User object from principal
-		key := connector_utils.PrincipalMarshalling(principal)
+		key := principal.(models.KeyTokenGetResponse)
 
 		// Fill the new User object
 		newKey := &connector_utils.Key{}
@@ -549,6 +549,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.KeyTokenGetResponse{}
 		responseObject.KeyCreate = newKey.KeyCreate
 		responseObject.KeyID = newKey.UUID
+		responseObject.Key = newKey.KeyToken
 		url := "http://localhost/"
 		responseObject.Parent = &models.SingleRef{
 			LocationURL:  &url,
@@ -665,23 +666,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysMeChildrenGetNotImplemented()
 	})
 	api.KeysWeaviateKeysMeDeleteHandler = keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
-		// // Create current User object from principal
-		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// Create current User object from principal
+		key := principal.(models.KeyTokenGetResponse)
 
-		// // Object is deleted or not-existing
-		// if currentUsersObject.Deleted {
-		// 	return keys.NewWeaviateKeysMeDeleteNotFound()
-		// }
+		// Remove key from database if found
+		deleteKey(databaseConnector, key.KeyID)
 
-		// // Change to Deleted
-		// currentUsersObject.Deleted = true
-
-		// // Remove key from database if found
-		// deleteKey(databaseConnector, currentUsersObject.Uuid)
-
-		// // Return 'No Content'
-		// return keys.NewWeaviateKeysMeDeleteNoContent()
-		return keys.NewWeaviateKeysMeDeleteNotImplemented()
+		// Return 'No Content'
+		return keys.NewWeaviateKeysMeDeleteNoContent()
 	})
 	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
 		// Get item from database

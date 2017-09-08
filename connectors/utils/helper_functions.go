@@ -14,7 +14,6 @@
 package connector_utils
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/go-openapi/strfmt"
 	"time"
@@ -34,16 +33,6 @@ import (
 
 // 	return key
 // }
-
-// PrincipalMarshalling Marhshall and Unmarshall Principal and Principals Objects
-func PrincipalMarshalling(Object interface{}) Key {
-	// marshall principal
-	principalMarshall, _ := json.Marshal(Object)
-	var key Key
-	json.Unmarshal(principalMarshall, &key)
-
-	return key
-}
 
 // CreateFirstUserObject creates a new user with new API key when none exists when starting server
 func CreateFirstUserObject() *Key {
