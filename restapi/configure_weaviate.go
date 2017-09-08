@@ -615,30 +615,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysDeleteNotImplemented()
 	})
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
-		// // Get item from database
-		// userObject, err := databaseConnector.GetKey(string(params.KeyID))
+		// Get item from database
+		tokenResponseObject, err := databaseConnector.GetKey(params.KeyID)
 
-		// // Object is deleted or not-existing
-		// if userObject.Deleted || err != nil {
-		// 	return keys.NewWeaviateKeysGetNotFound()
-		// }
+		// Object is deleted or not-existing
+		if err != nil {
+			return keys.NewWeaviateKeysGetNotFound()
+		}
 
-		// // Check on permissions
-		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
-		// if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+		// Check on permissions TODO
+		// keyObject := connector_utils.PrincipalMarshalling(principal)
+		// if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, databaseConnector) {
 		// 	return keys.NewWeaviateKeysDeleteForbidden()
 		// }
 
-		// // Create response Object from create object.
-		// responseObject := &models.KeyGetResponse{}
-		// json.Unmarshal([]byte(userObject.Object), responseObject)
-		// responseObject.KeyID = strfmt.UUID(userObject.Uuid)
-		// responseObject.Parent = userObject.Parent
-		// responseObject.KeyExpiresUnix = userObject.KeyExpiresUnix
+		// Create response Object from create object.
+		responseObject := &models.KeyGetResponse{}
+		responseObject.KeyCreate = tokenResponseObject.KeyCreate
+		responseObject.KeyID = tokenResponseObject.KeyID
+		responseObject.Parent = tokenResponseObject.Parent
 
-		// // Get is successful
-		// return keys.NewWeaviateKeysGetOK().WithPayload(responseObject)
-		return keys.NewWeaviateKeysGetNotImplemented()
+		// Get is successful
+		return keys.NewWeaviateKeysGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
 		// // Create current User object from principal
