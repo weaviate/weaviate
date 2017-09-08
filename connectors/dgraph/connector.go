@@ -374,37 +374,14 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 	thingResponse := models.ThingGetResponse{}
 	thingResponse.Schema = map[string]models.JSONObject{}
 
-	// Do a query to get all node-information based on the given UUID
-	variables := make(map[string]string)
-	variables["$uuid"] = string(UUID)
-
-	req := dgraphClient.Req{}
-	req.SetQueryWithVariables(`{ 
-		get(func: eq(uuid, $uuid)) {
-			expand(_all_) {
-				expand(_all_)
-			}
-		}
-	}`, variables)
-
-	// Run query created above
-	resp, err := f.client.Run(f.getContext(), &req)
+	// Get raw node for response
+	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeThing)
 	if err != nil {
 		return thingResponse, err
 	}
 
-	// Get nodes from response
-	nodes := resp.GetN()
-
-	// No nodes = not found error. First level is root (always exists) so check children.
-	if len(nodes[0].GetChildren()) == 0 {
-		return thingResponse, errors_.New("Thing not found in database.")
-	}
-
 	// Merge the results into the model to return
-	for _, node := range nodes {
-		f.mergeThingNodeInResponse(node, &thingResponse)
-	}
+	f.mergeThingNodeInResponse(rawNode, &thingResponse)
 
 	return thingResponse, nil
 }
@@ -559,37 +536,14 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
 	actionResponse.Schema = map[string]models.JSONObject{}
 	actionResponse.Things = &models.ObjectSubject{}
 
-	// Do a query to get all node-information based on the given UUID
-	variables := make(map[string]string)
-	variables["$uuid"] = string(UUID)
-
-	req := dgraphClient.Req{}
-	req.SetQueryWithVariables(`{ 
-		get(func: eq(uuid, $uuid)) {
-			expand(_all_) {
-				expand(_all_)
-			}
-		}
-	}`, variables)
-
-	// Run query created above
-	resp, err := f.client.Run(f.getContext(), &req)
+	// Get raw node for response
+	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeAction)
 	if err != nil {
 		return actionResponse, err
 	}
 
-	// Get nodes from response
-	nodes := resp.GetN()
-
-	// No nodes = not found error. First level is root (always exists) so check children.
-	if len(nodes[0].GetChildren()) == 0 {
-		return actionResponse, errors_.New("Actions not found in database.")
-	}
-
 	// Merge the results into the model to return
-	for _, node := range nodes {
-		f.mergeActionNodeInResponse(node, &actionResponse, "")
-	}
+	f.mergeActionNodeInResponse(rawNode, &actionResponse, "")
 
 	return actionResponse, nil
 }
@@ -830,10 +784,27 @@ func (f *Dgraph) AddKey(key *connector_utils.Key, UUID strfmt.UUID) error {
 	// TODO: Reset batch before and flush after every function??
 }
 
+// GetKey returns the thing in the KeyGetResponse format
+func (f *Dgraph) GetKey(UUID strfmt.UUID) (models.KeyTokenGetResponse, error) {
+	// Initialize response
+	keyResponse := models.KeyTokenGetResponse{}
+
+	// Get raw node for response
+	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeKey)
+	if err != nil {
+		return keyResponse, err
+	}
+
+	// Merge the results into the model to return
+	f.mergeKeyNodeInResponse(rawNode, &keyResponse)
+
+	return keyResponse, nil
+}
+
 // ValidateToken adds a key to the Dgraph database with the given UUID
-func (f *Dgraph) ValidateToken(UUID strfmt.UUID) (connector_utils.Key, error) {
+func (f *Dgraph) ValidateToken(UUID strfmt.UUID) (models.KeyTokenGetResponse, error) {
 	// Create key
-	key := connector_utils.Key{}
+	key := models.KeyTokenGetResponse{}
 
 	// Search for Root key
 	req := dgraphClient.Req{}
@@ -859,9 +830,7 @@ func (f *Dgraph) ValidateToken(UUID strfmt.UUID) (connector_utils.Key, error) {
 	}
 
 	// Merge the results into the model to return
-	for _, node := range nodes {
-		f.mergeKeyNodeInResponse(node, &key)
-	}
+	f.mergeKeyNodeInResponse(nodes[0], &key)
 
 	return key, nil
 }
@@ -1248,6 +1217,38 @@ func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *mo
 	}
 }
 
+func (f *Dgraph) getRawNodeByUUID(UUID strfmt.UUID, typeName string) (*protos.Node, error) {
+	// Search for the class to make the connection, create variables
+	variables := make(map[string]string)
+	variables["$uuid"] = string(UUID)
+
+	// Create the query for existing class
+	req := dgraphClient.Req{}
+	req.SetQuery(fmt.Sprintf(`{ 
+		get(func: eq(uuid, "%s")) @filter(eq(%s, "%s")) {
+			expand(_all_) {
+				expand(_all_)
+			}
+		}
+	}`, string(UUID), refTypePointer, typeName))
+
+	// Run the query
+	resp, err := f.client.Run(f.getContext(), &req)
+
+	if err != nil {
+		return &protos.Node{}, err
+	}
+
+	nodes := resp.N
+
+	// No nodes = not found error. First level is root (always exists) so check children.
+	if len(nodes[0].GetChildren()) == 0 {
+		return &protos.Node{}, errors_.New("Thing not found in database.")
+	}
+
+	return nodes[0], err
+}
+
 func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
 	// Search for the class to make the connection, create variables
 	variables := make(map[string]string)
@@ -1312,7 +1313,7 @@ func (f *Dgraph) getContext() context.Context {
 }
 
 // mergeKeyNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
-func (f *Dgraph) mergeKeyNodeInResponse(node *protos.Node, key *connector_utils.Key) {
+func (f *Dgraph) mergeKeyNodeInResponse(node *protos.Node, key *models.KeyTokenGetResponse) {
 	// Get node attribute, this is the name of the parent node.
 	attribute := node.Attribute
 
@@ -1333,16 +1334,17 @@ func (f *Dgraph) mergeKeyNodeInResponse(node *protos.Node, key *connector_utils.
 				key.IPOrigin = strings.Split(prop.GetValue().GetStrVal(), ipOriginDelimiter)
 			} else if prop.Prop == "key.read" {
 				key.Read = prop.GetValue().GetBoolVal()
-			} else if prop.Prop == "key.emrootail" {
-				key.Root = prop.GetValue().GetBoolVal()
 			} else if prop.Prop == "key.token" {
-				key.KeyToken = strfmt.UUID(prop.GetValue().GetStrVal())
+				key.Key = strfmt.UUID(prop.GetValue().GetStrVal())
 			} else if prop.Prop == "key.write" {
 				key.Write = prop.GetValue().GetBoolVal()
 			} else if prop.Prop == "uuid" {
-				key.UUID = strfmt.UUID(prop.GetValue().GetStrVal())
+				key.KeyID = strfmt.UUID(prop.GetValue().GetStrVal())
 			}
 		}
+	} else if attribute == edgeNameKeyParent {
+		// When the attribute is 'key', add the reference object
+		key.Parent = f.createCrefObject(node)
 	}
 
 	// Go level deeper to find cref nodes.
