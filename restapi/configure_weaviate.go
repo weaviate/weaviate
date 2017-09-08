@@ -454,11 +454,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionCreateJSON, _ := json.Marshal(params.Body)
 		action := &models.Action{}
 		json.Unmarshal([]byte(actionCreateJSON), action)
-		// action.Key = &models.SingleRef{
-		// 	// LocationURL:  "http://localhost/",
-		// 	NrDollarCref: "hoi", // TODO principal (when keys are implemented)
-		// 	Type:         "Key",
-		// }
+
 		action.CreationTimeUnix = connector_utils.NowUnix()
 		action.LastUpdateTimeUnix = 0
 
@@ -472,6 +468,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ActionGetResponse{}
 		responseObject.Action = *action
 		responseObject.ActionID = UUID
+		url := "http://localhost/"
+		responseObject.Key = &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: principal.(connector_utils.Key).UUID,
+			Type:         "Key",
+		}
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
@@ -735,6 +737,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ThingGetResponse{}
 		responseObject.Thing = *thing
 		responseObject.ThingID = UUID
+		url := "http://localhost/"
+		responseObject.Key = &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: principal.(connector_utils.Key).UUID,
+			Type:         "Key",
+		}
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
