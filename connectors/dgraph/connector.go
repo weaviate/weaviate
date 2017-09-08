@@ -57,6 +57,7 @@ type Config struct {
 }
 
 const refTypePointer string = "_type_"
+const edgeNameKey string = "key"
 const schemaPrefix string = "schema."
 const ipOriginDelimiter string = ";"
 
@@ -192,12 +193,12 @@ func (f *Dgraph) Init() error {
 
 	// Add key connection schema in Dgraph
 	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "key",
+		Predicate: edgeNameKey,
 		ValueType: uint32(types.UidID),
 		Directive: protos.SchemaUpdate_REVERSE,
 		Count:     true,
 	}); err != nil {
-		return errors_.New("error while adding 'key' Dgraph-schema")
+		return errors_.New("error while adding '" + edgeNameKey + "' Dgraph-schema")
 	}
 
 	// Add 'things.subject' schema in Dgraph
@@ -1053,7 +1054,7 @@ func (f *Dgraph) connectKey(nodeFrom dgraphClient.Node, keyUUID strfmt.UUID) err
 		return err
 	}
 
-	err = f.connectRef(&req, nodeFrom, "key", keyNode)
+	err = f.connectRef(&req, nodeFrom, edgeNameKey, keyNode)
 
 	if err != nil {
 		return err
@@ -1103,6 +1104,9 @@ func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *mode
 
 		// Add the 'cref'-node into the response.
 		thingResponse.Schema.(map[string]interface{})[strings.TrimPrefix(attribute, schemaPrefix)] = crefObj
+	} else if attribute == edgeNameKey {
+		// When the attribute is 'key', add the reference object
+		thingResponse.Key = f.createCrefObject(node)
 	}
 
 	// Go level deeper to find cref nodes.
@@ -1212,6 +1216,9 @@ func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *mo
 	} else if attribute == "things.object" {
 		// Add the 'cref'-node into the response.
 		actionResponse.Things.Object = f.createCrefObject(node)
+	} else if attribute == edgeNameKey {
+		// When the attribute is 'key', add the reference object
+		actionResponse.Key = f.createCrefObject(node)
 	}
 
 	// Go level deeper to find cref nodes.
