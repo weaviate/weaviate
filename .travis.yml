@@ -23,5 +23,5 @@ script:
   - go get ./...
   - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8070 --host=localhost --config=graph --config-file=weaviate.conf.json &
   - sleep 40
-  # - export WEAVIATEKEY=$(grep "ROOTKEY=" nohup.out | cut -d "=" -f 2)
-  - go test -v ./test -args -api-key=327a2fc9-fcd8-4508-94fe-d3e8b6cf1c6e --server-port=8070 --server-host=localhost
+  - export WEAVIATEKEY=$(grep "ROOTKEY=" nohup.out | cut -d "=" -f 2)
+  - go test -v ./test -args -api-key=$WEAVIATEKEY --server-port=8070 --server-host=localhost
