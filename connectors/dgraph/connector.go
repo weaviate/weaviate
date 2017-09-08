@@ -58,6 +58,8 @@ type Config struct {
 
 const refTypePointer string = "_type_"
 const edgeNameKey string = "key"
+const edgeNameKeyChild string = "key.child"
+const edgeNameKeyParent string = "key.parent"
 const schemaPrefix string = "schema."
 const ipOriginDelimiter string = ";"
 
@@ -243,22 +245,22 @@ func (f *Dgraph) Init() error {
 	// KEYS
 	// Add index for keys
 	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "key.child",
+		Predicate: edgeNameKeyChild,
 		ValueType: uint32(types.UidID),
 		Directive: protos.SchemaUpdate_REVERSE,
 		Count:     true,
 	}); err != nil {
-		return errors_.New("error while adding 'key.child' Dgraph-schema")
+		return errors_.New("error while adding '" + edgeNameKeyChild + "' Dgraph-schema")
 	}
 
 	// Add index for keys parent
 	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: "key.parent",
+		Predicate: edgeNameKeyParent,
 		ValueType: uint32(types.UidID),
 		Directive: protos.SchemaUpdate_REVERSE,
 		Count:     true,
 	}); err != nil {
-		return errors_.New("error while adding 'key.parent' Dgraph-schema")
+		return errors_.New("error while adding '" + edgeNameKeyParent + "' Dgraph-schema")
 	}
 
 	// Add key for searching root
@@ -798,7 +800,26 @@ func (f *Dgraph) AddKey(key *connector_utils.Key, UUID strfmt.UUID) error {
 		return err
 	}
 
-	// Parent does not have to be set
+	// Set parent node, if node is not root
+	if !(key.Parent == "*" && key.Root) {
+		// Get Parent Node
+		parentNode, err := f.getNodeByUUID(strfmt.UUID(key.Parent))
+		if err != nil {
+			return err
+		}
+
+		// Connect parent node as parent
+		err = f.connectRef(&req, newNode, edgeNameKeyParent, parentNode)
+		if err != nil {
+			return err
+		}
+
+		// Connect child node as child to parent
+		err = f.connectRef(&req, parentNode, edgeNameKeyChild, newNode)
+		if err != nil {
+			return err
+		}
+	}
 
 	// Call run after all mutations are added
 	if _, err = f.client.Run(f.getContext(), &req); err != nil {
