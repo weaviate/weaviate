@@ -417,6 +417,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ActionGetResponse{}
 		json.Unmarshal([]byte(updatedJSON), &responseObject)
 		responseObject.ActionID = UUID
+		url := "http://localhost/"
+		responseObject.Key = &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: principal.(connector_utils.Key).UUID,
+			Type:         "Key",
+		}
 
 		return actions.NewWeaviateActionsPatchOK().WithPayload(responseObject)
 	})
@@ -857,6 +863,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ThingGetResponse{}
 		json.Unmarshal([]byte(updatedJSON), &responseObject)
 		responseObject.ThingID = UUID
+		url := "http://localhost/"
+		responseObject.Key = &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: principal.(connector_utils.Key).UUID,
+			Type:         "Key",
+		}
 
 		return things.NewWeaviateThingsPatchOK().WithPayload(responseObject)
 	})
@@ -897,6 +909,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ThingGetResponse{}
 		responseObject.Thing = params.Body.Thing
 		responseObject.ThingID = UUID
+		url := "http://localhost/"
+		responseObject.Key = &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: principal.(connector_utils.Key).UUID,
+			Type:         "Key",
+		}
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return things.NewWeaviateThingsUpdateOK().WithPayload(responseObject)
