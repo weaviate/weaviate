@@ -46,6 +46,7 @@ type DatabaseConnector interface {
 	AddKey(*connector_utils.Key, strfmt.UUID) error
 	ValidateToken(strfmt.UUID) (models.KeyTokenGetResponse, error)
 	GetKey(strfmt.UUID) (models.KeyTokenGetResponse, error)
+	DeleteKey(strfmt.UUID) error
 }
 
 // GetAllConnectors contains all available connectors
