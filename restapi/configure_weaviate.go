@@ -685,27 +685,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysMeDeleteNotImplemented()
 	})
 	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
-		// // Create current User object from principal
-		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// Get item from database
+		tokenResponseObject, err := databaseConnector.GetKey(principal.(models.KeyTokenGetResponse).KeyID)
 
-		// // Init object
-		// responseObject := &models.KeyTokenGetResponse{}
+		// Object is deleted or not-existing
+		if err != nil {
+			return keys.NewWeaviateKeysGetNotFound()
+		}
 
-		// // Object is deleted or not-existing
-		// if currentUsersObject.Deleted {
-		// 	return keys.NewWeaviateKeysMeGetNotFound()
-		// }
-
-		// // Create response Object from create object.
-		// json.Unmarshal([]byte(currentUsersObject.Object), responseObject)
-		// responseObject.KeyID = strfmt.UUID(currentUsersObject.Uuid)
-		// responseObject.Parent = currentUsersObject.Parent
-		// responseObject.Key = currentUsersObject.KeyToken
-		// responseObject.KeyExpiresUnix = currentUsersObject.KeyExpiresUnix
-
-		// // Get is successful
-		// return keys.NewWeaviateKeysMeGetOK().WithPayload(responseObject)
-		return keys.NewWeaviateKeysMeGetNotImplemented()
+		// Get is successful
+		return keys.NewWeaviateKeysMeGetOK().WithPayload(&tokenResponseObject)
 	})
 
 	/*
