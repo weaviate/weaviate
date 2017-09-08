@@ -58,7 +58,6 @@ type Config struct {
 
 const refTypePointer string = "_type_"
 const edgeNameKey string = "key"
-const edgeNameKeyChild string = "key.child"
 const edgeNameKeyParent string = "key.parent"
 const schemaPrefix string = "schema."
 const ipOriginDelimiter string = ";"
@@ -244,14 +243,14 @@ func (f *Dgraph) Init() error {
 
 	// KEYS
 	// Add index for keys
-	if err := f.client.AddSchema(protos.SchemaUpdate{
-		Predicate: edgeNameKeyChild,
-		ValueType: uint32(types.UidID),
-		Directive: protos.SchemaUpdate_REVERSE,
-		Count:     true,
-	}); err != nil {
-		return errors_.New("error while adding '" + edgeNameKeyChild + "' Dgraph-schema")
-	}
+	// if err := f.client.AddSchema(protos.SchemaUpdate{
+	// 	Predicate: edgeNameKeyChild,
+	// 	ValueType: uint32(types.UidID),
+	// 	Directive: protos.SchemaUpdate_REVERSE,
+	// 	Count:     true,
+	// }); err != nil {
+	// 	return errors_.New("error while adding '" + edgeNameKeyChild + "' Dgraph-schema")
+	// }
 
 	// Add index for keys parent
 	if err := f.client.AddSchema(protos.SchemaUpdate{
@@ -768,11 +767,11 @@ func (f *Dgraph) AddKey(key *connector_utils.Key, UUID strfmt.UUID) error {
 			return err
 		}
 
-		// Connect child node as child to parent
-		err = f.connectRef(&req, parentNode, edgeNameKeyChild, newNode)
-		if err != nil {
-			return err
-		}
+		// // Connect child node as child to parent
+		// err = f.connectRef(&req, parentNode, edgeNameKeyChild, newNode)
+		// if err != nil {
+		// 	return err
+		// }
 	}
 
 	// Call run after all mutations are added
@@ -782,23 +781,6 @@ func (f *Dgraph) AddKey(key *connector_utils.Key, UUID strfmt.UUID) error {
 
 	return err
 	// TODO: Reset batch before and flush after every function??
-}
-
-// GetKey returns the thing in the KeyGetResponse format
-func (f *Dgraph) GetKey(UUID strfmt.UUID) (models.KeyTokenGetResponse, error) {
-	// Initialize response
-	keyResponse := models.KeyTokenGetResponse{}
-
-	// Get raw node for response
-	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeKey)
-	if err != nil {
-		return keyResponse, err
-	}
-
-	// Merge the results into the model to return
-	f.mergeKeyNodeInResponse(rawNode, &keyResponse)
-
-	return keyResponse, nil
 }
 
 // ValidateToken adds a key to the Dgraph database with the given UUID
@@ -833,6 +815,30 @@ func (f *Dgraph) ValidateToken(UUID strfmt.UUID) (models.KeyTokenGetResponse, er
 	f.mergeKeyNodeInResponse(nodes[0], &key)
 
 	return key, nil
+}
+
+// GetKey returns the thing in the KeyGetResponse format
+func (f *Dgraph) GetKey(UUID strfmt.UUID) (models.KeyTokenGetResponse, error) {
+	// Initialize response
+	keyResponse := models.KeyTokenGetResponse{}
+
+	// Get raw node for response
+	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeKey)
+	if err != nil {
+		return keyResponse, err
+	}
+
+	// Merge the results into the model to return
+	f.mergeKeyNodeInResponse(rawNode, &keyResponse)
+
+	return keyResponse, nil
+}
+
+// DeleteKey deletes the Key in the DB at the given UUID.
+func (f *Dgraph) DeleteKey(UUID strfmt.UUID) error {
+	// Call function for deleting node
+	err := f.deleteNodeByUUID(UUID)
+	return err
 }
 
 func (f *Dgraph) addNewNode(nType string, UUID strfmt.UUID) (dgraphClient.Node, error) {
