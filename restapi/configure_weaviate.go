@@ -153,16 +153,16 @@ func GetKeyChildren(databaseConnector dbconnector.DatabaseConnector, parentUUID 
 }
 
 func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID) {
-	// // Find its children
-	// var allIDs []string
-	// allIDs = GetKeyChildren(databaseConnector, parentUUID, false, allIDs, 0, 0)
+	// Find its children
+	var allIDs []strfmt.UUID
+	// allIDs = GetKeyChildren(databaseConnector, parentUUID, false, allIDs, 0, 0) TODO
 
-	// allIDs = append(allIDs, parentUUID)
+	allIDs = append(allIDs, parentUUID)
 
-	// // Delete for every child
-	// for _, keyID := range allIDs {
-	// 	go databaseConnector.DeleteKey(keyID)
-	// }
+	// Delete for every child
+	for _, keyID := range allIDs {
+		go databaseConnector.DeleteKey(keyID)
+	}
 }
 
 func validateSchemaInBody(weaviateSchema *schema.Schema, bodySchema *models.Schema, className string) error {
@@ -594,25 +594,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		// userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
+		_, errGet := databaseConnector.GetKey(params.KeyID)
 
-		// // Not found
-		// if userObject.Deleted || errGet != nil {
-		// 	return keys.NewWeaviateKeysDeleteNotFound()
-		// }
+		// Not found
+		if errGet != nil {
+			return keys.NewWeaviateKeysDeleteNotFound()
+		}
 
-		// // Check on permissions
+		// Check on permissions TODO
 		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
 		// if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
 		// 	return keys.NewWeaviateKeysDeleteForbidden()
 		// }
 
-		// // Remove key from database if found
-		// deleteKey(databaseConnector, userObject.Uuid)
+		// Remove key from database if found
+		deleteKey(databaseConnector, params.KeyID)
 
-		// // Return 'No Content'
-		// return keys.NewWeaviateKeysDeleteNoContent()
-		return keys.NewWeaviateKeysDeleteNotImplemented()
+		// Return 'No Content'
+		return keys.NewWeaviateKeysDeleteNoContent()
 	})
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
 		// Get item from database
