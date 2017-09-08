@@ -359,7 +359,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed { // TODO: Add key actionGetResponse.Key.NrDollarCref
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return actions.NewWeaviateActionsGetForbidden()
 		}
 
@@ -378,7 +378,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed { // TODO: Add key actionGetResponse.Key.NrDollarCref
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return actions.NewWeaviateActionsPatchForbidden()
 		}
 
@@ -486,7 +486,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal interface{}) middleware.Responder {
 		// Get item from database
-		_, errGet := databaseConnector.GetAction(params.ActionID)
+		actionGetResponse, errGet := databaseConnector.GetAction(params.ActionID)
 
 		// Not found
 		if errGet != nil {
@@ -494,7 +494,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a delete function, validate if allowed to delete? TODO
-		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, nil); !allowed { // TODO: Add key actionGetResponse.Key.NrDollarCref
+		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
@@ -510,49 +510,54 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
 		// Create current User object from principal
-		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		key := connector_utils.PrincipalMarshalling(principal)
 
-		// // Fill the new User object
-		// newUsersObject := &connector_utils.DatabaseUsersObject{}
-		// newUsersObject.Deleted = false
-		// newUsersObject.KeyExpiresUnix = int64(params.Body.KeyExpiresUnix)
-		// newUsersObject.Uuid = fmt.Sprintf("%v", gouuid.NewV4())
-		// newUsersObject.KeyToken = fmt.Sprintf("%v", gouuid.NewV4())
-		// newUsersObject.Parent = currentUsersObject.Uuid
+		// Fill the new User object
+		newKey := &connector_utils.Key{}
+		newKey.Root = false
+		newKey.UUID = connector_utils.GenerateUUID()
+		newKey.KeyToken = connector_utils.GenerateUUID()
+		newKey.Parent = string(principal.(connector_utils.Key).UUID)
+		newKey.KeyCreate = *params.Body
 
-		// // Key expiry time is in the past
-		// currentUnix := connector_utils.NowUnix()
-		// if newUsersObject.KeyExpiresUnix != -1 && newUsersObject.KeyExpiresUnix < currentUnix {
-		// 	println("past")
-		// 	return keys.NewWeaviateKeyCreateUnprocessableEntity()
-		// }
+		// Key expiry time is in the past
+		currentUnix := connector_utils.NowUnix()
+		if newKey.KeyExpiresUnix != -1 && newKey.KeyExpiresUnix < currentUnix {
+			// return keys.NewWeaviateKeyCreateUnprocessableEntity()
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(422)
+				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", "Key expiry time is in the past.")))
+			})
+		}
 
-		// // Key expiry time is later than the expiry time of parent
-		// if currentUsersObject.KeyExpiresUnix != -1 && currentUsersObject.KeyExpiresUnix < newUsersObject.KeyExpiresUnix {
-		// 	return keys.NewWeaviateKeyCreateUnprocessableEntity()
-		// }
+		// Key expiry time is later than the expiry time of parent
+		if key.KeyExpiresUnix != -1 && key.KeyExpiresUnix < newKey.KeyExpiresUnix {
+			// return keys.NewWeaviateKeyCreateUnprocessableEntity()
+			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+				rw.WriteHeader(422)
+				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", "Key expiry time is later than the expiry time of parent.")))
+			})
+		}
 
-		// // Fill in the string-Object of the User
-		// objectsBody, _ := json.Marshal(params.Body)
-		// newUsersObjectsObject := &connector_utils.DatabaseUsersObjectsObject{}
-		// json.Unmarshal(objectsBody, newUsersObjectsObject)
-		// databaseBody, _ := json.Marshal(newUsersObjectsObject)
-		// newUsersObject.Object = string(databaseBody)
+		// Save to DB, this needs to be a Go routine because we will return an accepted
+		insertErr := databaseConnector.AddKey(newKey, newKey.UUID) // TODO: go-routine?
+		if insertErr != nil {
+			log.Println("InsertErr:", insertErr)
+		}
 
-		// // Save to DB, this needs to be a Go routine because we will return an accepted
-		// go databaseConnector.AddKey(currentUsersObject.Uuid, *newUsersObject)
-
-		// // Create response Object from create object.
-		// responseObject := &models.KeyTokenGetResponse{}
-		// json.Unmarshal([]byte(newUsersObject.Object), responseObject)
-		// responseObject.KeyID = strfmt.UUID(newUsersObject.Uuid)
-		// responseObject.Key = newUsersObject.KeyToken
-		// responseObject.Parent = newUsersObject.Parent
-		// responseObject.KeyExpiresUnix = newUsersObject.KeyExpiresUnix
+		// Create response Object from create object.
+		responseObject := &models.KeyTokenGetResponse{}
+		responseObject.KeyCreate = newKey.KeyCreate
+		responseObject.KeyID = newKey.UUID
+		url := "http://localhost/"
+		responseObject.Parent = &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: principal.(connector_utils.Key).UUID,
+			Type:         "Key",
+		}
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		// return keys.NewWeaviateKeyCreateAccepted().WithPayload(responseObject)
-		return keys.NewWeaviateKeyCreateNotImplemented()
+		return keys.NewWeaviateKeyCreateAccepted().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
@@ -755,15 +760,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
 		// Get item from database
-		_, errGet := databaseConnector.GetThing(params.ThingID)
+		thingGetResponse, errGet := databaseConnector.GetThing(params.ThingID)
 
 		// Not found
 		if errGet != nil {
 			return things.NewWeaviateThingsDeleteNotFound()
 		}
 
-		// This is a delete function, validate if allowed to delete? TODO
-		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, nil); !allowed { // TODO: Add key thingGetResponse.Key.NrDollarCref
+		// This is a delete function, validate if allowed to delete?
+		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
@@ -783,7 +788,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed { // TODO: Add key responseObject.Key.NrDollarCref
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, responseObject.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsGetForbidden()
 		}
 
@@ -824,7 +829,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed { // TODO: Add key thingGetResponse.Key.NrDollarCref
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsPatchForbidden()
 		}
 
@@ -884,7 +889,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed { // TODO: Add key databaseResponseObject.Key.NrDollarCref
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, databaseResponseObject.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsUpdateForbidden()
 		}
 
