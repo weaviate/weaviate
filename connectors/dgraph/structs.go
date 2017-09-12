@@ -14,6 +14,7 @@
 package dgraph
 
 import ()
+import "github.com/go-openapi/strfmt"
 
 // TotalResultsResult is the root of a single node with the result count
 type TotalResultsResult struct {
@@ -42,6 +43,16 @@ type NodeIDResult struct {
 
 // NodeID to get node-uid
 type NodeID struct {
-	UUID string `dgraph:"uuid"`
-	ID   uint64 `dgraph:"_uid_"`
+	UUID strfmt.UUID `dgraph:"uuid"`
+	ID   uint64      `dgraph:"_uid_"`
+}
+
+// KeyChildrenResult is the struct for getting key's children
+type KeyChildrenResult struct {
+	Root KeyChild `dgraph:"get"`
+}
+
+// KeyChild is the struct for each child
+type KeyChild struct {
+	Children []NodeID `dgraph:"children"`
 }

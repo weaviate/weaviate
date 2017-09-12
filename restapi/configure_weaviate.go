@@ -136,18 +136,21 @@ func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.Key, userKeyID str
 }
 
 // GetKeyChildren returns children recursivly based on its parameters.
-func GetKeyChildren(databaseConnector dbconnector.DatabaseConnector, parentUUID string, filterOutDeleted bool, allIDs []string, maxDepth int, depth int) []string {
-	// if depth > 0 {
-	// 	allIDs = append(allIDs, parentUUID)
-	// }
+func GetKeyChildren(databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID, filterOutDeleted bool, allIDs []strfmt.UUID, maxDepth int, depth int) []strfmt.UUID {
+	// Append on every depth
+	if depth > 0 {
+		allIDs = append(allIDs, parentUUID)
+	}
 
-	// childUserObjects, _ := databaseConnector.GetChildObjects(parentUUID, filterOutDeleted)
+	// Get children from the db-connector
+	childKeys, _ := databaseConnector.GetKeyChildren(parentUUID)
 
-	// if maxDepth == 0 || depth < maxDepth {
-	// 	for _, childUserObject := range childUserObjects {
-	// 		allIDs = GetKeyChildren(databaseConnector, childUserObject.Uuid, filterOutDeleted, allIDs, maxDepth, depth+1)
-	// 	}
-	// }
+	// For every depth, get the ID's
+	if maxDepth == 0 || depth < maxDepth {
+		for _, childKey := range childKeys {
+			allIDs = GetKeyChildren(databaseConnector, childKey, filterOutDeleted, allIDs, maxDepth, depth+1)
+		}
+	}
 
 	return allIDs
 }
@@ -155,8 +158,11 @@ func GetKeyChildren(databaseConnector dbconnector.DatabaseConnector, parentUUID 
 func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID) {
 	// Find its children
 	var allIDs []strfmt.UUID
-	// allIDs = GetKeyChildren(databaseConnector, parentUUID, false, allIDs, 0, 0) TODO
 
+	// Get all the children to remove
+	allIDs = GetKeyChildren(databaseConnector, parentUUID, false, allIDs, 0, 0)
+
+	// Append the children to the parent UUIDs to remove all
 	allIDs = append(allIDs, parentUUID)
 
 	// Delete for every child
@@ -517,7 +523,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		newKey.Root = false
 		newKey.UUID = connector_utils.GenerateUUID()
 		newKey.KeyToken = connector_utils.GenerateUUID()
-		newKey.Parent = string(principal.(models.KeyTokenGetResponse).KeyID)
+		newKey.Parent = string(key.KeyID)
 		newKey.KeyCreate = *params.Body
 
 		// Key expiry time is in the past
@@ -562,36 +568,29 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		// userObject, errGet := databaseConnector.GetKey(string(params.KeyID))
+		_, errGet := databaseConnector.GetKey(params.KeyID)
 
-		// // Not found
-		// if userObject.Deleted || errGet != nil {
-		// 	return keys.NewWeaviateKeysChildrenGetNotFound()
-		// }
+		// Not found
+		if errGet != nil {
+			return keys.NewWeaviateKeysChildrenGetNotFound()
+		}
 
-		// // Check on permissions
-		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// Check on permissions
+		// currentUser, _ := connector_utils.PrincipalMarshalling(principal)
 		// if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
 		// 	return keys.NewWeaviateKeysChildrenGetForbidden()
 		// }
 
-		// // Get the children
-		// var childIDs []string
-		// childIDs = GetKeyChildren(databaseConnector, string(params.KeyID), true, childIDs, 1, 0)
+		// Get the children
+		var childIDs []strfmt.UUID
+		childIDs = GetKeyChildren(databaseConnector, params.KeyID, true, childIDs, 1, 0)
 
-		// // Format the IDs for the response
-		// childUUIDs := make([]strfmt.UUID, len(childIDs))
-		// for i, v := range childIDs {
-		// 	childUUIDs[i] = strfmt.UUID(v)
-		// }
+		// Initiate response object
+		responseObject := &models.KeyChildrenGetResponse{}
+		responseObject.Children = childIDs
 
-		// // Initiate response object
-		// responseObject := &models.KeyChildrenGetResponse{}
-		// responseObject.Children = childUUIDs
-
-		// // Return children with 'OK'
-		// return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
-		return keys.NewWeaviateKeysChildrenGetNotImplemented()
+		// Return children with 'OK'
+		return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
