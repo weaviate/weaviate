@@ -62,6 +62,24 @@ const edgeNameKeyParent string = "key.parent"
 const schemaPrefix string = "schema."
 const ipOriginDelimiter string = ";"
 
+var (
+	defaultSingleNodeQueryTemplate = `{ 
+		get(func: eq(uuid, "%s")) @filter(eq(%s, "%s")) {
+			expand(_all_) {
+				expand(_all_)
+			}
+		}
+	}`
+
+	keyChildrenQueryTemplate = `{ 
+		get(func: eq(uuid, "%s")) @filter(eq(` + refTypePointer + `, "` + connector_utils.RefTypeKey + `")) {
+			children: ~` + edgeNameKeyParent + ` {
+				uuid: uuid
+			}
+		}
+	}`
+)
+
 // GetName returns a unique connector name
 func (f *Dgraph) GetName() string {
 	return "dgraph"
@@ -80,8 +98,9 @@ func (f *Dgraph) SetConfig(configInput *config.Environment) error {
 
 // SetSchema is used to fill in a struct with schema
 func (f *Dgraph) SetSchema(schemaInput *schema.WeaviateSchema) error {
-	return nil
+	// TODO: not implemented yet
 
+	return nil
 }
 
 // Connect creates connection and tables if not already available
@@ -374,7 +393,7 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 	thingResponse.Schema = map[string]models.JSONObject{}
 
 	// Get raw node for response
-	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeThing)
+	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeThing, defaultSingleNodeQueryTemplate)
 	if err != nil {
 		return thingResponse, err
 	}
@@ -536,7 +555,7 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
 	actionResponse.Things = &models.ObjectSubject{}
 
 	// Get raw node for response
-	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeAction)
+	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeAction, defaultSingleNodeQueryTemplate)
 	if err != nil {
 		return actionResponse, err
 	}
@@ -817,13 +836,13 @@ func (f *Dgraph) ValidateToken(UUID strfmt.UUID) (models.KeyTokenGetResponse, er
 	return key, nil
 }
 
-// GetKey returns the thing in the KeyGetResponse format
+// GetKey returns the key in the KeyGetResponse format
 func (f *Dgraph) GetKey(UUID strfmt.UUID) (models.KeyTokenGetResponse, error) {
 	// Initialize response
 	keyResponse := models.KeyTokenGetResponse{}
 
 	// Get raw node for response
-	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeKey)
+	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeKey, defaultSingleNodeQueryTemplate)
 	if err != nil {
 		return keyResponse, err
 	}
@@ -839,6 +858,36 @@ func (f *Dgraph) DeleteKey(UUID strfmt.UUID) error {
 	// Call function for deleting node
 	err := f.deleteNodeByUUID(UUID)
 	return err
+}
+
+// GetKeyChildren returns the key in the an array format
+func (f *Dgraph) GetKeyChildren(UUID strfmt.UUID) ([]strfmt.UUID, error) {
+	// Create the response array
+	response := []strfmt.UUID{}
+
+	// Init the request
+	req := dgraphClient.Req{}
+	req.SetQuery(fmt.Sprintf(keyChildrenQueryTemplate, string(UUID)))
+
+	// Run query created above
+	var resp *protos.Response
+	var err error
+	if resp, err = f.client.Run(f.getContext(), &req); err != nil {
+		return response, err
+	}
+
+	// Unmarshal the dgraph response into a struct
+	var childrenResult KeyChildrenResult
+	if err = dgraphClient.Unmarshal(resp.N, &childrenResult); err != nil {
+		return response, err
+	}
+
+	// Convert the query result to function response
+	for _, v := range childrenResult.Root.Children {
+		response = append(response, v.UUID)
+	}
+
+	return response, nil
 }
 
 func (f *Dgraph) addNewNode(nType string, UUID strfmt.UUID) (dgraphClient.Node, error) {
@@ -1223,20 +1272,14 @@ func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *mo
 	}
 }
 
-func (f *Dgraph) getRawNodeByUUID(UUID strfmt.UUID, typeName string) (*protos.Node, error) {
+func (f *Dgraph) getRawNodeByUUID(UUID strfmt.UUID, typeName string, queryTemplate string) (*protos.Node, error) {
 	// Search for the class to make the connection, create variables
 	variables := make(map[string]string)
 	variables["$uuid"] = string(UUID)
 
 	// Create the query for existing class
 	req := dgraphClient.Req{}
-	req.SetQuery(fmt.Sprintf(`{ 
-		get(func: eq(uuid, "%s")) @filter(eq(%s, "%s")) {
-			expand(_all_) {
-				expand(_all_)
-			}
-		}
-	}`, string(UUID), refTypePointer, typeName))
+	req.SetQuery(fmt.Sprintf(queryTemplate, string(UUID), refTypePointer, typeName))
 
 	// Run the query
 	resp, err := f.client.Run(f.getContext(), &req)
@@ -1249,7 +1292,7 @@ func (f *Dgraph) getRawNodeByUUID(UUID strfmt.UUID, typeName string) (*protos.No
 
 	// No nodes = not found error. First level is root (always exists) so check children.
 	if len(nodes[0].GetChildren()) == 0 {
-		return &protos.Node{}, errors_.New("Thing not found in database.")
+		return &protos.Node{}, errors_.New("'" + typeName + "' not found in database.")
 	}
 
 	return nodes[0], err
