@@ -109,28 +109,28 @@ func getKind(object interface{}) *string {
 }
 
 // isOwnKeyOrLowerInTree returns whether a key is his own or in his children
-func isOwnKeyOrLowerInTree(currentUsersObject connector_utils.Key, userKeyID strfmt.UUID, databaseConnector dbconnector.DatabaseConnector) bool {
-	// // If is own key, return true
-	// if strings.EqualFold(userKeyID, currentUsersObject.UUID) {
-	// 	return true
-	// }
+func isOwnKeyOrLowerInTree(currentKey models.KeyTokenGetResponse, userKeyID strfmt.UUID, databaseConnector dbconnector.DatabaseConnector) bool {
+	// If is own key, return true
+	if strings.EqualFold(string(userKeyID), string(currentKey.KeyID)) {
+		return true
+	}
 
-	// // Get all child id's
-	// var childIDs []string
-	// childIDs = GetKeyChildren(databaseConnector, currentUsersObject.UUID, true, childIDs, 0, 0)
+	// Get all child id's
+	childIDs := []strfmt.UUID{}
+	childIDs = GetKeyChildren(databaseConnector, currentKey.KeyID, true, childIDs, 0, 0)
 
-	// // Check ID is in childIds
-	// isChildID := false
-	// for _, childID := range childIDs {
-	// 	if childID == userKeyID {
-	// 		isChildID = true
-	// 	}
-	// }
+	// Check ID is in childIds
+	isChildID := false
+	for _, childID := range childIDs {
+		if childID == userKeyID {
+			isChildID = true
+		}
+	}
 
-	// // This is a delete function, validate if allowed to do action with own/parent.
-	// if isChildID {
-	// 	return true
-	// }
+	// If ID is in the child ID's, you are allowed to do the action
+	if isChildID {
+		return true
+	}
 
 	return false
 }
@@ -187,18 +187,18 @@ func ActionsAllowed(actions []string, validateObject interface{}, databaseConnec
 	// Get the user by the given principal
 	keyObject := validateObject.(models.KeyTokenGetResponse)
 
-	// // Check whether the given owner of the object is in the children, if the ownerID is given
-	// correctChild := false
-	// if objectOwnerUUID != nil {
-	// 	correctChild = isOwnKeyOrLowerInTree(keyObject, objectOwnerUUID.(strfmt.UUID), databaseConnector)
-	// } else {
-	// 	correctChild = true
-	// }
+	// Check whether the given owner of the object is in the children, if the ownerID is given
+	correctChild := false
+	if objectOwnerUUID != nil {
+		correctChild = isOwnKeyOrLowerInTree(keyObject, objectOwnerUUID.(strfmt.UUID), databaseConnector)
+	} else {
+		correctChild = true
+	}
 
-	// // Return false if the object's owner is not the logged in user or one of its childs.
-	// if !correctChild {
-	// 	return false, errors_.New("the object does not belong to the given token or to one of the token's children")
-	// }
+	// Return false if the object's owner is not the logged in user or one of its childs.
+	if !correctChild {
+		return false, errors_.New("the object does not belong to the given token or to one of the token's children")
+	}
 
 	// All possible actions in a map to check it more easily
 	actionsToCheck := map[string]bool{
@@ -499,7 +499,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsDeleteNotFound()
 		}
 
-		// This is a delete function, validate if allowed to delete? TODO
+		// This is a delete function, validate if allowed to delete? TODO: test
 		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
@@ -576,10 +576,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Check on permissions
-		// currentUser, _ := connector_utils.PrincipalMarshalling(principal)
-		// if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
-		// 	return keys.NewWeaviateKeysChildrenGetForbidden()
-		// }
+		keyObject, _ := principal.(models.KeyTokenGetResponse)
+		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, databaseConnector) {
+			return keys.NewWeaviateKeysChildrenGetForbidden()
+		}
 
 		// Get the children
 		childIDs := []strfmt.UUID{}
@@ -601,11 +601,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return keys.NewWeaviateKeysDeleteNotFound()
 		}
 
-		// Check on permissions TODO
-		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
-		// if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
-		// 	return keys.NewWeaviateKeysDeleteForbidden()
-		// }
+		// Check on permissions
+		keyObject, _ := principal.(models.KeyTokenGetResponse)
+		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, databaseConnector) {
+			return keys.NewWeaviateKeysDeleteForbidden()
+		}
 
 		// Remove key from database if found
 		deleteKey(databaseConnector, params.KeyID)
@@ -622,11 +622,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return keys.NewWeaviateKeysGetNotFound()
 		}
 
-		// Check on permissions TODO
-		// keyObject := connector_utils.PrincipalMarshalling(principal)
-		// if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, databaseConnector) {
-		// 	return keys.NewWeaviateKeysDeleteForbidden()
-		// }
+		// Check on permissions
+		keyObject, _ := principal.(models.KeyTokenGetResponse)
+		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, databaseConnector) {
+			return keys.NewWeaviateKeysGetForbidden()
+		}
 
 		// Create response Object from create object.
 		responseObject := &models.KeyGetResponse{}
@@ -640,12 +640,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
 		currentKey := principal.(models.KeyTokenGetResponse)
-
-		// Check on permissions
-		// currentUser, _ := connector_utils.PrincipalMarshalling(principal)
-		// if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
-		// 	return keys.NewWeaviateKeysMeChildrenGetForbidden()
-		// }
 
 		// Get the children
 		childIDs := []strfmt.UUID{}
@@ -917,7 +911,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
-		// // Get user out of principal TODO
+		// // Get user out of principal TODO: add only user object in list
 		// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
 
 		// List all results
