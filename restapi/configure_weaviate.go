@@ -582,7 +582,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// }
 
 		// Get the children
-		var childIDs []strfmt.UUID
+		childIDs := []strfmt.UUID{}
 		childIDs = GetKeyChildren(databaseConnector, params.KeyID, true, childIDs, 1, 0)
 
 		// Initiate response object
@@ -638,31 +638,25 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
-		// // Create current User object from principal
-		// currentUsersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
+		currentKey := principal.(models.KeyTokenGetResponse)
 
-		// // Object is deleted or not-existing
-		// if currentUsersObject.Deleted {
-		// 	return keys.NewWeaviateKeysMeChildrenGetNotFound()
+		// Check on permissions
+		// currentUser, _ := connector_utils.PrincipalMarshalling(principal)
+		// if !isOwnKeyOrLowerInTree(currentUsersObject, string(params.KeyID), databaseConnector) {
+		// 	return keys.NewWeaviateKeysMeChildrenGetForbidden()
 		// }
 
-		// // Get the children
-		// var childIDs []string
-		// childIDs = GetKeyChildren(databaseConnector, currentUsersObject.Uuid, true, childIDs, 1, 0)
+		// Get the children
+		childIDs := []strfmt.UUID{}
+		childIDs = GetKeyChildren(databaseConnector, currentKey.KeyID, true, childIDs, 1, 0)
 
-		// // Format the IDs for the response
-		// childUUIDs := make([]strfmt.UUID, len(childIDs))
-		// for i, v := range childIDs {
-		// 	childUUIDs[i] = strfmt.UUID(v)
-		// }
+		// Initiate response object
+		responseObject := &models.KeyChildrenGetResponse{}
+		responseObject.Children = childIDs
 
-		// // Initiate response object
-		// responseObject := &models.KeyChildrenGetResponse{}
-		// responseObject.Children = childUUIDs
-
-		// // Return children with 'OK'
-		// return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)
-		return keys.NewWeaviateKeysMeChildrenGetNotImplemented()
+		// Return children with 'OK'
+		return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysMeDeleteHandler = keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
 		// Create current User object from principal
