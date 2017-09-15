@@ -10,7 +10,6 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-   
 
 /*Package restapi Weaviate - Semantic Graphql, RESTful and MQTT Web of Things platform.
 
