@@ -16,6 +16,7 @@ package connutils
 import (
 	"fmt"
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/models"
 	"time"
 
 	gouuid "github.com/satori/go.uuid"
@@ -35,18 +36,14 @@ import (
 // }
 
 // CreateFirstUserObject creates a new user with new API key when none exists when starting server
-func CreateFirstUserObject() *Key {
-	key := Key{}
-
+func CreateFirstUserObject(key *models.Key) strfmt.UUID {
 	// Create key token
-	key.KeyToken = GenerateUUID()
+	token := GenerateUUID()
 
-	// Auto set the parent ID to root *
-	key.Parent = "*"
-	key.Root = true
+	// Do not set any parent
 
 	// Set expiry to unlimited
-	key.KeyExpiresUnix = 1
+	key.KeyExpiresUnix = -1
 
 	// Get ips as v6
 	var ips []string
@@ -81,9 +78,9 @@ func CreateFirstUserObject() *Key {
 	// Print the key
 	log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/weaviate/weaviate/blob/develop/README.md#authentication")
 	log.Println("INFO: Auto set allowed IPs to: ", key.IPOrigin)
-	log.Println("ROOTKEY=" + key.KeyToken)
+	log.Println("ROOTKEY=" + token)
 
-	return &key
+	return token
 }
 
 // NowUnix returns the current Unix time

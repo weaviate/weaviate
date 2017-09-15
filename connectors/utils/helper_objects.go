@@ -13,11 +13,6 @@
 
 package connutils
 
-import (
-	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/models"
-)
-
 // RefTypeAction used for actions in DB and requests
 const RefTypeAction string = "Action"
 
@@ -26,12 +21,3 @@ const RefTypeKey string = "Key"
 
 // RefTypeThing used for things in DB and requests
 const RefTypeThing string = "Thing"
-
-// Key for a new row in de database
-type Key struct {
-	KeyToken strfmt.UUID // UUID, token to login
-	Parent   string      // UUID or *
-	Root     bool
-	UUID     strfmt.UUID // UUID, object's key
-	models.KeyCreate
-}

@@ -519,11 +519,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		key := principal.(models.KeyTokenGetResponse)
 
 		// Fill the new User object
-		newKey := &connutils.Key{}
-		newKey.Root = false
-		newKey.UUID = connutils.GenerateUUID()
-		newKey.KeyToken = connutils.GenerateUUID()
-		newKey.Parent = string(key.KeyID)
+		url := "http://localhost/"
+		newKey := &models.KeyTokenGetResponse{}
+		newKey.KeyID = connutils.GenerateUUID()
+		newKey.Token = connutils.GenerateUUID()
+		newKey.Parent = &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
+			Type:         "Key",
+		}
 		newKey.KeyCreate = *params.Body
 
 		// Key expiry time is in the past
@@ -546,25 +550,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := databaseConnector.AddKey(newKey, newKey.UUID) // TODO: go-routine?
+		insertErr := databaseConnector.AddKey(&newKey.Key, newKey.KeyID, newKey.Token) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
 
-		// Create response Object from create object.
-		responseObject := &models.KeyTokenGetResponse{}
-		responseObject.KeyCreate = newKey.KeyCreate
-		responseObject.KeyID = newKey.UUID
-		responseObject.Token = newKey.KeyToken
-		url := "http://localhost/"
-		responseObject.Parent = &models.SingleRef{
-			LocationURL:  &url,
-			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
-			Type:         "Key",
-		}
-
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return keys.NewWeaviateKeyCreateAccepted().WithPayload(responseObject)
+		return keys.NewWeaviateKeyCreateAccepted().WithPayload(newKey)
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
