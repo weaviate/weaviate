@@ -11,11 +11,12 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-package connector_utils
+package connutils
 
-import ()
-import "github.com/go-openapi/strfmt"
-import "github.com/weaviate/weaviate/models"
+import (
+	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/models"
+)
 
 // RefTypeAction used for actions in DB and requests
 const RefTypeAction string = "Action"

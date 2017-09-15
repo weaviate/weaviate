@@ -11,7 +11,7 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-package connector_utils
+package connutils
 
 import (
 	"fmt"

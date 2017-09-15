@@ -72,7 +72,7 @@ var (
 	}`
 
 	keyChildrenQueryTemplate = `{ 
-		get(func: eq(uuid, "%s")) @filter(eq(` + refTypePointer + `, "` + connector_utils.RefTypeKey + `")) {
+		get(func: eq(uuid, "%s")) @filter(eq(` + refTypePointer + `, "` + connutils.RefTypeKey + `")) {
 			children: ~` + edgeNameKeyParent + ` {
 				uuid: uuid
 			}
@@ -140,7 +140,7 @@ func (f *Dgraph) Connect() error {
 // Init creates a root key, normally this should be validaded, but because it is an indgraph DB it is created always
 func (f *Dgraph) Init() error {
 	// Generate a basic DB object and print it's key.
-	// dbObject := connector_utils.CreateFirstUserObject()
+	// dbObject := connutils.CreateFirstUserObject()
 
 	var err error
 
@@ -327,9 +327,9 @@ func (f *Dgraph) Init() error {
 	// Set the total results
 	if totalResult.Root.Count == 0 {
 		log.Println("No root-key found.")
-		keyObject := connector_utils.CreateFirstUserObject()
+		keyObject := connutils.CreateFirstUserObject()
 
-		err = f.AddKey(keyObject, connector_utils.GenerateUUID())
+		err = f.AddKey(keyObject, connutils.GenerateUUID())
 
 		if err != nil {
 			return err
@@ -354,7 +354,7 @@ func (f *Dgraph) Init() error {
 func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID, keyUUID strfmt.UUID) error {
 	// Create new node with base vars
 	newNode, err := f.addNewNode(
-		connector_utils.RefTypeThing,
+		connutils.RefTypeThing,
 		UUID,
 	)
 
@@ -393,7 +393,7 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
 	thingResponse.Schema = map[string]models.JSONObject{}
 
 	// Get raw node for response
-	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeThing, defaultSingleNodeQueryTemplate)
+	rawNode, err := f.getRawNodeByUUID(UUID, connutils.RefTypeThing, defaultSingleNodeQueryTemplate)
 	if err != nil {
 		return thingResponse, err
 	}
@@ -418,7 +418,7 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 			}
 		}
 	}
-	`, refTypePointer, connector_utils.RefTypeThing, limit, (page-1)*limit))
+	`, refTypePointer, connutils.RefTypeThing, limit, (page-1)*limit))
 
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
@@ -446,7 +446,7 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
   		totalResults(func: eq(_type_, "%s"))  {
     		count()
   		}
-	}`, connector_utils.RefTypeThing))
+	}`, connutils.RefTypeThing))
 
 	// Run query created above
 	resp, err = f.client.Run(f.getContext(), &req)
@@ -506,7 +506,7 @@ func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
 func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID, keyUUID strfmt.UUID) error {
 	// Add new node
 	newNode, err := f.addNewNode(
-		connector_utils.RefTypeAction,
+		connutils.RefTypeAction,
 		UUID,
 	)
 
@@ -555,7 +555,7 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
 	actionResponse.Things = &models.ObjectSubject{}
 
 	// Get raw node for response
-	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeAction, defaultSingleNodeQueryTemplate)
+	rawNode, err := f.getRawNodeByUUID(UUID, connutils.RefTypeAction, defaultSingleNodeQueryTemplate)
 	if err != nil {
 		return actionResponse, err
 	}
@@ -681,10 +681,10 @@ func (f *Dgraph) DeleteAction(UUID strfmt.UUID) error {
 }
 
 // AddKey adds a key to the Dgraph database with the given UUID
-func (f *Dgraph) AddKey(key *connector_utils.Key, UUID strfmt.UUID) error {
+func (f *Dgraph) AddKey(key *connutils.Key, UUID strfmt.UUID) error {
 	// Create new node with base vars
 	newNode, err := f.addNewNode(
-		connector_utils.RefTypeKey,
+		connutils.RefTypeKey,
 		UUID,
 	)
 
@@ -842,7 +842,7 @@ func (f *Dgraph) GetKey(UUID strfmt.UUID) (models.KeyTokenGetResponse, error) {
 	keyResponse := models.KeyTokenGetResponse{}
 
 	// Get raw node for response
-	rawNode, err := f.getRawNodeByUUID(UUID, connector_utils.RefTypeKey, defaultSingleNodeQueryTemplate)
+	rawNode, err := f.getRawNodeByUUID(UUID, connutils.RefTypeKey, defaultSingleNodeQueryTemplate)
 	if err != nil {
 		return keyResponse, err
 	}
