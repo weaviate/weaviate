@@ -546,6 +546,62 @@ func init() {
         "x-available-in-mqtt": false
       }
     },
+    "/schema/actions": {
+      "get": {
+        "description": "Download the schema where all actions are based on.",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "schema"
+        ],
+        "summary": "Download the schema file where all actions are based on.",
+        "operationId": "weaviate.schema.actions",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "type": "file"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "501": {
+            "description": "Not (yet) implemented"
+          }
+        },
+        "x-available-in-mqtt": false
+      }
+    },
+    "/schema/things": {
+      "get": {
+        "description": "Download the schema where all things are based on.",
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "schema"
+        ],
+        "summary": "Download the schema file where all things are based on.",
+        "operationId": "weaviate.schema.things",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "type": "file"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "501": {
+            "description": "Not (yet) implemented"
+          }
+        },
+        "x-available-in-mqtt": false
+      }
+    },
     "/things": {
       "get": {
         "description": "Lists all things in reverse order of creation, owned by the user that belongs to the used token.",
@@ -1003,14 +1059,24 @@ func init() {
       "description": "JSON object value.",
       "type": "object"
     },
+    "Key": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/KeyCreate"
+        },
+        {
+          "properties": {
+            "parent": {
+              "$ref": "#/definitions/SingleRef"
+            }
+          }
+        }
+      ]
+    },
     "KeyChildrenGetResponse": {
       "properties": {
         "children": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "format": "uuid"
-          }
+          "$ref": "#/definitions/MultipleRef"
         }
       }
     },
@@ -1053,7 +1119,7 @@ func init() {
     "KeyGetResponse": {
       "allOf": [
         {
-          "$ref": "#/definitions/KeyCreate"
+          "$ref": "#/definitions/Key"
         },
         {
           "properties": {
@@ -1061,9 +1127,6 @@ func init() {
               "description": "Id of the key.",
               "type": "string",
               "format": "uuid"
-            },
-            "parent": {
-              "$ref": "#/definitions/SingleRef"
             }
           }
         }
@@ -1076,7 +1139,7 @@ func init() {
         },
         {
           "properties": {
-            "key": {
+            "token": {
               "description": "Key for user to use.",
               "type": "string",
               "format": "uuid"
@@ -1086,14 +1149,10 @@ func init() {
       ]
     },
     "MultipleRef": {
-      "properties": {
-        "things": {
-          "description": "...",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/SingleRef"
-          }
-        }
+      "description": "Multiple instances of references to other objects.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/SingleRef"
       }
     },
     "ObjectSubject": {
@@ -1182,6 +1241,9 @@ func init() {
               "type": "integer",
               "format": "int64"
             },
+            "key": {
+              "$ref": "#/definitions/SingleRef"
+            },
             "lastUpdateTimeUnix": {
               "description": "Timestamp of the last thing update in milliseconds since epoch UTC.",
               "type": "integer",
@@ -1215,9 +1277,6 @@ func init() {
         {
           "type": "object",
           "properties": {
-            "key": {
-              "$ref": "#/definitions/SingleRef"
-            },
             "thingId": {
               "type": "string",
               "format": "uuid"
@@ -1295,6 +1354,9 @@ func init() {
     },
     {
       "name": "things"
+    },
+    {
+      "name": "schema"
     }
   ],
   "externalDocs": {

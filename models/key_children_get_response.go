@@ -29,30 +29,16 @@ import (
 type KeyChildrenGetResponse struct {
 
 	// children
-	Children []strfmt.UUID `json:"children"`
+	Children MultipleRef `json:"children"`
 }
 
 // Validate validates this key children get response
 func (m *KeyChildrenGetResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateChildren(formats); err != nil {
-		// prop
-		res = append(res, err)
-	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *KeyChildrenGetResponse) validateChildren(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Children) { // not required
-		return nil
-	}
-
 	return nil
 }
 

@@ -26,46 +26,25 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// MultipleRef multiple ref
+// MultipleRef Multiple instances of references to other objects.
 // swagger:model MultipleRef
-type MultipleRef struct {
-
-	// ...
-	Things []*SingleRef `json:"things"`
-}
+type MultipleRef []*SingleRef
 
 // Validate validates this multiple ref
-func (m *MultipleRef) Validate(formats strfmt.Registry) error {
+func (m MultipleRef) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateThings(formats); err != nil {
-		// prop
-		res = append(res, err)
-	}
+	for i := 0; i < len(m); i++ {
 
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *MultipleRef) validateThings(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Things) { // not required
-		return nil
-	}
-
-	for i := 0; i < len(m.Things); i++ {
-
-		if swag.IsZero(m.Things[i]) { // not required
+		if swag.IsZero(m[i]) { // not required
 			continue
 		}
 
-		if m.Things[i] != nil {
+		if m[i] != nil {
 
-			if err := m.Things[i].Validate(formats); err != nil {
+			if err := m[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("things" + "." + strconv.Itoa(i))
+					return ve.ValidateName(strconv.Itoa(i))
 				}
 				return err
 			}
@@ -73,23 +52,8 @@ func (m *MultipleRef) validateThings(formats strfmt.Registry) error {
 
 	}
 
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (m *MultipleRef) MarshalBinary() ([]byte, error) {
-	if m == nil {
-		return nil, nil
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
 	}
-	return swag.WriteJSON(m)
-}
-
-// UnmarshalBinary interface implementation
-func (m *MultipleRef) UnmarshalBinary(b []byte) error {
-	var res MultipleRef
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*m = res
 	return nil
 }
