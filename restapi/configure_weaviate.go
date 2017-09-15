@@ -484,6 +484,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			})
 		}
 
+		// Create Key-ref-Object
+		url := "http://localhost/"
+		keyRef := &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
+			Type:         "Key",
+		}
+
 		// Make Action-Object
 		actionCreateJSON, _ := json.Marshal(params.Body)
 		action := &models.Action{}
@@ -491,9 +499,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		action.CreationTimeUnix = connutils.NowUnix()
 		action.LastUpdateTimeUnix = 0
+		action.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := databaseConnector.AddAction(action, UUID, principal.(models.KeyTokenGetResponse).KeyID) // TODO: go-routine?
+		insertErr := databaseConnector.AddAction(action, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -502,12 +511,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ActionGetResponse{}
 		responseObject.Action = *action
 		responseObject.ActionID = UUID
-		url := "http://localhost/"
-		responseObject.Key = &models.SingleRef{
-			LocationURL:  &url,
-			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
-			Type:         "Key",
-		}
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
@@ -710,15 +713,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			})
 		}
 
+		// Create Key-ref-Object
+		url := "http://localhost/"
+		keyRef := &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
+			Type:         "Key",
+		}
+
 		// Make Thing-Object
 		thingCreateJSON, _ := json.Marshal(params.Body)
 		thing := &models.Thing{}
 		json.Unmarshal([]byte(thingCreateJSON), thing)
 		thing.CreationTimeUnix = connutils.NowUnix()
 		thing.LastUpdateTimeUnix = 0
+		thing.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := databaseConnector.AddThing(thing, UUID, principal.(models.KeyTokenGetResponse).KeyID) // TODO: go-routine?
+		insertErr := databaseConnector.AddThing(thing, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -727,12 +739,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ThingGetResponse{}
 		responseObject.Thing = *thing
 		responseObject.ThingID = UUID
-		url := "http://localhost/"
-		responseObject.Key = &models.SingleRef{
-			LocationURL:  &url,
-			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
-			Type:         "Key",
-		}
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
 		return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
