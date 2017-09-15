@@ -29,9 +29,6 @@ import (
 type ThingGetResponse struct {
 	Thing
 
-	// key
-	Key *SingleRef `json:"key,omitempty"`
-
 	// thing Id
 	ThingID strfmt.UUID `json:"thingId,omitempty"`
 }
@@ -46,15 +43,11 @@ func (m *ThingGetResponse) UnmarshalJSON(raw []byte) error {
 	m.Thing = aO0
 
 	var data struct {
-		Key *SingleRef `json:"key,omitempty"`
-
 		ThingID strfmt.UUID `json:"thingId,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &data); err != nil {
 		return err
 	}
-
-	m.Key = data.Key
 
 	m.ThingID = data.ThingID
 
@@ -72,12 +65,8 @@ func (m ThingGetResponse) MarshalJSON() ([]byte, error) {
 	_parts = append(_parts, aO0)
 
 	var data struct {
-		Key *SingleRef `json:"key,omitempty"`
-
 		ThingID strfmt.UUID `json:"thingId,omitempty"`
 	}
-
-	data.Key = m.Key
 
 	data.ThingID = m.ThingID
 
@@ -98,32 +87,9 @@ func (m *ThingGetResponse) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateKey(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *ThingGetResponse) validateKey(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Key) { // not required
-		return nil
-	}
-
-	if m.Key != nil {
-
-		if err := m.Key.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("key")
-			}
-			return err
-		}
-	}
-
 	return nil
 }
 
