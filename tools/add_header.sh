@@ -25,3 +25,8 @@ done
 # Remove temp file
 ##
 find . -type f -name '*.go-e' -delete
+
+##
+# run go fmt
+##
+go fmt ./...
