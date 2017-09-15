@@ -860,9 +860,9 @@ func (f *Dgraph) DeleteKey(UUID strfmt.UUID) error {
 	return err
 }
 
-// GetKeyChildren returns the key in the an array format
-func (f *Dgraph) GetKeyChildren(UUID strfmt.UUID) ([]strfmt.UUID, error) {
-	// Create the response array
+// GetKeyChildrenUUIDs returns the key in the an array format
+func (f *Dgraph) GetKeyChildrenUUIDs(UUID strfmt.UUID) ([]strfmt.UUID, error) {
+	// Create the response object
 	response := []strfmt.UUID{}
 
 	// Init the request
