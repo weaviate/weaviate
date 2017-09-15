@@ -88,6 +88,16 @@ Example of config file:
 }
 ```
 
+## Run with Docker
+
+You can run a complete Docker setup with:
+
+```
+$ curl https://raw.githubusercontent.com/weaviate/weaviate/develop/docker/run-services.sh -sSf | bash
+```
+
+_Note:<br>Make sure [jq](https://stedolan.github.io/jq/) is installed and Docker is running_
+
 ## Run Weaviate
 
 To get an overview of available flag, run `$ weaviate --help`
