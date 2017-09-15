@@ -926,30 +926,8 @@ func Test__weaviate_action_patch_JSON(t *testing.T) {
 // }
 
 // /******************
-//  * REMOVE THING TESTS
+//  * REMOVE TESTS
 //  ******************/
-
-// weaviate.thing.delete
-func Test__weaviate_thing_delete_JSON(t *testing.T) {
-	// Create delete request
-	response := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
-
-	// Check status code get request
-	require.Equal(t, http.StatusNoContent, response.StatusCode)
-
-	// Test is faster than adding to DB.
-	time.Sleep(1 * time.Second)
-
-	// Create delete request
-	responseAlreadyDeleted := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
-
-	// Check status code already deleted
-	require.Equal(t, http.StatusNotFound, responseAlreadyDeleted.StatusCode)
-
-	// Create get request with non-existing ID, check its responsecode
-	responseNotFound := doRequest("/things/"+fakeID, "DELETE", "application/json", nil, apiKeyCmdLine)
-	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
-}
 
 // weaviate.action.delete
 func Test__weaviate_action_delete_JSON(t *testing.T) {
@@ -970,5 +948,27 @@ func Test__weaviate_action_delete_JSON(t *testing.T) {
 
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+}
+
+// weaviate.thing.delete
+func Test__weaviate_thing_delete_JSON(t *testing.T) {
+	// Create delete request
+	response := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code get request
+	require.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Create delete request
+	responseAlreadyDeleted := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code already deleted
+	require.Equal(t, http.StatusNotFound, responseAlreadyDeleted.StatusCode)
+
+	// Create get request with non-existing ID, check its responsecode
+	responseNotFound := doRequest("/things/"+fakeID, "DELETE", "application/json", nil, apiKeyCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }

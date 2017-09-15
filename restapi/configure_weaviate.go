@@ -785,6 +785,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
+		// Delete the Actions TODO: make test
+		actionsExist := true
+		for actionsExist {
+			actions := models.ActionsListResponse{}
+			databaseConnector.ListActions(params.ThingID, 50, 0, &actions)
+			for _, v := range actions.Actions {
+				go databaseConnector.DeleteAction(v.ActionID)
+			}
+			actionsExist = actions.TotalResults > 0
+		}
+
 		// Add new row as GO-routine
 		go databaseConnector.DeleteThing(params.ThingID)
 
@@ -908,7 +919,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingGetResponse.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
-		UUID := strfmt.UUID(params.ThingID)
+		UUID := params.ThingID
 		errGet := databaseConnector.GetThing(UUID, &thingGetResponse)
 
 		// If there are no results, there is an error
@@ -975,8 +986,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
-		// // Get user out of principal TODO: add only user object in list
-		// usersObject, _ := connutils.PrincipalMarshalling(principal)
+		// Get key-object
+		keyToken := principal.(models.KeyTokenGetResponse)
+
+		// This is a read function, validate if allowed to read?
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, keyToken.KeyID); !allowed {
+			return things.NewWeaviateThingsActionsListForbidden()
+		}
+
+		// Initialize response
+		thingGetResponse := models.ThingGetResponse{}
+		thingGetResponse.Schema = map[string]models.JSONObject{}
+		errGet := databaseConnector.GetThing(params.ThingID, &thingGetResponse)
+
+		// If there are no results, there is an error
+		if errGet != nil {
+			// Object not found response.
+			return things.NewWeaviateThingsActionsListNotFound()
+		}
 
 		// Initialize response
 		actionsResponse := models.ActionsListResponse{}
