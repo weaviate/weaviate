@@ -30,7 +30,7 @@ type KeyTokenGetResponse struct {
 	KeyGetResponse
 
 	// Key for user to use.
-	Key strfmt.UUID `json:"key,omitempty"`
+	Token strfmt.UUID `json:"token,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -43,13 +43,13 @@ func (m *KeyTokenGetResponse) UnmarshalJSON(raw []byte) error {
 	m.KeyGetResponse = aO0
 
 	var data struct {
-		Key strfmt.UUID `json:"key,omitempty"`
+		Token strfmt.UUID `json:"token,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &data); err != nil {
 		return err
 	}
 
-	m.Key = data.Key
+	m.Token = data.Token
 
 	return nil
 }
@@ -65,10 +65,10 @@ func (m KeyTokenGetResponse) MarshalJSON() ([]byte, error) {
 	_parts = append(_parts, aO0)
 
 	var data struct {
-		Key strfmt.UUID `json:"key,omitempty"`
+		Token strfmt.UUID `json:"token,omitempty"`
 	}
 
-	data.Key = m.Key
+	data.Token = m.Token
 
 	jsonData, err := swag.WriteJSON(data)
 	if err != nil {

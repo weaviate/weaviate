@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/actions"
 	"github.com/weaviate/weaviate/restapi/operations/graphql"
 	"github.com/weaviate/weaviate/restapi/operations/keys"
+	"github.com/weaviate/weaviate/restapi/operations/schema"
 	"github.com/weaviate/weaviate/restapi/operations/things"
 )
 
@@ -103,6 +104,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		KeysWeaviateKeysMeGetHandler: keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation KeysWeaviateKeysMeGet has not yet been implemented")
+		}),
+		SchemaWeaviateSchemaActionsHandler: schema.WeaviateSchemaActionsHandlerFunc(func(params schema.WeaviateSchemaActionsParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation SchemaWeaviateSchemaActions has not yet been implemented")
+		}),
+		SchemaWeaviateSchemaThingsHandler: schema.WeaviateSchemaThingsHandlerFunc(func(params schema.WeaviateSchemaThingsParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation SchemaWeaviateSchemaThings has not yet been implemented")
 		}),
 		ThingsWeaviateThingsActionsListHandler: things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsActionsList has not yet been implemented")
@@ -216,6 +223,10 @@ type WeaviateAPI struct {
 	KeysWeaviateKeysMeDeleteHandler keys.WeaviateKeysMeDeleteHandler
 	// KeysWeaviateKeysMeGetHandler sets the operation handler for the weaviate keys me get operation
 	KeysWeaviateKeysMeGetHandler keys.WeaviateKeysMeGetHandler
+	// SchemaWeaviateSchemaActionsHandler sets the operation handler for the weaviate schema actions operation
+	SchemaWeaviateSchemaActionsHandler schema.WeaviateSchemaActionsHandler
+	// SchemaWeaviateSchemaThingsHandler sets the operation handler for the weaviate schema things operation
+	SchemaWeaviateSchemaThingsHandler schema.WeaviateSchemaThingsHandler
 	// ThingsWeaviateThingsActionsListHandler sets the operation handler for the weaviate things actions list operation
 	ThingsWeaviateThingsActionsListHandler things.WeaviateThingsActionsListHandler
 	// ThingsWeaviateThingsCreateHandler sets the operation handler for the weaviate things create operation
@@ -397,6 +408,14 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.KeysWeaviateKeysMeGetHandler == nil {
 		unregistered = append(unregistered, "keys.WeaviateKeysMeGetHandler")
+	}
+
+	if o.SchemaWeaviateSchemaActionsHandler == nil {
+		unregistered = append(unregistered, "schema.WeaviateSchemaActionsHandler")
+	}
+
+	if o.SchemaWeaviateSchemaThingsHandler == nil {
+		unregistered = append(unregistered, "schema.WeaviateSchemaThingsHandler")
 	}
 
 	if o.ThingsWeaviateThingsActionsListHandler == nil {
@@ -627,6 +646,16 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/keys/me"] = keys.NewWeaviateKeysMeGet(o.context, o.KeysWeaviateKeysMeGetHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/schema/actions"] = schema.NewWeaviateSchemaActions(o.context, o.SchemaWeaviateSchemaActionsHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/schema/things"] = schema.NewWeaviateSchemaThings(o.context, o.SchemaWeaviateSchemaThingsHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)

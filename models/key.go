@@ -24,73 +24,51 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// Thing thing
-// swagger:model Thing
-type Thing struct {
-	ThingCreate
+// Key key
+// swagger:model Key
+type Key struct {
+	KeyCreate
 
-	// Timestamp of creation of this thing in milliseconds since epoch UTC.
-	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
-
-	// key
-	Key *SingleRef `json:"key,omitempty"`
-
-	// Timestamp of the last thing update in milliseconds since epoch UTC.
-	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
+	// parent
+	Parent *SingleRef `json:"parent,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
-func (m *Thing) UnmarshalJSON(raw []byte) error {
+func (m *Key) UnmarshalJSON(raw []byte) error {
 
-	var aO0 ThingCreate
+	var aO0 KeyCreate
 	if err := swag.ReadJSON(raw, &aO0); err != nil {
 		return err
 	}
-	m.ThingCreate = aO0
+	m.KeyCreate = aO0
 
 	var data struct {
-		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
-
-		Key *SingleRef `json:"key,omitempty"`
-
-		LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
+		Parent *SingleRef `json:"parent,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &data); err != nil {
 		return err
 	}
 
-	m.CreationTimeUnix = data.CreationTimeUnix
-
-	m.Key = data.Key
-
-	m.LastUpdateTimeUnix = data.LastUpdateTimeUnix
+	m.Parent = data.Parent
 
 	return nil
 }
 
 // MarshalJSON marshals this object to a JSON structure
-func (m Thing) MarshalJSON() ([]byte, error) {
+func (m Key) MarshalJSON() ([]byte, error) {
 	var _parts [][]byte
 
-	aO0, err := swag.WriteJSON(m.ThingCreate)
+	aO0, err := swag.WriteJSON(m.KeyCreate)
 	if err != nil {
 		return nil, err
 	}
 	_parts = append(_parts, aO0)
 
 	var data struct {
-		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
-
-		Key *SingleRef `json:"key,omitempty"`
-
-		LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
+		Parent *SingleRef `json:"parent,omitempty"`
 	}
 
-	data.CreationTimeUnix = m.CreationTimeUnix
-
-	data.Key = m.Key
-
-	data.LastUpdateTimeUnix = m.LastUpdateTimeUnix
+	data.Parent = m.Parent
 
 	jsonData, err := swag.WriteJSON(data)
 	if err != nil {
@@ -101,15 +79,15 @@ func (m Thing) MarshalJSON() ([]byte, error) {
 	return swag.ConcatJSON(_parts...), nil
 }
 
-// Validate validates this thing
-func (m *Thing) Validate(formats strfmt.Registry) error {
+// Validate validates this key
+func (m *Key) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.ThingCreate.Validate(formats); err != nil {
+	if err := m.KeyCreate.Validate(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateKey(formats); err != nil {
+	if err := m.validateParent(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -119,17 +97,17 @@ func (m *Thing) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *Thing) validateKey(formats strfmt.Registry) error {
+func (m *Key) validateParent(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.Key) { // not required
+	if swag.IsZero(m.Parent) { // not required
 		return nil
 	}
 
-	if m.Key != nil {
+	if m.Parent != nil {
 
-		if err := m.Key.Validate(formats); err != nil {
+		if err := m.Parent.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("key")
+				return ve.ValidateName("parent")
 			}
 			return err
 		}
@@ -139,7 +117,7 @@ func (m *Thing) validateKey(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *Thing) MarshalBinary() ([]byte, error) {
+func (m *Key) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -147,8 +125,8 @@ func (m *Thing) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *Thing) UnmarshalBinary(b []byte) error {
-	var res Thing
+func (m *Key) UnmarshalBinary(b []byte) error {
+	var res Key
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
