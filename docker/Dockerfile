@@ -22,4 +22,4 @@ RUN apt-get update -qq && apt-get install -qq -y jq curl zip wget && \
 EXPOSE 8080
 
 # Run!
-CMD /var/weaviate/weaviate --scheme=http --port=8080 --host=localhost --config=docker --config-file=/var/weaviate/weaviate.json
+CMD /var/weaviate/weaviate --scheme=http --port=8080 --host=localhost --config=docker --config-file=/var/weaviate/weaviate.conf.json
