@@ -25,6 +25,21 @@
                 "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
             },
             "mqttEnabled": false
+        },
+        {
+            "name": "docker",
+            "database": {
+                "name": "dgraph",
+                "database_config" : {
+                    "host": "x.x.x.x",
+                    "port": 9080
+                }
+            },
+            "schemas": {
+                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
+                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
+            },
+            "mqttEnabled": false
         }
     ]
 }
