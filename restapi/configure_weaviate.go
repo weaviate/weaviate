@@ -297,7 +297,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	// connect to mqtt
-	mqtt_client.Connect()
+	mqttclient.Connect()
 
 	api.ServeError = errors.ServeError
 
@@ -343,7 +343,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate the key on expiry time
-		currentUnix := connector_utils.NowUnix()
+		currentUnix := connutils.NowUnix()
 		if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
 			return nil, errors.New(401, "Provided key has expired.")
 		}
@@ -376,7 +376,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get and transform object
 		UUID := strfmt.UUID(params.ActionID)
 		actionGetResponse, errGet := databaseConnector.GetAction(UUID)
-		actionGetResponse.LastUpdateTimeUnix = connector_utils.NowUnix()
+		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Return error if UUID is not found.
 		if errGet != nil {
@@ -451,7 +451,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Generate UUID for the new object
-		UUID := connector_utils.GenerateUUID()
+		UUID := connutils.GenerateUUID()
 
 		// Validate Schema given in body with the weaviate schema
 		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
@@ -467,7 +467,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		action := &models.Action{}
 		json.Unmarshal([]byte(actionCreateJSON), action)
 
-		action.CreationTimeUnix = connector_utils.NowUnix()
+		action.CreationTimeUnix = connutils.NowUnix()
 		action.LastUpdateTimeUnix = 0
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
@@ -519,15 +519,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		key := principal.(models.KeyTokenGetResponse)
 
 		// Fill the new User object
-		newKey := &connector_utils.Key{}
+		newKey := &connutils.Key{}
 		newKey.Root = false
-		newKey.UUID = connector_utils.GenerateUUID()
-		newKey.KeyToken = connector_utils.GenerateUUID()
+		newKey.UUID = connutils.GenerateUUID()
+		newKey.KeyToken = connutils.GenerateUUID()
 		newKey.Parent = string(key.KeyID)
 		newKey.KeyCreate = *params.Body
 
 		// Key expiry time is in the past
-		currentUnix := connector_utils.NowUnix()
+		currentUnix := connutils.NowUnix()
 		if newKey.KeyExpiresUnix != -1 && newKey.KeyExpiresUnix < currentUnix {
 			// return keys.NewWeaviateKeyCreateUnprocessableEntity()
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
@@ -555,7 +555,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.KeyTokenGetResponse{}
 		responseObject.KeyCreate = newKey.KeyCreate
 		responseObject.KeyID = newKey.UUID
-		responseObject.Key = newKey.KeyToken
+		responseObject.Token = newKey.KeyToken
 		url := "http://localhost/"
 		responseObject.Parent = &models.SingleRef{
 			LocationURL:  &url,
@@ -587,7 +587,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
-		responseObject.Children = childIDs
+		// responseObject.Children = childIDs
 
 		// Return children with 'OK'
 		return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
@@ -647,7 +647,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
-		responseObject.Children = childIDs
+		// responseObject.Children = childIDs
 
 		// Return children with 'OK'
 		return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)
@@ -685,7 +685,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Generate UUID for the new object
-		UUID := connector_utils.GenerateUUID()
+		UUID := connutils.GenerateUUID()
 
 		// Validate Schema given in body with the weaviate schema
 		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
@@ -700,7 +700,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingCreateJSON, _ := json.Marshal(params.Body)
 		thing := &models.Thing{}
 		json.Unmarshal([]byte(thingCreateJSON), thing)
-		thing.CreationTimeUnix = connector_utils.NowUnix()
+		thing.CreationTimeUnix = connutils.NowUnix()
 		thing.LastUpdateTimeUnix = 0
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
@@ -771,7 +771,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		page := getPage(params.Page)
 
 		// Get user out of principal TODO
-		// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// usersObject, _ := connutils.PrincipalMarshalling(principal)
 
 		// List all results
 		thingsResponse, err := databaseConnector.ListThings(limit, page)
@@ -786,7 +786,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get and transform object
 		UUID := strfmt.UUID(params.ThingID)
 		thingGetResponse, errGet := databaseConnector.GetThing(UUID)
-		thingGetResponse.LastUpdateTimeUnix = connector_utils.NowUnix()
+		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Return error if UUID is not found.
 		if errGet != nil {
@@ -868,7 +868,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Update the database
-		params.Body.LastUpdateTimeUnix = connector_utils.NowUnix()
+		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = databaseResponseObject.CreationTimeUnix
 		insertErr := databaseConnector.UpdateThing(&params.Body.Thing, UUID) // TODO: go-routine?
 		if insertErr != nil {
@@ -912,7 +912,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		page := getPage(params.Page)
 
 		// // Get user out of principal TODO: add only user object in list
-		// usersObject, _ := connector_utils.PrincipalMarshalling(principal)
+		// usersObject, _ := connutils.PrincipalMarshalling(principal)
 
 		// List all results
 		actionsResponse, err := databaseConnector.ListActions(params.ThingID, limit, page)

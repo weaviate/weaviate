@@ -11,7 +11,7 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-package mqttClient
+package mqttclient
 
 import (
 	MQTT "github.com/eclipse/paho.mqtt.golang"
