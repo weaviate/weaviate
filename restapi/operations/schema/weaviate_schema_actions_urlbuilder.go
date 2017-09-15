@@ -10,11 +10,9 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-   
 
 package schema
 
- 
 // Editing this file might prove futile when you re-run the generate command
 
 import (

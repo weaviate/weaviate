@@ -10,12 +10,14 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-package mqtt_client
+
+package mqttClient
 
 import (
 	MQTT "github.com/eclipse/paho.mqtt.golang"
 )
 
+// Connect to connect to MQTT
 func Connect() bool {
 	opts := MQTT.NewClientOptions().AddBroker("tcp://iot.eclipse.org:1883")
 	opts.SetClientID("go-simple")
