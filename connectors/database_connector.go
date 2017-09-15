@@ -31,20 +31,20 @@ type DatabaseConnector interface {
 	SetSchema(*schema.WeaviateSchema) error
 
 	AddThing(*models.Thing, strfmt.UUID) error
-	GetThing(strfmt.UUID) (models.ThingGetResponse, error)
-	ListThings(int, int) (models.ThingsListResponse, error)
+	GetThing(strfmt.UUID, *models.ThingGetResponse) error
+	ListThings(int, int, *models.ThingsListResponse) error
 	UpdateThing(*models.Thing, strfmt.UUID) error
 	DeleteThing(strfmt.UUID) error
 
 	AddAction(*models.Action, strfmt.UUID) error
-	GetAction(strfmt.UUID) (models.ActionGetResponse, error)
-	ListActions(strfmt.UUID, int, int) (models.ActionsListResponse, error)
+	GetAction(strfmt.UUID, *models.ActionGetResponse) error
+	ListActions(strfmt.UUID, int, int, *models.ActionsListResponse) error
 	UpdateAction(*models.Action, strfmt.UUID) error
 	DeleteAction(strfmt.UUID) error
 
 	AddKey(*models.Key, strfmt.UUID, strfmt.UUID) error
-	ValidateToken(strfmt.UUID) (models.KeyTokenGetResponse, error)
-	GetKey(strfmt.UUID) (models.KeyTokenGetResponse, error)
+	ValidateToken(strfmt.UUID, *models.KeyTokenGetResponse) error
+	GetKey(strfmt.UUID, *models.KeyTokenGetResponse) error
 	DeleteKey(strfmt.UUID) error
 	GetKeyChildrenUUIDs(strfmt.UUID) ([]strfmt.UUID, error)
 }

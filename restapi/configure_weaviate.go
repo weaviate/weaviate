@@ -356,8 +356,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	// Applies when the "X-API-KEY" header is set
 	api.APIKeyAuth = func(token string) (interface{}, error) {
+		// Create key
+		validatedKey := models.KeyTokenGetResponse{}
+
 		// Check if the user has access, true if yes
-		validatedKey, err := databaseConnector.ValidateToken(strfmt.UUID(token))
+		err := databaseConnector.ValidateToken(strfmt.UUID(token), &validatedKey)
 
 		// Error printing
 		if err != nil {
@@ -378,10 +381,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE EVENTS
 	 */
 	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams, principal interface{}) middleware.Responder {
-		// Get item from database
-		actionGetResponse, err := databaseConnector.GetAction(params.ActionID)
+		// Initialize response
+		actionGetResponse := models.ActionGetResponse{}
+		actionGetResponse.Schema = map[string]models.JSONObject{}
+		actionGetResponse.Things = &models.ObjectSubject{}
 
-		// Object is deleted eleted
+		// Get item from database
+		err := databaseConnector.GetAction(params.ActionID, &actionGetResponse)
+
+		// Object is deleted
 		if err != nil {
 			return actions.NewWeaviateActionsGetNotFound()
 		}
@@ -395,9 +403,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
 	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal interface{}) middleware.Responder {
+		// Initialize response
+		actionGetResponse := models.ActionGetResponse{}
+		actionGetResponse.Schema = map[string]models.JSONObject{}
+		actionGetResponse.Things = &models.ObjectSubject{}
+
 		// Get and transform object
 		UUID := strfmt.UUID(params.ActionID)
-		actionGetResponse, errGet := databaseConnector.GetAction(UUID)
+		errGet := databaseConnector.GetAction(UUID, &actionGetResponse)
 		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Return error if UUID is not found.
@@ -516,8 +529,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
 	})
 	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal interface{}) middleware.Responder {
+		// Initialize response
+		actionGetResponse := models.ActionGetResponse{}
+		actionGetResponse.Schema = map[string]models.JSONObject{}
+		actionGetResponse.Things = &models.ObjectSubject{}
+
 		// Get item from database
-		actionGetResponse, errGet := databaseConnector.GetAction(params.ActionID)
+		errGet := databaseConnector.GetAction(params.ActionID, &actionGetResponse)
 
 		// Not found
 		if errGet != nil {
@@ -584,8 +602,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeyCreateAccepted().WithPayload(newKey)
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
+		// Initialize response
+		keyResponse := models.KeyTokenGetResponse{}
+
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		_, errGet := databaseConnector.GetKey(params.KeyID)
+		errGet := databaseConnector.GetKey(params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -610,8 +631,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
+		// Initialize response
+		keyResponse := models.KeyTokenGetResponse{}
+
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		_, errGet := databaseConnector.GetKey(params.KeyID)
+		errGet := databaseConnector.GetKey(params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -631,8 +655,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysDeleteNoContent()
 	})
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
+		// Initialize response
+		keyResponse := models.KeyTokenGetResponse{}
+
 		// Get item from database
-		tokenResponseObject, err := databaseConnector.GetKey(params.KeyID)
+		err := databaseConnector.GetKey(params.KeyID, &keyResponse)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -645,14 +672,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return keys.NewWeaviateKeysGetForbidden()
 		}
 
-		// Create response Object from create object.
-		responseObject := &models.KeyGetResponse{}
-		responseObject.KeyCreate = tokenResponseObject.KeyCreate
-		responseObject.KeyID = tokenResponseObject.KeyID
-		responseObject.Parent = tokenResponseObject.Parent
-
 		// Get is successful
-		return keys.NewWeaviateKeysGetOK().WithPayload(responseObject)
+		return keys.NewWeaviateKeysGetOK().WithPayload(&keyResponse.KeyGetResponse)
 	})
 	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
@@ -680,8 +701,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysMeDeleteNoContent()
 	})
 	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
+		// Initialize response object
+		tokenResponseObject := models.KeyTokenGetResponse{}
+
 		// Get item from database
-		tokenResponseObject, err := databaseConnector.GetKey(principal.(models.KeyTokenGetResponse).KeyID)
+		err := databaseConnector.GetKey(principal.(models.KeyTokenGetResponse).KeyID, &tokenResponseObject)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -744,8 +768,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
+		// Initialize response
+		thingGetResponse := models.ThingGetResponse{}
+		thingGetResponse.Schema = map[string]models.JSONObject{}
+
 		// Get item from database
-		thingGetResponse, errGet := databaseConnector.GetThing(params.ThingID)
+		errGet := databaseConnector.GetThing(params.ThingID, &thingGetResponse)
 
 		// Not found
 		if errGet != nil {
@@ -764,8 +792,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsDeleteNoContent()
 	})
 	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
+		// Initialize response
+		responseObject := models.ThingGetResponse{}
+		responseObject.Schema = map[string]models.JSONObject{}
+
 		// Get item from database
-		responseObject, err := databaseConnector.GetThing(strfmt.UUID(params.ThingID))
+		err := databaseConnector.GetThing(strfmt.UUID(params.ThingID), &responseObject)
 
 		// Object is not found
 		if err != nil {
@@ -793,8 +825,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get user out of principal TODO
 		// usersObject, _ := connutils.PrincipalMarshalling(principal)
 
+		// Initialize response
+		thingsResponse := models.ThingsListResponse{}
+
 		// List all results
-		thingsResponse, err := databaseConnector.ListThings(limit, page)
+		err := databaseConnector.ListThings(limit, page, &thingsResponse)
 
 		if err != nil {
 			log.Println("ERROR", err)
@@ -803,9 +838,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
 	})
 	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal interface{}) middleware.Responder {
+		// Initialize response
+		thingGetResponse := models.ThingGetResponse{}
+		thingGetResponse.Schema = map[string]models.JSONObject{}
+
 		// Get and transform object
 		UUID := strfmt.UUID(params.ThingID)
-		thingGetResponse, errGet := databaseConnector.GetThing(UUID)
+		errGet := databaseConnector.GetThing(UUID, &thingGetResponse)
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Return error if UUID is not found.
@@ -863,9 +902,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsPatchOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
+		// Initialize response
+		thingGetResponse := models.ThingGetResponse{}
+		thingGetResponse.Schema = map[string]models.JSONObject{}
+
 		// Get item from database
 		UUID := strfmt.UUID(params.ThingID)
-		databaseResponseObject, errGet := databaseConnector.GetThing(UUID)
+		errGet := databaseConnector.GetThing(UUID, &thingGetResponse)
 
 		// If there are no results, there is an error
 		if errGet != nil {
@@ -874,7 +917,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, databaseResponseObject.Key.NrDollarCref); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsUpdateForbidden()
 		}
 
@@ -889,7 +932,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
-		params.Body.CreationTimeUnix = databaseResponseObject.CreationTimeUnix
+		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
 		insertErr := databaseConnector.UpdateThing(&params.Body.Thing, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
@@ -934,8 +977,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// // Get user out of principal TODO: add only user object in list
 		// usersObject, _ := connutils.PrincipalMarshalling(principal)
 
+		// Initialize response
+		actionsResponse := models.ActionsListResponse{}
+
 		// List all results
-		actionsResponse, err := databaseConnector.ListActions(params.ThingID, limit, page)
+		err := databaseConnector.ListActions(params.ThingID, limit, page, &actionsResponse)
 
 		if err != nil {
 			log.Println("ERROR", err)
