@@ -502,6 +502,7 @@ func (f *Dgraph) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
 	// Call function for deleting node
 	err := f.deleteNodeByUUID(UUID)
+
 	return err
 }
 
