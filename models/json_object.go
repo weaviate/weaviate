@@ -10,12 +10,8 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-   
 
 package models
-
- 
- 
 
 // JSONObject JSON object value.
 // swagger:model JsonObject
