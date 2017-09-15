@@ -27,36 +27,29 @@ import (
 // KeyGetResponse key get response
 // swagger:model KeyGetResponse
 type KeyGetResponse struct {
-	KeyCreate
+	Key
 
 	// Id of the key.
 	KeyID strfmt.UUID `json:"keyId,omitempty"`
-
-	// parent
-	Parent *SingleRef `json:"parent,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
 func (m *KeyGetResponse) UnmarshalJSON(raw []byte) error {
 
-	var aO0 KeyCreate
+	var aO0 Key
 	if err := swag.ReadJSON(raw, &aO0); err != nil {
 		return err
 	}
-	m.KeyCreate = aO0
+	m.Key = aO0
 
 	var data struct {
 		KeyID strfmt.UUID `json:"keyId,omitempty"`
-
-		Parent *SingleRef `json:"parent,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &data); err != nil {
 		return err
 	}
 
 	m.KeyID = data.KeyID
-
-	m.Parent = data.Parent
 
 	return nil
 }
@@ -65,7 +58,7 @@ func (m *KeyGetResponse) UnmarshalJSON(raw []byte) error {
 func (m KeyGetResponse) MarshalJSON() ([]byte, error) {
 	var _parts [][]byte
 
-	aO0, err := swag.WriteJSON(m.KeyCreate)
+	aO0, err := swag.WriteJSON(m.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -73,13 +66,9 @@ func (m KeyGetResponse) MarshalJSON() ([]byte, error) {
 
 	var data struct {
 		KeyID strfmt.UUID `json:"keyId,omitempty"`
-
-		Parent *SingleRef `json:"parent,omitempty"`
 	}
 
 	data.KeyID = m.KeyID
-
-	data.Parent = m.Parent
 
 	jsonData, err := swag.WriteJSON(data)
 	if err != nil {
@@ -94,36 +83,13 @@ func (m KeyGetResponse) MarshalJSON() ([]byte, error) {
 func (m *KeyGetResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.KeyCreate.Validate(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateParent(formats); err != nil {
+	if err := m.Key.Validate(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *KeyGetResponse) validateParent(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Parent) { // not required
-		return nil
-	}
-
-	if m.Parent != nil {
-
-		if err := m.Parent.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("parent")
-			}
-			return err
-		}
-	}
-
 	return nil
 }
 
