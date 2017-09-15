@@ -386,28 +386,21 @@ func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // GetThing returns the thing in the ThingGetResponse format
-func (f *Dgraph) GetThing(UUID strfmt.UUID) (models.ThingGetResponse, error) {
-	// Initialize response
-	thingResponse := models.ThingGetResponse{}
-	thingResponse.Schema = map[string]models.JSONObject{}
-
+func (f *Dgraph) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
 	// Get raw node for response
 	rawNode, err := f.getRawNodeByUUID(UUID, connutils.RefTypeThing, defaultSingleNodeQueryTemplate)
 	if err != nil {
-		return thingResponse, err
+		return err
 	}
 
 	// Merge the results into the model to return
-	f.mergeThingNodeInResponse(rawNode, &thingResponse)
+	f.mergeThingNodeInResponse(rawNode, thingResponse)
 
-	return thingResponse, nil
+	return nil
 }
 
 // ListThings returns the thing in the ThingGetResponse format
-func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, error) {
-	// Initialize response
-	thingsResponse := models.ThingsListResponse{}
-
+func (f *Dgraph) ListThings(limit int, page int, thingsResponse *models.ThingsListResponse) error {
 	// Do a query to get all node-information
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{ 
@@ -422,7 +415,7 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
 	if err != nil {
-		return thingsResponse, err
+		return err
 	}
 
 	// Merge the results into the model to return
@@ -450,20 +443,20 @@ func (f *Dgraph) ListThings(limit int, page int) (models.ThingsListResponse, err
 	// Run query created above
 	resp, err = f.client.Run(f.getContext(), &req)
 	if err != nil {
-		return thingsResponse, err
+		return err
 	}
 
 	// Unmarshal the dgraph response into a struct
 	var totalResult TotalResultsResult
 	err = dgraphClient.Unmarshal(resp.N, &totalResult)
 	if err != nil {
-		return thingsResponse, nil
+		return nil
 	}
 
 	// Set the total results
 	thingsResponse.TotalResults = totalResult.Root.Count
 
-	return thingsResponse, nil
+	return nil
 }
 
 // UpdateThing updates the Thing in the DB at the given UUID.
@@ -547,29 +540,21 @@ func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 }
 
 // GetAction returns an action from the database
-func (f *Dgraph) GetAction(UUID strfmt.UUID) (models.ActionGetResponse, error) {
-	// Initialize response
-	actionResponse := models.ActionGetResponse{}
-	actionResponse.Schema = map[string]models.JSONObject{}
-	actionResponse.Things = &models.ObjectSubject{}
-
+func (f *Dgraph) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
 	// Get raw node for response
 	rawNode, err := f.getRawNodeByUUID(UUID, connutils.RefTypeAction, defaultSingleNodeQueryTemplate)
 	if err != nil {
-		return actionResponse, err
+		return err
 	}
 
 	// Merge the results into the model to return
-	f.mergeActionNodeInResponse(rawNode, &actionResponse, "")
+	f.mergeActionNodeInResponse(rawNode, actionResponse, "")
 
-	return actionResponse, nil
+	return nil
 }
 
 // ListActions lists actions for a specific thing
-func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.ActionsListResponse, error) {
-	// Initialize response
-	actionsResponse := models.ActionsListResponse{}
-
+func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int, actionsResponse *models.ActionsListResponse) error {
 	// Do a query to get all node-information
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{
@@ -587,7 +572,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
 	if err != nil {
-		return actionsResponse, err
+		return err
 	}
 
 	// Merge the results into the model to return
@@ -595,7 +580,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 
 	// No nodes = not found error. First level is root (always exists) so check children.
 	if len(nodes[0].GetChildren()) == 0 {
-		return actionsResponse, errors_.New("No actions found in database.")
+		return errors_.New("No actions found in database.")
 	}
 
 	// Get subitems because we use a query with related actions of a thing
@@ -627,21 +612,21 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int) (models.Acti
 	// Run query created above
 	resp, err = f.client.Run(f.getContext(), &req)
 	if err != nil {
-		return actionsResponse, err
+		return err
 	}
 
 	// Unmarshal the dgraph response into a struct
 	var totalResult TotalResultsRelatedResult
 	err = dgraphClient.Unmarshal(resp.N, &totalResult)
 	if err != nil {
-		return actionsResponse, nil
+		return nil
 	}
 
 	// Set the total results
 	actionsResponse.TotalResults = totalResult.Root.Related.Count
 	// TODO: NOT WORKING WITH @NORMALIZE, 1 level deeper now, MISSING 'totalResults' IN RETURN OBJ, DGRAPH bug?
 
-	return actionsResponse, nil
+	return nil
 }
 
 // UpdateAction updates a specific action
@@ -803,10 +788,7 @@ func (f *Dgraph) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) er
 }
 
 // ValidateToken adds a key to the Dgraph database with the given UUID
-func (f *Dgraph) ValidateToken(UUID strfmt.UUID) (models.KeyTokenGetResponse, error) {
-	// Create key
-	key := models.KeyTokenGetResponse{}
-
+func (f *Dgraph) ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse) error {
 	// Search for Root key
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{
@@ -819,7 +801,7 @@ func (f *Dgraph) ValidateToken(UUID strfmt.UUID) (models.KeyTokenGetResponse, er
 	var err error
 	var resp *protos.Response
 	if resp, err = f.client.Run(f.getContext(), &req); err != nil {
-		return key, err
+		return err
 	}
 
 	// Unmarshal the dgraph response into a struct
@@ -827,30 +809,27 @@ func (f *Dgraph) ValidateToken(UUID strfmt.UUID) (models.KeyTokenGetResponse, er
 
 	// No nodes = not found error. First level is root (always exists) so check children.
 	if len(nodes[0].GetChildren()) == 0 {
-		return key, errors_.New("Key not found in database.")
+		return errors_.New("Key not found in database.")
 	}
 
 	// Merge the results into the model to return
-	f.mergeKeyNodeInResponse(nodes[0], &key)
+	f.mergeKeyNodeInResponse(nodes[0], key)
 
-	return key, nil
+	return nil
 }
 
 // GetKey returns the key in the KeyGetResponse format
-func (f *Dgraph) GetKey(UUID strfmt.UUID) (models.KeyTokenGetResponse, error) {
-	// Initialize response
-	keyResponse := models.KeyTokenGetResponse{}
-
+func (f *Dgraph) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
 	// Get raw node for response
 	rawNode, err := f.getRawNodeByUUID(UUID, connutils.RefTypeKey, defaultSingleNodeQueryTemplate)
 	if err != nil {
-		return keyResponse, err
+		return err
 	}
 
 	// Merge the results into the model to return
-	f.mergeKeyNodeInResponse(rawNode, &keyResponse)
+	f.mergeKeyNodeInResponse(rawNode, keyResponse)
 
-	return keyResponse, nil
+	return nil
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
