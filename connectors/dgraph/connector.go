@@ -139,9 +139,6 @@ func (f *Dgraph) Connect() error {
 
 // Init creates a root key, normally this should be validaded, but because it is an indgraph DB it is created always
 func (f *Dgraph) Init() error {
-	// Generate a basic DB object and print it's key.
-	// dbObject := connutils.CreateFirstUserObject()
-
 	var err error
 
 	// Init flush variable
@@ -303,6 +300,15 @@ func (f *Dgraph) Init() error {
 		return errors_.New("error while adding 'key.token' Dgraph-schema")
 	}
 
+	// Call flush to flush buffers after all mutations are added
+	if flushIt || true {
+		err = f.client.BatchFlush()
+
+		if err != nil {
+			return errors_.New("error while performing BatchFlush()")
+		}
+	}
+
 	// Add ROOT-key if not exists
 	// Search for Root key
 	req := dgraphClient.Req{}
@@ -327,25 +333,18 @@ func (f *Dgraph) Init() error {
 	// Set the total results
 	if totalResult.Root.Count == 0 {
 		log.Println("No root-key found.")
-		keyObject := connutils.CreateFirstUserObject()
 
-		err = f.AddKey(keyObject, connutils.GenerateUUID())
+		// Create new object and fill it
+		keyObject := models.Key{}
+		token := connutils.CreateFirstUserObject(&keyObject)
+
+		err = f.AddKey(&keyObject, connutils.GenerateUUID(), token)
 
 		if err != nil {
 			return err
 		}
 	}
-
 	// END KEYS
-
-	// Call flush to flush buffers after all mutations are added
-	if flushIt {
-		err = f.client.BatchFlush()
-
-		if err != nil {
-			return errors_.New("error while performing BatchFlush()")
-		}
-	}
 
 	return nil
 }
@@ -681,7 +680,7 @@ func (f *Dgraph) DeleteAction(UUID strfmt.UUID) error {
 }
 
 // AddKey adds a key to the Dgraph database with the given UUID
-func (f *Dgraph) AddKey(key *connutils.Key, UUID strfmt.UUID) error {
+func (f *Dgraph) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error {
 	// Create new node with base vars
 	newNode, err := f.addNewNode(
 		connutils.RefTypeKey,
@@ -692,8 +691,9 @@ func (f *Dgraph) AddKey(key *connutils.Key, UUID strfmt.UUID) error {
 	req := dgraphClient.Req{}
 
 	// Add root value to edge
+	isRoot := (key.Parent == nil)
 	edge := newNode.Edge("key.root")
-	if err := edge.SetValueBool(key.Root); err != nil {
+	if err := edge.SetValueBool(isRoot); err != nil {
 		return err
 	}
 	if err = req.Set(edge); err != nil {
@@ -747,7 +747,7 @@ func (f *Dgraph) AddKey(key *connutils.Key, UUID strfmt.UUID) error {
 
 	// Add token value to edge
 	edge = newNode.Edge("key.token")
-	if err := edge.SetValueString(string(key.KeyToken)); err != nil {
+	if err := edge.SetValueString(string(token)); err != nil {
 		return err
 	}
 	if err = req.Set(edge); err != nil {
@@ -773,9 +773,9 @@ func (f *Dgraph) AddKey(key *connutils.Key, UUID strfmt.UUID) error {
 	}
 
 	// Set parent node, if node is not root
-	if !(key.Parent == "*" && key.Root) {
+	if !isRoot {
 		// Get Parent Node
-		parentNode, err := f.getNodeByUUID(strfmt.UUID(key.Parent))
+		parentNode, err := f.getNodeByUUID(strfmt.UUID(key.Parent.NrDollarCref))
 		if err != nil {
 			return err
 		}
