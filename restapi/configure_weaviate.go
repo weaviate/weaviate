@@ -297,7 +297,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	// connect to mqtt
-	mqtt_client.Connect()
+	mqttclient.Connect()
 
 	api.ServeError = errors.ServeError
 
@@ -555,7 +555,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.KeyTokenGetResponse{}
 		responseObject.KeyCreate = newKey.KeyCreate
 		responseObject.KeyID = newKey.UUID
-		responseObject.Key = newKey.KeyToken
+		responseObject.Token = newKey.KeyToken
 		url := "http://localhost/"
 		responseObject.Parent = &models.SingleRef{
 			LocationURL:  &url,
@@ -587,7 +587,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
-		responseObject.Children = childIDs
+		// responseObject.Children = childIDs
 
 		// Return children with 'OK'
 		return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
@@ -647,7 +647,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
-		responseObject.Children = childIDs
+		// responseObject.Children = childIDs
 
 		// Return children with 'OK'
 		return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)

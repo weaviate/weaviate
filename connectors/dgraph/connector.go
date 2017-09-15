@@ -1384,7 +1384,7 @@ func (f *Dgraph) mergeKeyNodeInResponse(node *protos.Node, key *models.KeyTokenG
 			} else if prop.Prop == "key.read" {
 				key.Read = prop.GetValue().GetBoolVal()
 			} else if prop.Prop == "key.token" {
-				key.Key = strfmt.UUID(prop.GetValue().GetStrVal())
+				key.Token = strfmt.UUID(prop.GetValue().GetStrVal())
 			} else if prop.Prop == "key.write" {
 				key.Write = prop.GetValue().GetBoolVal()
 			} else if prop.Prop == "uuid" {
