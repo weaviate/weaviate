@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Start the first process
-dgraph --memory_mb 2048
+nohup dgraph --memory_mb 2048
 status=$?
 if [ $status -ne 0 ]; then
   echo "Failed to start dgraph: $status"
@@ -9,7 +9,7 @@ if [ $status -ne 0 ]; then
 fi
 
 # Start the second process
-/var/weaviate/weaviate --scheme=http --port=8080 --host=localhost --config=graph --config-file=weaviate.conf.json
+nohup /var/weaviate/weaviate --scheme=http --port=8080 --host=localhost --config=graph --config-file=weaviate.conf.json
 status=$?
 if [ $status -ne 0 ]; then
   echo "Failed to start weaviate: $status"
