@@ -400,17 +400,19 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespon
 }
 
 // ListThings returns the thing in the ThingGetResponse format
-func (f *Dgraph) ListThings(limit int, page int, thingsResponse *models.ThingsListResponse) error {
+func (f *Dgraph) ListThings(limit int, page int, keyID strfmt.UUID, thingsResponse *models.ThingsListResponse) error {
 	// Do a query to get all node-information
 	req := dgraphClient.Req{}
-	req.SetQuery(fmt.Sprintf(`{ 
-		things(func: eq(%s, %s), orderdesc: creationTimeUnix, first: %d, offset: %d)  {
-			expand(_all_) {
-				expand(_all_)
+	req.SetQuery(fmt.Sprintf(`{
+		keys(func: eq(uuid, "%s")) {
+			things: ~key @filter(eq(%s, "%s")) (orderdesc: creationTimeUnix, first: %d, offset: %d)  {
+				expand(_all_) {
+					expand(_all_)
+				}
 			}
 		}
 	}
-	`, refTypePointer, connutils.RefTypeThing, limit, (page-1)*limit))
+	`, keyID, refTypePointer, connutils.RefTypeThing, limit, (page-1)*limit))
 
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
@@ -420,7 +422,14 @@ func (f *Dgraph) ListThings(limit int, page int, thingsResponse *models.ThingsLi
 
 	// Merge the results into the model to return
 	nodes := resp.GetN()
-	resultItems := nodes[0].Children
+
+	// No nodes = not found error. First level is root (always exists) so check children.
+	if len(nodes[0].GetChildren()) == 0 {
+		return errors_.New("No things found in database.")
+	}
+
+	// Get subitems because we use a query with related things of a thing
+	resultItems := nodes[0].Children[0].Children
 
 	// Set the return array length
 	thingsResponse.Things = make([]*models.ThingGetResponse, len(resultItems))
@@ -434,11 +443,13 @@ func (f *Dgraph) ListThings(limit int, page int, thingsResponse *models.ThingsLi
 
 	// Create query to count total results
 	req = dgraphClient.Req{}
-	req.SetQuery(fmt.Sprintf(`{ 
-  		totalResults(func: eq(_type_, "%s"))  {
-    		count()
-  		}
-	}`, connutils.RefTypeThing))
+	req.SetQuery(fmt.Sprintf(`{
+		totalResults(func: eq(uuid, "%s")) {
+			related: ~key @filter(eq(%s, "%s")) {
+				count()
+			}
+		}
+	}`, keyID, refTypePointer, connutils.RefTypeThing))
 
 	// Run query created above
 	resp, err = f.client.Run(f.getContext(), &req)
@@ -447,14 +458,14 @@ func (f *Dgraph) ListThings(limit int, page int, thingsResponse *models.ThingsLi
 	}
 
 	// Unmarshal the dgraph response into a struct
-	var totalResult TotalResultsResult
+	var totalResult TotalResultsRelatedResult
 	err = dgraphClient.Unmarshal(resp.N, &totalResult)
 	if err != nil {
 		return nil
 	}
 
 	// Set the total results
-	thingsResponse.TotalResults = totalResult.Root.Count
+	thingsResponse.TotalResults = totalResult.Root.Related.Count
 
 	return nil
 }
