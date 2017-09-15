@@ -18,7 +18,6 @@ import (
 
 	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors/dgraph"
-	"github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/models"
 	"github.com/weaviate/weaviate/schema"
 )
@@ -43,7 +42,7 @@ type DatabaseConnector interface {
 	UpdateAction(*models.Action, strfmt.UUID) error
 	DeleteAction(strfmt.UUID) error
 
-	AddKey(*connutils.Key, strfmt.UUID) error
+	AddKey(*models.Key, strfmt.UUID, strfmt.UUID) error
 	ValidateToken(strfmt.UUID) (models.KeyTokenGetResponse, error)
 	GetKey(strfmt.UUID) (models.KeyTokenGetResponse, error)
 	DeleteKey(strfmt.UUID) error
