@@ -32,7 +32,7 @@ type DatabaseConnector interface {
 
 	AddThing(*models.Thing, strfmt.UUID) error
 	GetThing(strfmt.UUID, *models.ThingGetResponse) error
-	ListThings(int, int, *models.ThingsListResponse) error
+	ListThings(int, int, strfmt.UUID, *models.ThingsListResponse) error
 	UpdateThing(*models.Thing, strfmt.UUID) error
 	DeleteThing(strfmt.UUID) error
 

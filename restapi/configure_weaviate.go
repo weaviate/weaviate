@@ -822,14 +822,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
-		// Get user out of principal TODO
-		// usersObject, _ := connutils.PrincipalMarshalling(principal)
+		// Get user out of principal
+		keyID := principal.(models.KeyTokenGetResponse).KeyID
 
 		// Initialize response
 		thingsResponse := models.ThingsListResponse{}
+		thingsResponse.Things = []*models.ThingGetResponse{}
 
 		// List all results
-		err := databaseConnector.ListThings(limit, page, &thingsResponse)
+		err := databaseConnector.ListThings(limit, page, keyID, &thingsResponse)
 
 		if err != nil {
 			log.Println("ERROR", err)
@@ -979,6 +980,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Initialize response
 		actionsResponse := models.ActionsListResponse{}
+		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
 		err := databaseConnector.ListActions(params.ThingID, limit, page, &actionsResponse)
