@@ -117,7 +117,7 @@ func isOwnKeyOrLowerInTree(currentKey models.KeyTokenGetResponse, userKeyID strf
 
 	// Get all child id's
 	childIDs := []strfmt.UUID{}
-	childIDs = GetKeyChildren(databaseConnector, currentKey.KeyID, true, childIDs, 0, 0)
+	childIDs, _ = GetKeyChildrenUUIDs(databaseConnector, currentKey.KeyID, true, childIDs, 0, 0)
 
 	// Check ID is in childIds
 	isChildID := false
@@ -135,24 +135,46 @@ func isOwnKeyOrLowerInTree(currentKey models.KeyTokenGetResponse, userKeyID strf
 	return false
 }
 
-// GetKeyChildren returns children recursivly based on its parameters.
-func GetKeyChildren(databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID, filterOutDeleted bool, allIDs []strfmt.UUID, maxDepth int, depth int) []strfmt.UUID {
+// GetKeyChildrenUUIDs returns children recursivly based on its parameters.
+func GetKeyChildrenUUIDs(databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID, filterOutDeleted bool, allIDs []strfmt.UUID, maxDepth int, depth int) ([]strfmt.UUID, error) {
 	// Append on every depth
 	if depth > 0 {
 		allIDs = append(allIDs, parentUUID)
 	}
 
 	// Get children from the db-connector
-	childKeys, _ := databaseConnector.GetKeyChildren(parentUUID)
+	childKeys, _ := databaseConnector.GetKeyChildrenUUIDs(parentUUID)
+
+	// Init error var
+	var err error
 
 	// For every depth, get the ID's
 	if maxDepth == 0 || depth < maxDepth {
 		for _, childKey := range childKeys {
-			allIDs = GetKeyChildren(databaseConnector, childKey, filterOutDeleted, allIDs, maxDepth, depth+1)
+			allIDs, err = GetKeyChildrenUUIDs(databaseConnector, childKey, filterOutDeleted, allIDs, maxDepth, depth+1)
 		}
 	}
 
-	return allIDs
+	return allIDs, err
+}
+
+func generateMultipleRefObject(keyIDs []strfmt.UUID) models.MultipleRef {
+	// Init the response
+	refs := models.MultipleRef{}
+
+	// Init localhost TODO
+	url := "http://localhost/"
+
+	// Generate SingleRefs
+	for _, keyID := range keyIDs {
+		refs = append(refs, &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: keyID,
+			Type:         connutils.RefTypeKey,
+		})
+	}
+
+	return refs
 }
 
 func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID) {
@@ -160,7 +182,7 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 	var allIDs []strfmt.UUID
 
 	// Get all the children to remove
-	allIDs = GetKeyChildren(databaseConnector, parentUUID, false, allIDs, 0, 0)
+	allIDs, _ = GetKeyChildrenUUIDs(databaseConnector, parentUUID, false, allIDs, 0, 0)
 
 	// Append the children to the parent UUIDs to remove all
 	allIDs = append(allIDs, parentUUID)
@@ -575,11 +597,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get the children
 		childIDs := []strfmt.UUID{}
-		childIDs = GetKeyChildren(databaseConnector, params.KeyID, true, childIDs, 1, 0)
+		childIDs, _ = GetKeyChildrenUUIDs(databaseConnector, params.KeyID, true, childIDs, 1, 0)
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
-		// responseObject.Children = childIDs
+		responseObject.Children = generateMultipleRefObject(childIDs)
 
 		// Return children with 'OK'
 		return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
@@ -635,11 +657,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get the children
 		childIDs := []strfmt.UUID{}
-		childIDs = GetKeyChildren(databaseConnector, currentKey.KeyID, true, childIDs, 1, 0)
+		childIDs, _ = GetKeyChildrenUUIDs(databaseConnector, currentKey.KeyID, true, childIDs, 1, 0)
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
-		// responseObject.Children = childIDs
+		responseObject.Children = generateMultipleRefObject(childIDs)
 
 		// Return children with 'OK'
 		return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)
