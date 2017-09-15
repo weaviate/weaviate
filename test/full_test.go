@@ -215,7 +215,7 @@ func init() {
 // 	time.Sleep(1 * time.Second)
 
 // 	// Create create request with a key that will expire soon
-// 	unixTimeExpire = connector_utils.NowUnix()
+// 	unixTimeExpire = connutils.NowUnix()
 // 	jsonStrNewKeySoonExpire := bytes.NewBuffer([]byte(`{
 // 		"delete": false,
 // 		"email": "expiredkey",
@@ -674,7 +674,7 @@ func Test__weaviate_thing_update_JSON(t *testing.T) {
 	require.Equal(t, thingID, string(respObject.ThingID))
 
 	// Check given update time is after now, but not in the future
-	now := connector_utils.NowUnix()
+	now := connutils.NowUnix()
 	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix > now) }, "LastUpdateTimeUnix is incorrect, it was set in the future.")
 	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix < now-2000) }, "LastUpdateTimeUnix is incorrect, it was set to far back.")
 
@@ -718,7 +718,7 @@ func Test__weaviate_thing_patch_JSON(t *testing.T) {
 	require.Equal(t, thingID, string(respObject.ThingID))
 
 	// Check given update time is after now, but not in the future
-	now := connector_utils.NowUnix()
+	now := connutils.NowUnix()
 	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix > now) }, "LastUpdateTimeUnix is incorrect, it was set in the future.")
 	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix < now-2000) }, "LastUpdateTimeUnix is incorrect, it was set to far back.")
 
@@ -803,7 +803,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 	// testID(t, string(respObject.UserKey), rootID) TODO
 
 	// Check given creation time is after now, but not in the future
-	now := connector_utils.NowUnix()
+	now := connutils.NowUnix()
 	require.Conditionf(t, func() bool { return !(respObject.CreationTimeUnix > now) }, "CreationTimeUnix is incorrect, it was set in the future.")
 	require.Conditionf(t, func() bool { return !(respObject.CreationTimeUnix < now-2000) }, "CreationTimeUnix is incorrect, it was set to far back.")
 
@@ -891,7 +891,7 @@ func Test__weaviate_action_patch_JSON(t *testing.T) {
 	require.Equal(t, actionID, string(respObject.ActionID))
 
 	// Check given creation time is after now, but not in the future
-	now := connector_utils.NowUnix()
+	now := connutils.NowUnix()
 	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix > now) }, "LastUpdateTimeUnix is incorrect, it was set in the future.")
 	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix < now-2000) }, "LastUpdateTimeUnix is incorrect, it was set to far back.")
 

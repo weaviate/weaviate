@@ -61,7 +61,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 		// With no error, it is an URL
 		if err == nil {
 			log.Println(cfk + ": Downloading schema file...")
-			cfv.localFile = "temp/schema" + string(connector_utils.GenerateUUID()) + ".json"
+			cfv.localFile = "temp/schema" + string(connutils.GenerateUUID()) + ".json"
 
 			// Create local file
 			schemaFile, _ := os.Create(cfv.localFile)

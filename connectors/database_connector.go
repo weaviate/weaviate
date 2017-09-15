@@ -43,7 +43,7 @@ type DatabaseConnector interface {
 	UpdateAction(*models.Action, strfmt.UUID) error
 	DeleteAction(strfmt.UUID) error
 
-	AddKey(*connector_utils.Key, strfmt.UUID) error
+	AddKey(*connutils.Key, strfmt.UUID) error
 	ValidateToken(strfmt.UUID) (models.KeyTokenGetResponse, error)
 	GetKey(strfmt.UUID) (models.KeyTokenGetResponse, error)
 	DeleteKey(strfmt.UUID) error
