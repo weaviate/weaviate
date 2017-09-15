@@ -350,7 +350,7 @@ func (f *Dgraph) Init() error {
 }
 
 // AddThing adds a thing to the Dgraph database with the given UUID
-func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID, keyUUID strfmt.UUID) error {
+func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Create new node with base vars
 	newNode, err := f.addNewNode(
 		connutils.RefTypeThing,
@@ -362,7 +362,7 @@ func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID, keyUUID strfmt.
 	}
 
 	// Connect the Key to the Thing
-	err = f.connectKey(newNode, keyUUID)
+	err = f.connectKey(newNode, thing.Key.NrDollarCref)
 
 	// Add first level properties to node
 	newNode, err = f.addNodeFirstLevelProperties(
@@ -502,7 +502,7 @@ func (f *Dgraph) DeleteThing(UUID strfmt.UUID) error {
 }
 
 // AddAction adds an Action to the Dgraph database with the given UUID
-func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID, keyUUID strfmt.UUID) error {
+func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	// Add new node
 	newNode, err := f.addNewNode(
 		connutils.RefTypeAction,
@@ -514,7 +514,7 @@ func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID, keyUUID strf
 	}
 
 	// Connect the Key to the Action
-	err = f.connectKey(newNode, keyUUID)
+	err = f.connectKey(newNode, action.Key.NrDollarCref)
 
 	if err != nil {
 		return err

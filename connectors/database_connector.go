@@ -30,13 +30,13 @@ type DatabaseConnector interface {
 	SetConfig(*config.Environment) error
 	SetSchema(*schema.WeaviateSchema) error
 
-	AddThing(*models.Thing, strfmt.UUID, strfmt.UUID) error // TODO: response: ThingGetResponse?
+	AddThing(*models.Thing, strfmt.UUID) error
 	GetThing(strfmt.UUID) (models.ThingGetResponse, error)
 	ListThings(int, int) (models.ThingsListResponse, error)
 	UpdateThing(*models.Thing, strfmt.UUID) error
 	DeleteThing(strfmt.UUID) error
 
-	AddAction(*models.Action, strfmt.UUID, strfmt.UUID) error
+	AddAction(*models.Action, strfmt.UUID) error
 	GetAction(strfmt.UUID) (models.ActionGetResponse, error)
 	ListActions(strfmt.UUID, int, int) (models.ActionsListResponse, error)
 	UpdateAction(*models.Action, strfmt.UUID) error
