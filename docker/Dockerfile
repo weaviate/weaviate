@@ -15,6 +15,7 @@ RUN apt-get update -qq && apt-get install -qq -y jq curl zip wget && \
     rm -rf weaviate_nightly_linux_amd64.zip && \
     wget -q -O /var/weaviate/weaviate.conf.json https://raw.githubusercontent.com/weaviate/weaviate/develop/weaviate.conf.json && \
     chmod +x /var/weaviate/weaviate && \
+    echo "UPDATE WITH" ${DGRAPHIP} && \
     sed -i "s/x.x.x.x/${DGRAPHIP}/g" /var/weaviate/weaviate.conf.json
 
 # Expose dgraph ports
