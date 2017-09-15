@@ -1,31 +1,17 @@
 #!/bin/bash
 
-# Start the first process
-nohup dgraph --memory_mb 2048
-status=$?
-if [ $status -ne 0 ]; then
-  echo "Failed to start dgraph: $status"
-  exit $status
-fi
+# check if jq is installed
+jq --help >/dev/null 2>&1 || { echo >&2 "I require jq but it's not installed. Aborting."; exit 1; }
 
-# Start the second process
-nohup /var/weaviate/weaviate --scheme=http --port=8080 --host=localhost --config=graph --config-file=weaviate.conf.json
-status=$?
-if [ $status -ne 0 ]; then
-  echo "Failed to start weaviate: $status"
-  exit $status
-fi
-  
-while /bin/true; do
-  ps aux |grep dgraph |grep -q -v grep
-  PROCESS_1_STATUS=$?
-  ps aux |grep weaviate |grep -q -v grep
-  PROCESS_2_STATUS=$?
-  # If the greps above find anything, they will exit with 0 status
-  # If they are not both 0, then something is wrong
-  if [ $PROCESS_1_STATUS -ne 0 -o $PROCESS_2_STATUS -ne 0 ]; then
-    echo "One of the processes has already exited."
-    exit -1
-  fi
-  sleep 60
-done
+# remove dgraph and weaviate
+docker rm dgraph || true
+docker rm weaviate || true
+
+# build and start dgraph docker
+mkdir -p ~/dgraph
+docker run -it -p 8080:8080 -p 9080:9080 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraph --bindall=true --memory_mb 2048
+DGRAPHIP=$(docker inspect dgraph  | jq '.[0].NetworkSettings.IPAddress')
+
+# build and start weaviate docker
+docker build --build-arg DGRAPHIP=$DGRAPHIP -t weaviate https://raw.githubusercontent.com/weaviate/weaviate/develop/docker/Dockerfile
+docker run weaviate
