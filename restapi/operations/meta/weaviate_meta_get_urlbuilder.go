@@ -11,7 +11,7 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-package schema
+package meta
 
 // Editing this file might prove futile when you re-run the generate command
 
@@ -21,15 +21,15 @@ import (
 	golangswaggerpaths "path"
 )
 
-// WeaviateSchemaThingsURL generates an URL for the weaviate schema things operation
-type WeaviateSchemaThingsURL struct {
+// WeaviateMetaGetURL generates an URL for the weaviate meta get operation
+type WeaviateMetaGetURL struct {
 	_basePath string
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *WeaviateSchemaThingsURL) WithBasePath(bp string) *WeaviateSchemaThingsURL {
+func (o *WeaviateMetaGetURL) WithBasePath(bp string) *WeaviateMetaGetURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -37,15 +37,15 @@ func (o *WeaviateSchemaThingsURL) WithBasePath(bp string) *WeaviateSchemaThingsU
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *WeaviateSchemaThingsURL) SetBasePath(bp string) {
+func (o *WeaviateMetaGetURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *WeaviateSchemaThingsURL) Build() (*url.URL, error) {
+func (o *WeaviateMetaGetURL) Build() (*url.URL, error) {
 	var result url.URL
 
-	var _path = "/schema/things"
+	var _path = "/meta"
 
 	_basePath := o._basePath
 	if _basePath == "" {
@@ -57,7 +57,7 @@ func (o *WeaviateSchemaThingsURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *WeaviateSchemaThingsURL) Must(u *url.URL, err error) *url.URL {
+func (o *WeaviateMetaGetURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -68,17 +68,17 @@ func (o *WeaviateSchemaThingsURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *WeaviateSchemaThingsURL) String() string {
+func (o *WeaviateMetaGetURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *WeaviateSchemaThingsURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *WeaviateMetaGetURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on WeaviateSchemaThingsURL")
+		return nil, errors.New("scheme is required for a full url on WeaviateMetaGetURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on WeaviateSchemaThingsURL")
+		return nil, errors.New("host is required for a full url on WeaviateMetaGetURL")
 	}
 
 	base, err := o.Build()
@@ -92,6 +92,6 @@ func (o *WeaviateSchemaThingsURL) BuildFull(scheme, host string) (*url.URL, erro
 }
 
 // StringFull returns the string representation of a complete url
-func (o *WeaviateSchemaThingsURL) StringFull(scheme, host string) string {
+func (o *WeaviateMetaGetURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }

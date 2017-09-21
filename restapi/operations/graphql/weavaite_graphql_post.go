@@ -43,7 +43,7 @@ func NewWeavaiteGraphqlPost(ctx *middleware.Context, handler WeavaiteGraphqlPost
 
 Get a response based on GraphQL
 
-Get, update or insert based on GraphQL
+Get an object based on GraphQL
 
 */
 type WeavaiteGraphqlPost struct {

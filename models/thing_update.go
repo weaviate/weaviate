@@ -22,6 +22,7 @@ import (
 
 // ThingUpdate thing update
 // swagger:model ThingUpdate
+
 type ThingUpdate struct {
 	Thing
 }

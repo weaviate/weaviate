@@ -22,6 +22,7 @@ import (
 
 // ActionCreate action create
 // swagger:model ActionCreate
+
 type ActionCreate struct {
 
 	// Type of the Action, defined in the schema.
@@ -36,6 +37,14 @@ type ActionCreate struct {
 	// things
 	Things *ObjectSubject `json:"things,omitempty"`
 }
+
+/* polymorph ActionCreate @class false */
+
+/* polymorph ActionCreate @context false */
+
+/* polymorph ActionCreate schema false */
+
+/* polymorph ActionCreate things false */
 
 // Validate validates this action create
 func (m *ActionCreate) Validate(formats strfmt.Registry) error {

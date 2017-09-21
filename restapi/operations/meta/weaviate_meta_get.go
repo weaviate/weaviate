@@ -11,7 +11,7 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-package schema
+package meta
 
 // Editing this file might prove futile when you re-run the generate command
 
@@ -21,42 +21,42 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-// WeaviateSchemaThingsHandlerFunc turns a function with the right signature into a weaviate schema things handler
-type WeaviateSchemaThingsHandlerFunc func(WeaviateSchemaThingsParams, interface{}) middleware.Responder
+// WeaviateMetaGetHandlerFunc turns a function with the right signature into a weaviate meta get handler
+type WeaviateMetaGetHandlerFunc func(WeaviateMetaGetParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateSchemaThingsHandlerFunc) Handle(params WeaviateSchemaThingsParams, principal interface{}) middleware.Responder {
+func (fn WeaviateMetaGetHandlerFunc) Handle(params WeaviateMetaGetParams, principal interface{}) middleware.Responder {
 	return fn(params, principal)
 }
 
-// WeaviateSchemaThingsHandler interface for that can handle valid weaviate schema things params
-type WeaviateSchemaThingsHandler interface {
-	Handle(WeaviateSchemaThingsParams, interface{}) middleware.Responder
+// WeaviateMetaGetHandler interface for that can handle valid weaviate meta get params
+type WeaviateMetaGetHandler interface {
+	Handle(WeaviateMetaGetParams, interface{}) middleware.Responder
 }
 
-// NewWeaviateSchemaThings creates a new http.Handler for the weaviate schema things operation
-func NewWeaviateSchemaThings(ctx *middleware.Context, handler WeaviateSchemaThingsHandler) *WeaviateSchemaThings {
-	return &WeaviateSchemaThings{Context: ctx, Handler: handler}
+// NewWeaviateMetaGet creates a new http.Handler for the weaviate meta get operation
+func NewWeaviateMetaGet(ctx *middleware.Context, handler WeaviateMetaGetHandler) *WeaviateMetaGet {
+	return &WeaviateMetaGet{Context: ctx, Handler: handler}
 }
 
-/*WeaviateSchemaThings swagger:route GET /schema/things schema weaviateSchemaThings
+/*WeaviateMetaGet swagger:route GET /meta meta weaviateMetaGet
 
-Download the schema file where all things are based on.
+Download the schema file where all actions are based on.
 
-Download the schema where all things are based on.
+Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
 
 */
-type WeaviateSchemaThings struct {
+type WeaviateMetaGet struct {
 	Context *middleware.Context
-	Handler WeaviateSchemaThingsHandler
+	Handler WeaviateMetaGetHandler
 }
 
-func (o *WeaviateSchemaThings) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *WeaviateMetaGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewWeaviateSchemaThingsParams()
+	var Params = NewWeaviateMetaGetParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {

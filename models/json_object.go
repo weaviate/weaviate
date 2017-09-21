@@ -15,4 +15,5 @@ package models
 
 // JSONObject JSON object value.
 // swagger:model JsonObject
+
 type JSONObject interface{}

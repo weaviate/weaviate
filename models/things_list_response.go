@@ -24,6 +24,7 @@ import (
 
 // ThingsListResponse List of things.
 // swagger:model ThingsListResponse
+
 type ThingsListResponse struct {
 
 	// The actual list of things.
@@ -32,6 +33,10 @@ type ThingsListResponse struct {
 	// The total number of things for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int64 `json:"totalResults,omitempty"`
 }
+
+/* polymorph ThingsListResponse things false */
+
+/* polymorph ThingsListResponse totalResults false */
 
 // Validate validates this things list response
 func (m *ThingsListResponse) Validate(formats strfmt.Registry) error {
