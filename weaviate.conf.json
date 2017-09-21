@@ -6,8 +6,8 @@
                 "name": "dgraph"
             },
             "schemas": {
-                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
-                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
+                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.json",
+                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.json"
             },
             "mqttEnabled": false
         },
@@ -21,8 +21,8 @@
                 }
             },
             "schemas": {
-                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
-                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
+                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.json",
+                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.json"
             },
             "mqttEnabled": false
         },
@@ -36,8 +36,8 @@
                 }
             },
             "schemas": {
-                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
-                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
+                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.json",
+                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.json"
             },
             "mqttEnabled": false
         }
