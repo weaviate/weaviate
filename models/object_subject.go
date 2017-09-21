@@ -22,6 +22,7 @@ import (
 
 // ObjectSubject returns a ref to the object and the subject
 // swagger:model ObjectSubject
+
 type ObjectSubject struct {
 
 	// object
@@ -30,6 +31,10 @@ type ObjectSubject struct {
 	// subject
 	Subject *SingleRef `json:"subject,omitempty"`
 }
+
+/* polymorph ObjectSubject object false */
+
+/* polymorph ObjectSubject subject false */
 
 // Validate validates this object subject
 func (m *ObjectSubject) Validate(formats strfmt.Registry) error {

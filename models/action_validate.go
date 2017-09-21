@@ -22,6 +22,7 @@ import (
 
 // ActionValidate action validate
 // swagger:model ActionValidate
+
 type ActionValidate struct {
 	ActionCreate
 }

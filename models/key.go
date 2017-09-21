@@ -22,6 +22,7 @@ import (
 
 // Key key
 // swagger:model Key
+
 type Key struct {
 	KeyCreate
 

@@ -22,6 +22,7 @@ import (
 
 // ActionGetResponse action get response
 // swagger:model ActionGetResponse
+
 type ActionGetResponse struct {
 	Action
 

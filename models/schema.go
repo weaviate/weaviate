@@ -15,4 +15,5 @@ package models
 
 // Schema This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition
 // swagger:model Schema
+
 type Schema interface{}

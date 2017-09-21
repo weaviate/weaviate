@@ -53,7 +53,7 @@ func init() {
       "url": "https://weaviate.com",
       "email": "yourfriends@weaviate.com"
     },
-    "version": "v0.5.3"
+    "version": "v0.6.0"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -272,23 +272,28 @@ func init() {
     },
     "/graphql": {
       "post": {
-        "description": "Get, update or insert based on GraphQL",
+        "description": "Get an object based on GraphQL",
         "tags": [
           "graphql"
         ],
         "summary": "Get a response based on GraphQL",
         "operationId": "weavaite.graphql.post",
+        "parameters": [
+          {
+            "description": "The GraphQL query request parameters.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GraphQLQuery"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Succesful query (with select).",
             "schema": {
               "$ref": "#/definitions/GraphQLResponse"
-            }
-          },
-          "202": {
-            "description": "Successfully received (with updates).",
-            "schema": {
-              "$ref": "#/definitions/ActionGetResponse"
             }
           },
           "401": {
@@ -542,50 +547,22 @@ func init() {
         "x-available-in-mqtt": false
       }
     },
-    "/schema/actions": {
+    "/meta": {
       "get": {
-        "description": "Download the schema where all actions are based on.",
+        "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
         "produces": [
           "application/json"
         ],
         "tags": [
-          "schema"
+          "meta"
         ],
         "summary": "Download the schema file where all actions are based on.",
-        "operationId": "weaviate.schema.actions",
+        "operationId": "weaviate.meta.get",
         "responses": {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "type": "file"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "501": {
-            "description": "Not (yet) implemented"
-          }
-        },
-        "x-available-in-mqtt": false
-      }
-    },
-    "/schema/things": {
-      "get": {
-        "description": "Download the schema where all things are based on.",
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "schema"
-        ],
-        "summary": "Download the schema file where all things are based on.",
-        "operationId": "weaviate.schema.things",
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "type": "file"
+              "$ref": "#/definitions/Meta"
             }
           },
           "401": {
@@ -1035,8 +1012,56 @@ func init() {
         }
       }
     },
+    "GraphQLError": {
+      "description": "Error messages responded only if error exists.",
+      "properties": {
+        "locations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "column": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "line": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "GraphQLQuery": {
+      "description": "GraphQL query based on: http://facebook.github.io/graphql/",
+      "type": "object",
+      "properties": {
+        "operationName": {
+          "description": "Name of the operation if multiple exist in query.",
+          "type": "string"
+        },
+        "query": {
+          "description": "Query based on GraphQL syntax",
+          "type": "string"
+        },
+        "variables": {
+          "description": "Additional variables for the query.",
+          "type": "object"
+        }
+      }
+    },
     "GraphQLResponse": {
-      "description": "GraphQL based repsonse: http://graphql.org/learn/",
+      "description": "GraphQL based repsonse: http://facebook.github.io/graphql/",
       "properties": {
         "data": {
           "description": "GraphQL data object",
@@ -1047,7 +1072,10 @@ func init() {
         },
         "errors": {
           "description": "Array with errors",
-          "type": "array"
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/GraphQLError"
+          }
         }
       }
     },
@@ -1144,6 +1172,23 @@ func init() {
         }
       ]
     },
+    "Meta": {
+      "description": "Returns meta information of the current Weaviate instance.",
+      "type": "object",
+      "properties": {
+        "actionsSchema": {
+          "$ref": "#/definitions/SemanticSchema"
+        },
+        "hostname": {
+          "description": "The url of the host",
+          "type": "string",
+          "format": "url"
+        },
+        "thingsSchema": {
+          "$ref": "#/definitions/SemanticSchema"
+        }
+      }
+    },
     "MultipleRef": {
       "description": "Multiple instances of references to other objects.",
       "type": "array",
@@ -1199,6 +1244,59 @@ func init() {
     "Schema": {
       "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
       "type": "object"
+    },
+    "SemanticSchema": {
+      "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas)",
+      "type": "object",
+      "properties": {
+        "@context": {
+          "description": "URL of the context",
+          "type": "string",
+          "format": "url"
+        },
+        "classes": {
+          "description": "Semantic classes that are available.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "@dataType": {
+                "description": "Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise \"string\" or \"int\".",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "description": {
+                "description": "Description of the class, string or int.",
+                "type": "string"
+              },
+              "name": {
+                "description": "Name of the class as URI relative to the schema URL.",
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        },
+        "maintainer": {
+          "description": "Email of the maintainer.",
+          "type": "string",
+          "format": "email"
+        },
+        "name": {
+          "description": "Name of the schema",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type of schema, should be \"thing\" or \"action\".",
+          "type": "string",
+          "enum": [
+            "thing",
+            "action"
+          ]
+        }
+      }
     },
     "SingleRef": {
       "properties": {
@@ -1349,10 +1447,10 @@ func init() {
       "name": "keys"
     },
     {
-      "name": "things"
+      "name": "meta"
     },
     {
-      "name": "schema"
+      "name": "things"
     }
   ],
   "externalDocs": {

@@ -71,7 +71,7 @@ func (o *WeaviateThingsPatchParams) BindRequest(r *http.Request, route *middlewa
 			}
 
 		} else {
-			for _, io := range o.Body {
+			for _, io := range body {
 				if err := io.Validate(route.Formats); err != nil {
 					res = append(res, err)
 					break
