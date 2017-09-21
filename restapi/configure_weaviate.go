@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	errors_ "errors"
 	"fmt"
+	"github.com/weaviate/weaviate/restapi/operations/graphql"
 	"io/ioutil"
 	"log"
 	"math"
@@ -34,13 +35,16 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/runtime/yamlpc"
 	"github.com/go-openapi/strfmt"
-	graceful "github.com/tylerb/graceful"
-
 	"github.com/go-openapi/swag"
+	gographql "github.com/graphql-go/graphql"
+	graceful "github.com/tylerb/graceful"
+	"google.golang.org/grpc/grpclog"
+
 	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors"
 	"github.com/weaviate/weaviate/connectors/utils"
 	weaviate_error "github.com/weaviate/weaviate/error"
+	"github.com/weaviate/weaviate/graphqlapi"
 	"github.com/weaviate/weaviate/models"
 	"github.com/weaviate/weaviate/mqtt"
 	"github.com/weaviate/weaviate/restapi/operations"
@@ -48,7 +52,6 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/keys"
 	"github.com/weaviate/weaviate/restapi/operations/things"
 	"github.com/weaviate/weaviate/schema"
-	"google.golang.org/grpc/grpclog"
 )
 
 const maxResultsOverride int64 = 100
@@ -316,6 +319,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	errInit := databaseConnector.Init()
 	if errInit != nil {
 		weaviate_error.ExitError(1, "database with the name '"+databaseConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
+	}
+
+	// Init the GraphQL schema
+	errInitGQL := graphqlapi.InitSchema(databaseConnector)
+	if errInitGQL != nil {
+		weaviate_error.ExitError(1, "GrapQL schema initialization gave an error when initializing: "+errInitGQL.Error())
 	}
 
 	// connect to mqtt
@@ -1017,6 +1026,21 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		return things.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
+	})
+	api.GraphqlWeavaiteGraphqlPostHandler = graphql.WeavaiteGraphqlPostHandlerFunc(func(params graphql.WeavaiteGraphqlPostParams, principal interface{}) middleware.Responder {
+		query := params.HTTPRequest.URL.Query().Get("query")
+
+		result := gographql.Do(gographql.Params{
+			Schema:        graphqlapi.WeaviateGraphQLSchema,
+			RequestString: query,
+		})
+
+		b, _ := json.MarshalIndent(result, "", "  ")
+
+		return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
+			rw.WriteHeader(200)
+			rw.Write([]byte(b))
+		})
 	})
 
 	api.ServerShutdown = func() {}
