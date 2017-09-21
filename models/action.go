@@ -22,6 +22,7 @@ import (
 
 // Action action
 // swagger:model Action
+
 type Action struct {
 	ActionCreate
 

@@ -11,7 +11,7 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-package schema
+package meta
 
 import (
 	"net/http"
@@ -20,18 +20,18 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 )
 
-// NewWeaviateSchemaActionsParams creates a new WeaviateSchemaActionsParams object
+// NewWeaviateMetaGetParams creates a new WeaviateMetaGetParams object
 // with the default values initialized.
-func NewWeaviateSchemaActionsParams() WeaviateSchemaActionsParams {
+func NewWeaviateMetaGetParams() WeaviateMetaGetParams {
 	var ()
-	return WeaviateSchemaActionsParams{}
+	return WeaviateMetaGetParams{}
 }
 
-// WeaviateSchemaActionsParams contains all the bound params for the weaviate schema actions operation
+// WeaviateMetaGetParams contains all the bound params for the weaviate meta get operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters weaviate.schema.actions
-type WeaviateSchemaActionsParams struct {
+// swagger:parameters weaviate.meta.get
+type WeaviateMetaGetParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request
@@ -39,7 +39,7 @@ type WeaviateSchemaActionsParams struct {
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls
-func (o *WeaviateSchemaActionsParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+func (o *WeaviateMetaGetParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 	o.HTTPRequest = r
 

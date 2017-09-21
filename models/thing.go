@@ -22,6 +22,7 @@ import (
 
 // Thing thing
 // swagger:model Thing
+
 type Thing struct {
 	ThingCreate
 

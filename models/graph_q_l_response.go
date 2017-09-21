@@ -14,30 +14,69 @@
 package models
 
 import (
+	"strconv"
+
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
 )
 
-// GraphQLResponse GraphQL based repsonse: http://graphql.org/learn/
+// GraphQLResponse GraphQL based repsonse: http://facebook.github.io/graphql/
 // swagger:model GraphQLResponse
+
 type GraphQLResponse struct {
 
 	// GraphQL data object
 	Data map[string]JSONObject `json:"data,omitempty"`
 
 	// Array with errors
-	Errors []interface{} `json:"errors"`
+	Errors []*GraphQLError `json:"errors"`
 }
+
+/* polymorph GraphQLResponse data false */
+
+/* polymorph GraphQLResponse errors false */
 
 // Validate validates this graph q l response
 func (m *GraphQLResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateErrors(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *GraphQLResponse) validateErrors(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Errors) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.Errors); i++ {
+
+		if swag.IsZero(m.Errors[i]) { // not required
+			continue
+		}
+
+		if m.Errors[i] != nil {
+
+			if err := m.Errors[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("errors" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

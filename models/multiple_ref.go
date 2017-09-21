@@ -24,6 +24,7 @@ import (
 
 // MultipleRef Multiple instances of references to other objects.
 // swagger:model MultipleRef
+
 type MultipleRef []*SingleRef
 
 // Validate validates this multiple ref

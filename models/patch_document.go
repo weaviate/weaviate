@@ -25,6 +25,7 @@ import (
 
 // PatchDocument A JSONPatch document as defined by RFC 6902.
 // swagger:model PatchDocument
+
 type PatchDocument struct {
 
 	// A string containing a JSON Pointer value.
@@ -41,6 +42,14 @@ type PatchDocument struct {
 	// The value to be used within the operations.
 	Value interface{} `json:"value,omitempty"`
 }
+
+/* polymorph PatchDocument from false */
+
+/* polymorph PatchDocument op false */
+
+/* polymorph PatchDocument path false */
+
+/* polymorph PatchDocument value false */
 
 // Validate validates this patch document
 func (m *PatchDocument) Validate(formats strfmt.Registry) error {

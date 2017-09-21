@@ -20,29 +20,29 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ThingCreate thing create
-// swagger:model ThingCreate
+// GraphQLQuery GraphQL query based on: http://facebook.github.io/graphql/
+// swagger:model GraphQLQuery
 
-type ThingCreate struct {
+type GraphQLQuery struct {
 
-	// Class of the Thing, defined in the schema.
-	AtClass string `json:"@class,omitempty"`
+	// Name of the operation if multiple exist in query.
+	OperationName string `json:"operationName,omitempty"`
 
-	// Available context schema.
-	AtContext string `json:"@context,omitempty"`
+	// Query based on GraphQL syntax
+	Query string `json:"query,omitempty"`
 
-	// schema
-	Schema Schema `json:"schema,omitempty"`
+	// Additional variables for the query.
+	Variables interface{} `json:"variables,omitempty"`
 }
 
-/* polymorph ThingCreate @class false */
+/* polymorph GraphQLQuery operationName false */
 
-/* polymorph ThingCreate @context false */
+/* polymorph GraphQLQuery query false */
 
-/* polymorph ThingCreate schema false */
+/* polymorph GraphQLQuery variables false */
 
-// Validate validates this thing create
-func (m *ThingCreate) Validate(formats strfmt.Registry) error {
+// Validate validates this graph q l query
+func (m *GraphQLQuery) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if len(res) > 0 {
@@ -52,7 +52,7 @@ func (m *ThingCreate) Validate(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *ThingCreate) MarshalBinary() ([]byte, error) {
+func (m *GraphQLQuery) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -60,8 +60,8 @@ func (m *ThingCreate) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *ThingCreate) UnmarshalBinary(b []byte) error {
-	var res ThingCreate
+func (m *GraphQLQuery) UnmarshalBinary(b []byte) error {
+	var res GraphQLQuery
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
