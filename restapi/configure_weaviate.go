@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	errors_ "errors"
 	"fmt"
-	"github.com/weaviate/weaviate/restapi/operations/graphql"
 	"io/ioutil"
 	"log"
 	"math"
@@ -28,6 +27,9 @@ import (
 	"reflect"
 	"strings"
 	"unicode"
+
+	"github.com/weaviate/weaviate/restapi/operations/graphql"
+	"github.com/weaviate/weaviate/restapi/operations/meta"
 
 	jsonpatch "github.com/evanphx/json-patch"
 	errors "github.com/go-openapi/errors"
@@ -984,6 +986,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		return things.NewWeaviateThingsValidateOK()
+	})
+	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation meta.WeaviateMetaGet has not yet been implemented")
 	})
 	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
