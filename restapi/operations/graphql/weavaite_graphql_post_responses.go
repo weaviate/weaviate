@@ -64,49 +64,6 @@ func (o *WeavaiteGraphqlPostOK) WriteResponse(rw http.ResponseWriter, producer r
 	}
 }
 
-// WeavaiteGraphqlPostAcceptedCode is the HTTP code returned for type WeavaiteGraphqlPostAccepted
-const WeavaiteGraphqlPostAcceptedCode int = 202
-
-/*WeavaiteGraphqlPostAccepted Successfully received (with updates).
-
-swagger:response weavaiteGraphqlPostAccepted
-*/
-type WeavaiteGraphqlPostAccepted struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.ActionGetResponse `json:"body,omitempty"`
-}
-
-// NewWeavaiteGraphqlPostAccepted creates WeavaiteGraphqlPostAccepted with default headers values
-func NewWeavaiteGraphqlPostAccepted() *WeavaiteGraphqlPostAccepted {
-	return &WeavaiteGraphqlPostAccepted{}
-}
-
-// WithPayload adds the payload to the weavaite graphql post accepted response
-func (o *WeavaiteGraphqlPostAccepted) WithPayload(payload *models.ActionGetResponse) *WeavaiteGraphqlPostAccepted {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the weavaite graphql post accepted response
-func (o *WeavaiteGraphqlPostAccepted) SetPayload(payload *models.ActionGetResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *WeavaiteGraphqlPostAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(202)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
-}
-
 // WeavaiteGraphqlPostUnauthorizedCode is the HTTP code returned for type WeavaiteGraphqlPostUnauthorized
 const WeavaiteGraphqlPostUnauthorizedCode int = 401
 

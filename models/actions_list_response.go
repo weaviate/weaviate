@@ -24,6 +24,7 @@ import (
 
 // ActionsListResponse List of actions for specific Thing.
 // swagger:model ActionsListResponse
+
 type ActionsListResponse struct {
 
 	// The actual list of actions.
@@ -32,6 +33,10 @@ type ActionsListResponse struct {
 	// The total number of actions for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int64 `json:"totalResults,omitempty"`
 }
+
+/* polymorph ActionsListResponse actions false */
+
+/* polymorph ActionsListResponse totalResults false */
 
 // Validate validates this actions list response
 func (m *ActionsListResponse) Validate(formats strfmt.Registry) error {

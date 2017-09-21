@@ -11,8 +11,8 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-/*Package restapi Weaviate - Semantic Graphql, RESTful and MQTT Web of Things platform.
-
+/*
+Package restapi Weaviate - Semantic Graphql, RESTful and MQTT Web of Things platform.
 Semantic Graphql, RESTful and MQTT Web of Things platform.
 
 
@@ -20,40 +20,26 @@ Semantic Graphql, RESTful and MQTT Web of Things platform.
       https
     Host: localhost
     BasePath: /weaviate/v1
-    Version: v0.5.3
+    Version: v0.6.0
     Contact: Weaviate<yourfriends@weaviate.com> https://weaviate.com
 
     Consumes:
     - application/json
-
     - application/octet-stream
-
     - application/x-www-form-urlencoded
-
     - application/x-yaml
-
     - application/xml
-
     - multipart/form-data
-
     - text/plain
-
 
     Produces:
     - application/json
-
     - application/octet-stream
-
     - application/x-www-form-urlencoded
-
     - application/x-yaml
-
     - application/xml
-
     - multipart/form-data
-
     - text/plain
-
 
 swagger:meta
 */

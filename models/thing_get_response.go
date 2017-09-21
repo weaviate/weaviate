@@ -22,6 +22,7 @@ import (
 
 // ThingGetResponse thing get response
 // swagger:model ThingGetResponse
+
 type ThingGetResponse struct {
 	Thing
 

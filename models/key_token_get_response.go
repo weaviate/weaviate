@@ -22,6 +22,7 @@ import (
 
 // KeyTokenGetResponse key token get response
 // swagger:model KeyTokenGetResponse
+
 type KeyTokenGetResponse struct {
 	KeyGetResponse
 

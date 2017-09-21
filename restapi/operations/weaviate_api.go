@@ -31,7 +31,7 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/actions"
 	"github.com/weaviate/weaviate/restapi/operations/graphql"
 	"github.com/weaviate/weaviate/restapi/operations/keys"
-	"github.com/weaviate/weaviate/restapi/operations/schema"
+	"github.com/weaviate/weaviate/restapi/operations/meta"
 	"github.com/weaviate/weaviate/restapi/operations/things"
 )
 
@@ -101,11 +101,8 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		KeysWeaviateKeysMeGetHandler: keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation KeysWeaviateKeysMeGet has not yet been implemented")
 		}),
-		SchemaWeaviateSchemaActionsHandler: schema.WeaviateSchemaActionsHandlerFunc(func(params schema.WeaviateSchemaActionsParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaWeaviateSchemaActions has not yet been implemented")
-		}),
-		SchemaWeaviateSchemaThingsHandler: schema.WeaviateSchemaThingsHandlerFunc(func(params schema.WeaviateSchemaThingsParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation SchemaWeaviateSchemaThings has not yet been implemented")
+		MetaWeaviateMetaGetHandler: meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation MetaWeaviateMetaGet has not yet been implemented")
 		}),
 		ThingsWeaviateThingsActionsListHandler: things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsActionsList has not yet been implemented")
@@ -136,6 +133,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		APIKeyAuth: func(token string) (interface{}, error) {
 			return nil, errors.NotImplemented("api key auth (apiKey) X-API-KEY from header param [X-API-KEY] has not yet been implemented")
 		},
+
+		// default authorizer is authorized meaning no requests are blocked
+		APIAuthorizer: security.Authorized(),
 	}
 }
 
@@ -193,6 +193,9 @@ type WeaviateAPI struct {
 	// it performs authentication based on an api key X-API-KEY provided in the header
 	APIKeyAuth func(string) (interface{}, error)
 
+	// APIAuthorizer provides access control (ACL/RBAC/ABAC) by providing access to the request and authenticated principal
+	APIAuthorizer runtime.Authorizer
+
 	// GraphqlWeavaiteGraphqlPostHandler sets the operation handler for the weavaite graphql post operation
 	GraphqlWeavaiteGraphqlPostHandler graphql.WeavaiteGraphqlPostHandler
 	// ActionsWeaviateActionsCreateHandler sets the operation handler for the weaviate actions create operation
@@ -219,10 +222,8 @@ type WeaviateAPI struct {
 	KeysWeaviateKeysMeDeleteHandler keys.WeaviateKeysMeDeleteHandler
 	// KeysWeaviateKeysMeGetHandler sets the operation handler for the weaviate keys me get operation
 	KeysWeaviateKeysMeGetHandler keys.WeaviateKeysMeGetHandler
-	// SchemaWeaviateSchemaActionsHandler sets the operation handler for the weaviate schema actions operation
-	SchemaWeaviateSchemaActionsHandler schema.WeaviateSchemaActionsHandler
-	// SchemaWeaviateSchemaThingsHandler sets the operation handler for the weaviate schema things operation
-	SchemaWeaviateSchemaThingsHandler schema.WeaviateSchemaThingsHandler
+	// MetaWeaviateMetaGetHandler sets the operation handler for the weaviate meta get operation
+	MetaWeaviateMetaGetHandler meta.WeaviateMetaGetHandler
 	// ThingsWeaviateThingsActionsListHandler sets the operation handler for the weaviate things actions list operation
 	ThingsWeaviateThingsActionsListHandler things.WeaviateThingsActionsListHandler
 	// ThingsWeaviateThingsCreateHandler sets the operation handler for the weaviate things create operation
@@ -406,12 +407,8 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "keys.WeaviateKeysMeGetHandler")
 	}
 
-	if o.SchemaWeaviateSchemaActionsHandler == nil {
-		unregistered = append(unregistered, "schema.WeaviateSchemaActionsHandler")
-	}
-
-	if o.SchemaWeaviateSchemaThingsHandler == nil {
-		unregistered = append(unregistered, "schema.WeaviateSchemaThingsHandler")
+	if o.MetaWeaviateMetaGetHandler == nil {
+		unregistered = append(unregistered, "meta.WeaviateMetaGetHandler")
 	}
 
 	if o.ThingsWeaviateThingsActionsListHandler == nil {
@@ -472,6 +469,13 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 		}
 	}
 	return result
+
+}
+
+// Authorizer returns the registered authorizer
+func (o *WeaviateAPI) Authorizer() runtime.Authorizer {
+
+	return o.APIAuthorizer
 
 }
 
@@ -646,12 +650,7 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/schema/actions"] = schema.NewWeaviateSchemaActions(o.context, o.SchemaWeaviateSchemaActionsHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/schema/things"] = schema.NewWeaviateSchemaThings(o.context, o.SchemaWeaviateSchemaThingsHandler)
+	o.handlers["GET"]["/meta"] = meta.NewWeaviateMetaGet(o.context, o.MetaWeaviateMetaGetHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
