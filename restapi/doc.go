@@ -24,7 +24,7 @@ Semantic Graphql, RESTful and MQTT Web of Things platform.
     Contact: Weaviate<yourfriends@weaviate.com> https://weaviate.com
 
     Consumes:
-    - application/json
+    - application/json-patch+json
     - application/octet-stream
     - application/x-www-form-urlencoded
     - application/x-yaml
