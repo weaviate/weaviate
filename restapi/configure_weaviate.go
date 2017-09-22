@@ -1037,6 +1037,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		query := params.Body.Query
 		operationName := params.Body.OperationName
 
+		// If query is empty, the request is unprocessable
+		if query == "" {
+			return graphql.NewWeavaiteGraphqlPostUnprocessableEntity()
+		}
+
 		// Only set variables if exists in request
 		var variables map[string]interface{}
 		if params.Body.Variables != nil {
