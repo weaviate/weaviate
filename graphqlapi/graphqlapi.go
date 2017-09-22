@@ -77,11 +77,11 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Description: "The class of the object.",
 			},
 			"creationTimeUnix": &graphql.Field{
-				Type:        graphql.Int, // TODO: This is 'null'
+				Type:        graphql.NewNonNull(graphql.Float),
 				Description: "The creation time of the object.",
 			},
 			"lastUpdateTimeUnix": &graphql.Field{
-				Type:        graphql.Int,
+				Type:        graphql.Float,
 				Description: "The last update time of the object.",
 			},
 			// Schema
@@ -138,12 +138,12 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				},
 			},
 			"keyExpiresUnix": &graphql.Field{
-				Type:        graphql.NewNonNull(graphql.Int),
+				Type:        graphql.NewNonNull(graphql.Float),
 				Description: "The unix timestamp of when the key expires.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
 					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
-						return key.KeyExpiresUnix, nil
+						return float64(key.KeyExpiresUnix), nil
 					}
 					return nil, nil
 				},
@@ -250,23 +250,23 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				},
 			},
 			"creationTimeUnix": &graphql.Field{
-				Type:        graphql.Int,
+				Type:        graphql.NewNonNull(graphql.Float),
 				Description: "The creation time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Thing Response
 					if thing, ok := p.Source.(models.ThingGetResponse); ok {
-						return thing.CreationTimeUnix, nil // TODO: Nil in response?
+						return float64(thing.CreationTimeUnix), nil
 					}
 					return nil, nil
 				},
 			},
 			"lastUpdateTimeUnix": &graphql.Field{
-				Type:        graphql.Int,
+				Type:        graphql.Float,
 				Description: "The last update time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Thing Response
 					if thing, ok := p.Source.(models.ThingGetResponse); ok {
-						return thing.LastUpdateTimeUnix, nil
+						return float64(thing.LastUpdateTimeUnix), nil
 					}
 					return nil, nil
 				},
@@ -371,23 +371,23 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				},
 			},
 			"creationTimeUnix": &graphql.Field{
-				Type:        graphql.Int,
+				Type:        graphql.NewNonNull(graphql.Float),
 				Description: "The creation time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Action Response
 					if action, ok := p.Source.(models.ActionGetResponse); ok {
-						return action.CreationTimeUnix, nil // TODO: Nil in response?
+						return float64(action.CreationTimeUnix), nil
 					}
 					return nil, nil
 				},
 			},
 			"lastUpdateTimeUnix": &graphql.Field{
-				Type:        graphql.Int,
+				Type:        graphql.Float,
 				Description: "The last update time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Action Response
 					if action, ok := p.Source.(models.ActionGetResponse); ok {
-						return action.LastUpdateTimeUnix, nil
+						return float64(action.LastUpdateTimeUnix), nil
 					}
 					return nil, nil
 				},

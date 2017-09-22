@@ -993,11 +993,11 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, thingID)
 	require.Equal(t, thingID, respUUID)
 
-	// Test the given creation time in the response TODO when creation time is not nil
-	// respCreationTime := respObject.Data["thing"].(map[string]interface{})["creationTimeUnix"].(int64)
-	// now := connutils.NowUnix()
-	// require.Conditionf(t, func() bool { return !(respCreationTime > now) }, "CreationTimeUnix is incorrect, it was set in the future.")
-	// require.Conditionf(t, func() bool { return !(respCreationTime < now-20000) }, "CreationTimeUnix is incorrect, it was set to far back.")
+	// Test the given creation time in the response
+	respCreationTime := int64(respObject.Data["thing"].(map[string]interface{})["creationTimeUnix"].(float64))
+	now := connutils.NowUnix()
+	require.Conditionf(t, func() bool { return !(respCreationTime > now) }, "CreationTimeUnix is incorrect, it was set in the future.")
+	require.Conditionf(t, func() bool { return !(respCreationTime < now-20000) }, "CreationTimeUnix is incorrect, it was set to far back.")
 
 	// Test the given key-object in the response TODO when keys are implemented
 	// respKeyUUID := respObject.Data["thing"].(map[string]interface{})["key"].(map[string]interface{})["uuid"]
