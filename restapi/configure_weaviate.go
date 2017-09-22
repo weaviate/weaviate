@@ -1033,19 +1033,43 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
 	})
 	api.GraphqlWeavaiteGraphqlPostHandler = graphql.WeavaiteGraphqlPostHandlerFunc(func(params graphql.WeavaiteGraphqlPostParams, principal interface{}) middleware.Responder {
-		query := params.HTTPRequest.URL.Query().Get("query")
+		// Get all input from the body of the request, as it is a POST.
+		query := params.Body.Query
+		operationName := params.Body.OperationName
 
+		// Only set variables if exists in request
+		var variables map[string]interface{}
+		if params.Body.Variables != nil {
+			variables = params.Body.Variables.(map[string]interface{})
+		}
+
+		// Get the results by doing a request with the given parameters and the initialized schema.
 		result := gographql.Do(gographql.Params{
-			Schema:        graphqlapi.WeaviateGraphQLSchema,
-			RequestString: query,
+			Schema:         graphqlapi.WeaviateGraphQLSchema,
+			RequestString:  query,
+			OperationName:  operationName,
+			VariableValues: variables,
 		})
 
-		b, _ := json.MarshalIndent(result, "", "  ")
+		// Marshal the JSON
+		resultJSON, jsonErr := json.Marshal(result)
 
-		return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-			rw.WriteHeader(200)
-			rw.Write([]byte(b))
-		})
+		// If json gave error, return nothing.
+		if jsonErr != nil {
+			return graphql.NewWeavaiteGraphqlPostUnprocessableEntity()
+		}
+
+		// Put the data in a response ready object
+		graphQLResponse := &models.GraphQLResponse{}
+		err := json.Unmarshal(resultJSON, graphQLResponse)
+
+		// If json gave error, return nothing.
+		if err != nil {
+			return graphql.NewWeavaiteGraphqlPostUnprocessableEntity()
+		}
+
+		// Return the response
+		return graphql.NewWeavaiteGraphqlPostOK().WithPayload(graphQLResponse)
 	})
 
 	api.ServerShutdown = func() {}
