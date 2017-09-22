@@ -49,9 +49,11 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 	// 	},
 	// })
 
+	// Create the interface to which all objects (Key, Thing and Action) must comply
 	objectInterface := graphql.NewInterface(graphql.InterfaceConfig{
 		Name:        "WeaviateObject",
 		Description: "An object in the weaviate database",
+		// Add the mandatory fields for this interface
 		Fields: graphql.Fields{
 			"uuid": &graphql.Field{
 				Type:        graphql.NewNonNull(graphql.String),
@@ -60,9 +62,11 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 		},
 	})
 
+	// Create the interface to which all schema-objects (Thing and Action) must comply
 	schemaInterface := graphql.NewInterface(graphql.InterfaceConfig{
 		Name:        "WeaviateSchemaObject",
 		Description: "An object that has to commit to weaviate's Thing or Action schema.",
+		// Add the mandatory fields for this interface
 		Fields: graphql.Fields{
 			"atContext": &graphql.Field{
 				Type:        graphql.NewNonNull(graphql.String),
@@ -73,7 +77,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Description: "The class of the object.",
 			},
 			"creationTimeUnix": &graphql.Field{
-				Type:        graphql.Int,
+				Type:        graphql.Int, // TODO: This is 'null'
 				Description: "The creation time of the object.",
 			},
 			"lastUpdateTimeUnix": &graphql.Field{
@@ -84,6 +88,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 		},
 	})
 
+	// The keyType which all single key-responses will use
 	keyType := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "Key",
 		Description: "A key from the weaviate database.",
@@ -92,6 +97,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.String),
 				Description: "The id of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Key Response
 					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
 						return key.KeyID, nil
 					}
@@ -102,6 +108,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.String),
 				Description: "The token of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Key Response
 					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
 						return key.Token, nil // TODO: Only return when have rights
 					}
@@ -112,6 +119,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.String),
 				Description: "The email of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Key Response
 					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
 						return key.Email, nil
 					}
@@ -122,6 +130,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewList(graphql.String),
 				Description: "The allowed ip-origins of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Key Response
 					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
 						return key.IPOrigin, nil
 					}
@@ -132,6 +141,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.Int),
 				Description: "The unix timestamp of when the key expires.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Key Response
 					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
 						return key.KeyExpiresUnix, nil
 					}
@@ -142,6 +152,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.Boolean),
 				Description: "Whether the key has read-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Key Response
 					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
 						return key.Read, nil
 					}
@@ -152,6 +163,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.Boolean),
 				Description: "Whether the key has execute-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Key Response
 					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
 						return key.Execute, nil
 					}
@@ -162,6 +174,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.Boolean),
 				Description: "Whether the key has write-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Key Response
 					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
 						return key.Write, nil
 					}
@@ -172,6 +185,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.Boolean),
 				Description: "Whether the key has delete-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Key Response
 					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
 						return key.Delete, nil
 					}
@@ -179,6 +193,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				},
 			},
 		},
+		// The interfaces this object satifies
 		Interfaces: []*graphql.Interface{
 			objectInterface,
 		},
@@ -197,6 +212,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			keyResponse := models.KeyTokenGetResponse{}
 			if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
+				// Do a new request with the key from the reference object
 				err := databaseConnector.GetKey(key.Parent.NrDollarCref, &keyResponse)
 				if err != nil {
 					return keyResponse, err
@@ -206,6 +222,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 		},
 	})
 
+	// The thingType which all single thing-responses will use
 	thingType := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "Thing",
 		Description: "A thing from the weaviate database, based on the weaviate schema.",
@@ -214,6 +231,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.String),
 				Description: "The context on which the object is in.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Thing Response
 					if thing, ok := p.Source.(models.ThingGetResponse); ok {
 						return thing.AtContext, nil
 					}
@@ -224,6 +242,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.String),
 				Description: "The class of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Thing Response
 					if thing, ok := p.Source.(models.ThingGetResponse); ok {
 						return thing.AtClass, nil
 					}
@@ -234,6 +253,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.Int,
 				Description: "The creation time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Thing Response
 					if thing, ok := p.Source.(models.ThingGetResponse); ok {
 						return thing.CreationTimeUnix, nil // TODO: Nil in response?
 					}
@@ -244,6 +264,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.Int,
 				Description: "The last update time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Thing Response
 					if thing, ok := p.Source.(models.ThingGetResponse); ok {
 						return thing.LastUpdateTimeUnix, nil
 					}
@@ -254,6 +275,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.String),
 				Description: "The id of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Thing Response
 					if thing, ok := p.Source.(models.ThingGetResponse); ok {
 						return thing.ThingID, nil
 					}
@@ -266,6 +288,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					keyResponse := models.KeyTokenGetResponse{}
 					if thing, ok := p.Source.(models.ThingGetResponse); ok {
+						// Do a new request with the key from the reference object
 						err := databaseConnector.GetKey(thing.Key.NrDollarCref, &keyResponse)
 						if err != nil {
 							return keyResponse, err
@@ -275,12 +298,14 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				},
 			},
 		},
+		// The interfaces this object satifies
 		Interfaces: []*graphql.Interface{
 			schemaInterface,
 			objectInterface,
 		},
 	})
 
+	// The objectSubjectType which is used in the ActionType only to assign the object and subject things
 	objectSubjectType := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "ObjectSubject",
 		Description: "An object / subject, part of action. These are both of type Thing.",
@@ -291,6 +316,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					thingResponse := models.ThingGetResponse{}
 					if ref, ok := p.Source.(*models.ObjectSubject); ok {
+						// Do a new request with the thing from the reference object
 						err := databaseConnector.GetThing(ref.Object.NrDollarCref, &thingResponse)
 						if err != nil {
 							return thingResponse, err
@@ -305,6 +331,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					thingResponse := models.ThingGetResponse{}
 					if ref, ok := p.Source.(*models.ObjectSubject); ok {
+						// Do a new request with the thing from the reference object
 						err := databaseConnector.GetThing(ref.Subject.NrDollarCref, &thingResponse)
 						if err != nil {
 							return thingResponse, err
@@ -316,6 +343,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 		},
 	})
 
+	// The actionType which all single action-responses will use
 	actionType := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "Action",
 		Description: "A action from the weaviate database, based on the weaviate schema.",
@@ -324,6 +352,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.String),
 				Description: "The context on which the object is in.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Action Response
 					if action, ok := p.Source.(models.ActionGetResponse); ok {
 						return action.AtContext, nil
 					}
@@ -334,6 +363,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.String),
 				Description: "The class of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Action Response
 					if action, ok := p.Source.(models.ActionGetResponse); ok {
 						return action.AtClass, nil
 					}
@@ -344,6 +374,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.Int,
 				Description: "The creation time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Action Response
 					if action, ok := p.Source.(models.ActionGetResponse); ok {
 						return action.CreationTimeUnix, nil // TODO: Nil in response?
 					}
@@ -354,6 +385,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.Int,
 				Description: "The last update time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Action Response
 					if action, ok := p.Source.(models.ActionGetResponse); ok {
 						return action.LastUpdateTimeUnix, nil
 					}
@@ -364,6 +396,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        graphql.NewNonNull(graphql.String),
 				Description: "The id of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Action Response
 					if action, ok := p.Source.(models.ActionGetResponse); ok {
 						return action.ActionID, nil
 					}
@@ -374,6 +407,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Type:        objectSubjectType,
 				Description: "The thing which is the object of this action.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Action Response
 					if action, ok := p.Source.(models.ActionGetResponse); ok {
 						return action.Things, nil
 					}
@@ -386,6 +420,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					keyResponse := models.KeyTokenGetResponse{}
 					if action, ok := p.Source.(models.ActionGetResponse); ok {
+						// Do a new request with the key from the reference object
 						err := databaseConnector.GetKey(action.Key.NrDollarCref, &keyResponse)
 						if err != nil {
 							return keyResponse, err
@@ -395,15 +430,18 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				},
 			},
 		},
+		// The interfaces this object satifies
 		Interfaces: []*graphql.Interface{
 			schemaInterface,
 			objectInterface,
 		},
 	})
 
+	// The queryType is the main type in the tree, here does the query resolving start
 	queryType := graphql.NewObject(graphql.ObjectConfig{
 		Name: "Query",
 		Fields: graphql.Fields{
+			// Query to get a single thing
 			"thing": &graphql.Field{
 				Type: thingType,
 				Args: graphql.FieldConfigArgument{
@@ -413,8 +451,13 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 					},
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Initialize the thing response
 					thingResponse := models.ThingGetResponse{}
+
+					// Get the ID from the arguments
 					UUID := strfmt.UUID(p.Args["id"].(string))
+
+					// Do a request on the database to get the Thing
 					err := databaseConnector.GetThing(UUID, &thingResponse)
 					if err != nil {
 						return thingResponse, err
@@ -422,6 +465,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 					return thingResponse, nil
 				},
 			},
+			// Query to get a single action
 			"action": &graphql.Field{
 				Type: actionType,
 				Args: graphql.FieldConfigArgument{
@@ -431,11 +475,15 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 					},
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Initialize the action response
 					actionResponse := models.ActionGetResponse{}
 					actionResponse.Schema = map[string]models.JSONObject{}
 					actionResponse.Things = &models.ObjectSubject{}
 
+					// Get the ID from the arguments
 					UUID := strfmt.UUID(p.Args["id"].(string))
+
+					// Do a request on the database to get the Action
 					err := databaseConnector.GetAction(UUID, &actionResponse)
 					if err != nil {
 						return actionResponse, err
@@ -443,6 +491,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 					return actionResponse, nil
 				},
 			},
+			// Query to get a single key
 			"key": &graphql.Field{
 				Type: keyType,
 				Args: graphql.FieldConfigArgument{
@@ -452,9 +501,13 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 					},
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Initialize the key response
 					keyResponse := models.KeyTokenGetResponse{}
 
+					// Get the ID from the arguments
 					UUID := strfmt.UUID(p.Args["id"].(string))
+
+					// Do a request on the database to get the Key
 					err := databaseConnector.GetKey(UUID, &keyResponse)
 					if err != nil {
 						return keyResponse, err
@@ -465,11 +518,15 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 		},
 	})
 
+	// Init error var
 	var err error
+
+	// Add the schema to the exported variable.
 	WeaviateGraphQLSchema, err = graphql.NewSchema(graphql.SchemaConfig{
 		Query: queryType,
 	})
 
+	// Print for logging
 	log.Println("INFO: GraphQL initialisation finished.")
 
 	return err
