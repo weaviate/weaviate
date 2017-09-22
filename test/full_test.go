@@ -92,7 +92,7 @@ func getEmptyJSON() io.Reader {
 
 // getEmptyPatchJSON returns a buffer with emtpy Patch-JSON
 func getEmptyPatchJSON() io.Reader {
-	return bytes.NewBuffer([]byte(`[{}]`))
+	return bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/xxx", "value": "xxx"}]`))
 }
 
 // Set all re-used vars
@@ -918,16 +918,180 @@ func Test__weaviate_action_patch_JSON(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
+/******************
+ * GRAPHQL TESTS
+ ******************/
+func doGraphQLRequest(body io.Reader, apiKey string) *http.Response {
+	return doRequest("/graphql", "POST", "application/json", body, apiKey)
+}
+
+func Test__weaviate_graphql_common_JSON(t *testing.T) {
+	// Set the graphQL body
+	bodyUnpr := `{ 
+		"querys": "{ }" 
+	}`
+
+	// Make the IO input
+	jsonStrUnpr := bytes.NewBuffer([]byte(fmt.Sprintf(bodyUnpr, actionID)))
+
+	// Do the GraphQL request
+	responseUnpr := doGraphQLRequest(jsonStrUnpr, apiKeyCmdLine)
+
+	// Check statuscode
+	require.Equal(t, http.StatusUnprocessableEntity, responseUnpr.StatusCode)
+
+	// Set the graphQL body
+	bodyNonExistingProperty := `{ 
+		"query": "{ action(id:\"%s\") { uuids atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
+	}`
+
+	// Make the IO input
+	jsonStrNonExistingProperty := bytes.NewBuffer([]byte(fmt.Sprintf(bodyNonExistingProperty, actionID)))
+
+	// Do the GraphQL request
+	responseNonExistingProperty := doGraphQLRequest(jsonStrNonExistingProperty, apiKeyCmdLine)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, responseNonExistingProperty.StatusCode)
+
+	// Turn the response into a response object
+	respObjectNonExistingProperty := &models.GraphQLResponse{}
+	json.Unmarshal(getResponseBody(responseNonExistingProperty), respObjectNonExistingProperty)
+
+	// Test that the data in the response is nil
+	require.Nil(t, respObjectNonExistingProperty.Data)
+
+	// Test that the error in the response is not nil
+	require.NotNil(t, respObjectNonExistingProperty.Errors)
+}
+
+func Test__weaviate_graphql_thing_JSON(t *testing.T) {
+	// Set the graphQL body
+	body := `{ 
+		"query": "{ thing(id:\"%s\") { uuid atContext atClass creationTimeUnix key { uuid read } } }" 
+	}`
+
+	// Make the IO input
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(body, thingID)))
+
+	// Do the GraphQL request
+	response := doGraphQLRequest(jsonStr, apiKeyCmdLine)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Turn the response into a response object
+	respObject := &models.GraphQLResponse{}
+	json.Unmarshal(getResponseBody(response), respObject)
+
+	// Test that the error in the response is nil
+	require.Nil(t, respObject.Errors)
+
+	// Test the given UUID in the response
+	respUUID := respObject.Data["thing"].(map[string]interface{})["uuid"]
+	require.Regexp(t, strfmt.UUIDPattern, respUUID)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, respUUID)
+
+	// Test the given creation time in the response TODO when creation time is not nil
+	// respCreationTime := respObject.Data["thing"].(map[string]interface{})["creationTimeUnix"].(int64)
+	// now := connutils.NowUnix()
+	// require.Conditionf(t, func() bool { return !(respCreationTime > now) }, "CreationTimeUnix is incorrect, it was set in the future.")
+	// require.Conditionf(t, func() bool { return !(respCreationTime < now-20000) }, "CreationTimeUnix is incorrect, it was set to far back.")
+
+	// Test the given key-object in the response TODO when keys are implemented
+	// respKeyUUID := respObject.Data["thing"].(map[string]interface{})["key"].(map[string]interface{})["uuid"]
+	// require.Regexp(t, strfmt.UUIDPattern, respKeyUUID)
+	// require.Regexp(t, strfmt.UUIDPattern, headID)
+	// require.Equal(t, headID, respKeyUUID)
+
+	// Test whether the key has read rights (must have)
+	respKeyRead := respObject.Data["thing"].(map[string]interface{})["key"].(map[string]interface{})["read"].(bool)
+	require.Equal(t, true, respKeyRead)
+}
+
+func Test__weaviate_graphql_action_JSON(t *testing.T) {
+	// Set the graphQL body
+	body := `{ 
+		"query": "{ action(id:\"%s\") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
+	}`
+
+	// Make the IO input
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(body, actionID)))
+
+	// Do the GraphQL request
+	response := doGraphQLRequest(jsonStr, apiKeyCmdLine)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Turn the response into a response object
+	respObject := &models.GraphQLResponse{}
+	json.Unmarshal(getResponseBody(response), respObject)
+
+	// Test that the error in the response is nil
+	require.Nil(t, respObject.Errors)
+
+	// Test the given UUID in the response
+	respUUID := respObject.Data["action"].(map[string]interface{})["uuid"]
+	require.Regexp(t, strfmt.UUIDPattern, respUUID)
+	require.Regexp(t, strfmt.UUIDPattern, actionID)
+	require.Equal(t, actionID, respUUID)
+
+	// Test the given thing-object in the response
+	respObjectUUID := respObject.Data["action"].(map[string]interface{})["things"].(map[string]interface{})["object"].(map[string]interface{})["uuid"]
+	require.Regexp(t, strfmt.UUIDPattern, respObjectUUID)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, respObjectUUID)
+
+	// Test the given thing-object in the response
+	respSubjectUUID := respObject.Data["action"].(map[string]interface{})["things"].(map[string]interface{})["subject"].(map[string]interface{})["uuid"]
+	require.Regexp(t, strfmt.UUIDPattern, respSubjectUUID)
+	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
+	require.Equal(t, thingIDsubject, respSubjectUUID)
+}
+
+func Test__weaviate_graphql_key_JSON(t *testing.T) {
+	// // Set the graphQL body
+	// body := `{
+	// 	"query": "{ key(id:\"%s\") { uuid read write ipOrigin parent { uuid read } } }"
+	// }`
+
+	// // Make the IO input
+	// jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(body, newAPIKeyID)))
+
+	// // Do the GraphQL request
+	// response := doGraphQLRequest(jsonStr, apiKeyCmdLine)
+
+	// // Check statuscode
+	// require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// // Turn the response into a response object
+	// respObject := &models.GraphQLResponse{}
+	// json.Unmarshal(getResponseBody(response), respObject)
+
+	// // Test that the error in the response is nil
+	// require.Nil(t, respObject.Errors)
+
+	// // Test the given UUID in the response
+	// respUUID := respObject.Data["key"].(map[string]interface{})["uuid"]
+	// require.Regexp(t, strfmt.UUIDPattern, respUUID)
+	// require.Regexp(t, strfmt.UUIDPattern, newAPIKeyID)
+	// require.Equal(t, newAPIKeyID, respUUID)
+
+	// TODO, check parent when key tests are implemented further
+}
+
+/******************
+ * REMOVE TESTS
+ ******************/
+
 // // weaviate.key.me.delete
 // func Test__weaviate_key_me_delete_JSON(t *testing.T) {
 // 	// Delete keyID from database
 // 	responseKeyIDDeleted := doRequest("/keys/me", "DELETE", "application/json", nil, newAPIToken)
 // 	testStatusCode(t, responseKeyIDDeleted.StatusCode, http.StatusNoContent)
 // }
-
-// /******************
-//  * REMOVE TESTS
-//  ******************/
 
 // weaviate.action.delete
 func Test__weaviate_action_delete_JSON(t *testing.T) {
