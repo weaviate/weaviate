@@ -16,6 +16,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 
@@ -73,6 +74,13 @@ func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 // WeaviateConfig represents the used schema's
 type WeaviateConfig struct {
 	Environment Environment
+	Hostname    string
+	Scheme      string
+}
+
+// GetHostAddress from config locations
+func (f *WeaviateConfig) GetHostAddress() string {
+	return fmt.Sprintf("%s://%s", f.Scheme, f.Hostname)
 }
 
 // LoadConfig from config locations
