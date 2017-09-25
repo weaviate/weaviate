@@ -61,7 +61,8 @@ const pageOverride int64 = 1
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
 var databaseSchema schema.WeaviateSchema
-var databaseConfig config.WeaviateConfig
+var serverConfig config.WeaviateConfig
+var dbConnector dbconnector.DatabaseConnector
 
 func init() {
 	discard := ioutil.Discard
@@ -272,66 +273,6 @@ func configureFlags(api *operations.WeaviateAPI) {
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
-	// Load the config using the flags
-	databaseConfig := config.WeaviateConfig{}
-	err := databaseConfig.LoadConfig(connectorOptionGroup)
-
-	// Fatal error loading config file
-	if err != nil {
-		weaviate_error.ExitError(78, err.Error())
-	}
-
-	// Load the schema using the config
-	databaseSchema = schema.WeaviateSchema{}
-	err = databaseSchema.LoadSchema(&databaseConfig.Environment)
-
-	// Fatal error loading schema file
-	if err != nil {
-		weaviate_error.ExitError(78, err.Error())
-	}
-
-	// Create the database connector usint the config
-	databaseConnector := dbconnector.CreateDatabaseConnector(&databaseConfig.Environment)
-
-	// Error the system when the database connector returns no connector
-	if databaseConnector == nil {
-		weaviate_error.ExitError(78, "database with the name '"+databaseConfig.Environment.Database.Name+"' couldn't be loaded from the config")
-	}
-
-	// Set connector vars
-	err = databaseConnector.SetConfig(&databaseConfig.Environment)
-	// Fatal error loading config file
-	if err != nil {
-		weaviate_error.ExitError(78, err.Error())
-	}
-
-	err = databaseConnector.SetSchema(&databaseSchema)
-	// Fatal error loading schema file
-	if err != nil {
-		weaviate_error.ExitError(78, err.Error())
-	}
-
-	// connect the database
-	errConnect := databaseConnector.Connect()
-	if errConnect != nil {
-		weaviate_error.ExitError(1, "database with the name '"+databaseConfig.Environment.Database.Name+"' gave an error when connecting: "+errConnect.Error())
-	}
-
-	// init the database
-	errInit := databaseConnector.Init()
-	if errInit != nil {
-		weaviate_error.ExitError(1, "database with the name '"+databaseConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
-	}
-
-	// Init the GraphQL schema
-	errInitGQL := graphqlapi.InitSchema(databaseConnector)
-	if errInitGQL != nil {
-		weaviate_error.ExitError(1, "GrapQL schema initialization gave an error when initializing: "+errInitGQL.Error())
-	}
-
-	// connect to mqtt
-	mqttclient.Connect()
-
 	api.ServeError = errors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
@@ -371,7 +312,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		validatedKey := models.KeyTokenGetResponse{}
 
 		// Check if the user has access, true if yes
-		err := databaseConnector.ValidateToken(strfmt.UUID(token), &validatedKey)
+		err := dbConnector.ValidateToken(strfmt.UUID(token), &validatedKey)
 
 		// Error printing
 		if err != nil {
@@ -398,7 +339,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionGetResponse.Things = &models.ObjectSubject{}
 
 		// Get item from database
-		err := databaseConnector.GetAction(params.ActionID, &actionGetResponse)
+		err := dbConnector.GetAction(params.ActionID, &actionGetResponse)
 
 		// Object is deleted
 		if err != nil {
@@ -406,7 +347,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return actions.NewWeaviateActionsGetForbidden()
 		}
 
@@ -421,7 +362,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get and transform object
 		UUID := strfmt.UUID(params.ActionID)
-		errGet := databaseConnector.GetAction(UUID, &actionGetResponse)
+		errGet := dbConnector.GetAction(UUID, &actionGetResponse)
 		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Return error if UUID is not found.
@@ -430,7 +371,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return actions.NewWeaviateActionsPatchForbidden()
 		}
 
@@ -460,7 +401,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &action)
 
 		// Update the database
-		insertErr := databaseConnector.UpdateAction(action, UUID) // TODO: go-routine?
+		insertErr := dbConnector.UpdateAction(action, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -492,7 +433,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, nil); !allowed {
 			return actions.NewWeaviateActionsCreateForbidden()
 		}
 
@@ -526,7 +467,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		action.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := databaseConnector.AddAction(action, UUID) // TODO: go-routine?
+		insertErr := dbConnector.AddAction(action, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -546,7 +487,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionGetResponse.Things = &models.ObjectSubject{}
 
 		// Get item from database
-		errGet := databaseConnector.GetAction(params.ActionID, &actionGetResponse)
+		errGet := dbConnector.GetAction(params.ActionID, &actionGetResponse)
 
 		// Not found
 		if errGet != nil {
@@ -554,12 +495,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a delete function, validate if allowed to delete? TODO: test
-		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
 		// Add new row as GO-routine
-		go databaseConnector.DeleteAction(params.ActionID)
+		go dbConnector.DeleteAction(params.ActionID)
 
 		// Return 'No Content'
 		return actions.NewWeaviateActionsDeleteNoContent()
@@ -604,7 +545,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := databaseConnector.AddKey(&newKey.Key, newKey.KeyID, newKey.Token) // TODO: go-routine?
+		insertErr := dbConnector.AddKey(&newKey.Key, newKey.KeyID, newKey.Token) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -617,7 +558,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyResponse := models.KeyTokenGetResponse{}
 
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		errGet := databaseConnector.GetKey(params.KeyID, &keyResponse)
+		errGet := dbConnector.GetKey(params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -626,13 +567,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions
 		keyObject, _ := principal.(models.KeyTokenGetResponse)
-		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, databaseConnector) {
+		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysChildrenGetForbidden()
 		}
 
 		// Get the children
 		childIDs := []strfmt.UUID{}
-		childIDs, _ = GetKeyChildrenUUIDs(databaseConnector, params.KeyID, true, childIDs, 1, 0)
+		childIDs, _ = GetKeyChildrenUUIDs(dbConnector, params.KeyID, true, childIDs, 1, 0)
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
@@ -646,7 +587,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyResponse := models.KeyTokenGetResponse{}
 
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		errGet := databaseConnector.GetKey(params.KeyID, &keyResponse)
+		errGet := dbConnector.GetKey(params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -655,12 +596,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions
 		keyObject, _ := principal.(models.KeyTokenGetResponse)
-		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, databaseConnector) {
+		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysDeleteForbidden()
 		}
 
 		// Remove key from database if found
-		deleteKey(databaseConnector, params.KeyID)
+		deleteKey(dbConnector, params.KeyID)
 
 		// Return 'No Content'
 		return keys.NewWeaviateKeysDeleteNoContent()
@@ -670,7 +611,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyResponse := models.KeyTokenGetResponse{}
 
 		// Get item from database
-		err := databaseConnector.GetKey(params.KeyID, &keyResponse)
+		err := dbConnector.GetKey(params.KeyID, &keyResponse)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -679,7 +620,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions
 		keyObject, _ := principal.(models.KeyTokenGetResponse)
-		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, databaseConnector) {
+		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysGetForbidden()
 		}
 
@@ -692,7 +633,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get the children
 		childIDs := []strfmt.UUID{}
-		childIDs, _ = GetKeyChildrenUUIDs(databaseConnector, currentKey.KeyID, true, childIDs, 1, 0)
+		childIDs, _ = GetKeyChildrenUUIDs(dbConnector, currentKey.KeyID, true, childIDs, 1, 0)
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
@@ -706,7 +647,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		key := principal.(models.KeyTokenGetResponse)
 
 		// Remove key from database if found
-		deleteKey(databaseConnector, key.KeyID)
+		deleteKey(dbConnector, key.KeyID)
 
 		// Return 'No Content'
 		return keys.NewWeaviateKeysMeDeleteNoContent()
@@ -716,7 +657,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		tokenResponseObject := models.KeyTokenGetResponse{}
 
 		// Get item from database
-		err := databaseConnector.GetKey(principal.(models.KeyTokenGetResponse).KeyID, &tokenResponseObject)
+		err := dbConnector.GetKey(principal.(models.KeyTokenGetResponse).KeyID, &tokenResponseObject)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -732,7 +673,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, nil); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, nil); !allowed {
 			return things.NewWeaviateThingsCreateForbidden()
 		}
 
@@ -765,7 +706,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thing.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := databaseConnector.AddThing(thing, UUID) // TODO: go-routine?
+		insertErr := dbConnector.AddThing(thing, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -775,7 +716,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.Thing = *thing
 		responseObject.ThingID = UUID
 
-		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
@@ -784,7 +725,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingGetResponse.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
-		errGet := databaseConnector.GetThing(params.ThingID, &thingGetResponse)
+		errGet := dbConnector.GetThing(params.ThingID, &thingGetResponse)
 
 		// Not found
 		if errGet != nil {
@@ -792,7 +733,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a delete function, validate if allowed to delete?
-		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, databaseConnector, thingGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
@@ -800,15 +741,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionsExist := true
 		for actionsExist {
 			actions := models.ActionsListResponse{}
-			databaseConnector.ListActions(params.ThingID, 50, 0, &actions)
+			dbConnector.ListActions(params.ThingID, 50, 0, &actions)
 			for _, v := range actions.Actions {
-				go databaseConnector.DeleteAction(v.ActionID)
+				go dbConnector.DeleteAction(v.ActionID)
 			}
 			actionsExist = actions.TotalResults > 0
 		}
 
 		// Add new row as GO-routine
-		go databaseConnector.DeleteThing(params.ThingID)
+		go dbConnector.DeleteThing(params.ThingID)
 
 		// Return 'No Content'
 		return things.NewWeaviateThingsDeleteNoContent()
@@ -819,7 +760,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
-		err := databaseConnector.GetThing(strfmt.UUID(params.ThingID), &responseObject)
+		err := dbConnector.GetThing(strfmt.UUID(params.ThingID), &responseObject)
 
 		// Object is not found
 		if err != nil {
@@ -827,7 +768,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, responseObject.Key.NrDollarCref); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsGetForbidden()
 		}
 
@@ -836,7 +777,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, nil); !allowed {
 			return things.NewWeaviateThingsListForbidden()
 		}
 
@@ -852,7 +793,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingsResponse.Things = []*models.ThingGetResponse{}
 
 		// List all results
-		err := databaseConnector.ListThings(limit, page, keyID, &thingsResponse)
+		err := dbConnector.ListThings(limit, page, keyID, &thingsResponse)
 
 		if err != nil {
 			log.Println("ERROR", err)
@@ -867,7 +808,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get and transform object
 		UUID := strfmt.UUID(params.ThingID)
-		errGet := databaseConnector.GetThing(UUID, &thingGetResponse)
+		errGet := dbConnector.GetThing(UUID, &thingGetResponse)
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Return error if UUID is not found.
@@ -876,7 +817,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, thingGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsPatchForbidden()
 		}
 
@@ -906,7 +847,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &thing)
 
 		// Update the database
-		insertErr := databaseConnector.UpdateThing(thing, UUID) // TODO: go-routine?
+		insertErr := dbConnector.UpdateThing(thing, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -931,7 +872,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get item from database
 		UUID := params.ThingID
-		errGet := databaseConnector.GetThing(UUID, &thingGetResponse)
+		errGet := dbConnector.GetThing(UUID, &thingGetResponse)
 
 		// If there are no results, there is an error
 		if errGet != nil {
@@ -940,7 +881,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, databaseConnector, thingGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsUpdateForbidden()
 		}
 
@@ -956,7 +897,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
-		insertErr := databaseConnector.UpdateThing(&params.Body.Thing, UUID) // TODO: go-routine?
+		insertErr := dbConnector.UpdateThing(&params.Body.Thing, UUID) // TODO: go-routine?
 		if insertErr != nil {
 			log.Println("InsertErr:", insertErr)
 		}
@@ -972,7 +913,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			Type:         "Key",
 		}
 
-		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return things.NewWeaviateThingsUpdateOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
@@ -992,7 +933,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, nil); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, nil); !allowed {
 			return things.NewWeaviateThingsActionsListForbidden()
 		}
 
@@ -1004,14 +945,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(models.KeyTokenGetResponse)
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, databaseConnector, keyToken.KeyID); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, keyToken.KeyID); !allowed {
 			return things.NewWeaviateThingsActionsListForbidden()
 		}
 
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
-		errGet := databaseConnector.GetThing(params.ThingID, &thingGetResponse)
+		errGet := dbConnector.GetThing(params.ThingID, &thingGetResponse)
 
 		// If there are no results, there is an error
 		if errGet != nil {
@@ -1024,7 +965,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
-		err := databaseConnector.ListActions(params.ThingID, limit, page, &actionsResponse)
+		err := dbConnector.ListActions(params.ThingID, limit, page, &actionsResponse)
 
 		if err != nil {
 			log.Println("ERROR", err)
@@ -1092,6 +1033,69 @@ func configureTLS(tlsConfig *tls.Config) {
 // This function can be called multiple times, depending on the number of serving schemes.
 // scheme value will be set accordingly: "http", "https" or "unix"
 func configureServer(s *graceful.Server, scheme, addr string) {
+	// Load the config using the flags
+	serverConfig := config.WeaviateConfig{}
+	err := serverConfig.LoadConfig(connectorOptionGroup)
+
+	// Add properties to the config
+	serverConfig.Hostname = addr
+	serverConfig.Scheme = scheme
+
+	// Fatal error loading config file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
+	}
+
+	// Load the schema using the config
+	databaseSchema = schema.WeaviateSchema{}
+	err = databaseSchema.LoadSchema(&serverConfig.Environment)
+
+	// Fatal error loading schema file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
+	}
+
+	// Create the database connector usint the config
+	dbConnector = dbconnector.CreateDatabaseConnector(&serverConfig.Environment)
+
+	// Error the system when the database connector returns no connector
+	if dbConnector == nil {
+		weaviate_error.ExitError(78, "database with the name '"+serverConfig.Environment.Database.Name+"' couldn't be loaded from the config")
+	}
+
+	// Set connector vars
+	err = dbConnector.SetConfig(&serverConfig.Environment)
+	// Fatal error loading config file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
+	}
+
+	err = dbConnector.SetSchema(&databaseSchema)
+	// Fatal error loading schema file
+	if err != nil {
+		weaviate_error.ExitError(78, err.Error())
+	}
+
+	// connect the database
+	errConnect := dbConnector.Connect()
+	if errConnect != nil {
+		weaviate_error.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when connecting: "+errConnect.Error())
+	}
+
+	// init the database
+	errInit := dbConnector.Init()
+	if errInit != nil {
+		weaviate_error.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
+	}
+
+	// Init the GraphQL schema
+	errInitGQL := graphqlapi.InitSchema(dbConnector)
+	if errInitGQL != nil {
+		weaviate_error.ExitError(1, "GrapQL schema initialization gave an error when initializing: "+errInitGQL.Error())
+	}
+
+	// connect to mqtt
+	mqttclient.Connect()
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
