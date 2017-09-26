@@ -37,6 +37,7 @@ type GraphQLSchema struct {
 	weaviateGraphQLSchema graphql.Schema
 	serverConfig          *config.WeaviateConfig
 	dbConnector           dbconnector.DatabaseConnector
+	usedKey               models.KeyTokenGetResponse
 }
 
 // NewGraphQLSchema create a new schema object
@@ -48,6 +49,11 @@ func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverCon
 
 	// Return the schema, note that InitSchema has to be runned before this could be used
 	return gqls
+}
+
+// SetKey sets the key that is used for the latest request
+func (f *GraphQLSchema) SetKey(key models.KeyTokenGetResponse) {
+	f.usedKey = key
 }
 
 // GetGraphQLSchema returns the schema if it is set
@@ -84,7 +90,7 @@ func (f *GraphQLSchema) InitSchema() error {
 	// Create the interface to which all objects (Key, Thing and Action) must comply
 	objectInterface := graphql.NewInterface(graphql.InterfaceConfig{
 		Name:        "WeaviateObject",
-		Description: "An object in the weaviate database",
+		Description: "An object in the Weaviate database",
 		// Add the mandatory fields for this interface
 		Fields: graphql.Fields{
 			"uuid": &graphql.Field{
@@ -123,7 +129,7 @@ func (f *GraphQLSchema) InitSchema() error {
 	// The keyType which all single key-responses will use
 	keyType := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "Key",
-		Description: "A key from the weaviate database.",
+		Description: "A key from the Weaviate database.",
 		Fields: graphql.Fields{
 			"uuid": &graphql.Field{
 				Type:        graphql.NewNonNull(graphql.String),
@@ -166,7 +172,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
 						return key.IPOrigin, nil
 					}
-					return nil, nil
+					return []string{}, nil
 				},
 			},
 			"keyExpiresUnix": &graphql.Field{
@@ -257,14 +263,14 @@ func (f *GraphQLSchema) InitSchema() error {
 	// The thingType which all single thing-responses will use
 	thingType := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "Thing",
-		Description: "A thing from the weaviate database, based on the weaviate schema.",
+		Description: "A thing from the Weaviate database, based on the Weaviate schema.",
 		Fields: graphql.Fields{
 			"atContext": &graphql.Field{
 				Type:        graphql.NewNonNull(graphql.String),
 				Description: "The context on which the object is in.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Thing Response
-					if thing, ok := p.Source.(models.ThingGetResponse); ok {
+					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 						return thing.AtContext, nil
 					}
 					return nil, nil
@@ -275,7 +281,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The class of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Thing Response
-					if thing, ok := p.Source.(models.ThingGetResponse); ok {
+					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 						return thing.AtClass, nil
 					}
 					return nil, nil
@@ -286,7 +292,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The creation time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Thing Response
-					if thing, ok := p.Source.(models.ThingGetResponse); ok {
+					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 						return float64(thing.CreationTimeUnix), nil
 					}
 					return nil, nil
@@ -297,7 +303,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The last update time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Thing Response
-					if thing, ok := p.Source.(models.ThingGetResponse); ok {
+					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 						return float64(thing.LastUpdateTimeUnix), nil
 					}
 					return nil, nil
@@ -308,9 +314,10 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The id of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Thing Response
-					if thing, ok := p.Source.(models.ThingGetResponse); ok {
+					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 						return thing.ThingID, nil
 					}
+
 					return nil, nil
 				},
 			},
@@ -319,7 +326,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The key which is the owner of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					keyResponse := models.KeyTokenGetResponse{}
-					if thing, ok := p.Source.(models.ThingGetResponse); ok {
+					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 						// Do a new request with the key from the reference object
 						err := f.resolveCrossRef(p.Info.FieldASTs, thing.Key, &keyResponse)
 						if err != nil {
@@ -337,6 +344,36 @@ func (f *GraphQLSchema) InitSchema() error {
 		},
 	})
 
+	// The thingListType which wil be used when returning a list
+	thingListType := graphql.NewObject(graphql.ObjectConfig{
+		Name:        "ThingList",
+		Description: "Things listed from the Weaviate database belonging to the user, based on the Weaviate schema.",
+		Fields: graphql.Fields{
+			"things": &graphql.Field{
+				Type:        graphql.NewList(thingType),
+				Description: "The actual things",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Things Response
+					if things, ok := p.Source.(models.ThingsListResponse); ok {
+						return things.Things, nil
+					}
+					return []interface{}{}, nil
+				},
+			},
+			"totalResults": &graphql.Field{
+				Type:        graphql.NewNonNull(graphql.Float),
+				Description: "The total amount of things without pagination",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Things Response
+					if things, ok := p.Source.(models.ThingsListResponse); ok {
+						return things.TotalResults, nil
+					}
+					return nil, nil
+				},
+			},
+		},
+	})
+
 	// The objectSubjectType which is used in the ActionType only to assign the object and subject things
 	objectSubjectType := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "ObjectSubject",
@@ -346,10 +383,10 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        thingType,
 				Description: "The thing which is the object of this action.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					thingResponse := models.ThingGetResponse{}
+					thingResponse := &models.ThingGetResponse{}
 					if ref, ok := p.Source.(*models.ObjectSubject); ok {
 						// Evaluate the Cross reference
-						err := f.resolveCrossRef(p.Info.FieldASTs, ref.Object, &thingResponse)
+						err := f.resolveCrossRef(p.Info.FieldASTs, ref.Object, thingResponse)
 						if err != nil {
 							return thingResponse, err
 						}
@@ -362,10 +399,10 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        thingType,
 				Description: "The thing which is the subject of this action.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					thingResponse := models.ThingGetResponse{}
+					thingResponse := &models.ThingGetResponse{}
 					if ref, ok := p.Source.(*models.ObjectSubject); ok {
 						// Do a new request with the thing from the reference object
-						err := f.resolveCrossRef(p.Info.FieldASTs, ref.Subject, &thingResponse)
+						err := f.resolveCrossRef(p.Info.FieldASTs, ref.Subject, thingResponse)
 						if err != nil {
 							return thingResponse, err
 						}
@@ -379,7 +416,7 @@ func (f *GraphQLSchema) InitSchema() error {
 	// The actionType which all single action-responses will use
 	actionType := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "Action",
-		Description: "A action from the weaviate database, based on the weaviate schema.",
+		Description: "A action from the Weaviate database, based on the Weaviate schema.",
 		Fields: graphql.Fields{
 			"atContext": &graphql.Field{
 				Type:        graphql.NewNonNull(graphql.String),
@@ -476,7 +513,8 @@ func (f *GraphQLSchema) InitSchema() error {
 		Fields: graphql.Fields{
 			// Query to get a single thing
 			"thing": &graphql.Field{
-				Type: thingType,
+				Description: "Gets a single thing based on the given ID.",
+				Type:        thingType,
 				Args: graphql.FieldConfigArgument{
 					"id": &graphql.ArgumentConfig{
 						Description: "UUID of the thing",
@@ -485,22 +523,66 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Initialize the thing response
-					thingResponse := models.ThingGetResponse{}
+					thingResponse := &models.ThingGetResponse{}
 
 					// Get the ID from the arguments
 					UUID := strfmt.UUID(p.Args["id"].(string))
 
 					// Do a request on the database to get the Thing
-					err := f.dbConnector.GetThing(UUID, &thingResponse)
+					err := f.dbConnector.GetThing(UUID, thingResponse)
 					if err != nil {
 						return thingResponse, err
 					}
 					return thingResponse, nil
 				},
 			},
+			// Query to get a list of things
+			"listThings": &graphql.Field{
+				Description: "Lists Things belonging to the used key, sorted on creation time.",
+				Type:        thingListType,
+				Args: graphql.FieldConfigArgument{
+					"first": &graphql.ArgumentConfig{
+						Description: "First X items from the given offset, when none given, it will be 100.",
+						Type:        graphql.Int,
+					},
+					"offset": &graphql.ArgumentConfig{
+						Description: "Offset from the most recent item.",
+						Type:        graphql.Int,
+					},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Initialize the thing response
+					thingsResponse := models.ThingsListResponse{}
+
+					// Get the pagination from the arguments
+					var first int
+					if p.Args["first"] != nil {
+						first = p.Args["first"].(int)
+					} else {
+						first = 100
+					}
+
+					var offset int
+					if p.Args["offset"] != nil {
+						offset = p.Args["offset"].(int)
+					} else {
+						offset = 0
+					}
+
+					// Do a request on the database to get the Thing
+					err := f.dbConnector.ListThings(first, offset, f.usedKey.KeyID, &thingsResponse)
+
+					// Return error, if needed.
+					if err != nil {
+						return thingsResponse, err
+					}
+					return thingsResponse, nil
+				},
+			},
 			// Query to get a single action
 			"action": &graphql.Field{
-				Type: actionType,
+				Description: "Gets a single action based on the given ID.",
+				Type:        actionType,
 				Args: graphql.FieldConfigArgument{
 					"id": &graphql.ArgumentConfig{
 						Description: "UUID of the action",
@@ -526,7 +608,8 @@ func (f *GraphQLSchema) InitSchema() error {
 			},
 			// Query to get a single key
 			"key": &graphql.Field{
-				Type: keyType,
+				Description: "Gets a single key based on the given ID.",
+				Type:        keyType,
 				Args: graphql.FieldConfigArgument{
 					"id": &graphql.ArgumentConfig{
 						Description: "UUID of the key",
