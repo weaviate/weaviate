@@ -63,6 +63,7 @@ var connectorOptionGroup *swag.CommandLineOptionsGroup
 var databaseSchema schema.WeaviateSchema
 var serverConfig config.WeaviateConfig
 var dbConnector dbconnector.DatabaseConnector
+var graphQLSchema *graphqlapi.GraphQLSchema
 
 func init() {
 	discard := ioutil.Discard
@@ -990,8 +991,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get the results by doing a request with the given parameters and the initialized schema.
+		graphQlSchema, _ := graphQLSchema.GetGraphQLSchema()
 		result := gographql.Do(gographql.Params{
-			Schema:         graphqlapi.WeaviateGraphQLSchema,
+			Schema:         graphQlSchema,
 			RequestString:  query,
 			OperationName:  operationName,
 			VariableValues: variables,
@@ -1089,7 +1091,10 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 	}
 
 	// Init the GraphQL schema
-	errInitGQL := graphqlapi.InitSchema(dbConnector)
+	graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, &serverConfig)
+
+	// Error init
+	errInitGQL := graphQLSchema.InitSchema()
 	if errInitGQL != nil {
 		weaviate_error.ExitError(1, "GrapQL schema initialization gave an error when initializing: "+errInitGQL.Error())
 	}
