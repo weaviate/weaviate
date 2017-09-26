@@ -418,7 +418,7 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespon
 }
 
 // ListThings returns the thing in the ThingGetResponse format
-func (f *Dgraph) ListThings(limit int, page int, keyID strfmt.UUID, thingsResponse *models.ThingsListResponse) error {
+func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, thingsResponse *models.ThingsListResponse) error {
 	// Do a query to get all node-information
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{
@@ -430,7 +430,7 @@ func (f *Dgraph) ListThings(limit int, page int, keyID strfmt.UUID, thingsRespon
 			}
 		}
 	}
-	`, keyID, refTypePointer, connutils.RefTypeThing, limit, (page-1)*limit))
+	`, keyID, refTypePointer, connutils.RefTypeThing, first, offset))
 
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
@@ -585,7 +585,7 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetRes
 }
 
 // ListActions lists actions for a specific thing
-func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int, actionsResponse *models.ActionsListResponse) error {
+func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, actionsResponse *models.ActionsListResponse) error {
 	// Do a query to get all node-information
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{
@@ -598,7 +598,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int, actionsRespo
 				}
 			}
 		}
-	}`, UUID, limit, (page-1)*limit))
+	}`, UUID, first, offset))
 
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
