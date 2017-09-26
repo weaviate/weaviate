@@ -42,7 +42,8 @@ type Dgraph struct {
 	client *dgraphClient.Dgraph
 	kind   string
 
-	config Config
+	config        Config
+	serverAddress string
 }
 
 // Config represents the config outline for Dgraph. The Database config shoud be of the following form:
@@ -102,6 +103,11 @@ func (f *Dgraph) SetSchema(schemaInput *schema.WeaviateSchema) error {
 	// TODO: not implemented yet
 
 	return nil
+}
+
+// SetServerAddress is used to fill in a struct with schema
+func (f *Dgraph) SetServerAddress(addr string) {
+	f.serverAddress = addr
 }
 
 // Connect creates connection and tables if not already available
@@ -207,6 +213,17 @@ func (f *Dgraph) Init() error {
 		Count:     true,
 	}); err != nil {
 		return errors_.New("error while adding '" + refTypePointer + "' Dgraph-schema")
+	}
+
+	// Add refLocationPointer schema in Dgraph
+	if err := f.client.AddSchema(protos.SchemaUpdate{
+		Predicate: refLocationPointer,
+		ValueType: uint32(types.StringID),
+		Tokenizer: []string{"exact", "term"},
+		Directive: protos.SchemaUpdate_INDEX,
+		Count:     true,
+	}); err != nil {
+		return errors_.New("error while adding '" + refLocationPointer + "' Dgraph-schema")
 	}
 
 	// Add key connection schema in Dgraph
@@ -474,7 +491,8 @@ func (f *Dgraph) ListThings(limit int, page int, keyID strfmt.UUID, thingsRespon
 // UpdateThing updates the Thing in the DB at the given UUID.
 func (f *Dgraph) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Get the thing-node from the database
-	updateNode, err := f.getNodeByUUID(UUID)
+	nodeType := connutils.RefTypeThing
+	updateNode, err := f.getNodeByUUID(UUID, &nodeType)
 
 	if err != nil {
 		return err
@@ -645,7 +663,8 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, limit int, page int, actionsRespo
 // UpdateAction updates a specific action
 func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 	// Get the thing-node from the database
-	updateNode, err := f.getNodeByUUID(UUID)
+	nodeType := connutils.RefTypeAction
+	updateNode, err := f.getNodeByUUID(UUID, &nodeType)
 
 	if err != nil {
 		return err
@@ -773,7 +792,8 @@ func (f *Dgraph) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) er
 	// Set parent node, if node is not root
 	if !isRoot {
 		// Get Parent Node
-		parentNode, err := f.getNodeByUUID(strfmt.UUID(key.Parent.NrDollarCref))
+		nodeType := connutils.RefTypeKey
+		parentNode, err := f.getNodeByUUID(strfmt.UUID(key.Parent.NrDollarCref), &nodeType)
 		if err != nil {
 			return err
 		}
@@ -913,6 +933,15 @@ func (f *Dgraph) addNewNode(nType string, UUID strfmt.UUID) (dgraphClient.Node, 
 		return newNode, err
 	}
 
+	// Add location
+	edge = newNode.Edge(refLocationPointer)
+	if err = edge.SetValueString(f.serverAddress); err != nil {
+		return newNode, err
+	}
+	if err = req.Set(edge); err != nil {
+		return newNode, err
+	}
+
 	// Call run after all mutations are added
 	if _, err = f.client.Run(f.getContext(), &req); err != nil {
 		return newNode, err
@@ -997,8 +1026,8 @@ func (f *Dgraph) updateActionRelatedThings(node dgraphClient.Node, action *model
 	var err error
 
 	// Add Thing that gets the action
-	// TODO: Use 'locationUrl' and 'type'
-	objectNode, err := f.getNodeByUUID(strfmt.UUID(action.Things.Object.NrDollarCref))
+	nodeType := connutils.RefTypeThing
+	objectNode, err := f.getNodeByUUID(strfmt.UUID(action.Things.Object.NrDollarCref), &nodeType)
 	if err != nil {
 		return err
 	}
@@ -1008,8 +1037,7 @@ func (f *Dgraph) updateActionRelatedThings(node dgraphClient.Node, action *model
 	}
 
 	// Add subject Thing by $ref TODO: make interactive
-	// TODO: Use 'locationUrl' and 'type'
-	subjectNode, err := f.getNodeByUUID(strfmt.UUID(action.Things.Subject.NrDollarCref))
+	subjectNode, err := f.getNodeByUUID(strfmt.UUID(action.Things.Subject.NrDollarCref), &nodeType)
 	if err != nil {
 		return err
 	}
@@ -1034,7 +1062,7 @@ func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, 
 	// If it is an interface, then it should contain a "cref" reference to another object. Use it to connect nodes.
 	if typeVar == "map[string]interface {}" {
 		refProperties := propValue.(map[string]interface{})
-		refThingNode, err := f.getNodeByUUID(strfmt.UUID(refProperties["$cref"].(string)))
+		refThingNode, err := f.getNodeByUUID(strfmt.UUID(refProperties["$cref"].(string)), nil)
 		if err != nil {
 			return err
 		}
@@ -1086,7 +1114,8 @@ func (f *Dgraph) connectKey(nodeFrom dgraphClient.Node, keyUUID strfmt.UUID) err
 	req := dgraphClient.Req{}
 
 	// Find the
-	keyNode, err := f.getNodeByUUID(keyUUID)
+	nodeType := connutils.RefTypeKey
+	keyNode, err := f.getNodeByUUID(keyUUID, &nodeType)
 	if err != nil {
 		return err
 	}
@@ -1200,8 +1229,8 @@ func (f *Dgraph) createCrefObject(node *protos.Node) *models.SingleRef {
 			crefObj.NrDollarCref = strfmt.UUID(prop.GetValue().GetStrVal())
 		} else if prop.Prop == refTypePointer {
 			crefObj.Type = prop.GetValue().GetStrVal()
-		} else if prop.Prop == refTypePointer {
-			url := refTypePointer
+		} else if prop.Prop == refLocationPointer {
+			url := prop.GetValue().GetStrVal()
 			crefObj.LocationURL = &url
 		}
 	}
@@ -1290,19 +1319,20 @@ func (f *Dgraph) getRawNodeByUUID(UUID strfmt.UUID, typeName string, queryTempla
 	return nodes[0], err
 }
 
-func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
+func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID, refType *string) (dgraphClient.Node, error) {
 	// Search for the class to make the connection, create variables
 	variables := make(map[string]string)
 	variables["$uuid"] = string(UUID)
 
 	// Create the query for existing class
 	req := dgraphClient.Req{}
-	req.SetQueryWithVariables(`{ 
-		node(func: eq(uuid, $uuid)) {
+	req.SetQuery(fmt.Sprintf(`{ 
+		node(func: eq(uuid, "%s")) {
 			uuid
 			_uid_
+			%s
 		}
-	}`, variables)
+	}`, string(UUID), refTypePointer))
 
 	// Run the query
 	resp, err := f.client.Run(f.getContext(), &req)
@@ -1317,6 +1347,11 @@ func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID) (dgraphClient.Node, error) {
 
 	if err != nil {
 		return dgraphClient.Node{}, err
+	}
+
+	// If the type is set and the type of the node is different, return error
+	if refType != nil && *refType != idResult.Root.Type {
+		return dgraphClient.Node{}, fmt.Errorf("mismatch on type node, expected '%s', given '%s'", *refType, idResult.Root.Type)
 	}
 
 	// Create the classNode from the result
