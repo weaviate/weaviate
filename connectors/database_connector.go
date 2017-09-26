@@ -27,6 +27,7 @@ type DatabaseConnector interface {
 	Connect() error
 	Init() error
 	GetName() string
+	SetServerAddress(string)
 	SetConfig(*config.Environment) error
 	SetSchema(*schema.WeaviateSchema) error
 
