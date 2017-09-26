@@ -786,7 +786,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingsResponse.Things = []*models.ThingGetResponse{}
 
 		// List all results
-		err := dbConnector.ListThings(limit, page, keyID, &thingsResponse)
+		err := dbConnector.ListThings(limit, (page-1)*limit, keyID, &thingsResponse)
 
 		if err != nil {
 			log.Println("ERROR", err)
@@ -944,7 +944,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
-		err := dbConnector.ListActions(params.ThingID, limit, page, &actionsResponse)
+		err := dbConnector.ListActions(params.ThingID, limit, (page-1)*limit, &actionsResponse)
 
 		if err != nil {
 			log.Println("ERROR", err)
