@@ -14,22 +14,54 @@
 package graphqlapi
 
 import (
-	"github.com/go-openapi/strfmt"
-	graphql "github.com/graphql-go/graphql"
+	"errors"
+	"fmt"
+	"github.com/weaviate/weaviate/config"
+	"io"
 	"log"
+	"net/http"
+	"time"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/graphql/gqlerrors"
+	ast "github.com/graphql-go/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/connectors"
 	// "github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/models"
 )
 
-var (
-	// WeaviateGraphQLSchema is the schema initialized by the InitSchema function
-	WeaviateGraphQLSchema graphql.Schema
-)
+// GraphQLSchema has some basic variables.
+type GraphQLSchema struct {
+	weaviateGraphQLSchema graphql.Schema
+	serverConfig          *config.WeaviateConfig
+	dbConnector           dbconnector.DatabaseConnector
+}
+
+// NewGraphQLSchema create a new schema object
+func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) *GraphQLSchema {
+	// Initializing the schema and set its variables
+	gqls := new(GraphQLSchema)
+	gqls.dbConnector = databaseConnector
+	gqls.serverConfig = serverConfig
+
+	// Return the schema, note that InitSchema has to be runned before this could be used
+	return gqls
+}
+
+// GetGraphQLSchema returns the schema if it is set
+func (f *GraphQLSchema) GetGraphQLSchema() (graphql.Schema, error) {
+	// Return the schema, note that InitSchema has to be runned before this could be used
+	if &f.weaviateGraphQLSchema == nil {
+		return graphql.Schema{}, errors.New("schema is not initialized, perhaps you forget to run 'InitSchema'")
+	}
+
+	return f.weaviateGraphQLSchema, nil
+}
 
 // InitSchema the GraphQL schema
-func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
+func (f *GraphQLSchema) InitSchema() error {
 	// objectEnum := graphql.NewEnum(graphql.EnumConfig{
 	// 	Name:        "ObjectType",
 	// 	Description: "One of the type of the objects.",
@@ -213,7 +245,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 			keyResponse := models.KeyTokenGetResponse{}
 			if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
 				// Do a new request with the key from the reference object
-				err := databaseConnector.GetKey(key.Parent.NrDollarCref, &keyResponse)
+				err := f.resolveCrossRef(p.Info.FieldASTs, key.Parent, &keyResponse)
 				if err != nil {
 					return keyResponse, err
 				}
@@ -289,7 +321,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 					keyResponse := models.KeyTokenGetResponse{}
 					if thing, ok := p.Source.(models.ThingGetResponse); ok {
 						// Do a new request with the key from the reference object
-						err := databaseConnector.GetKey(thing.Key.NrDollarCref, &keyResponse)
+						err := f.resolveCrossRef(p.Info.FieldASTs, thing.Key, &keyResponse)
 						if err != nil {
 							return keyResponse, err
 						}
@@ -316,11 +348,12 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					thingResponse := models.ThingGetResponse{}
 					if ref, ok := p.Source.(*models.ObjectSubject); ok {
-						// Do a new request with the thing from the reference object
-						err := databaseConnector.GetThing(ref.Object.NrDollarCref, &thingResponse)
+						// Evaluate the Cross reference
+						err := f.resolveCrossRef(p.Info.FieldASTs, ref.Object, &thingResponse)
 						if err != nil {
 							return thingResponse, err
 						}
+
 					}
 					return thingResponse, nil
 				},
@@ -332,7 +365,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 					thingResponse := models.ThingGetResponse{}
 					if ref, ok := p.Source.(*models.ObjectSubject); ok {
 						// Do a new request with the thing from the reference object
-						err := databaseConnector.GetThing(ref.Subject.NrDollarCref, &thingResponse)
+						err := f.resolveCrossRef(p.Info.FieldASTs, ref.Subject, &thingResponse)
 						if err != nil {
 							return thingResponse, err
 						}
@@ -421,7 +454,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 					keyResponse := models.KeyTokenGetResponse{}
 					if action, ok := p.Source.(models.ActionGetResponse); ok {
 						// Do a new request with the key from the reference object
-						err := databaseConnector.GetKey(action.Key.NrDollarCref, &keyResponse)
+						err := f.resolveCrossRef(p.Info.FieldASTs, action.Key, &keyResponse)
 						if err != nil {
 							return keyResponse, err
 						}
@@ -458,7 +491,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 					UUID := strfmt.UUID(p.Args["id"].(string))
 
 					// Do a request on the database to get the Thing
-					err := databaseConnector.GetThing(UUID, &thingResponse)
+					err := f.dbConnector.GetThing(UUID, &thingResponse)
 					if err != nil {
 						return thingResponse, err
 					}
@@ -484,7 +517,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 					UUID := strfmt.UUID(p.Args["id"].(string))
 
 					// Do a request on the database to get the Action
-					err := databaseConnector.GetAction(UUID, &actionResponse)
+					err := f.dbConnector.GetAction(UUID, &actionResponse)
 					if err != nil {
 						return actionResponse, err
 					}
@@ -508,7 +541,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 					UUID := strfmt.UUID(p.Args["id"].(string))
 
 					// Do a request on the database to get the Key
-					err := databaseConnector.GetKey(UUID, &keyResponse)
+					err := f.dbConnector.GetKey(UUID, &keyResponse)
 					if err != nil {
 						return keyResponse, err
 					}
@@ -522,7 +555,7 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 	var err error
 
 	// Add the schema to the exported variable.
-	WeaviateGraphQLSchema, err = graphql.NewSchema(graphql.SchemaConfig{
+	f.weaviateGraphQLSchema, err = graphql.NewSchema(graphql.SchemaConfig{
 		Query: queryType,
 	})
 
@@ -530,4 +563,87 @@ func InitSchema(databaseConnector dbconnector.DatabaseConnector) error {
 	log.Println("INFO: GraphQL initialisation finished.")
 
 	return err
+}
+
+// GetSubQuery returns a new query, which was the subquery
+// Can be used with "collectQuery := GetSubQuery(p.Info.FieldASTs[0].SelectionSet.Selections)""
+func GetSubQuery(selections []ast.Selection) string {
+	// Init an empty string
+	collectQuery := ""
+
+	// For every selection, append the name of the field to build up the fields to select in the query
+	for _, selection := range selections {
+		collectQuery += " " + selection.(*ast.Field).Name.Value
+
+		// Go into the selection when it has sub-selections, concatinate with the brackets
+		if selection.(*ast.Field).SelectionSet != nil {
+			collectQuery += " { " + GetSubQuery(selection.(*ast.Field).SelectionSet.Selections) + " } "
+		}
+	}
+
+	// Return the query.
+	return collectQuery
+}
+
+// Request function
+func doRequest(hostname string, endpoint string, method string, body io.Reader, apiKey string) (*http.Response, error) {
+	// Set the HTTP Transport information
+	tr := &http.Transport{
+		MaxIdleConns:       10,
+		IdleConnTimeout:    30 * time.Second,
+		DisableCompression: true,
+	}
+
+	// Init client
+	client := &http.Client{Transport: tr}
+
+	// Set-up the request
+	req, _ := http.NewRequest(method, "http://"+hostname+"/"+endpoint, body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	// Add the API-key into the headers
+	if apiKey != "" {
+		req.Header.Set("X-API-KEY", apiKey)
+	}
+
+	// Get the response
+	response, err := client.Do(req)
+
+	return response, err
+}
+
+// Resolve a Cross reference
+func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.SingleRef, objectLoaded interface{}) error {
+	var err error
+
+	if f.serverConfig.GetHostAddress() != *cref.LocationURL {
+		// Return an error because you want to connect to other server. You need an license.
+		err = errors.New("a license for connection to another Weaviate-instance is required in order to resolve this query further")
+	} else {
+		// Check whether the request has to be done for key, thing or action types
+		if cref.Type == "Thing" {
+			err = f.dbConnector.GetThing(cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
+		} else if cref.Type == "Action" {
+			err = f.dbConnector.GetAction(cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
+		} else if cref.Type == "Key" {
+			err = f.dbConnector.GetKey(cref.NrDollarCref, objectLoaded.(*models.KeyTokenGetResponse))
+		} else {
+			err = fmt.Errorf("can't resolve the given type '%s'", cref.Type)
+		}
+	}
+
+	if err != nil {
+		stack := err.Error()
+		return gqlerrors.NewError(
+			err.Error(),
+			gqlerrors.FieldASTsToNodeASTs(fields),
+			stack,
+			nil,
+			[]int{},
+			err,
+		)
+	}
+
+	return nil
 }
