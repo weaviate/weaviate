@@ -969,9 +969,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get the results by doing a request with the given parameters and the initialized schema.
-		graphQlSchema, _ := graphQLSchema.GetGraphQLSchema()
+		graphQLSchema.SetKey(principal.(models.KeyTokenGetResponse))
+		gqlSchema, _ := graphQLSchema.GetGraphQLSchema()
+
+		// Do the request
 		result := gographql.Do(gographql.Params{
-			Schema:         graphQlSchema,
+			Schema:         gqlSchema,
 			RequestString:  query,
 			OperationName:  operationName,
 			VariableValues: variables,
