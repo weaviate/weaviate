@@ -27,27 +27,27 @@ type DatabaseConnector interface {
 	Connect() error
 	Init() error
 	GetName() string
-	SetServerAddress(string)
-	SetConfig(*config.Environment) error
-	SetSchema(*schema.WeaviateSchema) error
+	SetServerAddress(serverAddress string)
+	SetConfig(configInput *config.Environment) error
+	SetSchema(schemaInput *schema.WeaviateSchema) error
 
-	AddThing(*models.Thing, strfmt.UUID) error
-	GetThing(strfmt.UUID, *models.ThingGetResponse) error
-	ListThings(int, int, strfmt.UUID, *models.ThingsListResponse) error
-	UpdateThing(*models.Thing, strfmt.UUID) error
-	DeleteThing(strfmt.UUID) error
+	AddThing(thing *models.Thing, UUID strfmt.UUID) error
+	GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
+	ListThings(first int, offset int, keyID strfmt.UUID, thingsResponse *models.ThingsListResponse) error
+	UpdateThing(thing *models.Thing, UUID strfmt.UUID) error
+	DeleteThing(UUID strfmt.UUID) error
 
-	AddAction(*models.Action, strfmt.UUID) error
-	GetAction(strfmt.UUID, *models.ActionGetResponse) error
-	ListActions(strfmt.UUID, int, int, *models.ActionsListResponse) error
-	UpdateAction(*models.Action, strfmt.UUID) error
-	DeleteAction(strfmt.UUID) error
+	AddAction(action *models.Action, UUID strfmt.UUID) error
+	GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error
+	ListActions(UUID strfmt.UUID, first int, offset int, actionsResponse *models.ActionsListResponse) error
+	UpdateAction(action *models.Action, UUID strfmt.UUID) error
+	DeleteAction(UUID strfmt.UUID) error
 
-	AddKey(*models.Key, strfmt.UUID, strfmt.UUID) error
-	ValidateToken(strfmt.UUID, *models.KeyTokenGetResponse) error
-	GetKey(strfmt.UUID, *models.KeyTokenGetResponse) error
-	DeleteKey(strfmt.UUID) error
-	GetKeyChildrenUUIDs(strfmt.UUID) ([]strfmt.UUID, error)
+	AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error
+	ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse) error
+	GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error
+	DeleteKey(UUID strfmt.UUID) error
+	GetKeyChildrenUUIDs(UUID strfmt.UUID) ([]strfmt.UUID, error)
 }
 
 // GetAllConnectors contains all available connectors
