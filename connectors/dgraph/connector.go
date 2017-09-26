@@ -56,6 +56,7 @@ type Config struct {
 	Port int
 }
 
+const refLocationPointer string = "_location_"
 const refTypePointer string = "_type_"
 const edgeNameKey string = "key"
 const edgeNameKeyParent string = "key.parent"
@@ -1191,17 +1192,17 @@ func (f *Dgraph) getPropValue(prop *protos.Property) interface{} {
 
 func (f *Dgraph) createCrefObject(node *protos.Node) *models.SingleRef {
 	// Create the 'cref'-node for the response.
-	url := "http://localhost/" // TODO, make relative in 2.0.0
-	crefObj := models.SingleRef{
-		LocationURL: &url,
-	}
+	crefObj := models.SingleRef{}
 
 	// Loop through the given node properties to generate response object
 	for _, prop := range node.GetProperties() {
 		if prop.Prop == "uuid" {
-			crefObj.NrDollarCref = strfmt.UUID(prop.GetValue().GetStrVal()) // TODO, make key relative?
+			crefObj.NrDollarCref = strfmt.UUID(prop.GetValue().GetStrVal())
 		} else if prop.Prop == refTypePointer {
-			crefObj.Type = prop.GetValue().GetStrVal() // TODO, make key relative?
+			crefObj.Type = prop.GetValue().GetStrVal()
+		} else if prop.Prop == refTypePointer {
+			url := refTypePointer
+			crefObj.LocationURL = &url
 		}
 	}
 
