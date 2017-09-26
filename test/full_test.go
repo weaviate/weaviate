@@ -931,8 +931,18 @@ func Test__weaviate_action_patch_JSON(t *testing.T) {
 /******************
  * GRAPHQL TESTS
  ******************/
-func doGraphQLRequest(body io.Reader, apiKey string) *http.Response {
-	return doRequest("/graphql", "POST", "application/json", body, apiKey)
+func doGraphQLRequest(body string, apiKey string) (*http.Response, *models.GraphQLResponse) {
+	// Make the IO input
+	jsonStr := bytes.NewBuffer([]byte(body))
+
+	// Do the GraphQL request
+	response := doRequest("/graphql", "POST", "application/json", jsonStr, apiKey)
+
+	// Turn the response into a response object
+	respObject := &models.GraphQLResponse{}
+	json.Unmarshal(getResponseBody(response), respObject)
+
+	return response, respObject
 }
 
 func Test__weaviate_graphql_common_JSON(t *testing.T) {
@@ -941,11 +951,8 @@ func Test__weaviate_graphql_common_JSON(t *testing.T) {
 		"querys": "{ }" 
 	}`
 
-	// Make the IO input
-	jsonStrUnpr := bytes.NewBuffer([]byte(fmt.Sprintf(bodyUnpr, actionID)))
-
 	// Do the GraphQL request
-	responseUnpr := doGraphQLRequest(jsonStrUnpr, apiKeyCmdLine)
+	responseUnpr, _ := doGraphQLRequest(fmt.Sprintf(bodyUnpr, actionID), apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusUnprocessableEntity, responseUnpr.StatusCode)
@@ -955,11 +962,8 @@ func Test__weaviate_graphql_common_JSON(t *testing.T) {
 		"query": "{ action(id:\"%s\") { uuids atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
 	}`
 
-	// Make the IO input
-	jsonStrNonExistingProperty := bytes.NewBuffer([]byte(fmt.Sprintf(bodyNonExistingProperty, actionID)))
-
 	// Do the GraphQL request
-	responseNonExistingProperty := doGraphQLRequest(jsonStrNonExistingProperty, apiKeyCmdLine)
+	responseNonExistingProperty, _ := doGraphQLRequest(fmt.Sprintf(bodyNonExistingProperty, actionID), apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseNonExistingProperty.StatusCode)
@@ -981,18 +985,11 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 		"query": "{ thing(id:\"%s\") { uuid atContext atClass creationTimeUnix key { uuid read } } }" 
 	}`
 
-	// Make the IO input
-	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(body, thingID)))
-
 	// Do the GraphQL request
-	response := doGraphQLRequest(jsonStr, apiKeyCmdLine)
+	response, respObject := doGraphQLRequest(fmt.Sprintf(body, thingID), apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, response.StatusCode)
-
-	// Turn the response into a response object
-	respObject := &models.GraphQLResponse{}
-	json.Unmarshal(getResponseBody(response), respObject)
 
 	// Test that the error in the response is nil
 	require.Nil(t, respObject.Errors)
@@ -1026,18 +1023,11 @@ func Test__weaviate_graphql_action_JSON(t *testing.T) {
 		"query": "{ action(id:\"%s\") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
 	}`
 
-	// Make the IO input
-	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(body, actionID)))
-
 	// Do the GraphQL request
-	response := doGraphQLRequest(jsonStr, apiKeyCmdLine)
+	response, respObject := doGraphQLRequest(fmt.Sprintf(body, actionID), apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, response.StatusCode)
-
-	// Turn the response into a response object
-	respObject := &models.GraphQLResponse{}
-	json.Unmarshal(getResponseBody(response), respObject)
 
 	// Test that the error in the response is nil
 	require.Nil(t, respObject.Errors)
@@ -1090,6 +1080,82 @@ func Test__weaviate_graphql_key_JSON(t *testing.T) {
 	// require.Equal(t, newAPIKeyID, respUUID)
 
 	// TODO, check parent when key tests are implemented further
+}
+
+func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
+	// Set the graphQL body
+	body := `{ 
+		"query": "{ listThings { things { uuid atContext atClass creationTimeUnix } totalResults } }" 
+	}`
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(body, apiKeyCmdLine)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.Nil(t, respObject.Errors)
+
+	// Test total results
+	totalResults := respObject.Data["listThings"].(map[string]interface{})["totalResults"].(float64)
+	require.Conditionf(t, func() bool { return totalResults >= 10 }, "Total results have to be higher or equal to 10.")
+
+	// Check most recent
+	respUUID := respObject.Data["listThings"].(map[string]interface{})["things"].([]interface{})[0].(map[string]interface{})["uuid"].(string)
+	require.Regexp(t, strfmt.UUIDPattern, respUUID)
+	require.Regexp(t, strfmt.UUIDPattern, thingIDs[0])
+	require.Equal(t, thingIDs[0], string(respUUID))
+
+	// Set the graphQL body
+	body = `{ 
+		"query": "{ listThings(first: 3) { things { uuid atContext atClass creationTimeUnix } totalResults } }" 
+	}`
+
+	// Do the GraphQL request
+	responseLimit, respObjectLimit := doGraphQLRequest(body, apiKeyCmdLine)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, responseLimit.StatusCode)
+
+	// Test that the error in the response is nil
+	require.Nil(t, respObjectLimit.Errors)
+
+	// Test total results
+	totalResultsLimit := respObjectLimit.Data["listThings"].(map[string]interface{})["totalResults"].(float64)
+	require.Conditionf(t, func() bool { return totalResultsLimit >= 10 }, "Total results have to be higher or equal to 10.")
+
+	// Test amount in current response
+	resultThingsLimit := respObjectLimit.Data["listThings"].(map[string]interface{})["things"].([]interface{})
+	require.Len(t, resultThingsLimit, 3)
+
+	// Test ID in the middle of the 3 results
+	require.Equal(t, thingIDs[1], string(resultThingsLimit[1].(map[string]interface{})["uuid"].(string)))
+
+	// Set the graphQL body
+	body = `{ 
+		"query": "{ listThings(first: 5, offset: 5) { things { uuid atContext atClass creationTimeUnix } totalResults } }" 
+	}`
+
+	// Do the GraphQL request
+	responseLimitOffset, respObjectLimitOffset := doGraphQLRequest(body, apiKeyCmdLine)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, responseLimitOffset.StatusCode)
+
+	// Test that the error in the response is nil
+	require.Nil(t, respObjectLimitOffset.Errors)
+
+	// Test total results
+	totalResultsLimitOffset := respObjectLimitOffset.Data["listThings"].(map[string]interface{})["totalResults"].(float64)
+	require.Conditionf(t, func() bool { return totalResultsLimitOffset >= 10 }, "Total results have to be higher or equal to 10.")
+
+	// Test amount in current response
+	resultThingsLimitOffset := respObjectLimitOffset.Data["listThings"].(map[string]interface{})["things"].([]interface{})
+	require.Len(t, resultThingsLimitOffset, 5)
+
+	// Test ID in the middle of the 3 results
+	require.Equal(t, thingIDs[7], string(resultThingsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
 }
 
 /******************
