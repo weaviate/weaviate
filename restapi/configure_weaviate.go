@@ -169,8 +169,8 @@ func generateMultipleRefObject(keyIDs []strfmt.UUID) models.MultipleRef {
 	// Init the response
 	refs := models.MultipleRef{}
 
-	// Init localhost TODO
-	url := "http://localhost/"
+	// Init localhost
+	url := serverConfig.GetHostAddress()
 
 	// Generate SingleRefs
 	for _, keyID := range keyIDs {
@@ -408,17 +408,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Create return Object
-		responseObject := &models.ActionGetResponse{}
-		json.Unmarshal([]byte(updatedJSON), &responseObject)
-		responseObject.ActionID = UUID
-		url := "http://localhost/"
-		responseObject.Key = &models.SingleRef{
-			LocationURL:  &url,
-			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
-			Type:         "Key",
-		}
+		actionGetResponse.Action = *action
 
-		return actions.NewWeaviateActionsPatchOK().WithPayload(responseObject)
+		return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 		// Validate Schema given in body with the weaviate schema
@@ -451,11 +443,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Create Key-ref-Object
-		url := "http://localhost/"
+		url := serverConfig.GetHostAddress()
 		keyRef := &models.SingleRef{
 			LocationURL:  &url,
 			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
-			Type:         "Key",
+			Type:         connutils.RefTypeKey,
 		}
 
 		// Make Action-Object
@@ -515,14 +507,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		key := principal.(models.KeyTokenGetResponse)
 
 		// Fill the new User object
-		url := "http://localhost/"
+		url := serverConfig.GetHostAddress()
 		newKey := &models.KeyTokenGetResponse{}
 		newKey.KeyID = connutils.GenerateUUID()
 		newKey.Token = connutils.GenerateUUID()
 		newKey.Parent = &models.SingleRef{
 			LocationURL:  &url,
 			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
-			Type:         "Key",
+			Type:         connutils.RefTypeKey,
 		}
 		newKey.KeyCreate = *params.Body
 
@@ -691,11 +683,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Create Key-ref-Object
-		url := "http://localhost/"
+		url := serverConfig.GetHostAddress()
 		keyRef := &models.SingleRef{
 			LocationURL:  &url,
 			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
-			Type:         "Key",
+			Type:         connutils.RefTypeKey,
 		}
 
 		// Make Thing-Object
@@ -854,17 +846,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Create return Object
-		responseObject := &models.ThingGetResponse{}
-		json.Unmarshal([]byte(updatedJSON), &responseObject)
-		responseObject.ThingID = UUID
-		url := "http://localhost/"
-		responseObject.Key = &models.SingleRef{
-			LocationURL:  &url,
-			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
-			Type:         "Key",
-		}
+		thingGetResponse.Thing = *thing
 
-		return things.NewWeaviateThingsPatchOK().WithPayload(responseObject)
+		return things.NewWeaviateThingsPatchOK().WithPayload(&thingGetResponse)
 	})
 	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
 		// Initialize response
@@ -907,12 +891,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := &models.ThingGetResponse{}
 		responseObject.Thing = params.Body.Thing
 		responseObject.ThingID = UUID
-		url := "http://localhost/"
-		responseObject.Key = &models.SingleRef{
-			LocationURL:  &url,
-			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
-			Type:         "Key",
-		}
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return things.NewWeaviateThingsUpdateOK().WithPayload(responseObject)
@@ -1036,7 +1014,7 @@ func configureTLS(tlsConfig *tls.Config) {
 // scheme value will be set accordingly: "http", "https" or "unix"
 func configureServer(s *graceful.Server, scheme, addr string) {
 	// Load the config using the flags
-	serverConfig := config.WeaviateConfig{}
+	serverConfig = config.WeaviateConfig{}
 	err := serverConfig.LoadConfig(connectorOptionGroup)
 
 	// Add properties to the config
@@ -1077,6 +1055,8 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 	if err != nil {
 		weaviate_error.ExitError(78, err.Error())
 	}
+
+	dbConnector.SetServerAddress(serverConfig.GetHostAddress())
 
 	// connect the database
 	errConnect := dbConnector.Connect()

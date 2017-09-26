@@ -45,6 +45,7 @@ type NodeIDResult struct {
 type NodeID struct {
 	UUID strfmt.UUID `dgraph:"uuid"`
 	ID   uint64      `dgraph:"_uid_"`
+	Type string      `dgraph:"_type_"`
 }
 
 // KeyChildrenResult is the struct for getting key's children

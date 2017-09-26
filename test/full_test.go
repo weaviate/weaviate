@@ -43,7 +43,7 @@ func doRequest(endpoint string, method string, accept string, body io.Reader, ap
 	}
 	client := &http.Client{Transport: tr}
 
-	req, _ := http.NewRequest(method, "http://"+serverHost+":"+serverPort+"/weaviate/v1"+endpoint, body)
+	req, _ := http.NewRequest(method, getWeaviateURL()+"/weaviate/v1"+endpoint, body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", accept)
 
@@ -95,10 +95,15 @@ func getEmptyPatchJSON() io.Reader {
 	return bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/xxx", "value": "xxx"}]`))
 }
 
+func getWeaviateURL() string {
+	return fmt.Sprintf("%s://%s:%s", serverScheme, serverHost, serverPort)
+}
+
 // Set all re-used vars
 var apiKeyCmdLine string
 var serverPort string
 var serverHost string
+var serverScheme string
 
 var actionID string
 var expiredKey string
@@ -120,7 +125,12 @@ func init() {
 	flag.StringVar(&apiKeyCmdLine, "api-key", "", "API-KEY as used as haeder in the tests.")
 	flag.StringVar(&serverPort, "server-port", "", "Port number on which the server is running.")
 	flag.StringVar(&serverHost, "server-host", "", "Host-name on which the server is running.")
+	flag.StringVar(&serverScheme, "server-scheme", "", "Scheme on which the server is running.")
 	flag.Parse()
+
+	if serverScheme == "" {
+		serverScheme = "http"
+	}
 
 	fakeID = "11111111-1111-1111-1111-111111111111"
 }
@@ -763,16 +773,16 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 		"things": {
 			"object": {
 				"$cref": "%s",
-				"locationUrl": "http://localhost/",
+				"locationUrl": "%s",
 				"type": "Thing"
 			},
 			"subject": {
 				"$cref": "%s",
-				"locationUrl": "http://localhost/",
+				"locationUrl": "%s",
 				"type": "Thing"
 			}
 		}
-	}`, thingID, thingIDsubject)))
+	}`, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
 	response := doRequest("/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
 	// Check status code of create
