@@ -1294,10 +1294,6 @@ func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *mo
 }
 
 func (f *Dgraph) getRawNodeByUUID(UUID strfmt.UUID, typeName string, queryTemplate string) (*protos.Node, error) {
-	// Search for the class to make the connection, create variables
-	variables := make(map[string]string)
-	variables["$uuid"] = string(UUID)
-
 	// Create the query for existing class
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(queryTemplate, string(UUID), refTypePointer, typeName))
