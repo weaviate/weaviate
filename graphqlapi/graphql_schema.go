@@ -16,7 +16,6 @@ package graphqlapi
 import (
 	"errors"
 	"fmt"
-	"github.com/weaviate/weaviate/config"
 	"io"
 	"log"
 	"net/http"
@@ -28,7 +27,9 @@ import (
 	ast "github.com/graphql-go/graphql/language/ast"
 
 	"github.com/weaviate/weaviate/connectors"
+	"github.com/weaviate/weaviate/schema"
 	// "github.com/weaviate/weaviate/connectors/utils"
+	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/models"
 )
 
@@ -36,16 +37,18 @@ import (
 type GraphQLSchema struct {
 	weaviateGraphQLSchema graphql.Schema
 	serverConfig          *config.WeaviateConfig
+	serverSchema          *schema.WeaviateSchema
 	dbConnector           dbconnector.DatabaseConnector
 	usedKey               models.KeyTokenGetResponse
 }
 
 // NewGraphQLSchema create a new schema object
-func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) *GraphQLSchema {
+func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, serverSchema *schema.WeaviateSchema) *GraphQLSchema {
 	// Initializing the schema and set its variables
 	gqls := new(GraphQLSchema)
 	gqls.dbConnector = databaseConnector
 	gqls.serverConfig = serverConfig
+	gqls.serverSchema = serverSchema
 
 	// Return the schema, note that InitSchema has to be runned before this could be used
 	return gqls
@@ -122,7 +125,6 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        graphql.Float,
 				Description: "The last update time of the object.",
 			},
-			// Schema
 		},
 	})
 
@@ -250,7 +252,7 @@ func (f *GraphQLSchema) InitSchema() error {
 		},
 	})
 
-	// Add to interface here, because when initializing the interface, keyType does not exist.
+	// Add to schemaInterface here, because when initializing the interface, keyType does not exist.
 	schemaInterface.AddFieldConfig("key", &graphql.Field{
 		Type:        keyType,
 		Description: "The key which is the owner of the object.",
@@ -308,6 +310,24 @@ func (f *GraphQLSchema) InitSchema() error {
 			}
 			return []interface{}{}, nil
 		},
+	})
+
+	// Build the schema fields in a seperate function based on the given schema
+	thingSchemaFields := buildFieldsBySchema(f.serverSchema.ThingSchema.Schema)
+	actionSchemaFields := buildFieldsBySchema(f.serverSchema.ActionSchema.Schema)
+
+	// The thingsSchemaType in wich all the possible fields are addes
+	thingSchemaType := graphql.NewObject(graphql.ObjectConfig{
+		Name:        "ThingSchema",
+		Description: "Schema type for things from the database, based on the Weaviate thing-schema.",
+		Fields:      thingSchemaFields,
+	})
+
+	// The actionsSchemaType in wich all the possible fields are addes
+	actionSchemaType := graphql.NewObject(graphql.ObjectConfig{
+		Name:        "ActionSchema",
+		Description: "Schema type for actions from the database, based on the Weaviate action-schema.",
+		Fields:      actionSchemaFields,
 	})
 
 	// The thingType which all single thing-responses will use
@@ -384,6 +404,18 @@ func (f *GraphQLSchema) InitSchema() error {
 						}
 					}
 					return keyResponse, nil
+				},
+			},
+			"schema": &graphql.Field{
+				Type:        thingSchemaType,
+				Description: "The values filled in the schema properties.",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Thing Response
+					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
+						return thing.Schema, nil
+					}
+
+					return nil, nil
 				},
 			},
 		},
@@ -552,6 +584,18 @@ func (f *GraphQLSchema) InitSchema() error {
 						}
 					}
 					return keyResponse, nil
+				},
+			},
+			"schema": &graphql.Field{
+				Type:        actionSchemaType,
+				Description: "The values filled in the schema properties.",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Thing Response
+					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
+						return thing.Schema, nil
+					}
+
+					return nil, nil
 				},
 			},
 		},
@@ -847,7 +891,50 @@ func doRequest(hostname string, endpoint string, method string, body io.Reader, 
 	return response, err
 }
 
-// Resolve a Cross reference
+// buildFieldsBySchema builds a GraphQL fields object for the given fields
+func buildFieldsBySchema(schema schema.Schema) graphql.Fields {
+	// Init the fields for the return of the function
+	fields := graphql.Fields{}
+
+	// Do it for every class
+	for _, schemaClass := range schema.Classes {
+
+		// Do it for every property in that class
+		for _, schemaProp := range schemaClass.Properties {
+
+			// If the property isn't allready added
+			if _, ok := fields[schemaProp.Name]; !ok {
+
+				// Make a new field and add it
+				fields[schemaProp.Name] = &graphql.Field{
+					Name:        schemaProp.Name,
+					Type:        graphql.String,
+					Description: fmt.Sprintf("Value of schema property '%s'", schemaProp.Name),
+					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+						// Init the interface for the return value
+						var rVal interface{}
+
+						// Csat it to an interface
+						if schema, ok := p.Source.(map[string]interface{}); ok {
+							rVal = schema[p.Info.FieldName]
+						}
+
+						// Return the string if possible  TODO: other datatypes
+						if value, ok := rVal.(string); ok {
+							return value, nil
+						}
+
+						return nil, nil
+					},
+				}
+			}
+		}
+	}
+
+	return fields
+}
+
+// resolveCrossRef Resolves a Cross reference
 func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.SingleRef, objectLoaded interface{}) error {
 	var err error
 

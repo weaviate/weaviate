@@ -1074,12 +1074,12 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 	}
 
 	// Init the GraphQL schema
-	graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, &serverConfig)
+	graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, &serverConfig, &databaseSchema)
 
 	// Error init
 	errInitGQL := graphQLSchema.InitSchema()
 	if errInitGQL != nil {
-		weaviate_error.ExitError(1, "GrapQL schema initialization gave an error when initializing: "+errInitGQL.Error())
+		weaviate_error.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+errInitGQL.Error())
 	}
 
 	// connect to mqtt
