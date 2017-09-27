@@ -361,7 +361,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 			},
 			"totalResults": &graphql.Field{
-				Type:        graphql.NewNonNull(graphql.Float),
+				Type:        graphql.NewNonNull(graphql.Int),
 				Description: "The total amount of things without pagination",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Things Response
@@ -423,7 +423,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The context on which the object is in.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Action Response
-					if action, ok := p.Source.(models.ActionGetResponse); ok {
+					if action, ok := p.Source.(*models.ActionGetResponse); ok {
 						return action.AtContext, nil
 					}
 					return nil, nil
@@ -434,7 +434,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The class of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Action Response
-					if action, ok := p.Source.(models.ActionGetResponse); ok {
+					if action, ok := p.Source.(*models.ActionGetResponse); ok {
 						return action.AtClass, nil
 					}
 					return nil, nil
@@ -445,7 +445,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The creation time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Action Response
-					if action, ok := p.Source.(models.ActionGetResponse); ok {
+					if action, ok := p.Source.(*models.ActionGetResponse); ok {
 						return float64(action.CreationTimeUnix), nil
 					}
 					return nil, nil
@@ -456,7 +456,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The last update time of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Action Response
-					if action, ok := p.Source.(models.ActionGetResponse); ok {
+					if action, ok := p.Source.(*models.ActionGetResponse); ok {
 						return float64(action.LastUpdateTimeUnix), nil
 					}
 					return nil, nil
@@ -467,7 +467,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The id of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Action Response
-					if action, ok := p.Source.(models.ActionGetResponse); ok {
+					if action, ok := p.Source.(*models.ActionGetResponse); ok {
 						return action.ActionID, nil
 					}
 					return nil, nil
@@ -478,7 +478,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The thing which is the object of this action.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Action Response
-					if action, ok := p.Source.(models.ActionGetResponse); ok {
+					if action, ok := p.Source.(*models.ActionGetResponse); ok {
 						return action.Things, nil
 					}
 					return nil, nil
@@ -489,7 +489,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The key which is the owner of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					keyResponse := models.KeyTokenGetResponse{}
-					if action, ok := p.Source.(models.ActionGetResponse); ok {
+					if action, ok := p.Source.(*models.ActionGetResponse); ok {
 						// Do a new request with the key from the reference object
 						err := f.resolveCrossRef(p.Info.FieldASTs, action.Key, &keyResponse)
 						if err != nil {
@@ -506,6 +506,88 @@ func (f *GraphQLSchema) InitSchema() error {
 			objectInterface,
 		},
 	})
+
+	// The actionListType which wil be used when returning a list
+	actionListType := graphql.NewObject(graphql.ObjectConfig{
+		Name:        "ActionList",
+		Description: "Actions listed from the Weaviate database belonging to the given thing and user, based on the Weaviate schema.",
+		Fields: graphql.Fields{
+			"actions": &graphql.Field{
+				Type:        graphql.NewList(actionType),
+				Description: "The actual actions",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Actions Response
+					if actions, ok := p.Source.(models.ActionsListResponse); ok {
+						return actions.Actions, nil
+					}
+					return []interface{}{}, nil
+				},
+			},
+			"totalResults": &graphql.Field{
+				Type:        graphql.NewNonNull(graphql.Int),
+				Description: "The total amount of actions without pagination",
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Resolve the data from the Actions Response
+					if actions, ok := p.Source.(models.ActionsListResponse); ok {
+						return actions.TotalResults, nil
+					}
+					return nil, nil
+				},
+			},
+		},
+	})
+
+	// Init the action list field
+	actionListField := &graphql.Field{
+		Type:        actionListType,
+		Description: "The actions belonging to this thing, sorted on creation time..",
+		Args: graphql.FieldConfigArgument{
+			"first": &graphql.ArgumentConfig{
+				Description: "First X items from the given offset, when none given, it will be 100.",
+				Type:        graphql.Int,
+			},
+			"offset": &graphql.ArgumentConfig{
+				Description: "Offset from the most recent item.",
+				Type:        graphql.Int,
+			},
+		},
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			// Resolve the data from the Thing Response
+			if thing, ok := p.Source.(*models.ThingGetResponse); ok {
+				// Initialize the thing response
+				actionsResponse := models.ActionsListResponse{}
+
+				// Get the pagination from the arguments
+				var first int
+				if p.Args["first"] != nil {
+					first = p.Args["first"].(int)
+				} else {
+					first = 100
+				}
+
+				var offset int
+				if p.Args["offset"] != nil {
+					offset = p.Args["offset"].(int)
+				} else {
+					offset = 0
+				}
+
+				// Do a request on the database to get the Thing
+				err := f.dbConnector.ListActions(thing.ThingID, first, offset, &actionsResponse)
+
+				// Return error, if needed.
+				if err != nil {
+					return actionsResponse, err
+				}
+				return actionsResponse, nil
+			}
+
+			return []interface{}{}, nil
+		},
+	}
+
+	// Add to thingType here, because when initializing the thingType, actionListType does not exist.
+	thingType.AddFieldConfig("actions", actionListField)
 
 	// The queryType is the main type in the tree, here does the query resolving start
 	queryType := graphql.NewObject(graphql.ObjectConfig{
