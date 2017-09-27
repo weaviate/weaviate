@@ -773,6 +773,15 @@ func (f *GraphQLSchema) InitSchema() error {
 					return keyResponse, nil
 				},
 			},
+			// Query to get mine single key
+			"myKey": &graphql.Field{
+				Description: "Gets my single key based on the given token.",
+				Type:        keyType,
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// Get the ID from the class' variables
+					return &f.usedKey, nil
+				},
+			},
 		},
 	})
 
