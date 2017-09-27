@@ -908,7 +908,7 @@ func buildFieldsBySchema(schema schema.Schema) graphql.Fields {
 				// Make a new field and add it
 				fields[schemaProp.Name] = &graphql.Field{
 					Name:        schemaProp.Name,
-					Type:        graphql.String,
+					Type:        graphql.String, // TODO fix for other datatypes
 					Description: fmt.Sprintf("Value of schema property '%s'", schemaProp.Name),
 					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 						// Init the interface for the return value
@@ -919,10 +919,22 @@ func buildFieldsBySchema(schema schema.Schema) graphql.Fields {
 							rVal = schema[p.Info.FieldName]
 						}
 
-						// Return the string if possible  TODO: other datatypes
+						// Return the string if possible
 						if value, ok := rVal.(string); ok {
 							return value, nil
 						}
+
+						// Return the int if possible
+						if value, ok := rVal.(int64); ok {
+							return value, nil
+						}
+
+						// Return the float if possible
+						if value, ok := rVal.(float64); ok {
+							return value, nil
+						}
+
+						// TODO: other datatypes
 
 						return nil, nil
 					},
