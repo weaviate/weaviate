@@ -106,6 +106,7 @@ var serverHost string
 var serverScheme string
 
 var actionID string
+var actionIDs [10]string
 var expiredKey string
 var expiredID string
 var fakeID string
@@ -527,7 +528,7 @@ func init() {
  ******************/
 
 // weaviate.thing.create
-func Test__weaviate_thing_create_JSON(t *testing.T) {
+func Test__weaviate_things_create_JSON(t *testing.T) {
 	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(`{
 		"@context": "http://schema.org",
@@ -587,7 +588,7 @@ func Test__weaviate_thing_create_JSON(t *testing.T) {
 }
 
 // weaviate.thing.list
-func Test__weaviate_thing_list_JSON(t *testing.T) {
+func Test__weaviate_things_list_JSON(t *testing.T) {
 	// Create list request
 	response := doRequest("/things", "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -634,7 +635,7 @@ func Test__weaviate_thing_list_JSON(t *testing.T) {
 }
 
 // weaviate.thing.get
-func Test__weaviate_thing_get_JSON(t *testing.T) {
+func Test__weaviate_things_get_JSON(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -657,7 +658,7 @@ func Test__weaviate_thing_get_JSON(t *testing.T) {
 }
 
 // weaviate.thing.update
-func Test__weaviate_thing_update_JSON(t *testing.T) {
+func Test__weaviate_things_update_JSON(t *testing.T) {
 	// Create update request
 	newValue := "New Name!"
 	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -707,7 +708,7 @@ func Test__weaviate_thing_update_JSON(t *testing.T) {
 }
 
 // weaviate.thing.patch
-func Test__weaviate_thing_patch_JSON(t *testing.T) {
+func Test__weaviate_things_patch_JSON(t *testing.T) {
 	// Create patch request
 	newValue := "New name patched!"
 
@@ -817,8 +818,45 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 	require.Conditionf(t, func() bool { return !(respObject.CreationTimeUnix > now) }, "CreationTimeUnix is incorrect, it was set in the future.")
 	require.Conditionf(t, func() bool { return !(respObject.CreationTimeUnix < now-2000) }, "CreationTimeUnix is incorrect, it was set to far back.")
 
+	// Add multiple actions to the database to check List functions
+	// Fill database with actions and set the IDs to the global actionIDs-array
+	actionIDs[9] = actionID
+
+	for i := 8; i >= 0; i-- {
+		// Handle request
+		jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+			"@context": "http://schema.org",
+			"@class": "OnOffAction",
+			"schema": {
+				"hue": 123,
+				"saturation": 32121,
+				"on": 3412
+			},
+			"things": {
+				"object": {
+					"$cref": "%s",
+					"locationUrl": "%s",
+					"type": "Thing"
+				},
+				"subject": {
+					"$cref": "%s",
+					"locationUrl": "%s",
+					"type": "Thing"
+				}
+			}
+		}`, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+		response := doRequest("/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
+		body := getResponseBody(response)
+		respObject := &models.ActionGetResponse{}
+		json.Unmarshal(body, respObject)
+
+		// Fill array and time out for unlucky sorting issues
+		actionIDs[i] = string(respObject.ActionID)
+		time.Sleep(1 * time.Second)
+	}
+
 	// Test is faster than adding to DB.
-	time.Sleep(2 * time.Second)
+	time.Sleep(1 * time.Second)
 }
 
 // weaviate.things.actions.list
@@ -836,17 +874,15 @@ func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 
 	// Check most recent
 	require.Regexp(t, strfmt.UUIDPattern, respObject.Actions[0].ActionID)
-	require.Regexp(t, strfmt.UUIDPattern, actionID)
-	require.Equal(t, actionID, string(respObject.Actions[0].ActionID))
+	require.Regexp(t, strfmt.UUIDPattern, actionIDs[0])
+	require.Equal(t, actionIDs[0], string(respObject.Actions[0].ActionID))
 
-	// TODO: List none?
-
-	// Check there is only one action
-	require.Len(t, respObject.Actions, 1)
+	// Check there are ten actions
+	require.Len(t, respObject.Actions, 10)
 }
 
 // weaviate.action.get
-func Test__weaviate_action_get_JSON(t *testing.T) {
+func Test__weaviate_actions_get_JSON(t *testing.T) {
 	// Create get request
 	response := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -879,7 +915,7 @@ func Test__weaviate_action_get_JSON(t *testing.T) {
 }
 
 // weaviate.action.patch
-func Test__weaviate_action_patch_JSON(t *testing.T) {
+func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	// Create patch request
 	newValue := 1337
 
@@ -963,14 +999,10 @@ func Test__weaviate_graphql_common_JSON(t *testing.T) {
 	}`
 
 	// Do the GraphQL request
-	responseNonExistingProperty, _ := doGraphQLRequest(fmt.Sprintf(bodyNonExistingProperty, actionID), apiKeyCmdLine)
+	responseNonExistingProperty, respObjectNonExistingProperty := doGraphQLRequest(fmt.Sprintf(bodyNonExistingProperty, actionID), apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseNonExistingProperty.StatusCode)
-
-	// Turn the response into a response object
-	respObjectNonExistingProperty := &models.GraphQLResponse{}
-	json.Unmarshal(getResponseBody(responseNonExistingProperty), respObjectNonExistingProperty)
 
 	// Test that the data in the response is nil
 	require.Nil(t, respObjectNonExistingProperty.Data)
@@ -1015,71 +1047,81 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	// Test whether the key has read rights (must have)
 	respKeyRead := respObject.Data["thing"].(map[string]interface{})["key"].(map[string]interface{})["read"].(bool)
 	require.Equal(t, true, respKeyRead)
-}
 
-func Test__weaviate_graphql_action_JSON(t *testing.T) {
+	// Test the related actions
 	// Set the graphQL body
-	body := `{ 
-		"query": "{ action(id:\"%s\") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
+	body = `{ 
+		"query": "{ thing(id:\"%s\") { actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
 	}`
 
 	// Do the GraphQL request
-	response, respObject := doGraphQLRequest(fmt.Sprintf(body, actionID), apiKeyCmdLine)
+	responseActions, respObjectActions := doGraphQLRequest(fmt.Sprintf(body, thingID), apiKeyCmdLine)
 
 	// Check statuscode
-	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Equal(t, http.StatusOK, responseActions.StatusCode)
 
-	// Test that the error in the response is nil
-	require.Nil(t, respObject.Errors)
+	// Test that the error in the responseActions is nil
+	require.Nil(t, respObjectActions.Errors)
 
-	// Test the given UUID in the response
-	respUUID := respObject.Data["action"].(map[string]interface{})["uuid"]
-	require.Regexp(t, strfmt.UUIDPattern, respUUID)
-	require.Regexp(t, strfmt.UUIDPattern, actionID)
-	require.Equal(t, actionID, respUUID)
+	// Test total results
+	totalResults := respObjectActions.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["totalResults"].(float64)
+	require.Conditionf(t, func() bool { return totalResults >= 10 }, "Total results have to be higher or equal to 10.")
 
-	// Test the given thing-object in the response
-	respObjectUUID := respObject.Data["action"].(map[string]interface{})["things"].(map[string]interface{})["object"].(map[string]interface{})["uuid"]
-	require.Regexp(t, strfmt.UUIDPattern, respObjectUUID)
-	require.Regexp(t, strfmt.UUIDPattern, thingID)
-	require.Equal(t, thingID, respObjectUUID)
+	// Check most recent
+	respActionsUUID := respObjectActions.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})[0].(map[string]interface{})["uuid"].(string)
+	require.Regexp(t, strfmt.UUIDPattern, respActionsUUID)
+	require.Regexp(t, strfmt.UUIDPattern, actionIDs[0])
+	require.Equal(t, actionIDs[0], string(respActionsUUID))
 
-	// Test the given thing-object in the response
-	respSubjectUUID := respObject.Data["action"].(map[string]interface{})["things"].(map[string]interface{})["subject"].(map[string]interface{})["uuid"]
-	require.Regexp(t, strfmt.UUIDPattern, respSubjectUUID)
-	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
-	require.Equal(t, thingIDsubject, respSubjectUUID)
-}
+	// Set the graphQL body
+	body = `{ 
+		"query": "{ thing(id:\"%s\") { actions(first:3) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
+	}`
 
-func Test__weaviate_graphql_key_JSON(t *testing.T) {
-	// // Set the graphQL body
-	// body := `{
-	// 	"query": "{ key(id:\"%s\") { uuid read write ipOrigin parent { uuid read } } }"
-	// }`
+	// Do the GraphQL request
+	responseActionsLimit, respObjectActionsLimit := doGraphQLRequest(fmt.Sprintf(body, thingID), apiKeyCmdLine)
 
-	// // Make the IO input
-	// jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(body, newAPIKeyID)))
+	// Check statuscode
+	require.Equal(t, http.StatusOK, responseActionsLimit.StatusCode)
 
-	// // Do the GraphQL request
-	// response := doGraphQLRequest(jsonStr, apiKeyCmdLine)
+	// Test that the error in the responseActions is nil
+	require.Nil(t, respObjectActionsLimit.Errors)
 
-	// // Check statuscode
-	// require.Equal(t, http.StatusOK, response.StatusCode)
+	// Test total results
+	totalResultsLimit := respObjectActionsLimit.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["totalResults"].(float64)
+	require.Conditionf(t, func() bool { return totalResultsLimit >= 10 }, "Total results have to be higher or equal to 10.")
 
-	// // Turn the response into a response object
-	// respObject := &models.GraphQLResponse{}
-	// json.Unmarshal(getResponseBody(response), respObject)
+	// Test amount in current responseActions
+	resultActionsLimit := respObjectActionsLimit.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
+	require.Len(t, resultActionsLimit, 3)
 
-	// // Test that the error in the response is nil
-	// require.Nil(t, respObject.Errors)
+	// Test ID in the middle of the 3 results
+	require.Equal(t, actionIDs[1], string(resultActionsLimit[1].(map[string]interface{})["uuid"].(string)))
 
-	// // Test the given UUID in the response
-	// respUUID := respObject.Data["key"].(map[string]interface{})["uuid"]
-	// require.Regexp(t, strfmt.UUIDPattern, respUUID)
-	// require.Regexp(t, strfmt.UUIDPattern, newAPIKeyID)
-	// require.Equal(t, newAPIKeyID, respUUID)
+	// Set the graphQL body
+	body = `{ 
+		"query": "{ thing(id:\"%s\") { actions(first:5, offset:5) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
+	}`
 
-	// TODO, check parent when key tests are implemented further
+	// Do the GraphQL request
+	responseActionsLimitOffset, respObjectActionsLimitOffset := doGraphQLRequest(fmt.Sprintf(body, thingID), apiKeyCmdLine)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, responseActionsLimitOffset.StatusCode)
+
+	// Test that the error in the responseActions is nil
+	require.Nil(t, respObjectActionsLimitOffset.Errors)
+
+	// Test total results
+	totalResultsLimitOffset := respObjectActionsLimitOffset.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["totalResults"].(float64)
+	require.Conditionf(t, func() bool { return totalResultsLimitOffset >= 10 }, "Total results have to be higher or equal to 10.")
+
+	// Test amount in current responseActions
+	resultActionsLimitOffset := respObjectActionsLimitOffset.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
+	require.Len(t, resultActionsLimitOffset, 5)
+
+	// Test ID in the middle of the 3 results
+	require.Equal(t, actionIDs[7], string(resultActionsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
 }
 
 func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
@@ -1158,6 +1200,71 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 	require.Equal(t, thingIDs[7], string(resultThingsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
 }
 
+func Test__weaviate_graphql_action_JSON(t *testing.T) {
+	// Set the graphQL body
+	body := `{ 
+		"query": "{ action(id:\"%s\") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
+	}`
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(fmt.Sprintf(body, actionID), apiKeyCmdLine)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.Nil(t, respObject.Errors)
+
+	// Test the given UUID in the response
+	respUUID := respObject.Data["action"].(map[string]interface{})["uuid"]
+	require.Regexp(t, strfmt.UUIDPattern, respUUID)
+	require.Regexp(t, strfmt.UUIDPattern, actionID)
+	require.Equal(t, actionID, respUUID)
+
+	// Test the given thing-object in the response
+	respObjectUUID := respObject.Data["action"].(map[string]interface{})["things"].(map[string]interface{})["object"].(map[string]interface{})["uuid"]
+	require.Regexp(t, strfmt.UUIDPattern, respObjectUUID)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, respObjectUUID)
+
+	// Test the given thing-object in the response
+	respSubjectUUID := respObject.Data["action"].(map[string]interface{})["things"].(map[string]interface{})["subject"].(map[string]interface{})["uuid"]
+	require.Regexp(t, strfmt.UUIDPattern, respSubjectUUID)
+	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
+	require.Equal(t, thingIDsubject, respSubjectUUID)
+}
+
+func Test__weaviate_graphql_key_JSON(t *testing.T) {
+	// // Set the graphQL body
+	// body := `{
+	// 	"query": "{ key(id:\"%s\") { uuid read write ipOrigin parent { uuid read } } }"
+	// }`
+
+	// // Make the IO input
+	// jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(body, newAPIKeyID)))
+
+	// // Do the GraphQL request
+	// response := doGraphQLRequest(jsonStr, apiKeyCmdLine)
+
+	// // Check statuscode
+	// require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// // Turn the response into a response object
+	// respObject := &models.GraphQLResponse{}
+	// json.Unmarshal(getResponseBody(response), respObject)
+
+	// // Test that the error in the response is nil
+	// require.Nil(t, respObject.Errors)
+
+	// // Test the given UUID in the response
+	// respUUID := respObject.Data["key"].(map[string]interface{})["uuid"]
+	// require.Regexp(t, strfmt.UUIDPattern, respUUID)
+	// require.Regexp(t, strfmt.UUIDPattern, newAPIKeyID)
+	// require.Equal(t, newAPIKeyID, respUUID)
+
+	// TODO, check parent when key tests are implemented further
+}
+
 /******************
  * REMOVE TESTS
  ******************/
@@ -1170,7 +1277,7 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 // }
 
 // weaviate.action.delete
-func Test__weaviate_action_delete_JSON(t *testing.T) {
+func Test__weaviate_actions_delete_JSON(t *testing.T) {
 	// Create delete request
 	response := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
@@ -1192,7 +1299,7 @@ func Test__weaviate_action_delete_JSON(t *testing.T) {
 }
 
 // weaviate.thing.delete
-func Test__weaviate_thing_delete_JSON(t *testing.T) {
+func Test__weaviate_things_delete_JSON(t *testing.T) {
 	// Create delete request
 	response := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
