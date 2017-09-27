@@ -126,6 +126,19 @@ func (f *GraphQLSchema) InitSchema() error {
 		},
 	})
 
+	// Create the interface to which all lists (Thing and Action) must comply
+	listInterface := graphql.NewInterface(graphql.InterfaceConfig{
+		Name:        "WeaviateListObject",
+		Description: "A list of objects in the Weaviate database",
+		// Add the mandatory fields for this interface
+		Fields: graphql.Fields{
+			"totalResults": &graphql.Field{
+				Type:        graphql.NewNonNull(graphql.Int),
+				Description: "The totalResults that could be found in the database.",
+			},
+		},
+	})
+
 	// The keyType which all single key-responses will use
 	keyType := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "Key",
@@ -136,7 +149,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The id of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
 						return key.KeyID, nil
 					}
 					return nil, nil
@@ -147,7 +160,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The token of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
 						return key.Token, nil // TODO: Only return when have rights
 					}
 					return nil, nil
@@ -158,7 +171,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The email of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
 						return key.Email, nil
 					}
 					return nil, nil
@@ -169,7 +182,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The allowed ip-origins of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
 						return key.IPOrigin, nil
 					}
 					return []string{}, nil
@@ -180,7 +193,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The unix timestamp of when the key expires.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
 						return float64(key.KeyExpiresUnix), nil
 					}
 					return nil, nil
@@ -191,7 +204,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has read-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
 						return key.Read, nil
 					}
 					return nil, nil
@@ -202,7 +215,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has execute-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
 						return key.Execute, nil
 					}
 					return nil, nil
@@ -213,7 +226,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has write-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
 						return key.Write, nil
 					}
 					return nil, nil
@@ -224,7 +237,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has delete-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
 						return key.Delete, nil
 					}
 					return nil, nil
@@ -249,7 +262,7 @@ func (f *GraphQLSchema) InitSchema() error {
 		Description: "The parent of the key.",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			keyResponse := models.KeyTokenGetResponse{}
-			if key, ok := p.Source.(models.KeyTokenGetResponse); ok {
+			if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
 				// Do a new request with the key from the reference object
 				err := f.resolveCrossRef(p.Info.FieldASTs, key.Parent, &keyResponse)
 				if err != nil {
@@ -257,6 +270,43 @@ func (f *GraphQLSchema) InitSchema() error {
 				}
 			}
 			return keyResponse, nil
+		},
+	})
+
+	// Add to keyType here, because when initializing the keyType, keyType itself does not exist.
+	keyType.AddFieldConfig("children", &graphql.Field{
+		Type:        graphql.NewList(keyType),
+		Description: "Get all children of this key.",
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			// Resolve the data from the Key Response
+			if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+				// TODO: This could be optimized
+				// Init the respons as an array of keys
+				children := []*models.KeyTokenGetResponse{}
+
+				// Get the key-ID from the object
+				keyUUID := key.KeyID
+
+				// Get children UUID's from the database
+				childrenUUIDs, err := f.dbConnector.GetKeyChildrenUUIDs(keyUUID)
+
+				// If an error is given, return the empty array
+				if err != nil {
+					return children, err
+				}
+
+				// For each childId, get the key from the database and add it to the response.
+				for _, childUUID := range childrenUUIDs {
+					child := &models.KeyTokenGetResponse{}
+					f.dbConnector.GetKey(childUUID, child)
+
+					children = append(children, child)
+				}
+
+				// Return children without error
+				return children, nil
+			}
+			return []interface{}{}, nil
 		},
 	})
 
@@ -355,6 +405,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Things Response
 					if things, ok := p.Source.(models.ThingsListResponse); ok {
+						// TODO: Return empty array when empty in stead of 'null'?
 						return things.Things, nil
 					}
 					return []interface{}{}, nil
@@ -371,6 +422,10 @@ func (f *GraphQLSchema) InitSchema() error {
 					return nil, nil
 				},
 			},
+		},
+		// The interfaces this object satifies
+		Interfaces: []*graphql.Interface{
+			listInterface,
 		},
 	})
 
@@ -518,6 +573,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Actions Response
 					if actions, ok := p.Source.(models.ActionsListResponse); ok {
+						// TODO: Return empty array when empty in stead of 'null'?
 						return actions.Actions, nil
 					}
 					return []interface{}{}, nil
@@ -534,6 +590,10 @@ func (f *GraphQLSchema) InitSchema() error {
 					return nil, nil
 				},
 			},
+		},
+		// The interfaces this object satifies
+		Interfaces: []*graphql.Interface{
+			listInterface,
 		},
 	})
 
@@ -673,7 +733,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Initialize the action response
-					actionResponse := models.ActionGetResponse{}
+					actionResponse := &models.ActionGetResponse{}
 					actionResponse.Schema = map[string]models.JSONObject{}
 					actionResponse.Things = &models.ObjectSubject{}
 
@@ -681,7 +741,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					UUID := strfmt.UUID(p.Args["id"].(string))
 
 					// Do a request on the database to get the Action
-					err := f.dbConnector.GetAction(UUID, &actionResponse)
+					err := f.dbConnector.GetAction(UUID, actionResponse)
 					if err != nil {
 						return actionResponse, err
 					}
@@ -700,13 +760,13 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Initialize the key response
-					keyResponse := models.KeyTokenGetResponse{}
+					keyResponse := &models.KeyTokenGetResponse{}
 
 					// Get the ID from the arguments
 					UUID := strfmt.UUID(p.Args["id"].(string))
 
 					// Do a request on the database to get the Key
-					err := f.dbConnector.GetKey(UUID, &keyResponse)
+					err := f.dbConnector.GetKey(UUID, keyResponse)
 					if err != nil {
 						return keyResponse, err
 					}

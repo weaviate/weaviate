@@ -1262,7 +1262,8 @@ func Test__weaviate_graphql_key_JSON(t *testing.T) {
 	// require.Regexp(t, strfmt.UUIDPattern, newAPIKeyID)
 	// require.Equal(t, newAPIKeyID, respUUID)
 
-	// TODO, check parent when key tests are implemented further
+	// TODO: check parent when key tests are implemented further
+	// TODO: test children
 }
 
 /******************
