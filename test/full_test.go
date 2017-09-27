@@ -995,7 +995,7 @@ func Test__weaviate_graphql_common_JSON(t *testing.T) {
 
 	// Set the graphQL body
 	bodyNonExistingProperty := `{ 
-		"query": "{ action(id:\"%s\") { uuids atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
+		"query": "{ action(uuid:\"%s\") { uuids atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
 	}`
 
 	// Do the GraphQL request
@@ -1014,7 +1014,7 @@ func Test__weaviate_graphql_common_JSON(t *testing.T) {
 func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	// Set the graphQL body
 	body := `{ 
-		"query": "{ thing(id:\"%s\") { uuid atContext atClass creationTimeUnix key { uuid read } } }" 
+		"query": "{ thing(uuid:\"%s\") { uuid atContext atClass creationTimeUnix key { uuid read } } }" 
 	}`
 
 	// Do the GraphQL request
@@ -1051,7 +1051,7 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	// Test the related actions
 	// Set the graphQL body
 	body = `{ 
-		"query": "{ thing(id:\"%s\") { actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
+		"query": "{ thing(uuid:\"%s\") { actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
 	}`
 
 	// Do the GraphQL request
@@ -1075,7 +1075,7 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 
 	// Set the graphQL body
 	body = `{ 
-		"query": "{ thing(id:\"%s\") { actions(first:3) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
+		"query": "{ thing(uuid:\"%s\") { actions(first:3) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
 	}`
 
 	// Do the GraphQL request
@@ -1100,7 +1100,7 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 
 	// Set the graphQL body
 	body = `{ 
-		"query": "{ thing(id:\"%s\") { actions(first:5, offset:5) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
+		"query": "{ thing(uuid:\"%s\") { actions(first:5, offset:5) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
 	}`
 
 	// Do the GraphQL request
@@ -1203,7 +1203,7 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 func Test__weaviate_graphql_action_JSON(t *testing.T) {
 	// Set the graphQL body
 	body := `{ 
-		"query": "{ action(id:\"%s\") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
+		"query": "{ action(uuid:\"%s\") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
 	}`
 
 	// Do the GraphQL request
@@ -1237,7 +1237,7 @@ func Test__weaviate_graphql_action_JSON(t *testing.T) {
 func Test__weaviate_graphql_key_JSON(t *testing.T) {
 	// // Set the graphQL body
 	// body := `{
-	// 	"query": "{ key(id:\"%s\") { uuid read write ipOrigin parent { uuid read } } }"
+	// 	"query": "{ key(uuid:\"%s\") { uuid read write ipOrigin parent { uuid read } } }"
 	// }`
 
 	// // Make the IO input

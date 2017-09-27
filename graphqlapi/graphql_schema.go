@@ -702,7 +702,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Gets a single thing based on the given ID.",
 				Type:        thingType,
 				Args: graphql.FieldConfigArgument{
-					"id": &graphql.ArgumentConfig{
+					"uuid": &graphql.ArgumentConfig{
 						Description: "UUID of the thing",
 						Type:        graphql.NewNonNull(graphql.String),
 					},
@@ -712,7 +712,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					thingResponse := &models.ThingGetResponse{}
 
 					// Get the ID from the arguments
-					UUID := strfmt.UUID(p.Args["id"].(string))
+					UUID := strfmt.UUID(p.Args["uuid"].(string))
 
 					// Do a request on the database to get the Thing
 					err := f.dbConnector.GetThing(UUID, thingResponse)
@@ -770,7 +770,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Gets a single action based on the given ID.",
 				Type:        actionType,
 				Args: graphql.FieldConfigArgument{
-					"id": &graphql.ArgumentConfig{
+					"uuid": &graphql.ArgumentConfig{
 						Description: "UUID of the action",
 						Type:        graphql.NewNonNull(graphql.String),
 					},
@@ -782,7 +782,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					actionResponse.Things = &models.ObjectSubject{}
 
 					// Get the ID from the arguments
-					UUID := strfmt.UUID(p.Args["id"].(string))
+					UUID := strfmt.UUID(p.Args["uuid"].(string))
 
 					// Do a request on the database to get the Action
 					err := f.dbConnector.GetAction(UUID, actionResponse)
@@ -797,7 +797,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Gets a single key based on the given ID.",
 				Type:        keyType,
 				Args: graphql.FieldConfigArgument{
-					"id": &graphql.ArgumentConfig{
+					"uuid": &graphql.ArgumentConfig{
 						Description: "UUID of the key",
 						Type:        graphql.NewNonNull(graphql.String),
 					},
@@ -807,7 +807,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					keyResponse := &models.KeyTokenGetResponse{}
 
 					// Get the ID from the arguments
-					UUID := strfmt.UUID(p.Args["id"].(string))
+					UUID := strfmt.UUID(p.Args["uuid"].(string))
 
 					// Do a request on the database to get the Key
 					err := f.dbConnector.GetKey(UUID, keyResponse)
