@@ -587,9 +587,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return keys.NewWeaviateKeysDeleteNotFound()
 		}
 
-		// Check on permissions
+		// Check on permissions, only delete allowed if lower in tree (not own key)
 		keyObject, _ := principal.(models.KeyTokenGetResponse)
-		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
+		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) || keyObject.KeyID == params.KeyID {
 			return keys.NewWeaviateKeysDeleteForbidden()
 		}
 
@@ -634,16 +634,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Return children with 'OK'
 		return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)
-	})
-	api.KeysWeaviateKeysMeDeleteHandler = keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
-		// Create current User object from principal
-		key := principal.(models.KeyTokenGetResponse)
-
-		// Remove key from database if found
-		deleteKey(dbConnector, key.KeyID)
-
-		// Return 'No Content'
-		return keys.NewWeaviateKeysMeDeleteNoContent()
 	})
 	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
 		// Initialize response object
