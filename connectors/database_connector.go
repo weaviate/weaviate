@@ -15,6 +15,7 @@ package dbconnector
 
 import (
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/connectors/utils"
 
 	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors/dgraph"
@@ -33,7 +34,7 @@ type DatabaseConnector interface {
 
 	AddThing(thing *models.Thing, UUID strfmt.UUID) error
 	GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
-	ListThings(first int, offset int, keyID strfmt.UUID, thingsResponse *models.ThingsListResponse) error
+	ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
 	UpdateThing(thing *models.Thing, UUID strfmt.UUID) error
 	DeleteThing(UUID strfmt.UUID) error
 
