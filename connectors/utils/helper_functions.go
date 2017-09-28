@@ -14,9 +14,11 @@
 package connutils
 
 import (
+	"errors"
 	"fmt"
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/models"
+	"regexp"
 	"time"
 
 	gouuid "github.com/satori/go.uuid"
@@ -91,4 +93,49 @@ func NowUnix() int64 {
 // GenerateUUID returns a new UUID
 func GenerateUUID() strfmt.UUID {
 	return strfmt.UUID(fmt.Sprintf("%v", gouuid.NewV4()))
+}
+
+// WhereStringToStruct is the 'compiler' for converting the filter/where query-string into a struct
+func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
+	whereQuery := WhereQuery{}
+
+	// Make a regex which can compile a string like 'firstName>=%John%'
+	re1, _ := regexp.Compile(`^([a-zA-Z0-9]*)([:<>!=]*)([%]*)([^%]*)([%]*)$`)
+	result := re1.FindStringSubmatch(where)
+
+	// Set which property
+	whereQuery.Property = prop
+	if len(result[1]) > 1 {
+		whereQuery.Property = fmt.Sprintf("%s.%s", prop, result[1])
+	}
+
+	// Set the operator
+	switch result[2] {
+	// When operator is "", put in 'Equal' as operator
+	case ":", "", "=":
+		whereQuery.Value.Operator = Equal
+	case "!:", "!=":
+		whereQuery.Value.Operator = NotEqual
+	case ">":
+		whereQuery.Value.Operator = GreaterThan
+	case ">=":
+		whereQuery.Value.Operator = GreaterThanEqual
+	case "<=":
+		whereQuery.Value.Operator = LessThan
+	case "<":
+		whereQuery.Value.Operator = LessThanEqual
+	}
+
+	// The wild cards
+	whereQuery.Value.WildCardBefore = result[3] == "%"
+	whereQuery.Value.WildCardAfter = result[5] == "%"
+
+	// Set the value itself
+	if result[4] == "" {
+		// When value is "", throw error
+		return whereQuery, errors.New("no value is set in the query")
+	}
+	whereQuery.Value.Value = result[4]
+
+	return whereQuery, nil
 }
