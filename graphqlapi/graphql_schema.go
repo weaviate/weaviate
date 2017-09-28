@@ -16,6 +16,7 @@ package graphqlapi
 import (
 	"errors"
 	"fmt"
+	"github.com/weaviate/weaviate/connectors/utils"
 	"io"
 	"log"
 	"net/http"
@@ -718,6 +719,10 @@ func (f *GraphQLSchema) InitSchema() error {
 						Description: "Offset from the most recent item.",
 						Type:        graphql.Int,
 					},
+					"schema": &graphql.ArgumentConfig{
+						Description: "Schema filter options.",
+						Type:        graphql.String,
+					},
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Initialize the thing response
@@ -738,8 +743,26 @@ func (f *GraphQLSchema) InitSchema() error {
 						offset = 0
 					}
 
+					// Get the filter options for schema, init the options
+					wheres := []*connutils.WhereQuery{}
+
+					// Check whether the schema var is filled in
+					if p.Args["schema"] != nil {
+						// Rewrite the string to structs
+						where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
+
+						// If error is given, return it
+						// TODO: Make better error
+						if err != nil {
+							return thingsResponse, err
+						}
+
+						// Append wheres to the list
+						wheres = append(wheres, &where)
+					}
+
 					// Do a request on the database to get the Thing
-					err := f.dbConnector.ListThings(first, offset, f.usedKey.KeyID, &thingsResponse)
+					err := f.dbConnector.ListThings(first, offset, f.usedKey.KeyID, wheres, &thingsResponse)
 
 					// Return error, if needed.
 					if err != nil {

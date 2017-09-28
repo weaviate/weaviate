@@ -776,7 +776,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingsResponse.Things = []*models.ThingGetResponse{}
 
 		// List all results
-		err := dbConnector.ListThings(limit, (page-1)*limit, keyID, &thingsResponse)
+		err := dbConnector.ListThings(limit, (page-1)*limit, keyID, []*connutils.WhereQuery{}, &thingsResponse)
 
 		if err != nil {
 			log.Println("ERROR", err)
