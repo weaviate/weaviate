@@ -21,3 +21,35 @@ const RefTypeKey string = "Key"
 
 // RefTypeThing used for things in DB and requests
 const RefTypeThing string = "Thing"
+
+// Operator is a representation of the operator for queries
+type Operator uint16
+
+const (
+	// Equal represents an operator for an operation to be equal
+	Equal Operator = 1 << iota
+	// NotEqual represents an operator for an operation to be unequal
+	NotEqual
+	// GreaterThan represents an operator for an operation to be greather than the value
+	GreaterThan
+	// GreaterThanEqual represents an operator for an operation to be greather or equal than the value
+	GreaterThanEqual
+	// LessThan represents an operator for an operation to be less than the value
+	LessThan
+	// LessThanEqual represents an operator for an operation to be less or equal than the value
+	LessThanEqual
+)
+
+// ValueType is the type representing the value in the query
+type ValueType struct {
+	Value          interface{} // String-value / int-value / etc.
+	Operator       Operator    // See Operator constants
+	WildCardBefore bool        // Has wildcard before value
+	WildCardAfter  bool        // Has wildcard after value
+}
+
+// WhereQuery represents the query itself
+type WhereQuery struct {
+	Property string
+	Value    ValueType
+}

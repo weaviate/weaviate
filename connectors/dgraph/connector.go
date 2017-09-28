@@ -418,19 +418,47 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespon
 }
 
 // ListThings returns the thing in the ThingGetResponse format
-func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, thingsResponse *models.ThingsListResponse) error {
+func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
+	// Init the filterWheres variable
+	filterWheres := ""
+
+	// Create filter query
+	var op string
+	var prop string
+	var value string
+	for _, vWhere := range wheres {
+		// Set the operator
+		if vWhere.Value.Operator == connutils.Equal {
+			if vWhere.Value.WildCardAfter || vWhere.Value.WildCardBefore {
+				op = "anyofterms"
+			} else {
+				op = "eq"
+			}
+		}
+
+		// Set the property
+		prop = vWhere.Property
+
+		// Set the value from the object (now only string) TODO: other datatypes
+		value = vWhere.Value.Value.(string)
+
+		// Filter on wheres variable which is used later in the query
+		filterWheres = fmt.Sprintf(`%s AND %s(%s, "%s")`, filterWheres, op, prop, value)
+	}
+
 	// Do a query to get all node-information
 	req := dgraphClient.Req{}
-	req.SetQuery(fmt.Sprintf(`{
+	query := fmt.Sprintf(`{
 		keys(func: eq(uuid, "%s")) {
-			things: ~key @filter(eq(%s, "%s")) (orderdesc: creationTimeUnix, first: %d, offset: %d)  {
+			things: ~key @filter(eq(%s, "%s") %s) (orderdesc: creationTimeUnix, first: %d, offset: %d)  {
 				expand(_all_) {
 					expand(_all_)
 				}
 			}
 		}
 	}
-	`, keyID, refTypePointer, connutils.RefTypeThing, first, offset))
+	`, keyID, refTypePointer, connutils.RefTypeThing, filterWheres, first, offset)
+	req.SetQuery(query)
 
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
