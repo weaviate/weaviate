@@ -259,23 +259,6 @@ func (f *GraphQLSchema) InitSchema() error {
 	})
 
 	// Add to keyType here, because when initializing the keyType, keyType itself does not exist.
-	keyType.AddFieldConfig("parent", &graphql.Field{
-		Type:        keyType,
-		Description: "The parent of the key.",
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			keyResponse := models.KeyTokenGetResponse{}
-			if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
-				// Do a new request with the key from the reference object
-				err := f.resolveCrossRef(p.Info.FieldASTs, key.Parent, &keyResponse)
-				if err != nil {
-					return keyResponse, err
-				}
-			}
-			return keyResponse, nil
-		},
-	})
-
-	// Add to keyType here, because when initializing the keyType, keyType itself does not exist.
 	keyType.AddFieldConfig("children", &graphql.Field{
 		Type:        graphql.NewList(keyType),
 		Description: "Get all children of this key.",
