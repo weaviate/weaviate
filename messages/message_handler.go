@@ -11,7 +11,7 @@
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
 
-package error
+package messages
 
 import (
 	"log"
@@ -19,11 +19,23 @@ import (
 )
 
 // ExitError exit the program and give standard weaviate-error message.
-func ExitError(code int, message string) {
+func ExitError(code int, message interface{}) {
 	// Print Error
-	log.Println("ERROR: " + message + ". Needs to be resolved. For more info, check https://weaviate.com/.")
+	ErrorMessage(message.(string))
 	log.Println("ERROR: Exiting...")
 
 	// Exit with code
 	os.Exit(code)
+}
+
+// InfoMessage sends a message with 'INFO:' in front of it
+func InfoMessage(message interface{}) {
+	// Print Message
+	log.Println("INFO: " + message.(string) + ".")
+}
+
+// ErrorMessage exit the program and give standard weaviate-error message.
+func ErrorMessage(message interface{}) {
+	// Print Error
+	log.Println("ERROR: " + message.(string) + ". Needs to be resolved. For more info, check https://weaviate.com/.")
 }
