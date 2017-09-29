@@ -17,13 +17,12 @@ import (
 	"context"
 	errors_ "errors"
 	"fmt"
-	"github.com/mitchellh/mapstructure"
 	"io/ioutil"
-	"log"
 	"math"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/mitchellh/mapstructure"
 	"google.golang.org/grpc"
 
 	dgraphClient "github.com/dgraph-io/dgraph/client"
@@ -33,6 +32,7 @@ import (
 
 	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors/utils"
+	"github.com/weaviate/weaviate/messages"
 	"github.com/weaviate/weaviate/models"
 	"github.com/weaviate/weaviate/schema"
 )
@@ -44,6 +44,7 @@ type Dgraph struct {
 
 	config        Config
 	serverAddress string
+	schema        *schema.WeaviateSchema
 }
 
 // Config represents the config outline for Dgraph. The Database config shoud be of the following form:
@@ -100,7 +101,7 @@ func (f *Dgraph) SetConfig(configInput *config.Environment) error {
 
 // SetSchema is used to fill in a struct with schema
 func (f *Dgraph) SetSchema(schemaInput *schema.WeaviateSchema) error {
-	// TODO: not implemented yet
+	f.schema = schemaInput
 
 	return nil
 }
@@ -146,30 +147,13 @@ func (f *Dgraph) Connect() error {
 
 // Init creates a root key, normally this should be validaded, but because it is an indgraph DB it is created always
 func (f *Dgraph) Init() error {
+	// Init error variable
 	var err error
+
+	messages.InfoMessage("Initializing Dgraph...")
 
 	// Init flush variable
 	flushIt := false
-
-	// Add schema to database TODO, needed for reversing nodes?
-	// for _, class := range cfv.schema.Classes {
-	// 	// for _, prop := range class.Properties {
-	// 	for _ = range class.Properties {
-	// 		// Add Dgraph-schema for every property of individual nodes
-	// 		// err = f.client.AddSchema(protos.SchemaUpdate{
-	// 		// 	Predicate: "schema." + prop.Name,
-	// 		// 	ValueType: uint32(types.UidID),
-	// 		// 	Directive: protos.SchemaUpdate_REVERSE,
-	// 		// })
-
-	// 		// if err != nil {
-	// 		// 	return err
-	// 		// }
-
-	// 		// TODO: Add specific schema for datatypes
-	// 		// http://schema.org/DataType
-	// 	}
-	// }
 
 	// Add class schema in Dgraph
 	if err := f.client.AddSchema(protos.SchemaUpdate{
@@ -318,6 +302,17 @@ func (f *Dgraph) Init() error {
 		return errors_.New("error while adding 'key.token' Dgraph-schema")
 	}
 
+	// Add schema to database, needed for indexing on nodes
+	err = f.indexSchema(&f.schema.ActionSchema.Schema)
+	if err != nil {
+		return err
+	}
+
+	err = f.indexSchema(&f.schema.ThingSchema.Schema)
+	if err != nil {
+		return err
+	}
+
 	// Call flush to flush buffers after all mutations are added
 	if flushIt || true {
 		err = f.client.BatchFlush()
@@ -350,7 +345,7 @@ func (f *Dgraph) Init() error {
 
 	// Set the total results
 	if totalResult.Root.Count == 0 {
-		log.Println("No root-key found.")
+		messages.InfoMessage("No root-key found.")
 
 		// Create new object and fill it
 		keyObject := models.Key{}
@@ -363,6 +358,31 @@ func (f *Dgraph) Init() error {
 		}
 	}
 	// END KEYS
+
+	messages.InfoMessage("Initializing Dgraph: done.")
+
+	return nil
+}
+
+func (f *Dgraph) indexSchema(schema *schema.Schema) error {
+	for _, class := range schema.Classes {
+		for _, prop := range class.Properties {
+			// Add Dgraph-schema for every property of individual nodes
+			if err := f.client.AddSchema(protos.SchemaUpdate{
+				Predicate: schemaPrefix + prop.Name,
+				ValueType: uint32(types.StringID),
+				Tokenizer: []string{"exact", "term"},
+				Directive: protos.SchemaUpdate_INDEX,
+				Count:     true,
+			}); err != nil {
+				return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
+			}
+
+			// TODO: Add specific schema for datatypes
+			// TODO: Add reverse
+			// http://schema.org/DataType
+		}
+	}
 
 	return nil
 }
