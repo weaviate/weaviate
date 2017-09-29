@@ -99,8 +99,8 @@ func GenerateUUID() strfmt.UUID {
 func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
 	whereQuery := WhereQuery{}
 
-	// Make a regex which can compile a string like 'firstName>=%John%'
-	re1, _ := regexp.Compile(`^([a-zA-Z0-9]*)([:<>!=]*)([%]*)([^%]*)([%]*)$`)
+	// Make a regex which can compile a string like 'firstName>=~John'
+	re1, _ := regexp.Compile(`^([a-zA-Z0-9]*)([:<>!=]*)([~]*)([^~]*)$`)
 	result := re1.FindStringSubmatch(where)
 
 	// Set which property
@@ -116,19 +116,21 @@ func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
 		whereQuery.Value.Operator = Equal
 	case "!:", "!=":
 		whereQuery.Value.Operator = NotEqual
-	case ">":
-		whereQuery.Value.Operator = GreaterThan
-	case ">=":
-		whereQuery.Value.Operator = GreaterThanEqual
-	case "<=":
-		whereQuery.Value.Operator = LessThan
-	case "<":
-		whereQuery.Value.Operator = LessThanEqual
+	// TODO: Uncomment these cases when implementing them in issue #202
+	// case ">":
+	// 	whereQuery.Value.Operator = GreaterThan
+	// case ">:", ">=":
+	// 	whereQuery.Value.Operator = GreaterThanEqual
+	// case "<":
+	// 	whereQuery.Value.Operator = LessThan
+	// case "<:", "<=":
+	// 	whereQuery.Value.Operator = LessThanEqual
+	default:
+		return whereQuery, errors.New("invalid operator set in query")
 	}
 
 	// The wild cards
-	whereQuery.Value.WildCardBefore = result[3] == "%"
-	whereQuery.Value.WildCardAfter = result[5] == "%"
+	whereQuery.Value.Contains = result[3] == "~"
 
 	// Set the value itself
 	if result[4] == "" {
