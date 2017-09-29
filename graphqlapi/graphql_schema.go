@@ -637,6 +637,10 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Offset from the most recent item.",
 				Type:        graphql.Int,
 			},
+			"schema": &graphql.ArgumentConfig{
+				Description: "Schema filter options.",
+				Type:        graphql.String,
+			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			// Resolve the data from the Thing Response
@@ -659,8 +663,26 @@ func (f *GraphQLSchema) InitSchema() error {
 					offset = 0
 				}
 
+				// Get the filter options for schema, init the options
+				wheres := []*connutils.WhereQuery{}
+
+				// Check whether the schema var is filled in
+				if p.Args["schema"] != nil {
+					// Rewrite the string to structs
+					where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
+
+					// If error is given, return it
+					// TODO: Make better error
+					if err != nil {
+						return actionsResponse, err
+					}
+
+					// Append wheres to the list
+					wheres = append(wheres, &where)
+				}
+
 				// Do a request on the database to get the Thing
-				err := f.dbConnector.ListActions(thing.ThingID, first, offset, &actionsResponse)
+				err := f.dbConnector.ListActions(thing.ThingID, first, offset, wheres, &actionsResponse)
 
 				// Return error, if needed.
 				if err != nil {
