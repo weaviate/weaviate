@@ -18,6 +18,7 @@ import (
 	errors_ "errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math"
 	"strings"
 
@@ -371,7 +372,7 @@ func (f *Dgraph) indexSchema(schema *schema.Schema) error {
 			if err := f.client.AddSchema(protos.SchemaUpdate{
 				Predicate: schemaPrefix + prop.Name,
 				ValueType: uint32(types.StringID),
-				Tokenizer: []string{"exact", "term"},
+				Tokenizer: []string{"exact", "term", "fulltext"},
 				Directive: protos.SchemaUpdate_INDEX,
 				Count:     true,
 			}); err != nil {
@@ -448,11 +449,15 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 	var value string
 	for _, vWhere := range wheres {
 		// Set the operator
-		if vWhere.Value.Operator == connutils.Equal {
-			if vWhere.Value.WildCardAfter || vWhere.Value.WildCardBefore {
-				op = "anyofterms"
+		if vWhere.Value.Operator == connutils.Equal || vWhere.Value.Operator == connutils.NotEqual {
+			if vWhere.Value.Contains {
+				op = "alloftext"
 			} else {
 				op = "eq"
+			}
+
+			if vWhere.Value.Operator == connutils.NotEqual {
+				op = "NOT " + op
 			}
 		}
 
@@ -479,6 +484,8 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 	}
 	`, keyID, refTypePointer, connutils.RefTypeThing, filterWheres, first, offset)
 	req.SetQuery(query)
+
+	log.Println(query)
 
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
@@ -511,11 +518,11 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 	req = dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{
 		totalResults(func: eq(uuid, "%s")) {
-			related: ~key @filter(eq(%s, "%s")) {
+			related: ~key @filter(eq(%s, "%s") %s) {
 				count()
 			}
 		}
-	}`, keyID, refTypePointer, connutils.RefTypeThing))
+	}`, keyID, refTypePointer, connutils.RefTypeThing, filterWheres))
 
 	// Run query created above
 	resp, err = f.client.Run(f.getContext(), &req)
