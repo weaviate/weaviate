@@ -16,6 +16,7 @@ package schema
 import (
 	"encoding/json"
 	errors_ "errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -77,7 +78,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 
 			// Write file to local file
 			b, _ := io.Copy(schemaFile, resp.Body)
-			messages.InfoMessage(cfk + ": Download complete, file size: " + string(b))
+			messages.InfoMessage(fmt.Sprintf("%s: Download complete, file size: %d", cfk, b))
 		} else {
 			messages.InfoMessage(cfk + ": Given schema location is not a valid URL, using local file.")
 
