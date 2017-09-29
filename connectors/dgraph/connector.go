@@ -364,6 +364,7 @@ func (f *Dgraph) Init() error {
 	return nil
 }
 
+// indexSchema will index the schema based on DataType
 func (f *Dgraph) indexSchema(schema *schema.Schema) error {
 	for _, class := range schema.Classes {
 		for _, prop := range class.Properties {
@@ -379,7 +380,7 @@ func (f *Dgraph) indexSchema(schema *schema.Schema) error {
 			}
 
 			// TODO: Add specific schema for datatypes
-			// TODO: Add reverse
+			// TODO: Add reverse for 'objects'
 			// http://schema.org/DataType
 		}
 	}
