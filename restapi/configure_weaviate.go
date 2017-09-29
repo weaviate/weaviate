@@ -724,7 +724,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionsExist := true
 		for actionsExist {
 			actions := models.ActionsListResponse{}
-			dbConnector.ListActions(params.ThingID, 50, 0, &actions)
+			dbConnector.ListActions(params.ThingID, 50, 0, []*connutils.WhereQuery{}, &actions)
 			for _, v := range actions.Actions {
 				go dbConnector.DeleteAction(v.ActionID)
 			}
@@ -934,7 +934,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
-		err := dbConnector.ListActions(params.ThingID, limit, (page-1)*limit, &actionsResponse)
+		err := dbConnector.ListActions(params.ThingID, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
 
 		if err != nil {
 			messages.ErrorMessage(err)
