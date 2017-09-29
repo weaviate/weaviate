@@ -843,7 +843,7 @@ func (f *GraphQLSchema) InitSchema() error {
 	})
 
 	// Print for logging
-	messages.ErrorMessage("GraphQL initialisation finished.")
+	messages.InfoMessage("GraphQL initialisation finished.")
 
 	return err
 }
