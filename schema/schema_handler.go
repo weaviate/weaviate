@@ -18,13 +18,13 @@ import (
 	errors_ "errors"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
 
 	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors/utils"
+	"github.com/weaviate/weaviate/messages"
 )
 
 type schemaProperties struct {
@@ -60,7 +60,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 
 		// With no error, it is an URL
 		if err == nil {
-			log.Println(cfk + ": Downloading schema file...")
+			messages.InfoMessage(cfk + ": Downloading schema file...")
 			cfv.localFile = "temp/schema" + string(connutils.GenerateUUID()) + ".json"
 
 			// Create local file
@@ -70,39 +70,39 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 			// Get the file from online
 			resp, err := http.Get(cfv.schemaLocationFromConfig)
 			if err != nil {
-				log.Println("ERROR: " + cfk + ": Schema file '" + cfv.localFile + "' could not be downloaded.")
+				messages.ErrorMessage(cfk + ": Schema file '" + cfv.localFile + "' could not be downloaded.")
 				return err
 			}
 			defer resp.Body.Close()
 
 			// Write file to local file
 			b, _ := io.Copy(schemaFile, resp.Body)
-			log.Println(cfk+": Download complete, file size: ", b)
+			messages.InfoMessage(cfk + ": Download complete, file size: " + string(b))
 		} else {
-			log.Println(cfk + ": Given schema location is not a valid URL, using local file.")
+			messages.InfoMessage(cfk + ": Given schema location is not a valid URL, using local file.")
 
 			// Given schema location is not a valid URL, assume it is a local file
 			cfv.localFile = cfv.schemaLocationFromConfig
 		}
 
 		// Read local file which is either just downloaded or given in config.
-		log.Println(cfk + ": Read local file " + cfv.localFile)
+		messages.InfoMessage(cfk + ": Read local file " + cfv.localFile)
 
 		fileContents, err := ioutil.ReadFile(cfv.localFile)
 
 		// Return error when error is given reading file.
 		if err != nil {
-			log.Println("ERROR: " + cfk + ": Schema file '" + cfv.localFile + "' could not be found.")
+			messages.ErrorMessage(cfk + ": Schema file '" + cfv.localFile + "' could not be found.")
 			return err
 		}
 
 		// Merge JSON into Schema objects
 		err = json.Unmarshal([]byte(fileContents), &cfv.Schema)
-		log.Println(cfk + ": File is loaded.")
+		messages.InfoMessage(cfk + ": File is loaded.")
 
 		// Return error when error is given reading file.
 		if err != nil {
-			log.Println("ERROR: " + cfk + ": Can not parse schema.")
+			messages.ErrorMessage(cfk + ": Can not parse schema.")
 			return err
 		}
 	}

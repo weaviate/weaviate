@@ -18,9 +18,10 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 
 	"github.com/go-openapi/swag"
+
+	"github.com/weaviate/weaviate/messages"
 )
 
 // DefaultConfigFile is the default file when no config file is provided
@@ -92,7 +93,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup) error {
 	// Set default if not given
 	if configFileName == "" {
 		configFileName = DefaultConfigFile
-		log.Println("INFO: Using default config file location '" + DefaultConfigFile + "'.")
+		messages.InfoMessage("Using default config file location '" + DefaultConfigFile + "'.")
 	}
 
 	// Read config file
@@ -104,7 +105,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup) error {
 	// Set default env if not given
 	if err != nil || configEnvironment == "" {
 		configEnvironment = DefaultEnvironment
-		log.Println("INFO: Using default environment '" + DefaultEnvironment + "'.")
+		messages.InfoMessage("Using default environment '" + DefaultEnvironment + "'.")
 	}
 
 	// Read from the config file and add it to an object
@@ -132,7 +133,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup) error {
 		return errors.New("no environment found with name '" + configEnvironment + "'")
 	}
 
-	log.Println("INFO: Config file found, loading environment...")
+	messages.InfoMessage("Config file found, loading environment...")
 
 	return nil
 }
