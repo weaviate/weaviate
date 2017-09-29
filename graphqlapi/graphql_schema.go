@@ -16,9 +16,7 @@ package graphqlapi
 import (
 	"errors"
 	"fmt"
-	"github.com/weaviate/weaviate/connectors/utils"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -27,11 +25,12 @@ import (
 	"github.com/graphql-go/graphql/gqlerrors"
 	ast "github.com/graphql-go/graphql/language/ast"
 
-	"github.com/weaviate/weaviate/connectors"
-	"github.com/weaviate/weaviate/schema"
-	// "github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/config"
+	"github.com/weaviate/weaviate/connectors"
+	"github.com/weaviate/weaviate/connectors/utils"
+	"github.com/weaviate/weaviate/messages"
 	"github.com/weaviate/weaviate/models"
+	"github.com/weaviate/weaviate/schema"
 )
 
 // GraphQLSchema has some basic variables.
@@ -844,7 +843,7 @@ func (f *GraphQLSchema) InitSchema() error {
 	})
 
 	// Print for logging
-	log.Println("INFO: GraphQL initialisation finished.")
+	messages.ErrorMessage("GraphQL initialisation finished.")
 
 	return err
 }
