@@ -42,10 +42,9 @@ const (
 
 // ValueType is the type representing the value in the query
 type ValueType struct {
-	Value          interface{} // String-value / int-value / etc.
-	Operator       Operator    // See Operator constants
-	WildCardBefore bool        // Has wildcard before value
-	WildCardAfter  bool        // Has wildcard after value
+	Value    interface{} // String-value / int-value / etc.
+	Operator Operator    // See Operator constants
+	Contains bool        // Has 'contains' mark
 }
 
 // WhereQuery represents the query itself
