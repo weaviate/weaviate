@@ -40,7 +40,7 @@ type DatabaseConnector interface {
 
 	AddAction(action *models.Action, UUID strfmt.UUID) error
 	GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error
-	ListActions(UUID strfmt.UUID, first int, offset int, actionsResponse *models.ActionsListResponse) error
+	ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error
 	UpdateAction(action *models.Action, UUID strfmt.UUID) error
 	DeleteAction(UUID strfmt.UUID) error
 

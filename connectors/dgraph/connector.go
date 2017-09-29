@@ -18,7 +18,6 @@ import (
 	errors_ "errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"math"
 	"strings"
 
@@ -440,35 +439,12 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespon
 
 // ListThings returns the thing in the ThingGetResponse format
 func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
-	// Init the filterWheres variable
-	filterWheres := ""
+	// Set the filterWheres variable
+	filterWheres := f.parseWhereFilters(wheres)
 
-	// Create filter query
-	var op string
-	var prop string
-	var value string
-	for _, vWhere := range wheres {
-		// Set the operator
-		if vWhere.Value.Operator == connutils.Equal || vWhere.Value.Operator == connutils.NotEqual {
-			if vWhere.Value.Contains {
-				op = "alloftext"
-			} else {
-				op = "eq"
-			}
-
-			if vWhere.Value.Operator == connutils.NotEqual {
-				op = "NOT " + op
-			}
-		}
-
-		// Set the property
-		prop = vWhere.Property
-
-		// Set the value from the object (now only string) TODO: other datatypes
-		value = vWhere.Value.Value.(string)
-
-		// Filter on wheres variable which is used later in the query
-		filterWheres = fmt.Sprintf(`%s AND %s(%s, "%s")`, filterWheres, op, prop, value)
+	// Add AND operator
+	if filterWheres != "" {
+		filterWheres = "AND " + filterWheres
 	}
 
 	// Do a query to get all node-information
@@ -484,8 +460,6 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 	}
 	`, keyID, refTypePointer, connutils.RefTypeThing, filterWheres, first, offset)
 	req.SetQuery(query)
-
-	log.Println(query)
 
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
@@ -640,12 +614,20 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetRes
 }
 
 // ListActions lists actions for a specific thing
-func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, actionsResponse *models.ActionsListResponse) error {
+func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
+	// Set the filterWheres variable
+	filterWheres := f.parseWhereFilters(wheres)
+
+	// Add the filter wrapper
+	if filterWheres != "" {
+		filterWheres = fmt.Sprintf(" @filter(%s) ", filterWheres)
+	}
+
 	// Do a query to get all node-information
 	req := dgraphClient.Req{}
-	req.SetQuery(fmt.Sprintf(`{
+	query := fmt.Sprintf(`{
 		things(func: eq(uuid, "%s")) {
-      		actions: ~things.object (orderdesc: creationTimeUnix) (first: %d, offset: %d) {
+      		actions: ~things.object %s (orderdesc: creationTimeUnix) (first: %d, offset: %d) {
       			expand(_all_) {
         			expand(_all_) {
           				expand(_all_)
@@ -653,7 +635,8 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, actionsRes
 				}
 			}
 		}
-	}`, UUID, first, offset))
+	}`, UUID, filterWheres, first, offset)
+	req.SetQuery(query)
 
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
@@ -1479,6 +1462,46 @@ func (f *Dgraph) mergeKeyNodeInResponse(node *protos.Node, key *models.KeyTokenG
 		f.mergeKeyNodeInResponse(child, key)
 	}
 
+}
+
+// parseWhereFilters returns a Dgraqh filter query based on the given where queries
+func (f *Dgraph) parseWhereFilters(wheres []*connutils.WhereQuery) string {
+	// Init return variable
+	filterWheres := ""
+
+	// Create filter query
+	var op string
+	var prop string
+	var value string
+	for _, vWhere := range wheres {
+		// Set the operator
+		if vWhere.Value.Operator == connutils.Equal || vWhere.Value.Operator == connutils.NotEqual {
+			if vWhere.Value.Contains {
+				op = "alloftext"
+			} else {
+				op = "eq"
+			}
+
+			if vWhere.Value.Operator == connutils.NotEqual {
+				op = "NOT " + op
+			}
+		}
+
+		// Set the property
+		prop = vWhere.Property
+
+		// Set the value from the object (now only string) TODO: other datatypes
+		value = vWhere.Value.Value.(string)
+
+		// Filter on wheres variable which is used later in the query
+		andOp := ""
+		if filterWheres != "" {
+			andOp = "AND"
+		}
+		filterWheres = fmt.Sprintf(`%s %s %s(%s, "%s")`, filterWheres, andOp, op, prop, value)
+	}
+
+	return filterWheres
 }
 
 // TODO REMOVE, JUST FOR TEST
