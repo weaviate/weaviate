@@ -14,6 +14,7 @@
 package messages
 
 import (
+	"fmt"
 	"log"
 	"os"
 )
@@ -31,11 +32,11 @@ func ExitError(code int, message interface{}) {
 // InfoMessage sends a message with 'INFO:' in front of it
 func InfoMessage(message interface{}) {
 	// Print Message
-	log.Println("INFO: " + message.(string) + ".")
+	log.Println("INFO: " + fmt.Sprint(message) + ".")
 }
 
 // ErrorMessage exit the program and give standard weaviate-error message.
 func ErrorMessage(message interface{}) {
 	// Print Error
-	log.Println("ERROR: " + message.(string) + ". Needs to be resolved. For more info, check https://weaviate.com/.")
+	log.Println("ERROR: " + fmt.Sprint(message) + ". Needs to be resolved. For more info, check https://weaviate.com/.")
 }
