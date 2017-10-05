@@ -16,6 +16,7 @@ package schema
 // Schema is a representation in GO for the custom schema provided.
 type Schema struct {
 	Context    string  `json:"@context"`
+	Version    string  `json:"version"`
 	Type       string  `json:"type"`
 	Maintainer string  `json:"maintainer"`
 	Name       string  `json:"name"`
