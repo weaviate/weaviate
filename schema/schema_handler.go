@@ -39,6 +39,9 @@ type schemaProperties struct {
 type WeaviateSchema struct {
 	ActionSchema schemaProperties
 	ThingSchema  schemaProperties
+
+	// The predicate dict to re-use for every schema (thing/action)
+	predicateDict map[string]DataType
 }
 
 // DataType is a representation of the predicate for queries
@@ -79,6 +82,7 @@ func (f *WeaviateSchema) IsValidValueDataType(dt string) bool {
 func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 	f.ThingSchema.schemaLocationFromConfig = usedConfig.Schemas.Thing
 	f.ActionSchema.schemaLocationFromConfig = usedConfig.Schemas.Action
+	f.predicateDict = map[string]DataType{}
 
 	configFiles := map[string]*schemaProperties{
 		"Action": &f.ActionSchema,
@@ -161,7 +165,6 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 // validateSchema validates the given schema
 func (f *WeaviateSchema) validateSchema(schema *Schema) error {
 	// Initialize the dict to compare predicate data types
-	predicateDict := map[string]DataType{}
 
 	// Loop through all classes
 	for _, class := range schema.Classes {
@@ -236,11 +239,11 @@ func (f *WeaviateSchema) validateSchema(schema *Schema) error {
 				))
 			}
 
-			if val, ok := predicateDict[prop.Name]; ok {
+			if val, ok := f.predicateDict[prop.Name]; ok {
 				if val == DataTypeCRef && hasValue {
 					// The value of the predicate in the dict is a Cref, but now its a value
 					return errors_.New(fmt.Sprintf(
-						"The value of the predicate '%s' is a cross-reference, but it is a value (%s) in class '%s', at property '%s'. %s",
+						"The value of the predicate '%s' is set as a cross-reference, but it is a value (%s) in class '%s', at property '%s'. %s",
 						prop.Name,
 						pred,
 						class.Class,
@@ -251,7 +254,7 @@ func (f *WeaviateSchema) validateSchema(schema *Schema) error {
 					if pred == DataTypeCRef {
 						// The value of the predicate in the dict is different
 						return errors_.New(fmt.Sprintf(
-							"The value of the predicate '%s' is '%s', but in class '%s', at property '%s' it is a cross-reference. %s",
+							"The value of the predicate '%s' is set as '%s', but in class '%s', at property '%s' it is a cross-reference. %s",
 							prop.Name,
 							val,
 							class.Class,
@@ -261,7 +264,7 @@ func (f *WeaviateSchema) validateSchema(schema *Schema) error {
 					}
 					// The value of the predicate in the dict is different
 					return errors_.New(fmt.Sprintf(
-						"The value of the predicate '%s' is '%s', but in class '%s', at property '%s' it's value is a '%s'. %s",
+						"The value of the predicate '%s' is set as '%s', but in class '%s', at property '%s' it's value is a '%s'. %s",
 						prop.Name,
 						val,
 						class.Class,
@@ -272,7 +275,7 @@ func (f *WeaviateSchema) validateSchema(schema *Schema) error {
 				}
 			} else if string(pred) != "" {
 				// Add to predicate dict if it is not empty
-				predicateDict[prop.Name] = pred
+				f.predicateDict[prop.Name] = pred
 			}
 		}
 	}
