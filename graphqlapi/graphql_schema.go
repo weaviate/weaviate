@@ -267,7 +267,7 @@ func (f *GraphQLSchema) InitSchema() error {
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			// Resolve the data from the Key Response
 			if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
-				// TODO: This could be optimized
+				// TODO: This could be optimized, now for every key multiple queries are needed, could be done in 1.
 				// Init the respons as an array of keys
 				children := []*models.KeyTokenGetResponse{}
 
