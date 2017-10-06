@@ -12,6 +12,21 @@
             "mqttEnabled": false
         },
         {
+            "name": "test",
+            "database": {
+                "name": "dgraph",
+                "database_config" : {
+                    "host": "127.0.0.1",
+                    "port": 9080
+                }
+            },
+            "schemas": {
+                "Thing": "test/schema/test-thing-schema.json",
+                "Action": "test/schema/test-action-schema.json"
+            },
+            "mqttEnabled": false
+        },
+        {
             "name": "graph",
             "database": {
                 "name": "dgraph",

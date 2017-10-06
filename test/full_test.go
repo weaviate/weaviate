@@ -20,8 +20,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -58,23 +56,6 @@ func doRequest(endpoint string, method string, accept string, body io.Reader, ap
 	}
 
 	return response
-}
-
-func decorate() (string, int) {
-	_, file, line, ok := runtime.Caller(2) // decorate + log + public function.
-	if ok {
-		// Truncate file name at last file name separator.
-		if index := strings.LastIndex(file, "/"); index >= 0 {
-			file = file[index+1:]
-		} else if index = strings.LastIndex(file, "\\"); index >= 0 {
-			file = file[index+1:]
-		}
-	} else {
-		file = "???"
-		line = 1
-	}
-
-	return file, line
 }
 
 // getResponseBody converts response body to bytes
@@ -121,6 +102,18 @@ var thingIDs [10]string
 var thingIDsubject string
 var rootID string
 var unixTimeExpire int64
+
+var thingTestString string
+var thingTestInt int64
+var thingTestBoolean bool
+var thingTestNumber float64
+var thingTestDate string
+
+var actionTestString string
+var actionTestInt int64
+var actionTestBoolean bool
+var actionTestNumber float64
+var actionTestDate string
 
 func init() {
 	flag.StringVar(&apiKeyCmdLine, "api-key", "", "API-KEY as used as haeder in the tests.")
@@ -529,15 +522,25 @@ func init() {
 
 // weaviate.thing.create
 func Test__weaviate_things_create_JSON(t *testing.T) {
+	// Set all thing values to compare
+	thingTestString = "Test string"
+	thingTestInt = 1
+	thingTestBoolean = true
+	thingTestNumber = 1.337
+	thingTestDate = "2017-10-06T08:15:30+01:00"
+
 	// Create create request
-	jsonStr := bytes.NewBuffer([]byte(`{
-		"@context": "http://schema.org",
-		"@class": "Person",
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
 		"schema": {
-			"givenName": "Bob",
-			"faxNumber": 1337
+			"testString": "%s",
+			"testInt": %d,
+			"testBoolean": %t,
+			"testNumber": %f,
+			"testDate": "%s"
 		}
-	}`))
+	}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate)))
 	response := doRequest("/things", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
 	// Check status code of create
@@ -551,8 +554,15 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 	// Check whether generated UUID is added
 	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
 
-	// Globally set actionID
+	// Globally set thingID
 	thingID = string(respObject.ThingID)
+
+	// Check whether the returned information is the same as the data added
+	require.Equal(t, thingTestString, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, thingTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, thingTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, thingTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
 
 	// Add multiple things to the database to check List functions
 	// Fill database with things and set the IDs to the global thingIDs-array
@@ -560,14 +570,22 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 
 	for i := 8; i >= 0; i-- {
 		// Handle request
-		jsonStr := bytes.NewBuffer([]byte(`{
-			"@context": "http://schema.org",
-			"@class": "Person",
+		jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+			"@context": "http://example.org",
+			"@class": "TestThing",
 			"schema": {
-				"givenName": "Bob",
-				"faxNumber": 1337
+				"testString": "%s",
+				"testInt": %d,
+				"testBoolean": %t,
+				"testNumber": %f,
+				"testDate": "%s",
+				"testCref": {
+					"$cref": "%s",
+					"locationUrl": "%s",
+					"type": "Thing"
+				}
 			}
-		}`))
+		}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate, thingID, getWeaviateURL())))
 		response := doRequest("/things", "POST", "application/json", jsonStr, apiKeyCmdLine)
 		body := getResponseBody(response)
 		respObject := &models.ThingGetResponse{}
@@ -637,7 +655,7 @@ func Test__weaviate_things_list_JSON(t *testing.T) {
 // weaviate.thing.get
 func Test__weaviate_things_get_JSON(t *testing.T) {
 	// Create get request
-	response := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
+	response := doRequest("/things/"+thingIDs[0], "GET", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code get request
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -649,8 +667,16 @@ func Test__weaviate_things_get_JSON(t *testing.T) {
 
 	// Check ID of object
 	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
-	require.Regexp(t, strfmt.UUIDPattern, thingID)
-	require.Equal(t, thingID, string(respObject.ThingID))
+	require.Regexp(t, strfmt.UUIDPattern, thingIDs[0])
+	require.Equal(t, thingIDs[0], string(respObject.ThingID))
+
+	// Check whether the returned information is the same as the data added
+	require.Equal(t, thingTestString, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, thingTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, thingTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, thingTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "GET", "application/json", nil, apiKeyCmdLine)
@@ -660,15 +686,18 @@ func Test__weaviate_things_get_JSON(t *testing.T) {
 // weaviate.thing.update
 func Test__weaviate_things_update_JSON(t *testing.T) {
 	// Create update request
-	newValue := "New Name!"
+	newValue := "New string updated!"
 	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
-		"@context": "http://schema.org",
-		"@class": "Person",
+		"@context": "http://example.org",
+		"@class": "TestThing",
 		"schema": {
-			"givenName": "%s",
-			"faxNumber": 1337
+			"testString": "%s",
+			"testInt": %d,
+			"testBoolean": %t,
+			"testNumber": %f,
+			"testDate": "%s"
 		}
-	}`, newValue)))
+	}`, newValue, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate)))
 	response := doRequest("/things/"+thingID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
@@ -683,6 +712,13 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
 	require.Regexp(t, strfmt.UUIDPattern, thingID)
 	require.Equal(t, thingID, string(respObject.ThingID))
+
+	// Check whether the returned information is the same as the data updated
+	require.Equal(t, newValue, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, thingTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, thingTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, thingTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
 
 	// Check given update time is after now, but not in the future
 	now := connutils.NowUnix()
@@ -700,7 +736,13 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 	// Test response obj
 	respObjectGet := &models.ThingGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
-	require.Equal(t, newValue, respObject.Schema.(map[string]interface{})["givenName"].(string))
+
+	// Check whether the returned information is the same as the data updated
+	require.Equal(t, newValue, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, thingTestInt, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, thingTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, thingTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, thingTestDate, respObjectGet.Schema.(map[string]interface{})["testDate"].(string))
 
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
@@ -710,9 +752,9 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 // weaviate.thing.patch
 func Test__weaviate_things_patch_JSON(t *testing.T) {
 	// Create patch request
-	newValue := "New name patched!"
+	newValue := "New string patched!"
 
-	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/givenName", "value": "` + newValue + `"}]`))
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testString", "value": "` + newValue + `"}]`))
 	response := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
@@ -727,6 +769,13 @@ func Test__weaviate_things_patch_JSON(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
 	require.Regexp(t, strfmt.UUIDPattern, thingID)
 	require.Equal(t, thingID, string(respObject.ThingID))
+
+	// Check whether the returned information is the same as the data updated
+	require.Equal(t, newValue, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, thingTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, thingTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, thingTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
 
 	// Check given update time is after now, but not in the future
 	now := connutils.NowUnix()
@@ -744,7 +793,13 @@ func Test__weaviate_things_patch_JSON(t *testing.T) {
 	// Test response obj
 	respObjectGet := &models.ThingGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
-	require.Equal(t, newValue, respObject.Schema.(map[string]interface{})["givenName"].(string))
+
+	// Check whether the returned information is the same as the data updated
+	require.Equal(t, newValue, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, thingTestInt, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, thingTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, thingTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, thingTestDate, respObjectGet.Schema.(map[string]interface{})["testDate"].(string))
 
 	// Check patch with incorrect contents
 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newValue + `"}`))
@@ -1122,6 +1177,8 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 
 	// Test ID in the middle of the 3 results
 	require.Equal(t, actionIDs[7], string(resultActionsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
+
+	// TODO: Test querying on subnames in schema.
 }
 
 func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
