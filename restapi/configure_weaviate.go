@@ -205,6 +205,7 @@ func validateSchemaInBody(weaviateSchema *schema.Schema, bodySchema *models.Sche
 	// log.Println(weaviateSchema)
 	// log.Println(*bodySchema)
 	// log.Println(className)
+	// Data type validation
 
 	// Validated error-message
 	// return errors_.New("no valid schema used")
@@ -898,7 +899,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsValidateOK()
 	})
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation meta.WeaviateMetaGet has not yet been implemented")
+		// databaseSchema.ActionSchema
+
+		metaResponse := &models.Meta{}
+
+		metaResponse.Hostname = serverConfig.GetHostAddress()
+		// metaResponse.ActionsSchema = databaseSchema.ActionSchema.Schema
+		// metaResponse.ThingsSchema = databaseSchema.ThingSchema.Schema
+
+		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
 	})
 	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?

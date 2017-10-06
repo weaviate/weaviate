@@ -365,23 +365,73 @@ func (f *Dgraph) Init() error {
 }
 
 // indexSchema will index the schema based on DataType
-func (f *Dgraph) indexSchema(schema *schema.Schema) error {
-	for _, class := range schema.Classes {
+func (f *Dgraph) indexSchema(ws *schema.Schema) error {
+	for _, class := range ws.Classes {
 		for _, prop := range class.Properties {
-			// Add Dgraph-schema for every property of individual nodes
-			if err := f.client.AddSchema(protos.SchemaUpdate{
-				Predicate: schemaPrefix + prop.Name,
-				ValueType: uint32(types.StringID),
-				Tokenizer: []string{"exact", "term", "fulltext"},
-				Directive: protos.SchemaUpdate_INDEX,
-				Count:     true,
-			}); err != nil {
-				return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
-			}
+			// Get data type
+			dt := prop.DataType[0]
 
-			// TODO: Add specific schema for datatypes
-			// TODO: Add reverse for 'objects'
-			// http://schema.org/DataType
+			// For each possible data type, add the indexes
+			if dt == string(schema.DataTypeString) {
+				if err := f.client.AddSchema(protos.SchemaUpdate{
+					Predicate: schemaPrefix + prop.Name,
+					ValueType: uint32(types.StringID),
+					Tokenizer: []string{"exact", "term", "fulltext"},
+					Directive: protos.SchemaUpdate_INDEX,
+					Count:     true,
+				}); err != nil {
+					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
+				}
+			} else if dt == string(schema.DataTypeInt) {
+				if err := f.client.AddSchema(protos.SchemaUpdate{
+					Predicate: schemaPrefix + prop.Name,
+					ValueType: uint32(types.IntID),
+					Tokenizer: []string{"int"},
+					Directive: protos.SchemaUpdate_INDEX,
+					Count:     true,
+				}); err != nil {
+					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
+				}
+			} else if dt == string(schema.DataTypeNumber) {
+				if err := f.client.AddSchema(protos.SchemaUpdate{
+					Predicate: schemaPrefix + prop.Name,
+					ValueType: uint32(types.FloatID),
+					Tokenizer: []string{"float"},
+					Directive: protos.SchemaUpdate_INDEX,
+					Count:     true,
+				}); err != nil {
+					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
+				}
+			} else if dt == string(schema.DataTypeBoolean) {
+				if err := f.client.AddSchema(protos.SchemaUpdate{
+					Predicate: schemaPrefix + prop.Name,
+					ValueType: uint32(types.BoolID),
+					Tokenizer: []string{"bool"},
+					Directive: protos.SchemaUpdate_INDEX,
+					Count:     true,
+				}); err != nil {
+					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
+				}
+			} else if dt == string(schema.DataTypeDate) {
+				if err := f.client.AddSchema(protos.SchemaUpdate{
+					Predicate: schemaPrefix + prop.Name,
+					ValueType: uint32(types.DateTimeID),
+					Tokenizer: []string{"hour"},
+					Directive: protos.SchemaUpdate_INDEX,
+					Count:     true,
+				}); err != nil {
+					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
+				}
+			} else {
+				if err := f.client.AddSchema(protos.SchemaUpdate{
+					Predicate: schemaPrefix + prop.Name,
+					ValueType: uint32(types.UidID),
+					Directive: protos.SchemaUpdate_REVERSE,
+					Count:     true,
+				}); err != nil {
+					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
+				}
+			}
 		}
 	}
 

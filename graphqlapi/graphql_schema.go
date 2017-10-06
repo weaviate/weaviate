@@ -54,6 +54,8 @@ func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverCon
 	return gqls
 }
 
+var thingType *graphql.Object
+
 // SetKey sets the key that is used for the latest request
 func (f *GraphQLSchema) SetKey(key models.KeyTokenGetResponse) {
 	f.usedKey = key
@@ -295,26 +297,8 @@ func (f *GraphQLSchema) InitSchema() error {
 		},
 	})
 
-	// Build the schema fields in a seperate function based on the given schema
-	thingSchemaFields := buildFieldsBySchema(f.serverSchema.ThingSchema.Schema)
-	actionSchemaFields := buildFieldsBySchema(f.serverSchema.ActionSchema.Schema)
-
-	// The thingsSchemaType in wich all the possible fields are addes
-	thingSchemaType := graphql.NewObject(graphql.ObjectConfig{
-		Name:        "ThingSchema",
-		Description: "Schema type for things from the database, based on the Weaviate thing-schema.",
-		Fields:      thingSchemaFields,
-	})
-
-	// The actionsSchemaType in wich all the possible fields are addes
-	actionSchemaType := graphql.NewObject(graphql.ObjectConfig{
-		Name:        "ActionSchema",
-		Description: "Schema type for actions from the database, based on the Weaviate action-schema.",
-		Fields:      actionSchemaFields,
-	})
-
 	// The thingType which all single thing-responses will use
-	thingType := graphql.NewObject(graphql.ObjectConfig{
+	thingType = graphql.NewObject(graphql.ObjectConfig{
 		Name:        "Thing",
 		Description: "A thing from the Weaviate database, based on the Weaviate schema.",
 		Fields: graphql.Fields{
@@ -387,18 +371,6 @@ func (f *GraphQLSchema) InitSchema() error {
 						}
 					}
 					return keyResponse, nil
-				},
-			},
-			"schema": &graphql.Field{
-				Type:        thingSchemaType,
-				Description: "The values filled in the schema properties.",
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					// Resolve the data from the Thing Response
-					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
-						return thing.Schema, nil
-					}
-
-					return nil, nil
 				},
 			},
 		},
@@ -569,18 +541,6 @@ func (f *GraphQLSchema) InitSchema() error {
 					return keyResponse, nil
 				},
 			},
-			"schema": &graphql.Field{
-				Type:        actionSchemaType,
-				Description: "The values filled in the schema properties.",
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					// Resolve the data from the Thing Response
-					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
-						return thing.Schema, nil
-					}
-
-					return nil, nil
-				},
-			},
 		},
 		// The interfaces this object satifies
 		Interfaces: []*graphql.Interface{
@@ -697,6 +657,52 @@ func (f *GraphQLSchema) InitSchema() error {
 
 	// Add to thingType here, because when initializing the thingType, actionListType does not exist.
 	thingType.AddFieldConfig("actions", actionListField)
+
+	// Build the schema fields in a separate function based on the given schema
+	thingSchemaFields := f.buildFieldsBySchema(f.serverSchema.ThingSchema.Schema)
+	actionSchemaFields := f.buildFieldsBySchema(f.serverSchema.ActionSchema.Schema)
+
+	// The thingsSchemaType in wich all the possible fields are addes
+	thingSchemaType := graphql.NewObject(graphql.ObjectConfig{
+		Name:        "ThingSchema",
+		Description: "Schema type for things from the database, based on the Weaviate thing-schema.",
+		Fields:      thingSchemaFields,
+	})
+
+	// The actionsSchemaType in wich all the possible fields are addes
+	actionSchemaType := graphql.NewObject(graphql.ObjectConfig{
+		Name:        "ActionSchema",
+		Description: "Schema type for actions from the database, based on the Weaviate action-schema.",
+		Fields:      actionSchemaFields,
+	})
+
+	// Add the schema, as in this position all needed variables are set
+	thingType.AddFieldConfig("schema", &graphql.Field{
+		Type:        thingSchemaType,
+		Description: "The values filled in the schema properties.",
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			// Resolve the data from the Thing Response
+			if thing, ok := p.Source.(*models.ThingGetResponse); ok {
+				return thing.Schema, nil
+			}
+
+			return nil, nil
+		},
+	})
+
+	// Add the schema, as in this position all needed variables are set
+	actionType.AddFieldConfig("action", &graphql.Field{
+		Type:        actionSchemaType,
+		Description: "The values filled in the schema properties.",
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			// Resolve the data from the Thing Response
+			if thing, ok := p.Source.(*models.ThingGetResponse); ok {
+				return thing.Schema, nil
+			}
+
+			return nil, nil
+		},
+	})
 
 	// The queryType is the main type in the tree, here does the query resolving start
 	queryType := graphql.NewObject(graphql.ObjectConfig{
@@ -919,12 +925,12 @@ func doRequest(hostname string, endpoint string, method string, body io.Reader, 
 }
 
 // buildFieldsBySchema builds a GraphQL fields object for the given fields
-func buildFieldsBySchema(schema schema.Schema) graphql.Fields {
+func (f *GraphQLSchema) buildFieldsBySchema(ws schema.Schema) graphql.Fields {
 	// Init the fields for the return of the function
 	fields := graphql.Fields{}
 
 	// Do it for every class
-	for _, schemaClass := range schema.Classes {
+	for _, schemaClass := range ws.Classes {
 
 		// Do it for every property in that class
 		for _, schemaProp := range schemaClass.Properties {
@@ -932,36 +938,71 @@ func buildFieldsBySchema(schema schema.Schema) graphql.Fields {
 			// If the property isn't allready added
 			if _, ok := fields[schemaProp.Name]; !ok {
 
+				dt := schemaProp.DataType[0]
+				var scalar graphql.Output
+				if dt == string(schema.DataTypeString) {
+					scalar = graphql.String
+				} else if dt == string(schema.DataTypeInt) {
+					scalar = graphql.Int
+				} else if dt == string(schema.DataTypeNumber) {
+					scalar = graphql.Float
+				} else if dt == string(schema.DataTypeBoolean) {
+					scalar = graphql.Boolean
+				} else if dt == string(schema.DataTypeDate) {
+					scalar = graphql.DateTime
+				} else {
+					// It is a CRef?
+					scalar = thingType
+				}
+
 				// Make a new field and add it
 				fields[schemaProp.Name] = &graphql.Field{
 					Name:        schemaProp.Name,
-					Type:        graphql.String, // TODO fix for other datatypes
+					Type:        scalar,
 					Description: fmt.Sprintf("Value of schema property '%s'", schemaProp.Name),
 					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 						// Init the interface for the return value
 						var rVal interface{}
 
-						// Csat it to an interface
+						// Cast it to an interface
 						if schema, ok := p.Source.(map[string]interface{}); ok {
 							rVal = schema[p.Info.FieldName]
 						}
 
-						// Return the string if possible
-						if value, ok := rVal.(string); ok {
+						// Return value based on data type
+						if dt == string(schema.DataTypeString) {
+							if value, ok := rVal.(string); ok {
+								return value, nil
+							}
+						} else if dt == string(schema.DataTypeInt) {
+							if value, ok := rVal.(int64); ok {
+								return value, nil
+							}
+						} else if dt == string(schema.DataTypeNumber) {
+							if value, ok := rVal.(float64); ok {
+								return value, nil
+							}
+						} else if dt == string(schema.DataTypeBoolean) {
+							if value, ok := rVal.(bool); ok {
+								return value, nil
+							}
+						} else if dt == string(schema.DataTypeDate) {
+							value := graphql.DateTime.ParseValue(rVal)
 							return value, nil
-						}
+						} else {
+							// Data type is not a value, but an cref object
+							thingResponse := &models.ThingGetResponse{}
 
-						// Return the int if possible
-						if value, ok := rVal.(int64); ok {
-							return value, nil
-						}
+							if value, ok := rVal.(*models.SingleRef); ok {
+								// Evaluate the Cross reference
+								err := f.resolveCrossRef(p.Info.FieldASTs, value, thingResponse)
+								if err != nil {
+									return thingResponse, err
+								}
 
-						// Return the float if possible
-						if value, ok := rVal.(float64); ok {
-							return value, nil
+							}
+							return thingResponse, nil
 						}
-
-						// TODO: other datatypes
 
 						return nil, nil
 					},
