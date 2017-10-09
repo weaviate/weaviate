@@ -200,7 +200,7 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 	}
 }
 
-func validateSchemaInBody(weaviateSchema *schema.Schema, bodySchema *models.Schema, className string) error {
+func validateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *models.Schema, className string) error {
 	// TODO: Implementation required
 	// log.Println(weaviateSchema)
 	// log.Println(*bodySchema)
@@ -415,7 +415,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 		// Validate Schema given in body with the weaviate schema
-		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		validatedErr := validateSchemaInBody(databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
@@ -435,7 +435,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate Schema given in body with the weaviate schema
-		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		validatedErr := validateSchemaInBody(databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
@@ -665,7 +665,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate Schema given in body with the weaviate schema
-		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		validatedErr := validateSchemaInBody(databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
@@ -862,7 +862,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate Schema given in body with the weaviate schema
-		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		validatedErr := validateSchemaInBody(databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
@@ -888,7 +888,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
 		// Validate Schema given in body with the weaviate schema
-		validatedErr := validateSchemaInBody(&databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		validatedErr := validateSchemaInBody(databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
@@ -899,13 +899,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsValidateOK()
 	})
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
-		// databaseSchema.ActionSchema
-
 		metaResponse := &models.Meta{}
 
 		metaResponse.Hostname = serverConfig.GetHostAddress()
-		// metaResponse.ActionsSchema = databaseSchema.ActionSchema.Schema
-		// metaResponse.ThingsSchema = databaseSchema.ThingSchema.Schema
+		metaResponse.ActionsSchema = databaseSchema.ActionSchema.Schema
+		metaResponse.ThingsSchema = databaseSchema.ThingSchema.Schema
 
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
 	})
