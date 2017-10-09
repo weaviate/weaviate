@@ -32,7 +32,7 @@ type SemanticSchemaClassProperty struct {
 	Description string `json:"description,omitempty"`
 
 	// Name of the property as URI relative to the schema URL.
-	Name strfmt.URI `json:"name,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 /* polymorph SemanticSchemaClassProperty @dataType false */
