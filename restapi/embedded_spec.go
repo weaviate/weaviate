@@ -1235,39 +1235,7 @@ func init() {
           "description": "Semantic classes that are available.",
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "class": {
-                "description": "Name of the class as URI relative to the schema URL.",
-                "type": "string"
-              },
-              "description": {
-                "description": "Description of the class",
-                "type": "string"
-              },
-              "properties": {
-                "description": "The properties of the class.",
-                "type": "object",
-                "properties": {
-                  "@dataType": {
-                    "description": "Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise \"string\" or \"int\".",
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "description": {
-                    "description": "Description of the property",
-                    "type": "string"
-                  },
-                  "name": {
-                    "description": "Name of the property as URI relative to the schema URL.",
-                    "type": "string",
-                    "format": "uri"
-                  }
-                }
-              }
-            }
+            "$ref": "#/definitions/SemanticSchemaClass"
           }
         },
         "maintainer": {
@@ -1290,6 +1258,47 @@ func init() {
         "version": {
           "description": "Version number of the schema in semver format.",
           "type": "string"
+        }
+      }
+    },
+    "SemanticSchemaClass": {
+      "type": "object",
+      "properties": {
+        "class": {
+          "description": "Name of the class as URI relative to the schema URL.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Description of the class",
+          "type": "string"
+        },
+        "properties": {
+          "description": "The properties of the class.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SemanticSchemaClassProperty"
+          }
+        }
+      }
+    },
+    "SemanticSchemaClassProperty": {
+      "type": "object",
+      "properties": {
+        "@dataType": {
+          "description": "Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise \"string\" or \"int\".",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "description": "Description of the property",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name of the property as URI relative to the schema URL.",
+          "type": "string",
+          "format": "uri"
         }
       }
     },
