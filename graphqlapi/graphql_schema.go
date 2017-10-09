@@ -939,7 +939,7 @@ func doRequest(hostname string, endpoint string, method string, body io.Reader, 
 }
 
 // buildFieldsBySchema builds a GraphQL fields object for the given fields
-func (f *GraphQLSchema) buildFieldsBySchema(ws schema.Schema) (graphql.Fields, error) {
+func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.Fields, error) {
 	// Init the fields for the return of the function
 	fields := graphql.Fields{}
 
@@ -952,7 +952,7 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws schema.Schema) (graphql.Fields, e
 			// If the property isn't allready added
 			if _, ok := fields[schemaProp.Name]; !ok {
 				// Get the datatype
-				dt, err := schema.GetPropertyDataType(&schemaClass, schemaProp.Name)
+				dt, err := schema.GetPropertyDataType(schemaClass, schemaProp.Name)
 
 				if err != nil {
 					return fields, err

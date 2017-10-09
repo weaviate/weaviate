@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	errors_ "errors"
 	"fmt"
+	"github.com/weaviate/weaviate/models"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -32,7 +33,7 @@ import (
 type schemaProperties struct {
 	localFile                string
 	schemaLocationFromConfig string
-	Schema                   Schema
+	Schema                   *models.SemanticSchema
 }
 
 // WeaviateSchema represents the used schema's
@@ -65,13 +66,13 @@ const (
 )
 
 // GetClassByName returns the class by its name
-func GetClassByName(schema Schema, className string) (*Class, error) {
+func GetClassByName(s *models.SemanticSchema, className string) (*models.SemanticSchemaClass, error) {
 	// For each class-property
-	for _, class := range schema.Classes {
+	for _, class := range s.Classes {
 
 		// Check if the name of the class is the given name, that's the class we need
 		if class.Class == className {
-			return &class, nil
+			return class, nil
 		}
 	}
 
@@ -79,7 +80,7 @@ func GetClassByName(schema Schema, className string) (*Class, error) {
 }
 
 // GetPropertyDataType checks whether the given string is a valid data type
-func GetPropertyDataType(class *Class, propertyName string) (*DataType, error) {
+func GetPropertyDataType(class *models.SemanticSchemaClass, propertyName string) (*DataType, error) {
 	// For each class-property
 	for _, prop := range class.Properties {
 
@@ -89,7 +90,7 @@ func GetPropertyDataType(class *Class, propertyName string) (*DataType, error) {
 			var returnDataType DataType
 
 			// For each data type
-			for _, dataType := range prop.DataType {
+			for _, dataType := range prop.AtDataType {
 				// Get the first letter to see if it is a capital
 				firstLetter := string(dataType[0])
 				if strings.ToUpper(firstLetter) == firstLetter {
@@ -216,7 +217,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 		}
 
 		// Validate schema
-		err = f.validateSchema(&cfv.Schema)
+		err = f.validateSchema(cfv.Schema)
 
 		// Return error when error is given validating the schema.
 		if err != nil {
@@ -232,7 +233,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 }
 
 // validateSchema validates the given schema
-func (f *WeaviateSchema) validateSchema(schema *Schema) error {
+func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 	// Initialize the dict to compare predicate data types
 
 	// Loop through all classes
@@ -250,7 +251,7 @@ func (f *WeaviateSchema) validateSchema(schema *Schema) error {
 			var pred DataType
 
 			// Loop through all data types and set if a value or cross-reference is found
-			for _, dataType := range prop.DataType {
+			for _, dataType := range prop.AtDataType {
 				// Get the first letter to see if it is a capital
 				firstLetter := string(dataType[0])
 				if strings.ToUpper(firstLetter) == firstLetter {
@@ -266,15 +267,15 @@ func (f *WeaviateSchema) validateSchema(schema *Schema) error {
 				pred = DataTypeCRef
 			} else if hasValue && !hasCRef {
 				// If it is a value, check whether it is a correct data type
-				firstDataType := prop.DataType[0]
+				firstDataType := prop.AtDataType[0]
 
 				// Check whether a class-property contains multiple data types
-				if len(prop.DataType) > 1 {
+				if len(prop.AtDataType) > 1 {
 					return errors_.New(fmt.Sprintf(
 						"loaded schema has multiple data types in class '%s', at property '%s': '%s'. Just add one accepted data type to this property",
 						class.Class,
 						prop.Name,
-						strings.Join(prop.DataType, ","),
+						strings.Join(prop.AtDataType, ","),
 					))
 				}
 
@@ -288,7 +289,7 @@ func (f *WeaviateSchema) validateSchema(schema *Schema) error {
 						"unknown data type found in class '%s', at property '%s': '%s'",
 						class.Class,
 						prop.Name,
-						strings.Join(prop.DataType, ","),
+						strings.Join(prop.AtDataType, ","),
 					))
 				}
 			} else if hasCRef && hasValue {
@@ -297,7 +298,7 @@ func (f *WeaviateSchema) validateSchema(schema *Schema) error {
 					"loaded schema has an invalid combination of data type in class '%s', at property '%s': '%s'. Both references and values are mixed which is not correct",
 					class.Class,
 					prop.Name,
-					strings.Join(prop.DataType, ","),
+					strings.Join(prop.AtDataType, ","),
 				))
 			} else {
 				// Check whether a class-property contains no data types
