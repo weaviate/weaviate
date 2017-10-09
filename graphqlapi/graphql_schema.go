@@ -968,8 +968,7 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws schema.Schema) (graphql.Fields, e
 				} else if *dt == schema.DataTypeBoolean {
 					scalar = graphql.Boolean
 				} else if *dt == schema.DataTypeDate {
-					// scalar = graphql.DateTime TODO
-					scalar = graphql.String
+					scalar = graphql.DateTime
 				} else if *dt == schema.DataTypeCRef {
 					scalar = thingType
 				}
@@ -1006,9 +1005,8 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws schema.Schema) (graphql.Fields, e
 								return value, nil
 							}
 						} else if *dt == schema.DataTypeDate {
-							// value := graphql.DateTime.ParseValue(rVal) TODO
 							if value, ok := rVal.(string); ok {
-								return value, nil
+								return graphql.DateTime.ParseValue(value), nil
 							}
 						} else if *dt == schema.DataTypeCRef {
 							// Data type is not a value, but an cref object
@@ -1025,7 +1023,18 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws schema.Schema) (graphql.Fields, e
 							return thingResponse, nil
 						}
 
-						return nil, nil
+						// Return parsing error
+						err := errors.New("error parsing schema")
+
+						// Return error for GraphQL
+						return nil, gqlerrors.NewError(
+							err.Error(),
+							gqlerrors.FieldASTsToNodeASTs(p.Info.FieldASTs),
+							err.Error(),
+							nil,
+							[]int{},
+							err,
+						)
 					},
 				}
 			}

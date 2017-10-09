@@ -1170,7 +1170,7 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	respCreationTime := int64(respObject.Data["thing"].(map[string]interface{})["creationTimeUnix"].(float64))
 	now := connutils.NowUnix()
 	require.Conditionf(t, func() bool { return !(respCreationTime > now) }, "CreationTimeUnix is incorrect, it was set in the future.")
-	require.Conditionf(t, func() bool { return !(respCreationTime < now-20000) }, "CreationTimeUnix is incorrect, it was set to far back.")
+	require.Conditionf(t, func() bool { return !(respCreationTime < now-60000) }, "CreationTimeUnix is incorrect, it was set to far back.")
 
 	// Test the given key-object in the response TODO when keys are implemented
 	// respKeyUUID := respObject.Data["thing"].(map[string]interface{})["key"].(map[string]interface{})["uuid"]
