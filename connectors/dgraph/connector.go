@@ -1163,6 +1163,12 @@ func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, 
 	// If it is an interface, then it should contain a "cref" reference to another object. Use it to connect nodes.
 	dataType, err := schema.GetPropertyDataType(schemaClass, propKey)
 
+	if err != nil {
+		return err
+	}
+
+	// Set the edge by given data type
+	// If it is a cref, make it a new node.
 	if *dataType == schema.DataTypeCRef {
 		refProperties := propValue.(map[string]interface{})
 		refThingNode, err := f.getNodeByUUID(strfmt.UUID(refProperties["$cref"].(string)), nil)
@@ -1184,7 +1190,7 @@ func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, 
 				return err
 			}
 		} else if *dataType == schema.DataTypeInt {
-			if err := edge.SetValueInt(propValue.(int64)); err != nil {
+			if err := edge.SetValueInt(int64(propValue.(float64))); err != nil {
 				return err
 			}
 		} else if *dataType == schema.DataTypeNumber {
