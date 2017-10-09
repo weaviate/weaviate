@@ -30,7 +30,7 @@ import (
 type SemanticSchema struct {
 
 	// URL of the context
-	AtContext string `json:"@context,omitempty"`
+	AtContext strfmt.URI `json:"@context,omitempty"`
 
 	// Semantic classes that are available.
 	Classes []*SemanticSchemaClassesItems0 `json:"classes"`
@@ -43,6 +43,9 @@ type SemanticSchema struct {
 
 	// Type of schema, should be "thing" or "action".
 	Type string `json:"type,omitempty"`
+
+	// Version number of the schema in semver format.
+	Version string `json:"version,omitempty"`
 }
 
 /* polymorph SemanticSchema @context false */
@@ -54,6 +57,8 @@ type SemanticSchema struct {
 /* polymorph SemanticSchema name false */
 
 /* polymorph SemanticSchema type false */
+
+/* polymorph SemanticSchema version false */
 
 // Validate validates this semantic schema
 func (m *SemanticSchema) Validate(formats strfmt.Registry) error {
@@ -166,27 +171,27 @@ func (m *SemanticSchema) UnmarshalBinary(b []byte) error {
 
 type SemanticSchemaClassesItems0 struct {
 
-	// Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise "string" or "int".
-	AtDataType []string `json:"@dataType"`
+	// Name of the class as URI relative to the schema URL.
+	Class string `json:"class,omitempty"`
 
-	// Description of the class, string or int.
+	// Description of the class
 	Description string `json:"description,omitempty"`
 
-	// Name of the class as URI relative to the schema URL.
-	Name strfmt.URI `json:"name,omitempty"`
+	// properties
+	Properties *SemanticSchemaClassesItems0Properties `json:"properties,omitempty"`
 }
 
-/* polymorph SemanticSchemaClassesItems0 @dataType false */
+/* polymorph SemanticSchemaClassesItems0 class false */
 
 /* polymorph SemanticSchemaClassesItems0 description false */
 
-/* polymorph SemanticSchemaClassesItems0 name false */
+/* polymorph SemanticSchemaClassesItems0 properties false */
 
 // Validate validates this semantic schema classes items0
 func (m *SemanticSchemaClassesItems0) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateAtDataType(formats); err != nil {
+	if err := m.validateProperties(formats); err != nil {
 		// prop
 		res = append(res, err)
 	}
@@ -197,10 +202,20 @@ func (m *SemanticSchemaClassesItems0) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *SemanticSchemaClassesItems0) validateAtDataType(formats strfmt.Registry) error {
+func (m *SemanticSchemaClassesItems0) validateProperties(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.AtDataType) { // not required
+	if swag.IsZero(m.Properties) { // not required
 		return nil
+	}
+
+	if m.Properties != nil {
+
+		if err := m.Properties.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("properties")
+			}
+			return err
+		}
 	}
 
 	return nil
@@ -217,6 +232,69 @@ func (m *SemanticSchemaClassesItems0) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *SemanticSchemaClassesItems0) UnmarshalBinary(b []byte) error {
 	var res SemanticSchemaClassesItems0
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// SemanticSchemaClassesItems0Properties The properties of the class.
+// swagger:model SemanticSchemaClassesItems0Properties
+
+type SemanticSchemaClassesItems0Properties struct {
+
+	// Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise "string" or "int".
+	AtDataType []string `json:"@dataType"`
+
+	// Description of the property
+	Description string `json:"description,omitempty"`
+
+	// Name of the property as URI relative to the schema URL.
+	Name strfmt.URI `json:"name,omitempty"`
+}
+
+/* polymorph SemanticSchemaClassesItems0Properties @dataType false */
+
+/* polymorph SemanticSchemaClassesItems0Properties description false */
+
+/* polymorph SemanticSchemaClassesItems0Properties name false */
+
+// Validate validates this semantic schema classes items0 properties
+func (m *SemanticSchemaClassesItems0Properties) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateAtDataType(formats); err != nil {
+		// prop
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *SemanticSchemaClassesItems0Properties) validateAtDataType(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.AtDataType) { // not required
+		return nil
+	}
+
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *SemanticSchemaClassesItems0Properties) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *SemanticSchemaClassesItems0Properties) UnmarshalBinary(b []byte) error {
+	var res SemanticSchemaClassesItems0Properties
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
