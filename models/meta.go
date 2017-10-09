@@ -20,7 +20,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// Meta Returns meta information of the current Weaviate instance.
+// Meta Contains meta information of the current Weaviate instance.
 // swagger:model Meta
 
 type Meta struct {

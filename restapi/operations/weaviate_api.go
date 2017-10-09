@@ -95,9 +95,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		KeysWeaviateKeysMeChildrenGetHandler: keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation KeysWeaviateKeysMeChildrenGet has not yet been implemented")
 		}),
-		KeysWeaviateKeysMeDeleteHandler: keys.WeaviateKeysMeDeleteHandlerFunc(func(params keys.WeaviateKeysMeDeleteParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation KeysWeaviateKeysMeDelete has not yet been implemented")
-		}),
 		KeysWeaviateKeysMeGetHandler: keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation KeysWeaviateKeysMeGet has not yet been implemented")
 		}),
@@ -218,8 +215,6 @@ type WeaviateAPI struct {
 	KeysWeaviateKeysGetHandler keys.WeaviateKeysGetHandler
 	// KeysWeaviateKeysMeChildrenGetHandler sets the operation handler for the weaviate keys me children get operation
 	KeysWeaviateKeysMeChildrenGetHandler keys.WeaviateKeysMeChildrenGetHandler
-	// KeysWeaviateKeysMeDeleteHandler sets the operation handler for the weaviate keys me delete operation
-	KeysWeaviateKeysMeDeleteHandler keys.WeaviateKeysMeDeleteHandler
 	// KeysWeaviateKeysMeGetHandler sets the operation handler for the weaviate keys me get operation
 	KeysWeaviateKeysMeGetHandler keys.WeaviateKeysMeGetHandler
 	// MetaWeaviateMetaGetHandler sets the operation handler for the weaviate meta get operation
@@ -397,10 +392,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.KeysWeaviateKeysMeChildrenGetHandler == nil {
 		unregistered = append(unregistered, "keys.WeaviateKeysMeChildrenGetHandler")
-	}
-
-	if o.KeysWeaviateKeysMeDeleteHandler == nil {
-		unregistered = append(unregistered, "keys.WeaviateKeysMeDeleteHandler")
 	}
 
 	if o.KeysWeaviateKeysMeGetHandler == nil {
@@ -636,11 +627,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/keys/me/children"] = keys.NewWeaviateKeysMeChildrenGet(o.context, o.KeysWeaviateKeysMeChildrenGetHandler)
-
-	if o.handlers["DELETE"] == nil {
-		o.handlers["DELETE"] = make(map[string]http.Handler)
-	}
-	o.handlers["DELETE"]["/keys/me"] = keys.NewWeaviateKeysMeDelete(o.context, o.KeysWeaviateKeysMeDeleteHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)

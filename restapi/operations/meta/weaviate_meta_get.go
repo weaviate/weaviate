@@ -41,7 +41,7 @@ func NewWeaviateMetaGet(ctx *middleware.Context, handler WeaviateMetaGetHandler)
 
 /*WeaviateMetaGet swagger:route GET /meta meta weaviateMetaGet
 
-Download the schema file where all actions are based on.
+Returns meta information of the current Weaviate instance.
 
 Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.
 
