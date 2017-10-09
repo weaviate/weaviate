@@ -1297,8 +1297,7 @@ func init() {
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
-          "type": "string",
-          "format": "uri"
+          "type": "string"
         }
       }
     },
