@@ -517,6 +517,26 @@ func init() {
 // }
 
 /******************
+ * META TESTS
+ ******************/
+func Test__weaviate_meta_get_JSON(t *testing.T) {
+	response := doRequest("/meta", "GET", "application/json", nil, apiKeyCmdLine)
+
+	// Check status code of create
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	body := getResponseBody(response)
+
+	respObject := &models.Meta{}
+	json.Unmarshal(body, respObject)
+
+	// Check whether the returned information is the same as the data added
+	require.Equal(t, getWeaviateURL(), respObject.Hostname)
+
+	// TODO: Check schema files? See issue https://github.com/weaviate/weaviate/issues/210
+}
+
+/******************
  * THING TESTS
  ******************/
 

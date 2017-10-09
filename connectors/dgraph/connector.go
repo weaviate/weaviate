@@ -304,12 +304,12 @@ func (f *Dgraph) Init() error {
 	}
 
 	// Add schema to database, needed for indexing on nodes
-	err = f.indexSchema(&f.schema.ActionSchema.Schema)
+	err = f.indexSchema(f.schema.ActionSchema.Schema)
 	if err != nil {
 		return err
 	}
 
-	err = f.indexSchema(&f.schema.ThingSchema.Schema)
+	err = f.indexSchema(f.schema.ThingSchema.Schema)
 	if err != nil {
 		return err
 	}
@@ -366,11 +366,11 @@ func (f *Dgraph) Init() error {
 }
 
 // indexSchema will index the schema based on DataType
-func (f *Dgraph) indexSchema(ws *schema.Schema) error {
+func (f *Dgraph) indexSchema(ws *models.SemanticSchema) error {
 	for _, class := range ws.Classes {
 		for _, prop := range class.Properties {
 			// Get the datatype
-			dt, err := schema.GetPropertyDataType(&class, prop.Name)
+			dt, err := schema.GetPropertyDataType(class, prop.Name)
 
 			if err != nil {
 				return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
@@ -1104,7 +1104,7 @@ func (f *Dgraph) updateNodeSchemaProperties(node dgraphClient.Node, nodeSchema m
 
 	// Add Object properties
 	for propKey, propValue := range nodeSchema.(map[string]interface{}) {
-		var c *schema.Class
+		var c *models.SemanticSchemaClass
 		if schemaType == connutils.RefTypeAction {
 			c, err = schema.GetClassByName(f.schema.ActionSchema.Schema, class)
 			if err != nil {
@@ -1168,7 +1168,7 @@ func (f *Dgraph) updateActionRelatedThings(node dgraphClient.Node, action *model
 	return err
 }
 
-func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, propKey string, propValue interface{}, schemaClass *schema.Class) error {
+func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, propKey string, propValue interface{}, schemaClass *models.SemanticSchemaClass) error {
 	// Add prefix to the schema properties
 	edgeName := schemaPrefix + propKey
 
