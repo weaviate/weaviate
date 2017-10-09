@@ -115,8 +115,8 @@ func GetValueDataTypeFromString(dt string) (*DataType, error) {
 	var returnDataType DataType
 
 	if IsValidValueDataType(dt) {
-		if dt == string(DataTypeString) {
-			returnDataType = DataTypeString
+		if dt == string(DataTypeBoolean) {
+			returnDataType = DataTypeBoolean
 		} else if dt == string(DataTypeInt) {
 			returnDataType = DataTypeInt
 		} else if dt == string(DataTypeDate) {
