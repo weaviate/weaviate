@@ -376,29 +376,6 @@ func init() {
           }
         },
         "x-available-in-mqtt": false
-      },
-      "delete": {
-        "description": "Deletes key used to do the request.",
-        "tags": [
-          "keys"
-        ],
-        "summary": "Delete a key based on the key used to do the request.",
-        "operationId": "weaviate.keys.me.delete",
-        "responses": {
-          "204": {
-            "description": "Successful deleted."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-mqtt": false
       }
     },
     "/keys/me/children": {
@@ -556,7 +533,7 @@ func init() {
         "tags": [
           "meta"
         ],
-        "summary": "Download the schema file where all actions are based on.",
+        "summary": "Returns meta information of the current Weaviate instance.",
         "operationId": "weaviate.meta.get",
         "responses": {
           "200": {
@@ -1173,7 +1150,7 @@ func init() {
       ]
     },
     "Meta": {
-      "description": "Returns meta information of the current Weaviate instance.",
+      "description": "Contains meta information of the current Weaviate instance.",
       "type": "object",
       "properties": {
         "actionsSchema": {
@@ -1252,7 +1229,7 @@ func init() {
         "@context": {
           "description": "URL of the context",
           "type": "string",
-          "format": "url"
+          "format": "uri"
         },
         "classes": {
           "description": "Semantic classes that are available.",
@@ -1260,21 +1237,35 @@ func init() {
           "items": {
             "type": "object",
             "properties": {
-              "@dataType": {
-                "description": "Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise \"string\" or \"int\".",
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "description": {
-                "description": "Description of the class, string or int.",
+              "class": {
+                "description": "Name of the class as URI relative to the schema URL.",
                 "type": "string"
               },
-              "name": {
-                "description": "Name of the class as URI relative to the schema URL.",
-                "type": "string",
-                "format": "uri"
+              "description": {
+                "description": "Description of the class",
+                "type": "string"
+              },
+              "properties": {
+                "description": "The properties of the class.",
+                "type": "object",
+                "properties": {
+                  "@dataType": {
+                    "description": "Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise \"string\" or \"int\".",
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "description": {
+                    "description": "Description of the property",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "Name of the property as URI relative to the schema URL.",
+                    "type": "string",
+                    "format": "uri"
+                  }
+                }
               }
             }
           }
@@ -1295,6 +1286,10 @@ func init() {
             "thing",
             "action"
           ]
+        },
+        "version": {
+          "description": "Version number of the schema in semver format.",
+          "type": "string"
         }
       }
     },
