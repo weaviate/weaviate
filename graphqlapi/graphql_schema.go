@@ -362,14 +362,16 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        keyType,
 				Description: "The key which is the owner of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					keyResponse := models.KeyTokenGetResponse{}
+					keyResponse := &models.KeyTokenGetResponse{}
 					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 						// Do a new request with the key from the reference object
-						err := f.resolveCrossRef(p.Info.FieldASTs, thing.Key, &keyResponse)
+						err := f.resolveCrossRef(p.Info.FieldASTs, thing.Key, keyResponse)
+
 						if err != nil {
 							return keyResponse, err
 						}
 					}
+
 					return keyResponse, nil
 				},
 			},
@@ -530,10 +532,10 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        keyType,
 				Description: "The key which is the owner of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					keyResponse := models.KeyTokenGetResponse{}
+					keyResponse := &models.KeyTokenGetResponse{}
 					if action, ok := p.Source.(*models.ActionGetResponse); ok {
 						// Do a new request with the key from the reference object
-						err := f.resolveCrossRef(p.Info.FieldASTs, action.Key, &keyResponse)
+						err := f.resolveCrossRef(p.Info.FieldASTs, action.Key, keyResponse)
 						if err != nil {
 							return keyResponse, err
 						}
@@ -658,9 +660,21 @@ func (f *GraphQLSchema) InitSchema() error {
 	// Add to thingType here, because when initializing the thingType, actionListType does not exist.
 	thingType.AddFieldConfig("actions", actionListField)
 
-	// Build the schema fields in a separate function based on the given schema
-	thingSchemaFields := f.buildFieldsBySchema(f.serverSchema.ThingSchema.Schema)
-	actionSchemaFields := f.buildFieldsBySchema(f.serverSchema.ActionSchema.Schema)
+	// Build the schema fields in a separate function based on the given schema (thing)
+	thingSchemaFields, errT := f.buildFieldsBySchema(f.serverSchema.ThingSchema.Schema)
+
+	// Return error if it has one
+	if errT != nil {
+		return errT
+	}
+
+	// Build the schema fields in a separate function based on the given schema (action)
+	actionSchemaFields, errA := f.buildFieldsBySchema(f.serverSchema.ActionSchema.Schema)
+
+	// Return error if it has one
+	if errA != nil {
+		return errA
+	}
 
 	// The thingsSchemaType in wich all the possible fields are addes
 	thingSchemaType := graphql.NewObject(graphql.ObjectConfig{
@@ -925,7 +939,7 @@ func doRequest(hostname string, endpoint string, method string, body io.Reader, 
 }
 
 // buildFieldsBySchema builds a GraphQL fields object for the given fields
-func (f *GraphQLSchema) buildFieldsBySchema(ws schema.Schema) graphql.Fields {
+func (f *GraphQLSchema) buildFieldsBySchema(ws schema.Schema) (graphql.Fields, error) {
 	// Init the fields for the return of the function
 	fields := graphql.Fields{}
 
@@ -937,21 +951,26 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws schema.Schema) graphql.Fields {
 
 			// If the property isn't allready added
 			if _, ok := fields[schemaProp.Name]; !ok {
+				// Get the datatype
+				dt, err := schema.GetPropertyDataType(&schemaClass, schemaProp.Name)
 
-				dt := schemaProp.DataType[0]
+				if err != nil {
+					return fields, err
+				}
+
 				var scalar graphql.Output
-				if dt == string(schema.DataTypeString) {
+				if *dt == schema.DataTypeString {
 					scalar = graphql.String
-				} else if dt == string(schema.DataTypeInt) {
+				} else if *dt == schema.DataTypeInt {
 					scalar = graphql.Int
-				} else if dt == string(schema.DataTypeNumber) {
+				} else if *dt == schema.DataTypeNumber {
 					scalar = graphql.Float
-				} else if dt == string(schema.DataTypeBoolean) {
+				} else if *dt == schema.DataTypeBoolean {
 					scalar = graphql.Boolean
-				} else if dt == string(schema.DataTypeDate) {
-					scalar = graphql.DateTime
-				} else {
-					// It is a CRef?
+				} else if *dt == schema.DataTypeDate {
+					// scalar = graphql.DateTime TODO
+					scalar = graphql.String
+				} else if *dt == schema.DataTypeCRef {
 					scalar = thingType
 				}
 
@@ -970,26 +989,28 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws schema.Schema) graphql.Fields {
 						}
 
 						// Return value based on data type
-						if dt == string(schema.DataTypeString) {
+						if *dt == schema.DataTypeString {
 							if value, ok := rVal.(string); ok {
 								return value, nil
 							}
-						} else if dt == string(schema.DataTypeInt) {
+						} else if *dt == schema.DataTypeInt {
 							if value, ok := rVal.(int64); ok {
 								return value, nil
 							}
-						} else if dt == string(schema.DataTypeNumber) {
+						} else if *dt == schema.DataTypeNumber {
 							if value, ok := rVal.(float64); ok {
 								return value, nil
 							}
-						} else if dt == string(schema.DataTypeBoolean) {
+						} else if *dt == schema.DataTypeBoolean {
 							if value, ok := rVal.(bool); ok {
 								return value, nil
 							}
-						} else if dt == string(schema.DataTypeDate) {
-							value := graphql.DateTime.ParseValue(rVal)
-							return value, nil
-						} else {
+						} else if *dt == schema.DataTypeDate {
+							// value := graphql.DateTime.ParseValue(rVal) TODO
+							if value, ok := rVal.(string); ok {
+								return value, nil
+							}
+						} else if *dt == schema.DataTypeCRef {
 							// Data type is not a value, but an cref object
 							thingResponse := &models.ThingGetResponse{}
 
@@ -1011,7 +1032,7 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws schema.Schema) graphql.Fields {
 		}
 	}
 
-	return fields
+	return fields, nil
 }
 
 // resolveCrossRef Resolves a Cross reference
