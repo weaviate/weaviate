@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/mitchellh/mapstructure"
@@ -1119,6 +1120,11 @@ func (f *Dgraph) updateNodeSchemaProperties(node dgraphClient.Node, nodeSchema m
 		}
 
 		err = f.addPropertyEdge(&req, node, propKey, propValue, c)
+
+		// If adding a property gives an error, return it
+		if err != nil {
+			return err
+		}
 	}
 
 	// Call run after all mutations are added
@@ -1191,8 +1197,14 @@ func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, 
 				return err
 			}
 		} else if *dataType == schema.DataTypeDate {
-			// TODO: This has to be set as date!
-			if err := edge.SetValueString(propValue.(string)); err != nil {
+			t, err := time.Parse(time.RFC3339, propValue.(string))
+
+			// Return if there is an error while parsing
+			if err != nil {
+				return err
+			}
+
+			if err := edge.SetValueDatetime(t); err != nil {
 				return err
 			}
 		} else if *dataType == schema.DataTypeInt {
