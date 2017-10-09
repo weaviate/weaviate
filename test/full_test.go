@@ -538,7 +538,7 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 			"testInt": %d,
 			"testBoolean": %t,
 			"testNumber": %f,
-			"testDate": "%s"
+			"testDateTime": "%s"
 		}
 	}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate)))
 	response := doRequest("/things", "POST", "application/json", jsonStr, apiKeyCmdLine)
@@ -562,7 +562,7 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 	require.Equal(t, thingTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, thingTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, thingTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
-	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDateTime"].(string))
 
 	// Add multiple things to the database to check List functions
 	// Fill database with things and set the IDs to the global thingIDs-array
@@ -578,7 +578,7 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 				"testInt": %d,
 				"testBoolean": %t,
 				"testNumber": %f,
-				"testDate": "%s",
+				"testDateTime": "%s",
 				"testCref": {
 					"$cref": "%s",
 					"locationUrl": "%s",
@@ -675,7 +675,7 @@ func Test__weaviate_things_get_JSON(t *testing.T) {
 	require.Equal(t, thingTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, thingTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, thingTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
-	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDateTime"].(string))
 	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 
 	// Create get request with non-existing ID, check its responsecode
@@ -695,7 +695,7 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 			"testInt": %d,
 			"testBoolean": %t,
 			"testNumber": %f,
-			"testDate": "%s"
+			"testDateTime": "%s"
 		}
 	}`, newValue, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate)))
 	response := doRequest("/things/"+thingID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
@@ -718,7 +718,7 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 	require.Equal(t, thingTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, thingTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, thingTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
-	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDateTime"].(string))
 
 	// Check given update time is after now, but not in the future
 	now := connutils.NowUnix()
@@ -742,7 +742,7 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 	require.Equal(t, thingTestInt, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, thingTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, thingTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
-	require.Equal(t, thingTestDate, respObjectGet.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, thingTestDate, respObjectGet.Schema.(map[string]interface{})["testDateTime"].(string))
 
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
@@ -775,7 +775,7 @@ func Test__weaviate_things_patch_JSON(t *testing.T) {
 	require.Equal(t, thingTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, thingTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, thingTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
-	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDateTime"].(string))
 
 	// Check given update time is after now, but not in the future
 	now := connutils.NowUnix()
@@ -799,7 +799,7 @@ func Test__weaviate_things_patch_JSON(t *testing.T) {
 	require.Equal(t, thingTestInt, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, thingTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, thingTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
-	require.Equal(t, thingTestDate, respObjectGet.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, thingTestDate, respObjectGet.Schema.(map[string]interface{})["testDateTime"].(string))
 
 	// Check patch with incorrect contents
 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newValue + `"}`))
@@ -833,7 +833,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 			"testInt": %d,
 			"testBoolean": %t,
 			"testNumber": %f,
-			"testDate": "%s",
+			"testDateTime": "%s",
 			"testCref": {
 				"$cref": "%s",
 				"locationUrl": "%s",
@@ -884,7 +884,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 	require.Equal(t, actionTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, actionTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, actionTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
-	require.Equal(t, actionTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, actionTestDate, respObject.Schema.(map[string]interface{})["testDateTime"].(string))
 
 	// Check set user key is rootID
 	// testID(t, string(respObject.UserKey), rootID) TODO
@@ -908,7 +908,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 				"testInt": %d,
 				"testBoolean": %t,
 				"testNumber": %f,
-				"testDate": "%s",
+				"testDateTime": "%s",
 				"testCref": {
 					"$cref": "%s",
 					"locationUrl": "%s",
@@ -1025,7 +1025,7 @@ func Test__weaviate_actions_get_JSON(t *testing.T) {
 	require.Equal(t, actionTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, actionTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, actionTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
-	require.Equal(t, actionTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, actionTestDate, respObject.Schema.(map[string]interface{})["testDateTime"].(string))
 	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 
 	// Create get request with non-existing ID, check its responsecode
@@ -1060,7 +1060,7 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	require.Equal(t, newValue, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, actionTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, actionTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
-	require.Equal(t, actionTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, actionTestDate, respObject.Schema.(map[string]interface{})["testDateTime"].(string))
 	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 
 	// Check given creation time is after now, but not in the future
@@ -1085,7 +1085,7 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	require.Equal(t, newValue, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, actionTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, actionTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
-	require.Equal(t, actionTestDate, respObjectGet.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, actionTestDate, respObjectGet.Schema.(map[string]interface{})["testDateTime"].(string))
 	require.Equal(t, thingID, string(respObjectGet.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 
 	// Check patch with incorrect contents
