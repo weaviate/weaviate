@@ -817,14 +817,28 @@ func Test__weaviate_things_patch_JSON(t *testing.T) {
 
 // weaviate.actions.create
 func Test__weaviate_actions_create_JSON(t *testing.T) {
+	// Set all thing values to compare
+	actionTestString = "Test string 2"
+	actionTestInt = 2
+	actionTestBoolean = false
+	actionTestNumber = 2.337
+	actionTestDate = "2017-10-09T08:15:30+01:00"
+
 	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 		"@context": "http://schema.org",
-		"@class": "OnOffAction",
+		"@class": "TestAction",
 		"schema": {
-			"hue": 123,
-			"saturation": 32121,
-			"on": 3412
+			"testString": "%s",
+			"testInt": %d,
+			"testBoolean": %t,
+			"testNumber": %f,
+			"testDate": "%s",
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
 		},
 		"things": {
 			"object": {
@@ -838,7 +852,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 				"type": "Thing"
 			}
 		}
-	}`, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+	}`, actionTestString, actionTestInt, actionTestBoolean, actionTestNumber, actionTestDate, thingID, getWeaviateURL(), thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
 	response := doRequest("/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
 	// Check status code of create
@@ -865,6 +879,13 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
 	require.Equal(t, thingIDsubject, string(respObject.Things.Subject.NrDollarCref))
 
+	// Check whether the returned information is the same as the data added
+	require.Equal(t, actionTestString, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, actionTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, actionTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, actionTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, actionTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
+
 	// Check set user key is rootID
 	// testID(t, string(respObject.UserKey), rootID) TODO
 
@@ -881,11 +902,18 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 		// Handle request
 		jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 			"@context": "http://schema.org",
-			"@class": "OnOffAction",
+			"@class": "TestAction",
 			"schema": {
-				"hue": 123,
-				"saturation": 32121,
-				"on": 3412
+				"testString": "%s",
+				"testInt": %d,
+				"testBoolean": %t,
+				"testNumber": %f,
+				"testDate": "%s",
+				"testCref": {
+					"$cref": "%s",
+					"locationUrl": "%s",
+					"type": "Thing"
+				}
 			},
 			"things": {
 				"object": {
@@ -899,7 +927,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 					"type": "Thing"
 				}
 			}
-		}`, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+		}`, actionTestString, actionTestInt, actionTestBoolean, actionTestNumber, actionTestDate, thingID, getWeaviateURL(), thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
 		response := doRequest("/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
 		body := getResponseBody(response)
 		respObject := &models.ActionGetResponse{}
@@ -934,6 +962,34 @@ func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 
 	// Check there are ten actions
 	require.Len(t, respObject.Actions, 10)
+
+	// Query whole list just created
+	listResponse := doRequest("/things/"+thingID+"/actions?maxResults=3", "GET", "application/json", nil, apiKeyCmdLine)
+	listResponseObject := &models.ActionsListResponse{}
+	json.Unmarshal(getResponseBody(listResponse), listResponseObject)
+
+	// Test total results
+	require.Conditionf(t, func() bool { return listResponseObject.TotalResults == 10 }, "Total results have to be equal to 10.")
+
+	// Test amount in current response
+	require.Len(t, listResponseObject.Actions, 3)
+
+	// Test ID in the middle of the 3 results
+	require.Equal(t, actionIDs[1], string(listResponseObject.Actions[1].ActionID))
+
+	// Query whole list just created
+	listResponse2 := doRequest("/things/"+thingID+"/actions?maxResults=5&page=2", "GET", "application/json", nil, apiKeyCmdLine)
+	listResponseObject2 := &models.ActionsListResponse{}
+	json.Unmarshal(getResponseBody(listResponse2), listResponseObject2)
+
+	// Test total results
+	require.Conditionf(t, func() bool { return listResponseObject2.TotalResults == 10 }, "Total results have to be equal to 10.")
+
+	// Test amount in current response
+	require.Len(t, listResponseObject2.Actions, 5)
+
+	// Test ID in the middle
+	require.Equal(t, actionIDs[7], string(listResponseObject2.Actions[2].ActionID))
 }
 
 // weaviate.action.get
@@ -964,6 +1020,14 @@ func Test__weaviate_actions_get_JSON(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
 	require.Equal(t, thingIDsubject, string(respObject.Things.Subject.NrDollarCref))
 
+	// Check whether the returned information is the same as the data added
+	require.Equal(t, actionTestString, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, actionTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, actionTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, actionTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, actionTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
+
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "GET", "application/json", nil, apiKeyCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
@@ -972,10 +1036,10 @@ func Test__weaviate_actions_get_JSON(t *testing.T) {
 // weaviate.action.patch
 func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	// Create patch request
-	newValue := 1337
+	newValue := int64(1337)
 
 	// Create JSON and do the request
-	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/hue", "value": %d}]`, newValue)))
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testInt", "value": %d}]`, newValue)))
 	response := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
@@ -990,6 +1054,14 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, respObject.ActionID)
 	require.Regexp(t, strfmt.UUIDPattern, actionID)
 	require.Equal(t, actionID, string(respObject.ActionID))
+
+	// Check whether the returned information is the same as the data updated
+	require.Equal(t, actionTestString, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newValue, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, actionTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, actionTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, actionTestDate, respObject.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 
 	// Check given creation time is after now, but not in the future
 	now := connutils.NowUnix()
@@ -1007,7 +1079,14 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	// Test response obj
 	respObjectGet := &models.ActionGetResponse{}
 	json.Unmarshal(bodyGet, respObjectGet)
-	require.Equal(t, float64(newValue), respObject.Schema.(map[string]interface{})["hue"].(float64))
+
+	// Check whether the returned information is the same as the data updated
+	require.Equal(t, actionTestString, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newValue, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, actionTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, actionTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, actionTestDate, respObjectGet.Schema.(map[string]interface{})["testDate"].(string))
+	require.Equal(t, thingID, string(respObjectGet.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 
 	// Check patch with incorrect contents
 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/xxxx", "value": "` + string(newValue) + `"}`))
