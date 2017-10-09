@@ -64,8 +64,77 @@ const (
 	validationErrorMessage string = "All predicates with the same name across different classes should contain the same kind of data"
 )
 
+// GetClassByName returns the class by its name
+func GetClassByName(schema Schema, className string) (*Class, error) {
+	// For each class-property
+	for _, class := range schema.Classes {
+
+		// Check if the name of the class is the given name, that's the class we need
+		if class.Class == className {
+			return &class, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no such class with name '%s' found", className)
+}
+
+// GetPropertyDataType checks whether the given string is a valid data type
+func GetPropertyDataType(class *Class, propertyName string) (*DataType, error) {
+	// For each class-property
+	for _, prop := range class.Properties {
+
+		// Check if the name of the property is the given name, that's the property we need
+		if prop.Name == propertyName {
+			// Init the return value
+			var returnDataType DataType
+
+			// For each data type
+			for _, dataType := range prop.DataType {
+				// Get the first letter to see if it is a capital
+				firstLetter := string(dataType[0])
+				if strings.ToUpper(firstLetter) == firstLetter {
+					returnDataType = DataTypeCRef
+				} else {
+					// Get the value-data type (non-cref), return error if there is one, otherwise assign it to return data type
+					valueDataType, err := GetValueDataTypeFromString(dataType)
+					if err != nil {
+						return nil, err
+					}
+					returnDataType = *valueDataType
+				}
+			}
+			return &returnDataType, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no such property with name '%s' found in class '%s'", propertyName, class.Class)
+}
+
+// GetValueDataTypeFromString checks whether the given string is a valid data type
+func GetValueDataTypeFromString(dt string) (*DataType, error) {
+	var returnDataType DataType
+
+	if IsValidValueDataType(dt) {
+		if dt == string(DataTypeString) {
+			returnDataType = DataTypeString
+		} else if dt == string(DataTypeInt) {
+			returnDataType = DataTypeInt
+		} else if dt == string(DataTypeDate) {
+			returnDataType = DataTypeDate
+		} else if dt == string(DataTypeNumber) {
+			returnDataType = DataTypeNumber
+		} else if dt == string(DataTypeString) {
+			returnDataType = DataTypeString
+		}
+	} else {
+		return nil, errors_.New("given value-DataType does not exist.")
+	}
+
+	return &returnDataType, nil
+}
+
 // IsValidValueDataType checks whether the given string is a valid data type
-func (f *WeaviateSchema) IsValidValueDataType(dt string) bool {
+func IsValidValueDataType(dt string) bool {
 	switch dt {
 	case
 		string(DataTypeString),
@@ -210,7 +279,7 @@ func (f *WeaviateSchema) validateSchema(schema *Schema) error {
 				}
 
 				// Check if set the data type is correct
-				if f.IsValidValueDataType(firstDataType) {
+				if IsValidValueDataType(firstDataType) {
 					// Cast the string to a data type
 					pred = DataType(firstDataType)
 				} else {
