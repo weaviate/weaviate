@@ -368,11 +368,15 @@ func (f *Dgraph) Init() error {
 func (f *Dgraph) indexSchema(ws *schema.Schema) error {
 	for _, class := range ws.Classes {
 		for _, prop := range class.Properties {
-			// Get data type
-			dt := prop.DataType[0]
+			// Get the datatype
+			dt, err := schema.GetPropertyDataType(&class, prop.Name)
+
+			if err != nil {
+				return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
+			}
 
 			// For each possible data type, add the indexes
-			if dt == string(schema.DataTypeString) {
+			if *dt == schema.DataTypeString {
 				if err := f.client.AddSchema(protos.SchemaUpdate{
 					Predicate: schemaPrefix + prop.Name,
 					ValueType: uint32(types.StringID),
@@ -382,7 +386,7 @@ func (f *Dgraph) indexSchema(ws *schema.Schema) error {
 				}); err != nil {
 					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
 				}
-			} else if dt == string(schema.DataTypeInt) {
+			} else if *dt == schema.DataTypeInt {
 				if err := f.client.AddSchema(protos.SchemaUpdate{
 					Predicate: schemaPrefix + prop.Name,
 					ValueType: uint32(types.IntID),
@@ -392,7 +396,7 @@ func (f *Dgraph) indexSchema(ws *schema.Schema) error {
 				}); err != nil {
 					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
 				}
-			} else if dt == string(schema.DataTypeNumber) {
+			} else if *dt == schema.DataTypeNumber {
 				if err := f.client.AddSchema(protos.SchemaUpdate{
 					Predicate: schemaPrefix + prop.Name,
 					ValueType: uint32(types.FloatID),
@@ -402,7 +406,7 @@ func (f *Dgraph) indexSchema(ws *schema.Schema) error {
 				}); err != nil {
 					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
 				}
-			} else if dt == string(schema.DataTypeBoolean) {
+			} else if *dt == schema.DataTypeBoolean {
 				if err := f.client.AddSchema(protos.SchemaUpdate{
 					Predicate: schemaPrefix + prop.Name,
 					ValueType: uint32(types.BoolID),
@@ -412,7 +416,7 @@ func (f *Dgraph) indexSchema(ws *schema.Schema) error {
 				}); err != nil {
 					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
 				}
-			} else if dt == string(schema.DataTypeDate) {
+			} else if *dt == schema.DataTypeDate {
 				if err := f.client.AddSchema(protos.SchemaUpdate{
 					Predicate: schemaPrefix + prop.Name,
 					ValueType: uint32(types.DateTimeID),
@@ -422,7 +426,7 @@ func (f *Dgraph) indexSchema(ws *schema.Schema) error {
 				}); err != nil {
 					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
 				}
-			} else {
+			} else if *dt == schema.DataTypeCRef {
 				if err := f.client.AddSchema(protos.SchemaUpdate{
 					Predicate: schemaPrefix + prop.Name,
 					ValueType: uint32(types.UidID),
@@ -431,6 +435,8 @@ func (f *Dgraph) indexSchema(ws *schema.Schema) error {
 				}); err != nil {
 					return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
 				}
+			} else {
+				return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
 			}
 		}
 	}
