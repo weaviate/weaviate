@@ -467,7 +467,7 @@ func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	}
 
 	// Add all given schema-information to the new node
-	err = f.updateNodeSchemaProperties(newNode, thing.Schema)
+	err = f.updateNodeSchemaProperties(newNode, thing.Schema, thing.AtClass, connutils.RefTypeThing)
 
 	return err
 
@@ -592,7 +592,7 @@ func (f *Dgraph) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 	}
 
 	// Update in DB
-	err = f.updateNodeSchemaProperties(updateNode, thing.Schema)
+	err = f.updateNodeSchemaProperties(updateNode, thing.Schema, thing.AtClass, connutils.RefTypeThing)
 
 	return err
 }
@@ -638,7 +638,7 @@ func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	}
 
 	// Add all given schema-information to the new node
-	err = f.updateNodeSchemaProperties(newNode, action.Schema)
+	err = f.updateNodeSchemaProperties(newNode, action.Schema, action.AtClass, connutils.RefTypeAction)
 
 	if err != nil {
 		return err
@@ -773,7 +773,7 @@ func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 	}
 
 	// Update in DB
-	err = f.updateNodeSchemaProperties(updateNode, action.Schema)
+	err = f.updateNodeSchemaProperties(updateNode, action.Schema, action.AtClass, connutils.RefTypeAction)
 
 	return err
 }
@@ -1088,16 +1088,31 @@ func (f *Dgraph) addNodeFirstLevelProperties(nodeContext string, nodeClass strin
 }
 
 // updateNodeSchemaProperties updates all the edges of the node in 'schema', used with a new node or to update/patch a node
-func (f *Dgraph) updateNodeSchemaProperties(node dgraphClient.Node, nodeSchema models.Schema) error {
+func (f *Dgraph) updateNodeSchemaProperties(node dgraphClient.Node, nodeSchema models.Schema, class string, schemaType string) error {
 	// Create update request
 	req := dgraphClient.Req{}
 
 	// Init error var
 	var err error
 
-	// Add Thing properties
+	// Add Object properties
 	for propKey, propValue := range nodeSchema.(map[string]interface{}) {
-		err = f.addPropertyEdge(&req, node, propKey, propValue)
+		var c *schema.Class
+		if schemaType == connutils.RefTypeAction {
+			c, err = schema.GetClassByName(f.schema.ActionSchema.Schema, class)
+			if err != nil {
+				return err
+			}
+		} else if schemaType == connutils.RefTypeThing {
+			c, err = schema.GetClassByName(f.schema.ThingSchema.Schema, class)
+			if err != nil {
+				return err
+			}
+		} else {
+			return errors_.New("invalid schemaType given")
+		}
+
+		err = f.addPropertyEdge(&req, node, propKey, propValue, c)
 	}
 
 	// Call run after all mutations are added
@@ -1141,15 +1156,14 @@ func (f *Dgraph) updateActionRelatedThings(node dgraphClient.Node, action *model
 	return err
 }
 
-func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, propKey string, propValue interface{}) error {
+func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, propKey string, propValue interface{}, schemaClass *schema.Class) error {
 	// Add prefix to the schema properties
 	edgeName := schemaPrefix + propKey
 
-	// Get the type of the given value
-	typeVar := fmt.Sprintf("%T", propValue)
-
 	// If it is an interface, then it should contain a "cref" reference to another object. Use it to connect nodes.
-	if typeVar == "map[string]interface {}" {
+	dataType, err := schema.GetPropertyDataType(schemaClass, propKey)
+
+	if *dataType == schema.DataTypeCRef {
 		refProperties := propValue.(map[string]interface{})
 		refThingNode, err := f.getNodeByUUID(strfmt.UUID(refProperties["$cref"].(string)), nil)
 		if err != nil {
@@ -1159,19 +1173,25 @@ func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, 
 	} else {
 		// Otherwise, the data should be added by type.
 		edge := node.Edge(edgeName)
-		if strings.Contains(typeVar, "bool") {
+
+		if *dataType == schema.DataTypeBoolean {
 			if err := edge.SetValueBool(propValue.(bool)); err != nil {
 				return err
 			}
-		} else if strings.Contains(typeVar, "int") {
+		} else if *dataType == schema.DataTypeDate {
+			// TODO: This has to be set as date!
+			if err := edge.SetValueString(propValue.(string)); err != nil {
+				return err
+			}
+		} else if *dataType == schema.DataTypeInt {
 			if err := edge.SetValueInt(propValue.(int64)); err != nil {
 				return err
 			}
-		} else if strings.Contains(typeVar, "float") {
+		} else if *dataType == schema.DataTypeNumber {
 			if err := edge.SetValueFloat(propValue.(float64)); err != nil {
 				return err
 			}
-		} else if strings.Contains(typeVar, "string") {
+		} else if *dataType == schema.DataTypeString {
 			if err := edge.SetValueString(propValue.(string)); err != nil {
 				return err
 			}
