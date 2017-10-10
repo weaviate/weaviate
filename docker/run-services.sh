@@ -21,6 +21,9 @@ fi
 # check if jq is installed
 jq --help >/dev/null 2>&1 || { echo >&2 "I require jq but it's not installed. Aborting."; exit 1; }
 
+# check if docker is installed
+docker ps >/dev/null 2>&1 || { echo >&2 "I require Docker to run but it's not running. Aborting."; exit 1; }
+
 # get all running docker container names
 containers=$(docker ps | awk '{if(NR>1) print $NF}')
 host=$(hostname)
