@@ -201,9 +201,132 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 	}
 }
 
-func validateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *models.Schema, className string) error {
-	// TODO: add validation in update function
+// validateBody Validates the overlapping body values
+func validateBody(class string, context string) error {
+	// If the given class is empty, return an error
+	if class == "" {
+		return fmt.Errorf("the given class is empty")
+	}
 
+	// If the given context is empty, return an error
+	if context == "" {
+		return fmt.Errorf("the given context is empty")
+	}
+
+	// No error
+	return nil
+}
+
+// validateThingBody Validates a thing body using the 'ThingCreate' object.
+func validateThingBody(thing *models.ThingCreate) error {
+	// Validate the body
+	bve := validateBody(thing.AtClass, thing.AtContext)
+
+	// Return error if possible
+	if bve != nil {
+		return bve
+	}
+
+	// Return the schema validation error
+	sve := validateSchemaInBody(databaseSchema.ThingSchema.Schema, &thing.Schema, thing.AtClass)
+
+	return sve
+}
+
+// validateActionBody Validates a action body using the 'ActionCreate' object.
+func validateActionBody(action *models.ActionCreate) error {
+	// Validate the body
+	bve := validateBody(action.AtClass, action.AtContext)
+
+	// Return error if possible
+	if bve != nil {
+		return bve
+	}
+
+	// Check whether the Things exist
+	if action.Things == nil {
+		return fmt.Errorf("no things, object and subject, are added. Add 'things' by using the 'things' key in the root of the JSON")
+	}
+
+	// Check whether the Object exist in the JSON
+	if action.Things.Object == nil {
+		return fmt.Errorf("no object-thing is added. Add the 'object' inside the 'things' part of the JSON")
+	}
+
+	// Check whether the Subject exist in the JSON
+	if action.Things.Subject == nil {
+		return fmt.Errorf("no subject-thing is added. Add the 'subject' inside the 'things' part of the JSON")
+	}
+
+	// Check whether the Object has a location
+	if action.Things.Object.LocationURL == nil {
+		return fmt.Errorf("no 'locationURL' is found in the object-thing. Add the 'locationURL' inside the 'object-thing' part of the JSON")
+	}
+
+	// Check whether the Object has a type
+	if action.Things.Object.Type == "" {
+		return fmt.Errorf("no 'type' is found in the object-thing. Add the 'type' inside the 'object-thing' part of the JSON")
+	}
+
+	// Check whether the Object reference type exists
+	if !validateRefType(action.Things.Object.Type) {
+		return fmt.Errorf(
+			"object-thing requires one of the following values in 'type': '%s', '%s' or '%s'",
+			connutils.RefTypeAction,
+			connutils.RefTypeThing,
+			connutils.RefTypeKey,
+		)
+	}
+
+	// Check whether the Subject has a location
+	if action.Things.Subject.LocationURL == nil {
+		return fmt.Errorf("no 'locationURL' is found in the subject-thing. Add the 'locationURL' inside the 'subject-thing' part of the JSON")
+	}
+
+	// Check whether the Subject has a type
+	if action.Things.Subject.Type == "" {
+		return fmt.Errorf("no 'type' is found in the subject-thing. Add the 'type' inside the 'subject-thing' part of the JSON")
+	}
+
+	// Check whether the Subject reference type exists
+	if !validateRefType(action.Things.Subject.Type) {
+		return fmt.Errorf(
+			"subject-thing requires one of the following values in 'type': '%s', '%s' or '%s'",
+			connutils.RefTypeAction,
+			connutils.RefTypeThing,
+			connutils.RefTypeKey,
+		)
+	}
+
+	// Check whether the given object exists in the DB
+	// TODO: Use location URL to check CREF
+	ot := &models.ThingGetResponse{}
+	ote := dbConnector.GetThing(action.Things.Object.NrDollarCref, ot)
+	if ote != nil {
+		return fmt.Errorf("error finding the 'object'-thing in the database: %s", ote)
+	}
+
+	// Check whether the given subject exist in the DB
+	// TODO: Use location URL to check CREF
+	st := &models.ThingGetResponse{}
+	ste := dbConnector.GetThing(action.Things.Subject.NrDollarCref, st)
+	if ste != nil {
+		return fmt.Errorf("error finding the 'subject'-thing in the database: %s", ste)
+	}
+
+	// Return the schema validation error
+	sve := validateSchemaInBody(databaseSchema.ActionSchema.Schema, &action.Schema, action.AtClass)
+
+	return sve
+}
+
+// validateRefType validates the reference type with one of the existing reference types
+func validateRefType(s string) bool {
+	return (s == connutils.RefTypeAction || s == connutils.RefTypeThing || s == connutils.RefTypeKey)
+}
+
+// validateSchemaInBody Validate the schema in the given body
+func validateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *models.Schema, className string) error {
 	// Validate whether the class exists in the given schema
 	// Get the class by its name
 	class, err := schema.GetClassByName(weaviateSchema, className)
@@ -268,7 +391,7 @@ func validateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 			// TODO: Validate on existing locationURL?
 
 			// Return error if type is not right, when it is not one of the 3 possible types
-			if !(pvcr["type"] == connutils.RefTypeAction || pvcr["type"] == connutils.RefTypeThing || pvcr["type"] == connutils.RefTypeKey) {
+			if !validateRefType(pvcr["type"].(string)) {
 				return fmt.Errorf(
 					"class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s' or '%s'",
 					class.Class, pk,
@@ -573,11 +696,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &action)
 
 		// Validate schema made after patching with the weaviate schema
-		validatedErr := validateSchemaInBody(databaseSchema.ActionSchema.Schema, &action.Schema, action.AtClass)
+		validatedErr := validateActionBody(&action.ActionCreate)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
-				log.Printf("Validation error: %s", validatedErr.Error())
 				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
 			})
 		}
@@ -595,11 +717,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validateSchemaInBody(databaseSchema.ActionSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		validatedErr := validateActionBody(&params.Body.ActionCreate)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
-				log.Printf("Validation error: %s", validatedErr.Error())
 				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
 			})
 		}
@@ -616,11 +737,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validateSchemaInBody(databaseSchema.ActionSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		validatedErr := validateActionBody(params.Body)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
-				log.Printf("Validation error: %s", validatedErr.Error())
 				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
 			})
 		}
@@ -847,11 +967,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validateSchemaInBody(databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		validatedErr := validateThingBody(params.Body)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
-				log.Printf("Validation error: %s", validatedErr.Error())
 				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
 			})
 		}
@@ -1014,11 +1133,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &thing)
 
 		// Validate schema made after patching with the weaviate schema
-		validatedErr := validateSchemaInBody(databaseSchema.ThingSchema.Schema, &thing.Schema, thing.AtClass)
+		validatedErr := validateThingBody(&thing.ThingCreate)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
-				log.Printf("Validation error: %s", validatedErr.Error())
 				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
 			})
 		}
@@ -1055,11 +1173,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validateSchemaInBody(databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		validatedErr := validateThingBody(&params.Body.ThingCreate)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
-				log.Printf("Validation error: %s", validatedErr.Error())
 				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
 			})
 		}
@@ -1082,11 +1199,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validateSchemaInBody(databaseSchema.ThingSchema.Schema, &params.Body.Schema, params.Body.AtClass)
+		validatedErr := validateThingBody(params.Body)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
-				log.Printf("Validation error: %s", validatedErr.Error())
 				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
 			})
 		}
@@ -1094,8 +1210,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsValidateOK()
 	})
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
+		// Create response object
 		metaResponse := &models.Meta{}
 
+		// Set the response object's values
 		metaResponse.Hostname = serverConfig.GetHostAddress()
 		metaResponse.ActionsSchema = databaseSchema.ActionSchema.Schema
 		metaResponse.ThingsSchema = databaseSchema.ThingSchema.Schema
