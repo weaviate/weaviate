@@ -1490,6 +1490,11 @@ func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID, refType *string) (dgraphClient.
 		return dgraphClient.Node{}, err
 	}
 
+	// Return if no ID is found
+	if idResult.Root.ID == 0 {
+		return dgraphClient.Node{}, fmt.Errorf("no such item with UUID '%s' found in DB", UUID)
+	}
+
 	// If the type is set and the type of the node is different, return error
 	if refType != nil && *refType != idResult.Root.Type {
 		return dgraphClient.Node{}, fmt.Errorf("mismatch on type node, expected '%s', given '%s'", *refType, idResult.Root.Type)
