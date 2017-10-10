@@ -9,6 +9,8 @@ RUN mkdir -p /var/weaviate && cd /var/weaviate
 WORKDIR /var/weaviate
 
 # Install needed packages and scripts
+RUN echo "BUILDING WITH DGRAPH IP: $DGRAPHIP"
+
 RUN apt-get update -qq && apt-get install -qq -y jq curl zip wget && \
     wget -q -O /var/weaviate/weaviate.zip https://raw.githubusercontent.com/weaviate/weaviate/develop/dist/weaviate_nightly_linux_amd64.zip && \
     unzip -o -q -j weaviate.zip && \
