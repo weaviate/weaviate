@@ -1,4 +1,7 @@
 sudo: required
+language: go
+go:
+  - 1.8.3
 services:
   - docker
 before_install:
