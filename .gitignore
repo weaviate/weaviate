@@ -1,5 +1,5 @@
-# TEMP: remove testing
-test
+# Ignore /vendor from GIT
+vendor/
 
 # Ignore OLD files
 *.OLD
