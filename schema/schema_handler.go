@@ -67,7 +67,7 @@ const (
 
 // GetClassByName returns the class by its name
 func GetClassByName(s *models.SemanticSchema, className string) (*models.SemanticSchemaClass, error) {
-	// For each class-property
+	// For each class
 	for _, class := range s.Classes {
 
 		// Check if the name of the class is the given name, that's the class we need
@@ -76,39 +76,51 @@ func GetClassByName(s *models.SemanticSchema, className string) (*models.Semanti
 		}
 	}
 
-	return nil, fmt.Errorf("no such class with name '%s' found", className)
+	return nil, fmt.Errorf("no such class with name '%s' found in the schema. Check your schema files for which classes are available", className)
+}
+
+// GetPropertyByName returns the class by its name
+func GetPropertyByName(c *models.SemanticSchemaClass, propName string) (*models.SemanticSchemaClassProperty, error) {
+	// For each class-property
+	for _, prop := range c.Properties {
+
+		// Check if the name of the property is the given name, that's the property we need
+		if prop.Name == propName {
+			return prop, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no such prop with name '%s' found in class '%s' in the schema. Check your schema files for which properties in this class are available", propName, c.Class)
 }
 
 // GetPropertyDataType checks whether the given string is a valid data type
 func GetPropertyDataType(class *models.SemanticSchemaClass, propertyName string) (*DataType, error) {
-	// For each class-property
-	for _, prop := range class.Properties {
+	// Get the class-property
+	prop, err := GetPropertyByName(class, propertyName)
 
-		// Check if the name of the property is the given name, that's the property we need
-		if prop.Name == propertyName {
-			// Init the return value
-			var returnDataType DataType
-
-			// For each data type
-			for _, dataType := range prop.AtDataType {
-				// Get the first letter to see if it is a capital
-				firstLetter := string(dataType[0])
-				if strings.ToUpper(firstLetter) == firstLetter {
-					returnDataType = DataTypeCRef
-				} else {
-					// Get the value-data type (non-cref), return error if there is one, otherwise assign it to return data type
-					valueDataType, err := GetValueDataTypeFromString(dataType)
-					if err != nil {
-						return nil, err
-					}
-					returnDataType = *valueDataType
-				}
-			}
-			return &returnDataType, nil
-		}
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, fmt.Errorf("no such property with name '%s' found in class '%s'", propertyName, class.Class)
+	// Init the return value
+	var returnDataType DataType
+
+	// For each data type
+	for _, dataType := range prop.AtDataType {
+		// Get the first letter to see if it is a capital
+		firstLetter := string(dataType[0])
+		if strings.ToUpper(firstLetter) == firstLetter {
+			returnDataType = DataTypeCRef
+		} else {
+			// Get the value-data type (non-cref), return error if there is one, otherwise assign it to return data type
+			valueDataType, err := GetValueDataTypeFromString(dataType)
+			if err != nil {
+				return nil, err
+			}
+			returnDataType = *valueDataType
+		}
+	}
+	return &returnDataType, nil
 }
 
 // GetValueDataTypeFromString checks whether the given string is a valid data type
