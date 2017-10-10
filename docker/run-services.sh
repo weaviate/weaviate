@@ -46,4 +46,7 @@ DGRAPHIP=$(docker inspect $DGRAPHID | jq -r '.[0].NetworkSettings.IPAddress')
 # build and start weaviate docker
 ECHO "BUILDING WITH DGRAPH IP: $DGRAPHIP"
 docker build --no-cache --build-arg DGRAPHIP=$DGRAPHIP -t weaviate "https://raw.githubusercontent.com/weaviate/weaviate/develop/docker/Dockerfile?i=$(echo $((1 + RANDOM % 999999)))"
-docker run weaviate
+WEAVIATEIP=$(docker run -d weaviate)
+
+# Return end-point
+echo "WEAVIATE@$WEAVIATEIP"
