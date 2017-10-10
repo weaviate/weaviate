@@ -12,17 +12,36 @@
 # Contact: @weaviate_iot / yourfriends@weaviate.com
 #
 
+# check OS
+if [[ "$OSTYPE" == "win32" ]]; then
+    echo "SORRY, NO WINDOWS SUPPORT"
+    exit 1
+fi
+
 # check if jq is installed
 jq --help >/dev/null 2>&1 || { echo >&2 "I require jq but it's not installed. Aborting."; exit 1; }
 
+# get all running docker container names
+containers=$(docker ps | awk '{if(NR>1) print $NF}')
+host=$(hostname)
+
+# loop through all containers and stop weaviate and dgraph ones
+for container in $containers
+do
+    if [[ $container == *"dgraph"* ]] ||  [[ $container == *"weaviate"* ]]; then
+        echo "STOPPING: $container"
+        docker kill $container &>/dev/null
+    fi
+done
+
 # remove dgraph and weaviate
-docker rm dgraph || true
-docker rm weaviate || true
+docker rm dgraph &>/dev/null || true
+docker rm weaviate &>/dev/null || true
 
 # build and start dgraph docker
 mkdir -p ~/dgraph
-docker run -it -p 8080:8080 -p 9080:9080 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraph --bindall=true --memory_mb 2048
-DGRAPHIP=$(docker inspect dgraph  | jq -r '.[0].NetworkSettings.IPAddress')
+DGRAPHID=$(docker run -itd -p 8080:8080 -p 9080:9080 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraph --bindall=true --memory_mb 2048)
+DGRAPHIP=$(docker inspect ${DGRAPHID} | jq -r '.[0].NetworkSettings.IPAddress')
 
 # build and start weaviate docker
 docker build --build-arg DGRAPHIP=$DGRAPHIP -t weaviate https://raw.githubusercontent.com/weaviate/weaviate/develop/docker/Dockerfile?i=$(echo $((1 + RANDOM % 999999)))
