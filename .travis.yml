@@ -9,7 +9,7 @@ before_install:
   - sudo apt-get install jq
   - curl -sL http://git.io/goreleaser | bash
 before_script:
-  - curl https://raw.githubusercontent.com/weaviate/weaviate/develop/docker/run-services.sh -sSf | bash
+  - curl https://git.io/vdwgr -sL | bash
 script:
   # RUN THE TEST
   # - go test -v ./test -args -api-key=$WEAVIATEKEY --server-port=8070 --server-host=localhost
