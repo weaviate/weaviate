@@ -7,7 +7,7 @@ services:
 before_install:
   - sudo apt-get update
   - sudo apt-get install jq
-  - curl -sL http://git.io/goreleaser | bash
+  - go get github.com/goreleaser/goreleaser
 before_script:
   - curl https://git.io/vdwgr -sL | bash
 script:
