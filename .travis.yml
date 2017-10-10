@@ -1,27 +1,16 @@
 sudo: required
-language: ruby
 services:
   - docker
-before_script:
-  - mkdir -p ~/gopath
-  - mkdir -p ~/gopath/src
-  - mkdir -p ~/gopath/src/github.com
-  - mkdir -p ~/gopath/bin
-  - mv ~/build/weaviate ~/gopath/src/github.com/weaviate
-  - cd ~/gopath/src/github.com/weaviate/weaviate
 before_install:
-  - docker pull dgraph/dgraph
-  - mkdir -p ~/dgraph
-  - docker run -d -p 8080:8080 -p 9080:9080 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraph --bindall=true --memory_mb 2048
+  - sudo apt-get update
+  - sudo apt-get install jq
+  - curl -sL http://git.io/goreleaser | bash
+before_script:
+  - curl https://raw.githubusercontent.com/weaviate/weaviate/develop/docker/run-services.sh -sSf | bash
 script:
-  - wget --quiet https://storage.googleapis.com/golang/go1.9.linux-amd64.tar.gz
-  - sudo tar -xf go1.9.linux-amd64.tar.gz
-  - sudo mv go /usr/local
-  - export GOROOT=/usr/local/go
-  - export GOPATH=/home/travis/gopath
-  - export PATH=$GOPATH/bin:$GOROOT/bin:$PATH
-  - go get ./...
-  - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8070 --host=localhost --config=graph --config-file=weaviate.conf.json &
-  - sleep 40
-  - export WEAVIATEKEY=$(grep "ROOTKEY=" nohup.out | cut -d "=" -f 2)
-  - go test -v ./test -args -api-key=$WEAVIATEKEY --server-port=8070 --server-host=localhost
+  # RUN THE TEST
+  # - go test -v ./test -args -api-key=$WEAVIATEKEY --server-port=8070 --server-host=localhost
+  # Update nightly builds
+  - goreleaser --rm-dist --snapshot --skip-validate
+  # Commit back to Github
+  # COMMIT
