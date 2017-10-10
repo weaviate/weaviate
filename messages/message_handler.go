@@ -23,7 +23,7 @@ import (
 func ExitError(code int, message interface{}) {
 	// Print Error
 	ErrorMessage(message.(string))
-	log.Println("ERROR: Exiting...")
+	log.Println("ERROR: This error needs to be resolved. For more info, check https://weaviate.com/. Exiting now...")
 
 	// Exit with code
 	os.Exit(code)
@@ -38,5 +38,5 @@ func InfoMessage(message interface{}) {
 // ErrorMessage exit the program and give standard weaviate-error message.
 func ErrorMessage(message interface{}) {
 	// Print Error
-	log.Println("ERROR: " + fmt.Sprint(message) + ". Needs to be resolved. For more info, check https://weaviate.com/.")
+	log.Println("ERROR: " + fmt.Sprint(message) + ".")
 }
