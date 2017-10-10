@@ -1143,6 +1143,13 @@ func (f *Dgraph) updateActionRelatedThings(node dgraphClient.Node, action *model
 
 	// Add Thing that gets the action
 	nodeType := connutils.RefTypeThing
+
+	// Validate incoming object
+	if action.Things == nil || action.Things.Object == nil {
+		return fmt.Errorf("the given action does not contain a correct 'object'")
+	}
+
+	// Add object thing by $cref
 	objectNode, err := f.getNodeByUUID(strfmt.UUID(action.Things.Object.NrDollarCref), &nodeType)
 	if err != nil {
 		return err
@@ -1152,7 +1159,12 @@ func (f *Dgraph) updateActionRelatedThings(node dgraphClient.Node, action *model
 		return err
 	}
 
-	// Add subject Thing by $ref TODO: make interactive
+	// Validate incoming subject
+	if action.Things == nil || action.Things.Subject == nil {
+		return fmt.Errorf("the given action does not contain a correct 'subject'")
+	}
+
+	// Add subject Thing by $cref
 	subjectNode, err := f.getNodeByUUID(strfmt.UUID(action.Things.Subject.NrDollarCref), &nodeType)
 	if err != nil {
 		return err
