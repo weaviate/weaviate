@@ -1,0 +1,105 @@
+{
+    "@context": "http://example.org",
+    "type": "thing",
+    "version": "1.0.0",
+    "name": "example.org - Thing Test",
+    "maintainer": "yourfriends@weaviate.com",
+    "classes": [
+        {
+            "class": "TestThing",
+            "description": "This is a Test",
+            "properties": [
+                {
+                    "name": "testString",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Value of testString."
+                },
+                {
+                    "name": "testInt",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Value of testInt."
+                },
+                {
+                    "name": "testBoolean",
+                    "@dataType": [
+                        "boolean"
+                    ],
+                    "description": "Value of testBoolean."
+                },
+                {
+                    "name": "testNumber",
+                    "@dataType": [
+                        "number"
+                    ],
+                    "description": "Value of testNumber."
+                },
+                {
+                    "name": "testDateTime",
+                    "@dataType": [
+                        "date"
+                    ],
+                    "description": "Value of testDateTime."
+                },
+                {
+                    "name": "testCref",
+                    "@dataType": [
+                        "TestThing2"
+                    ],
+                    "description": "Value of testCref."
+                }
+            ]
+        },
+        {
+            "class": "TestThing2",
+            "description": "This is a Test",
+            "properties": [
+                {
+                    "name": "testString",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Value of testString."
+                },
+                {
+                    "name": "testInt",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Value of testInt."
+                },
+                {
+                    "name": "testBoolean",
+                    "@dataType": [
+                        "boolean"
+                    ],
+                    "description": "Value of testBoolean."
+                },
+                {
+                    "name": "testNumber",
+                    "@dataType": [
+                        "number"
+                    ],
+                    "description": "Value of testNumber."
+                },
+                {
+                    "name": "testDateTime",
+                    "@dataType": [
+                        "date"
+                    ],
+                    "description": "Value of testDateTime."
+                },
+                {
+                    "name": "testCref",
+                    "@dataType": [
+                        "TestThing"
+                    ],
+                    "description": "Value of testCref."
+                }
+            ]
+        }   
+    ]
+}
