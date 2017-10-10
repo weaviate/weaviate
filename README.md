@@ -93,7 +93,7 @@ Example of config file:
 You can run a complete Docker setup with:
 
 ```
-$ curl https://raw.githubusercontent.com/weaviate/weaviate/develop/docker/run-services.sh -sSf | bash
+$ curl https://git.io/vdwgr -sL | bash
 ```
 
 _Note:<br>Make sure [jq](https://stedolan.github.io/jq/) is installed and Docker is running_
