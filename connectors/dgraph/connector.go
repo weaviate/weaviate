@@ -477,8 +477,6 @@ func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	err = f.updateNodeSchemaProperties(newNode, thing.Schema, thing.AtClass, connutils.RefTypeThing)
 
 	return err
-
-	// TODO: Reset batch before and flush after every function??
 }
 
 // GetThing returns the thing in the ThingGetResponse format
@@ -726,7 +724,6 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*
 	}
 
 	// Create query to count total results
-	// TODO: Combine the total results code with the code of the 'things' if possible
 	req = dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{
 		totalResults(func: eq(uuid, "%s")) {
@@ -913,7 +910,6 @@ func (f *Dgraph) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) er
 	}
 
 	return err
-	// TODO: Reset batch before and flush after every function??
 }
 
 // ValidateToken adds a key to the Dgraph database with the given UUID
@@ -999,8 +995,6 @@ func (f *Dgraph) GetKeyChildrenUUIDs(UUID strfmt.UUID) ([]strfmt.UUID, error) {
 }
 
 func (f *Dgraph) addNewNode(nType string, UUID strfmt.UUID) (dgraphClient.Node, error) {
-	// TODO: Search for uuid edge/node before making new??
-
 	// Create new one and connect it
 	newNode, err := f.client.NodeBlank(fmt.Sprintf("%v", gouuid.NewV4()))
 
@@ -1602,7 +1596,8 @@ func (f *Dgraph) parseWhereFilters(wheres []*connutils.WhereQuery) string {
 		// Set the property
 		prop = vWhere.Property
 
-		// Set the value from the object (now only string) TODO: other datatypes
+		// Set the value from the object (now only string)
+		// TODO: https://github.com/weaviate/weaviate/issues/202
 		value = vWhere.Value.Value.(string)
 
 		// Filter on wheres variable which is used later in the query
@@ -1616,7 +1611,7 @@ func (f *Dgraph) parseWhereFilters(wheres []*connutils.WhereQuery) string {
 	return filterWheres
 }
 
-// TODO REMOVE, JUST FOR TEST
+// JUST FOR TESTING PURPOSES
 func printNode(depth int, node *protos.Node) {
 
 	fmt.Println(strings.Repeat(" ", depth), "Atrribute : ", node.Attribute)
