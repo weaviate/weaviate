@@ -26,7 +26,6 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"time"
 	"unicode"
 
 	"github.com/weaviate/weaviate/restapi/operations/graphql"
@@ -55,6 +54,7 @@ import (
 	"github.com/weaviate/weaviate/restapi/operations/keys"
 	"github.com/weaviate/weaviate/restapi/operations/things"
 	"github.com/weaviate/weaviate/schema"
+	"github.com/weaviate/weaviate/validation"
 )
 
 const maxResultsOverride int64 = 100
@@ -199,310 +199,6 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 	for _, keyID := range allIDs {
 		go databaseConnector.DeleteKey(keyID)
 	}
-}
-
-// validateBody Validates the overlapping body values
-func validateBody(class string, context string) error {
-	// If the given class is empty, return an error
-	if class == "" {
-		return fmt.Errorf("the given class is empty")
-	}
-
-	// If the given context is empty, return an error
-	if context == "" {
-		return fmt.Errorf("the given context is empty")
-	}
-
-	// No error
-	return nil
-}
-
-// validateThingBody Validates a thing body using the 'ThingCreate' object.
-func validateThingBody(thing *models.ThingCreate) error {
-	// Validate the body
-	bve := validateBody(thing.AtClass, thing.AtContext)
-
-	// Return error if possible
-	if bve != nil {
-		return bve
-	}
-
-	// Return the schema validation error
-	sve := validateSchemaInBody(databaseSchema.ThingSchema.Schema, &thing.Schema, thing.AtClass)
-
-	return sve
-}
-
-// validateActionBody Validates a action body using the 'ActionCreate' object.
-func validateActionBody(action *models.ActionCreate) error {
-	// Validate the body
-	bve := validateBody(action.AtClass, action.AtContext)
-
-	// Return error if possible
-	if bve != nil {
-		return bve
-	}
-
-	// Check whether the Things exist
-	if action.Things == nil {
-		return fmt.Errorf("no things, object and subject, are added. Add 'things' by using the 'things' key in the root of the JSON")
-	}
-
-	// Check whether the Object exist in the JSON
-	if action.Things.Object == nil {
-		return fmt.Errorf("no object-thing is added. Add the 'object' inside the 'things' part of the JSON")
-	}
-
-	// Check whether the Subject exist in the JSON
-	if action.Things.Subject == nil {
-		return fmt.Errorf("no subject-thing is added. Add the 'subject' inside the 'things' part of the JSON")
-	}
-
-	// Check whether the Object has a location
-	if action.Things.Object.LocationURL == nil {
-		return fmt.Errorf("no 'locationURL' is found in the object-thing. Add the 'locationURL' inside the 'object-thing' part of the JSON")
-	}
-
-	// Check whether the Object has a type
-	if action.Things.Object.Type == "" {
-		return fmt.Errorf("no 'type' is found in the object-thing. Add the 'type' inside the 'object-thing' part of the JSON")
-	}
-
-	// Check whether the Object reference type exists
-	if !validateRefType(action.Things.Object.Type) {
-		return fmt.Errorf(
-			"object-thing requires one of the following values in 'type': '%s', '%s' or '%s'",
-			connutils.RefTypeAction,
-			connutils.RefTypeThing,
-			connutils.RefTypeKey,
-		)
-	}
-
-	// Check whether the Subject has a location
-	if action.Things.Subject.LocationURL == nil {
-		return fmt.Errorf("no 'locationURL' is found in the subject-thing. Add the 'locationURL' inside the 'subject-thing' part of the JSON")
-	}
-
-	// Check whether the Subject has a type
-	if action.Things.Subject.Type == "" {
-		return fmt.Errorf("no 'type' is found in the subject-thing. Add the 'type' inside the 'subject-thing' part of the JSON")
-	}
-
-	// Check whether the Subject reference type exists
-	if !validateRefType(action.Things.Subject.Type) {
-		return fmt.Errorf(
-			"subject-thing requires one of the following values in 'type': '%s', '%s' or '%s'",
-			connutils.RefTypeAction,
-			connutils.RefTypeThing,
-			connutils.RefTypeKey,
-		)
-	}
-
-	// Check whether the given object exists in the DB
-	// TODO: Use location URL to check CREF
-	ot := &models.ThingGetResponse{}
-	ote := dbConnector.GetThing(action.Things.Object.NrDollarCref, ot)
-	if ote != nil {
-		return fmt.Errorf("error finding the 'object'-thing in the database: %s", ote)
-	}
-
-	// Check whether the given subject exist in the DB
-	// TODO: Use location URL to check CREF
-	st := &models.ThingGetResponse{}
-	ste := dbConnector.GetThing(action.Things.Subject.NrDollarCref, st)
-	if ste != nil {
-		return fmt.Errorf("error finding the 'subject'-thing in the database: %s", ste)
-	}
-
-	// Return the schema validation error
-	sve := validateSchemaInBody(databaseSchema.ActionSchema.Schema, &action.Schema, action.AtClass)
-
-	return sve
-}
-
-// validateRefType validates the reference type with one of the existing reference types
-func validateRefType(s string) bool {
-	return (s == connutils.RefTypeAction || s == connutils.RefTypeThing || s == connutils.RefTypeKey)
-}
-
-// validateSchemaInBody Validate the schema in the given body
-func validateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *models.Schema, className string) error {
-	// Validate whether the class exists in the given schema
-	// Get the class by its name
-	class, err := schema.GetClassByName(weaviateSchema, className)
-
-	// Return the error, in this case that the class is not found
-	if err != nil {
-		return err
-	}
-
-	// Validate whether the properties exist in the given schema
-	// Get the input properties from the bodySchema in readable format
-	isp := *bodySchema
-	inputSchema := isp.(map[string]interface{})
-
-	// For each property in the input schema
-	for pk, pv := range inputSchema {
-		// Get the property data type from the schema
-		dt, err := schema.GetPropertyDataType(class, pk)
-
-		// Return the error, in this case that the property is not found
-		if err != nil {
-			return err
-		}
-
-		// Check whether the datatypes are correct
-		if *dt == schema.DataTypeCRef {
-			// Cast it to a usable variable
-			pvcr := pv.(map[string]interface{})
-
-			// Return different types of errors for cref input
-			if len(pvcr) != 3 {
-				// Give an error if the cref is not filled with correct number of properties
-				return fmt.Errorf(
-					"class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema",
-					class.Class,
-					pk,
-				)
-			} else if _, ok := pvcr["$cref"]; !ok {
-				// Give an error if the cref is not filled with correct properties ($cref)
-				return fmt.Errorf(
-					"class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. '$cref' is missing, check your input schema",
-					class.Class,
-					pk,
-				)
-			} else if _, ok := pvcr["locationUrl"]; !ok {
-				// Give an error if the cref is not filled with correct properties (locationUrl)
-				return fmt.Errorf(
-					"class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema",
-					class.Class,
-					pk,
-				)
-			} else if _, ok := pvcr["type"]; !ok {
-				// Give an error if the cref is not filled with correct properties (type)
-				return fmt.Errorf(
-					"class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'type' is missing, check your input schema",
-					class.Class,
-					pk,
-				)
-			}
-
-			// TODO: Validate on existing UUID?
-			// TODO: Validate on existing locationURL?
-
-			// Return error if type is not right, when it is not one of the 3 possible types
-			if !validateRefType(pvcr["type"].(string)) {
-				return fmt.Errorf(
-					"class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s' or '%s'",
-					class.Class, pk,
-					connutils.RefTypeAction,
-					connutils.RefTypeThing,
-					connutils.RefTypeKey,
-				)
-			}
-		} else if *dt == schema.DataTypeString {
-			// Return error when the input can not be casted to a string
-			if _, ok := pv.(string); !ok {
-				return fmt.Errorf(
-					"class '%s' with property '%s' requires a string. The given value is '%v'",
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-		} else if *dt == schema.DataTypeInt {
-			// Return error when the input can not be casted to json.Number
-			if _, ok := pv.(json.Number); !ok {
-				// If value is not a json.Number, it could be an int, which is fine
-				if _, ok := pv.(int64); !ok {
-					// If value is not a json.Number, it could be an int, which is fine when the float does not contain a decimal
-					if vFloat, ok := pv.(float64); ok {
-						// Check whether the float is containing a decimal
-						if vFloat != float64(int64(vFloat)) {
-							return fmt.Errorf(
-								"class '%s' with property '%s' requires an integer. The given value is '%v'",
-								class.Class,
-								pk,
-								pv,
-							)
-						}
-					} else {
-						// If it is not a float, it is cerntainly not a integer, return the error
-						return fmt.Errorf(
-							"class '%s' with property '%s' requires an integer. The given value is '%v'",
-							class.Class,
-							pk,
-							pv,
-						)
-					}
-				}
-			} else if _, err := pv.(json.Number).Int64(); err != nil {
-				// Return error when the input can not be converted to an int
-				return fmt.Errorf(
-					"class '%s' with property '%s' requires an integer, the JSON number could not be converted to an int. The given value is '%v'",
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-
-		} else if *dt == schema.DataTypeNumber {
-			// Return error when the input can not be casted to json.Number
-			if _, ok := pv.(json.Number); !ok {
-				if _, ok := pv.(float64); !ok {
-					return fmt.Errorf(
-						"class '%s' with property '%s' requires a float. The given value is '%v'",
-						class.Class,
-						pk,
-						pv,
-					)
-				}
-			} else if _, err := pv.(json.Number).Float64(); err != nil {
-				// Return error when the input can not be converted to a float
-				return fmt.Errorf(
-					"class '%s' with property '%s' requires a float, the JSON number could not be converted to a float. The given value is '%v'",
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-		} else if *dt == schema.DataTypeBoolean {
-			// Return error when the input can not be casted to a boolean
-			if _, ok := pv.(bool); !ok {
-				return fmt.Errorf(
-					"class '%s' with property '%s' requires a bool. The given value is '%v'",
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-		} else if *dt == schema.DataTypeDate {
-			// Return error when the input can not be casted to a string
-			if _, ok := pv.(string); !ok {
-				return fmt.Errorf(
-					"class '%s' with property '%s' requires a string with a RFC3339 formatted date. The given value is '%v'",
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-
-			// Parse the time as this has to be correct
-			_, err := time.Parse(time.RFC3339, pv.(string))
-
-			// Return if there is an error while parsing
-			if err != nil {
-				return fmt.Errorf(
-					"class '%s' with property '%s' requires a string with a RFC3339 formatted date. The given value is '%v'",
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-		}
-	}
-
-	return nil
 }
 
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
@@ -696,7 +392,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &action)
 
 		// Validate schema made after patching with the weaviate schema
-		validatedErr := validateActionBody(&action.ActionCreate)
+		validatedErr := validation.ValidateActionBody(&action.ActionCreate, databaseSchema, dbConnector)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
@@ -717,7 +413,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validateActionBody(&params.Body.ActionCreate)
+		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
@@ -737,7 +433,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validateActionBody(params.Body)
+		validatedErr := validation.ValidateActionBody(params.Body, databaseSchema, dbConnector)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
@@ -967,7 +663,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validateThingBody(params.Body)
+		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
@@ -1133,7 +829,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &thing)
 
 		// Validate schema made after patching with the weaviate schema
-		validatedErr := validateThingBody(&thing.ThingCreate)
+		validatedErr := validation.ValidateThingBody(&thing.ThingCreate, databaseSchema, dbConnector)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
@@ -1173,7 +869,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validateThingBody(&params.Body.ThingCreate)
+		validatedErr := validation.ValidateThingBody(&params.Body.ThingCreate, databaseSchema, dbConnector)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
@@ -1199,7 +895,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validateThingBody(params.Body)
+		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector)
 		if validatedErr != nil {
 			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
 				rw.WriteHeader(422)
