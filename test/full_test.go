@@ -533,7 +533,7 @@ func Test__weaviate_meta_get_JSON(t *testing.T) {
 	// Check whether the returned information is the same as the data added
 	require.Equal(t, getWeaviateURL(), respObject.Hostname)
 
-	// TODO: Check schema files? See issue https://github.com/weaviate/weaviate/issues/210
+	// TODO: https://github.com/weaviate/weaviate/issues/210
 }
 
 /******************
@@ -1977,8 +1977,6 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 
 	// Test ID in the middle of the 3 results
 	require.Equal(t, actionIDs[7], string(resultActionsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
-
-	// TODO: Test querying on subnames in schema.
 }
 
 func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
@@ -2158,6 +2156,17 @@ func Test__weaviate_actions_delete_JSON(t *testing.T) {
 
 // weaviate.thing.delete
 func Test__weaviate_things_delete_JSON(t *testing.T) {
+	// Test whether all actions aren't deleted yet
+	for _, deletedActionID := range actionIDs {
+		// Skip the action ID that is deleted with the previous function
+		if deletedActionID == actionID {
+			continue
+		}
+
+		responseNotYetDeletedByObjectThing := doRequest("/actions/"+deletedActionID, "GET", "application/json", nil, apiKeyCmdLine)
+		require.Equal(t, http.StatusOK, responseNotYetDeletedByObjectThing.StatusCode)
+	}
+
 	// Create delete request
 	response := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
@@ -2176,4 +2185,10 @@ func Test__weaviate_things_delete_JSON(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "DELETE", "application/json", nil, apiKeyCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+
+	// Test whether all actions are deleted
+	for _, deletedActionID := range actionIDs {
+		responseDeletedByObjectThing := doRequest("/actions/"+deletedActionID, "GET", "application/json", nil, apiKeyCmdLine)
+		require.Equal(t, http.StatusNotFound, responseDeletedByObjectThing.StatusCode)
+	}
 }
