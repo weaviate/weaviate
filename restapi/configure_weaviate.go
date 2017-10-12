@@ -401,7 +401,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Update the database
-		insertErr := dbConnector.UpdateAction(action, UUID) // TODO: go-routine?
+		insertErr := dbConnector.UpdateAction(action, UUID)
 		if insertErr != nil {
 			messages.ErrorMessage(insertErr)
 		}
@@ -459,7 +459,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		action.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := dbConnector.AddAction(action, UUID) // TODO: go-routine?
+		insertErr := dbConnector.AddAction(action, UUID)
 		if insertErr != nil {
 			messages.ErrorMessage(insertErr)
 		}
@@ -486,7 +486,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsDeleteNotFound()
 		}
 
-		// This is a delete function, validate if allowed to delete? TODO: test
+		// This is a delete function, validate if allowed to delete?
 		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
@@ -537,7 +537,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := dbConnector.AddKey(&newKey.Key, newKey.KeyID, newKey.Token) // TODO: go-routine?
+		insertErr := dbConnector.AddKey(&newKey.Key, newKey.KeyID, newKey.Token)
 		if insertErr != nil {
 			messages.ErrorMessage(insertErr)
 		}
@@ -688,7 +688,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thing.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := dbConnector.AddThing(thing, UUID) // TODO: go-routine?
+		insertErr := dbConnector.AddThing(thing, UUID)
 		if insertErr != nil {
 			messages.ErrorMessage(insertErr)
 		}
@@ -719,7 +719,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
-		// Delete the Actions TODO: make test
+		// Delete the Actions
 		actionsExist := true
 		for actionsExist {
 			actions := models.ActionsListResponse{}
@@ -838,7 +838,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Update the database
-		insertErr := dbConnector.UpdateThing(thing, UUID) // TODO: go-routine?
+		insertErr := dbConnector.UpdateThing(thing, UUID)
 		if insertErr != nil {
 			messages.ErrorMessage(insertErr)
 		}
@@ -880,7 +880,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
-		insertErr := dbConnector.UpdateThing(&params.Body.Thing, UUID) // TODO: go-routine?
+		insertErr := dbConnector.UpdateThing(&params.Body.Thing, UUID)
 		if insertErr != nil {
 			messages.ErrorMessage(insertErr)
 		}
