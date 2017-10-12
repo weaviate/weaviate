@@ -540,6 +540,162 @@ func Test__weaviate_meta_get_JSON(t *testing.T) {
  * THING TESTS
  ******************/
 
+func performInvalidThingRequests(t *testing.T, uri string, method string) {
+	// Create invalid requests
+	// Test missing class
+	jsonStrInvalid1 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"schema": {
+			"testString": "%s"
+		}
+	}`, thingTestString)))
+	responseInvalid1 := doRequest(uri, method, "application/json", jsonStrInvalid1, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid1.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid1)), "the given class is empty")
+
+	// Test missing context
+	jsonStrInvalid2 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@class": "TestThing",
+		"schema": {
+			"testString": "%s"
+		}
+	}`, thingTestString)))
+	responseInvalid2 := doRequest(uri, method, "application/json", jsonStrInvalid2, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid2.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid2)), "the given context is empty")
+
+	// Test non-existing class
+	jsonStrInvalid3 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestThings",
+		"schema": {
+			"testString": "%s"
+		}
+	}`, thingTestString)))
+	responseInvalid3 := doRequest(uri, method, "application/json", jsonStrInvalid3, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid3.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid3)), "no such class with name")
+
+	// Test non-existing property
+	jsonStrInvalid4 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testStrings": "%s"
+		}
+	}`, thingTestString)))
+	responseInvalid4 := doRequest(uri, method, "application/json", jsonStrInvalid4, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid4.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid4)), "no such prop with name")
+
+	// Test invalid property cref
+	jsonStrInvalid5 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testCref": {
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, getWeaviateURL())))
+	responseInvalid5 := doRequest(uri, method, "application/json", jsonStrInvalid5, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid5.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid5)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema")
+
+	// Test invalid property cref2
+	jsonStrInvalid6 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testCref": {
+				"$cref": "%s",
+				"locationUrls": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingID, getWeaviateURL())))
+	responseInvalid6 := doRequest(uri, method, "application/json", jsonStrInvalid6, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid6.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid6)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema")
+
+	// Test invalid property cref3
+	jsonStrInvalid7 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Things"
+			}
+		}
+	}`, thingID, getWeaviateURL())))
+	responseInvalid7 := doRequest(uri, method, "application/json", jsonStrInvalid7, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid7)), "requires one of the following values in 'type':")
+
+	// Test invalid property string
+	jsonStrInvalid8 := bytes.NewBuffer([]byte(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testString": 2
+		}
+	}`))
+	responseInvalid8 := doRequest(uri, method, "application/json", jsonStrInvalid8, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid8.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid8)), "requires a string. The given value is")
+
+	// Test invalid property int
+	jsonStrInvalid9 := bytes.NewBuffer([]byte(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testInt": 2.7
+		}
+	}`))
+	responseInvalid9 := doRequest(uri, method, "application/json", jsonStrInvalid9, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid9.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid9)), "requires an integer")
+
+	// Test invalid property float
+	jsonStrInvalid10 := bytes.NewBuffer([]byte(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testNumber": "test"
+		}
+	}`))
+	responseInvalid10 := doRequest(uri, method, "application/json", jsonStrInvalid10, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid10.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid10)), "requires a float. The given value is")
+
+	// Test invalid property bool
+	jsonStrInvalid11 := bytes.NewBuffer([]byte(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testBoolean": "test"
+		}
+	}`))
+	responseInvalid11 := doRequest(uri, method, "application/json", jsonStrInvalid11, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid11.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid11)), "requires a bool. The given value is")
+
+	// Test invalid property date
+	jsonStrInvalid12 := bytes.NewBuffer([]byte(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testDateTime": "test"
+		}
+	}`))
+	responseInvalid12 := doRequest(uri, method, "application/json", jsonStrInvalid12, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid12.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid12)), "requires a string with a RFC3339 formatted date. The given value is")
+}
+
 // weaviate.thing.create
 func Test__weaviate_things_create_JSON(t *testing.T) {
 	// Set all thing values to compare
@@ -611,7 +767,7 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 		respObject := &models.ThingGetResponse{}
 		json.Unmarshal(body, respObject)
 
-		// Set subjectThingID
+		// Set thingIDsubject
 		if i == 1 {
 			thingIDsubject = string(respObject.ThingID)
 		}
@@ -621,8 +777,12 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 		time.Sleep(1 * time.Second)
 	}
 
+	// Create invalid requests
+	performInvalidThingRequests(t, "/things", "POST")
+
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
+
 }
 
 // weaviate.thing.list
@@ -767,6 +927,9 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+
+	// Check validation with invalid requests
+	performInvalidThingRequests(t, "/things/"+thingIDsubject, "PUT")
 }
 
 // weaviate.thing.patch
@@ -829,11 +992,509 @@ func Test__weaviate_things_patch_JSON(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+
+	// Test non-existing class
+	jsonStrInvalid1 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/@class", "value": "%s"}]`, "TestThings")))
+	responseInvalid1 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid1, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid1.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid1)), "no such class with name")
+
+	// Test non-existing property
+	jsonStrInvalid2 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "add", "path": "/schema/testStrings", "value": "%s"}]`, "Test")))
+	responseInvalid2 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid2, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid2.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid2)), "no such prop with name")
+
+	// Test invalid property cref
+	jsonStrInvalid3 := bytes.NewBuffer([]byte(`[{ "op": "remove", "path": "/schema/testCref/locationUrl"}]`))
+	responseInvalid3 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid3, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid3.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid3)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema")
+
+	// Test invalid property cref2
+	jsonStrInvalid4 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "remove", "path": "/schema/testCref/locationUrl"}, { "op": "add", "path": "/schema/testCref/locationUrls", "value": "%s"}]`, getWeaviateURL())))
+	responseInvalid4 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid4, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid4.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid4)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema")
+
+	// Test invalid property cref3
+	jsonStrInvalid5 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testCref/type", "value": "%s"}]`, "Test")))
+	responseInvalid5 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid5, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid5.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid5)), "requires one of the following values in 'type':")
+
+	// Test invalid property string
+	jsonStrInvalid6 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testString", "value": %d}]`, 2)))
+	responseInvalid6 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid6, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid6.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid6)), "requires a string. The given value is")
+
+	// Test invalid property int
+	jsonStrInvalid7 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testInt", "value": 2.8}]`))
+	responseInvalid7 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid7, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid7)), "requires an integer")
+
+	// Test invalid property float
+	jsonStrInvalid8 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testNumber", "value": "test"}]`))
+	responseInvalid8 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid8, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid8.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid8)), "requires a float. The given value is")
+
+	// Test invalid property bool
+	jsonStrInvalid9 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testBoolean", "value": "test"}]`))
+	responseInvalid9 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid9, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid9.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid9)), "requires a bool. The given value is")
+
+	// Test invalid property date
+	jsonStrInvalid10 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testDateTime", "value": "test"}]`))
+	responseInvalid10 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid10, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid10.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid10)), "requires a string with a RFC3339 formatted date. The given value is")
+}
+
+func Test__weaviate_things_validate_JSON(t *testing.T) {
+	// Test invalid requests
+	performInvalidThingRequests(t, "/things/validate", "POST")
+
+	// Test valid request
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testString": "%s",
+			"testInt": %d,
+			"testBoolean": %t,
+			"testNumber": %f,
+			"testDateTime": "%s",
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate, thingID, getWeaviateURL())))
+
+	response := doRequest("/things/validate", "POST", "application/json", jsonStr, apiKeyCmdLine)
+	require.Equal(t, http.StatusOK, response.StatusCode)
 }
 
 // /******************
 //  * ACTIONS TESTS
 //  ******************/
+
+func performInvalidActionRequests(t *testing.T, uri string, method string) {
+	// Test missing things
+	jsonStrInvalidThings1 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		}
+	}`, thingTestString)))
+	responseInvalidThings1 := doRequest(uri, method, "application/json", jsonStrInvalidThings1, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings1.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings1)), "no things, object and subject, are added. Add 'things' by using the 'things' key in the root of the JSON")
+
+	// Test missing things-object
+	jsonStrInvalidThings2 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, thingID, getWeaviateURL())))
+	responseInvalidThings2 := doRequest(uri, method, "application/json", jsonStrInvalidThings2, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings2.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings2)), "no object-thing is added. Add the 'object' inside the 'things' part of the JSON")
+
+	// Test missing things-subject
+	jsonStrInvalidThings3 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, thingID, getWeaviateURL())))
+	responseInvalidThings3 := doRequest(uri, method, "application/json", jsonStrInvalidThings3, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings3.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings3)), "no subject-thing is added. Add the 'subject' inside the 'things' part of the JSON")
+
+	// Test missing things-object locationUrl
+	jsonStrInvalidThings4 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrls": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+	responseInvalidThings4 := doRequest(uri, method, "application/json", jsonStrInvalidThings4, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings4.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings4)), "no 'locationURL' is found in the object-thing. Add the 'locationURL' inside the 'object-thing' part of the JSON")
+
+	// Test missing things-object type
+	jsonStrInvalidThings5 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"types": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+	responseInvalidThings5 := doRequest(uri, method, "application/json", jsonStrInvalidThings5, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings5.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings5)), "no 'type' is found in the object-thing. Add the 'type' inside the 'object-thing' part of the JSON")
+
+	// Test faulty things-object type
+	jsonStrInvalidThings6 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Things"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+	responseInvalidThings6 := doRequest(uri, method, "application/json", jsonStrInvalidThings6, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings6.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings6)), "type in body should be one of [Thing Action Key]")
+
+	// Test non-existing object-cref
+	jsonStrInvalidThings7 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, fakeID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+	responseInvalidThings7 := doRequest(uri, method, "application/json", jsonStrInvalidThings7, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings7.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings7)), "error finding the 'object'-thing in the database")
+
+	// Test missing things-subject locationUrl
+	jsonStrInvalidThings8 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrls": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+	responseInvalidThings8 := doRequest(uri, method, "application/json", jsonStrInvalidThings8, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings8.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings8)), "no 'locationURL' is found in the subject-thing. Add the 'locationURL' inside the 'subject-thing' part of the JSON")
+
+	// Test missing things-object type
+	jsonStrInvalidThings9 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"types": "Thing"
+			}
+		}
+	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+	responseInvalidThings9 := doRequest(uri, method, "application/json", jsonStrInvalidThings9, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings9.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings9)), "no 'type' is found in the subject-thing. Add the 'type' inside the 'subject-thing' part of the JSON")
+
+	// Test faulty things-object type
+	jsonStrInvalidThings10 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Things"
+			}
+		}
+	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+	responseInvalidThings10 := doRequest(uri, method, "application/json", jsonStrInvalidThings10, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings10.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings10)), "type in body should be one of [Thing Action Key]")
+
+	// Test non-existing object-cref
+	jsonStrInvalidThings11 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, thingID, getWeaviateURL(), fakeID, getWeaviateURL())))
+	responseInvalidThings11 := doRequest(uri, method, "application/json", jsonStrInvalidThings11, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings11.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings11)), "error finding the 'subject'-thing in the database")
+
+	// Correct connected things
+	actionThingsJSON := fmt.Sprintf(`,
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}`, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())
+
+	// Test missing class
+	jsonStrInvalid1 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"schema": {
+			"testString": "%s"
+		}%s
+	}`, thingTestString, actionThingsJSON)))
+	responseInvalid1 := doRequest(uri, method, "application/json", jsonStrInvalid1, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid1.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid1)), "the given class is empty")
+
+	// Test missing context
+	jsonStrInvalid2 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		}%s
+	}`, thingTestString, actionThingsJSON)))
+	responseInvalid2 := doRequest(uri, method, "application/json", jsonStrInvalid2, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid2.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid2)), "the given context is empty")
+
+	// Test non-existing class
+	jsonStrInvalid3 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestActions",
+		"schema": {
+			"testString": "%s"
+		}%s
+	}`, thingTestString, actionThingsJSON)))
+	responseInvalid3 := doRequest(uri, method, "application/json", jsonStrInvalid3, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid3.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid3)), "no such class with name")
+
+	// Test non-existing property
+	jsonStrInvalid4 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testStrings": "%s"
+		}%s
+	}`, thingTestString, actionThingsJSON)))
+	responseInvalid4 := doRequest(uri, method, "application/json", jsonStrInvalid4, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid4.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid4)), "no such prop with name")
+
+	// Test invalid property cref
+	jsonStrInvalid5 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testCref": {
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}%s
+	}`, getWeaviateURL(), actionThingsJSON)))
+	responseInvalid5 := doRequest(uri, method, "application/json", jsonStrInvalid5, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid5.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid5)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema")
+
+	// Test invalid property cref2
+	jsonStrInvalid6 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testCref": {
+				"$cref": "%s",
+				"locationUrls": "%s",
+				"type": "Thing"
+			}
+		}%s
+	}`, thingID, getWeaviateURL(), actionThingsJSON)))
+	responseInvalid6 := doRequest(uri, method, "application/json", jsonStrInvalid6, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid6.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid6)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema")
+
+	// Test invalid property cref3
+	jsonStrInvalid7 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Things"
+			}
+		}%s
+	}`, thingID, getWeaviateURL(), actionThingsJSON)))
+	responseInvalid7 := doRequest(uri, method, "application/json", jsonStrInvalid7, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid7)), "requires one of the following values in 'type':")
+
+	// Test invalid property string
+	jsonStrInvalid8 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": 2
+		}%s
+	}`, actionThingsJSON)))
+	responseInvalid8 := doRequest(uri, method, "application/json", jsonStrInvalid8, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid8.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid8)), "requires a string. The given value is")
+
+	// Test invalid property int
+	jsonStrInvalid9 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testInt": 2.7
+		}%s
+	}`, actionThingsJSON)))
+	responseInvalid9 := doRequest(uri, method, "application/json", jsonStrInvalid9, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid9.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid9)), "requires an integer")
+
+	// Test invalid property float
+	jsonStrInvalid10 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testNumber": "test"
+		}%s
+	}`, actionThingsJSON)))
+	responseInvalid10 := doRequest(uri, method, "application/json", jsonStrInvalid10, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid10.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid10)), "requires a float. The given value is")
+
+	// Test invalid property bool
+	jsonStrInvalid11 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testBoolean": "test"
+		}%s
+	}`, actionThingsJSON)))
+	responseInvalid11 := doRequest(uri, method, "application/json", jsonStrInvalid11, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid11.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid11)), "requires a bool. The given value is")
+
+	// Test invalid property date
+	jsonStrInvalid12 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testDateTime": "test"
+		}%s
+	}`, actionThingsJSON)))
+	responseInvalid12 := doRequest(uri, method, "application/json", jsonStrInvalid12, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid12.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid12)), "requires a string with a RFC3339 formatted date. The given value is")
+}
 
 // weaviate.actions.create
 func Test__weaviate_actions_create_JSON(t *testing.T) {
@@ -957,6 +1618,9 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 		actionIDs[i] = string(respObject.ActionID)
 		time.Sleep(1 * time.Second)
 	}
+
+	// Create invalid requests
+	performInvalidActionRequests(t, "/actions", "POST")
 
 	// Test is faster than adding to DB.
 	time.Sleep(1 * time.Second)
@@ -1116,6 +1780,43 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+}
+
+func Test__weaviate_actions_validate_JSON(t *testing.T) {
+	// Test invalid requests
+	performInvalidActionRequests(t, "/actions/validate", "POST")
+
+	// Test valid request
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://schema.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s",
+			"testInt": %d,
+			"testBoolean": %t,
+			"testNumber": %f,
+			"testDateTime": "%s",
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, actionTestString, actionTestInt, actionTestBoolean, actionTestNumber, actionTestDate, thingID, getWeaviateURL(), thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+	response := doRequest("/actions/validate", "POST", "application/json", jsonStr, apiKeyCmdLine)
+	require.Equal(t, http.StatusOK, response.StatusCode)
 }
 
 /******************
