@@ -85,7 +85,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 				)
 			}
 
-			// TODO: Validate on existing UUID?
+			// TODO: https://github.com/weaviate/weaviate/issues/219 Validate on existing UUID?
 			// TODO: Validate on existing locationURL?
 
 			// Return error if type is not right, when it is not one of the 3 possible types

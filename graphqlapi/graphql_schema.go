@@ -165,7 +165,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
 					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
-						return key.Token, nil // TODO: Only return when have rights
+						return key.Token, nil // (https://github.com/weaviate/weaviate/issues/220)
 					}
 					return nil, nil
 				},
@@ -267,7 +267,7 @@ func (f *GraphQLSchema) InitSchema() error {
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			// Resolve the data from the Key Response
 			if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
-				// TODO: This could be optimized, now for every key multiple queries are needed, could be done in 1.
+				// TODO: https://github.com/weaviate/weaviate/issues/221
 				// Init the respons as an array of keys
 				children := []*models.KeyTokenGetResponse{}
 
@@ -394,7 +394,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Things Response
 					if things, ok := p.Source.(models.ThingsListResponse); ok {
-						// TODO: Return empty array when empty in stead of 'null'?
+						// TODO: https://github.com/weaviate/weaviate/issues/222
 						return things.Things, nil
 					}
 					return []interface{}{}, nil
@@ -562,7 +562,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Actions Response
 					if actions, ok := p.Source.(models.ActionsListResponse); ok {
-						// TODO: Return empty array when empty in stead of 'null'?
+						// TODO: https://github.com/weaviate/weaviate/issues/222
 						return actions.Actions, nil
 					}
 					return []interface{}{}, nil
@@ -634,7 +634,6 @@ func (f *GraphQLSchema) InitSchema() error {
 					where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
 
 					// If error is given, return it
-					// TODO: Make better error
 					if err != nil {
 						return actionsResponse, err
 					}
@@ -793,7 +792,6 @@ func (f *GraphQLSchema) InitSchema() error {
 						where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
 
 						// If error is given, return it
-						// TODO: Make better error
 						if err != nil {
 							return thingsResponse, err
 						}
