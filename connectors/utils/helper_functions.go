@@ -116,7 +116,7 @@ func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
 		whereQuery.Value.Operator = Equal
 	case "!:", "!=":
 		whereQuery.Value.Operator = NotEqual
-	// TODO: Uncomment these cases when implementing them in issue #202
+	// TODO: https://github.com/weaviate/weaviate/issues/202
 	// case ">":
 	// 	whereQuery.Value.Operator = GreaterThan
 	// case ">:", ">=":
