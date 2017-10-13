@@ -18,7 +18,6 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	errors_ "errors"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"math"
@@ -263,6 +262,19 @@ func configureFlags(api *operations.WeaviateAPI) {
 	}
 }
 
+// createErrorResponseObject is a common function to create an error response
+func createErrorResponseObject(message string) *models.ErrorResponse {
+	// Initialize return value
+	er := &models.ErrorResponse{}
+
+	// Fill the error with the message
+	er.Error = &models.ErrorResponseError{
+		Message: message,
+	}
+
+	return er
+}
+
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.ServeError = errors.ServeError
 
@@ -384,7 +396,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		updatedJSON, applyErr := patchObject.Apply(actionUpdateJSON)
 
 		if applyErr != nil {
-			return actions.NewWeaviateActionsPatchUnprocessableEntity()
+			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(applyErr.Error()))
 		}
 
 		// Turn it into a Action object
@@ -394,10 +406,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Validate schema made after patching with the weaviate schema
 		validatedErr := validation.ValidateActionBody(&action.ActionCreate, databaseSchema, dbConnector)
 		if validatedErr != nil {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
-			})
+			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		// Update the database
@@ -415,10 +424,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Validate schema given in body with the weaviate schema
 		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector)
 		if validatedErr != nil {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
-			})
+			return actions.NewWeaviateActionsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		return actions.NewWeaviateActionsValidateOK()
@@ -435,10 +441,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Validate schema given in body with the weaviate schema
 		validatedErr := validation.ValidateActionBody(params.Body, databaseSchema, dbConnector)
 		if validatedErr != nil {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
-			})
+			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		// Create Key-ref-Object
@@ -520,20 +523,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Key expiry time is in the past
 		currentUnix := connutils.NowUnix()
 		if newKey.KeyExpiresUnix != -1 && newKey.KeyExpiresUnix < currentUnix {
-			// return keys.NewWeaviateKeyCreateUnprocessableEntity()
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", "Key expiry time is in the past.")))
-			})
+			return keys.NewWeaviateKeyCreateUnprocessableEntity().WithPayload(createErrorResponseObject("Key expiry time is in the past."))
 		}
 
 		// Key expiry time is later than the expiry time of parent
 		if key.KeyExpiresUnix != -1 && key.KeyExpiresUnix < newKey.KeyExpiresUnix {
-			// return keys.NewWeaviateKeyCreateUnprocessableEntity()
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", "Key expiry time is later than the expiry time of parent.")))
-			})
+			return keys.NewWeaviateKeyCreateUnprocessableEntity().WithPayload(createErrorResponseObject("Key expiry time is later than the expiry time of parent."))
 		}
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
@@ -665,10 +660,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Validate schema given in body with the weaviate schema
 		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector)
 		if validatedErr != nil {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
-			})
+			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		// Create Key-ref-Object
@@ -821,7 +813,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		updatedJSON, applyErr := patchObject.Apply(thingUpdateJSON)
 
 		if applyErr != nil {
-			return things.NewWeaviateThingsPatchUnprocessableEntity()
+			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(applyErr.Error()))
 		}
 
 		// Turn it into a Thing object
@@ -831,10 +823,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Validate schema made after patching with the weaviate schema
 		validatedErr := validation.ValidateThingBody(&thing.ThingCreate, databaseSchema, dbConnector)
 		if validatedErr != nil {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
-			})
+			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		// Update the database
@@ -871,10 +860,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Validate schema given in body with the weaviate schema
 		validatedErr := validation.ValidateThingBody(&params.Body.ThingCreate, databaseSchema, dbConnector)
 		if validatedErr != nil {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
-			})
+			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		// Update the database
@@ -897,10 +883,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Validate schema given in body with the weaviate schema
 		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector)
 		if validatedErr != nil {
-			return middleware.ResponderFunc(func(rw http.ResponseWriter, p runtime.Producer) {
-				rw.WriteHeader(422)
-				rw.Write([]byte(fmt.Sprintf("{ \"ERROR\": \"%s\" }", validatedErr.Error())))
-			})
+			return things.NewWeaviateThingsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		return things.NewWeaviateThingsValidateOK()
