@@ -1,6 +1,3 @@
-# Ignore /vendor from GIT
-vendor/
-
 # Ignore OLD files
 *.OLD
 *.OLD.go
