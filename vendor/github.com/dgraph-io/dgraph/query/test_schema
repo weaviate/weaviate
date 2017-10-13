@@ -1,0 +1,7 @@
+ age:int
+
+ name: string
+ address: string
+ alive: bool
+ survival_rate: float
+ dob: dateTime
