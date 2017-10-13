@@ -114,6 +114,11 @@ const WeaviateThingsCreateUnprocessableEntityCode int = 422
 swagger:response weaviateThingsCreateUnprocessableEntity
 */
 type WeaviateThingsCreateUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateThingsCreateUnprocessableEntity creates WeaviateThingsCreateUnprocessableEntity with default headers values
@@ -121,10 +126,27 @@ func NewWeaviateThingsCreateUnprocessableEntity() *WeaviateThingsCreateUnprocess
 	return &WeaviateThingsCreateUnprocessableEntity{}
 }
 
+// WithPayload adds the payload to the weaviate things create unprocessable entity response
+func (o *WeaviateThingsCreateUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *WeaviateThingsCreateUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate things create unprocessable entity response
+func (o *WeaviateThingsCreateUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateThingsCreateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateThingsCreateNotImplementedCode is the HTTP code returned for type WeaviateThingsCreateNotImplemented
