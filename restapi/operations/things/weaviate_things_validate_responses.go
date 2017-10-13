@@ -17,6 +17,8 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+
+	"github.com/weaviate/weaviate/models"
 )
 
 // WeaviateThingsValidateOKCode is the HTTP code returned for type WeaviateThingsValidateOK
@@ -90,6 +92,11 @@ const WeaviateThingsValidateUnprocessableEntityCode int = 422
 swagger:response weaviateThingsValidateUnprocessableEntity
 */
 type WeaviateThingsValidateUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateThingsValidateUnprocessableEntity creates WeaviateThingsValidateUnprocessableEntity with default headers values
@@ -97,10 +104,27 @@ func NewWeaviateThingsValidateUnprocessableEntity() *WeaviateThingsValidateUnpro
 	return &WeaviateThingsValidateUnprocessableEntity{}
 }
 
+// WithPayload adds the payload to the weaviate things validate unprocessable entity response
+func (o *WeaviateThingsValidateUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *WeaviateThingsValidateUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate things validate unprocessable entity response
+func (o *WeaviateThingsValidateUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateThingsValidateUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateThingsValidateNotImplementedCode is the HTTP code returned for type WeaviateThingsValidateNotImplemented

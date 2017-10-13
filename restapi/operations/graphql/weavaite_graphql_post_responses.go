@@ -114,6 +114,11 @@ const WeavaiteGraphqlPostUnprocessableEntityCode int = 422
 swagger:response weavaiteGraphqlPostUnprocessableEntity
 */
 type WeavaiteGraphqlPostUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeavaiteGraphqlPostUnprocessableEntity creates WeavaiteGraphqlPostUnprocessableEntity with default headers values
@@ -121,10 +126,27 @@ func NewWeavaiteGraphqlPostUnprocessableEntity() *WeavaiteGraphqlPostUnprocessab
 	return &WeavaiteGraphqlPostUnprocessableEntity{}
 }
 
+// WithPayload adds the payload to the weavaite graphql post unprocessable entity response
+func (o *WeavaiteGraphqlPostUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *WeavaiteGraphqlPostUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weavaite graphql post unprocessable entity response
+func (o *WeavaiteGraphqlPostUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeavaiteGraphqlPostUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeavaiteGraphqlPostNotImplementedCode is the HTTP code returned for type WeavaiteGraphqlPostNotImplemented
