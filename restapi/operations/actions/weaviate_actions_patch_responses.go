@@ -156,6 +156,11 @@ const WeaviateActionsPatchUnprocessableEntityCode int = 422
 swagger:response weaviateActionsPatchUnprocessableEntity
 */
 type WeaviateActionsPatchUnprocessableEntity struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateActionsPatchUnprocessableEntity creates WeaviateActionsPatchUnprocessableEntity with default headers values
@@ -163,10 +168,27 @@ func NewWeaviateActionsPatchUnprocessableEntity() *WeaviateActionsPatchUnprocess
 	return &WeaviateActionsPatchUnprocessableEntity{}
 }
 
+// WithPayload adds the payload to the weaviate actions patch unprocessable entity response
+func (o *WeaviateActionsPatchUnprocessableEntity) WithPayload(payload *models.ErrorResponse) *WeaviateActionsPatchUnprocessableEntity {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate actions patch unprocessable entity response
+func (o *WeaviateActionsPatchUnprocessableEntity) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateActionsPatchUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(422)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
 
 // WeaviateActionsPatchNotImplementedCode is the HTTP code returned for type WeaviateActionsPatchNotImplemented
