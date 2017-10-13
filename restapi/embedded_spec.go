@@ -89,7 +89,10 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -127,7 +130,10 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -261,7 +267,10 @@ func init() {
             "description": "Successful query result but no resource was found."
           },
           "422": {
-            "description": "The patch-JSON is valid but unprocessable."
+            "description": "The patch-JSON is valid but unprocessable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -303,7 +312,10 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -341,7 +353,10 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -621,7 +636,10 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -659,7 +677,10 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -750,7 +771,10 @@ func init() {
             "description": "Successful query result but no resource was found."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?"
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -843,7 +867,10 @@ func init() {
             "description": "Successful query result but no resource was found."
           },
           "422": {
-            "description": "The patch-JSON is valid but unprocessable."
+            "description": "The patch-JSON is valid but unprocessable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -986,6 +1013,20 @@ func init() {
           "description": "The total number of actions for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "ErrorResponse": {
+      "description": "An error response given by Weaviate end-points.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "string"
+            }
+          }
         }
       }
     },
