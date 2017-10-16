@@ -503,8 +503,34 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 		filterWheres = "AND " + filterWheres
 	}
 
-	// Do a query to get all node-information
+	// Create query to count total results
 	req := dgraphClient.Req{}
+	req.SetQuery(fmt.Sprintf(`{
+		totalResults(func: eq(uuid, "%s")) {
+			related: ~key @filter(eq(%s, "%s") %s) {
+				count()
+			}
+		}
+	}`, keyID, refTypePointer, connutils.RefTypeThing, filterWheres))
+
+	// Run query created above
+	resp, err := f.client.Run(f.getContext(), &req)
+	if err != nil {
+		return err
+	}
+
+	// Unmarshal the dgraph response into a struct
+	var totalResult TotalResultsRelatedResult
+	err = dgraphClient.Unmarshal(resp.N, &totalResult)
+	if err != nil {
+		return nil
+	}
+
+	// Set the total results
+	thingsResponse.TotalResults = totalResult.Root.Related.Count
+
+	// Do a query to get all node-information
+	req = dgraphClient.Req{}
 	query := fmt.Sprintf(`{
 		keys(func: eq(uuid, "%s")) {
 			things: ~key @filter(eq(%s, "%s") %s) (orderdesc: creationTimeUnix, first: %d, offset: %d)  {
@@ -518,7 +544,7 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 	req.SetQuery(query)
 
 	// Run query created above
-	resp, err := f.client.Run(f.getContext(), &req)
+	resp, err = f.client.Run(f.getContext(), &req)
 	if err != nil {
 		return err
 	}
@@ -528,7 +554,7 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 
 	// No nodes = not found error. First level is root (always exists) so check children.
 	if len(nodes[0].GetChildren()) == 0 {
-		return errors_.New("No things found in database.")
+		return errors_.New("no things found in database with used filters")
 	}
 
 	// Get subitems because we use a query with related things of a thing
@@ -543,32 +569,6 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 		f.mergeThingNodeInResponse(node, thingResponse)
 		thingsResponse.Things[i] = thingResponse
 	}
-
-	// Create query to count total results
-	req = dgraphClient.Req{}
-	req.SetQuery(fmt.Sprintf(`{
-		totalResults(func: eq(uuid, "%s")) {
-			related: ~key @filter(eq(%s, "%s") %s) {
-				count()
-			}
-		}
-	}`, keyID, refTypePointer, connutils.RefTypeThing, filterWheres))
-
-	// Run query created above
-	resp, err = f.client.Run(f.getContext(), &req)
-	if err != nil {
-		return err
-	}
-
-	// Unmarshal the dgraph response into a struct
-	var totalResult TotalResultsRelatedResult
-	err = dgraphClient.Unmarshal(resp.N, &totalResult)
-	if err != nil {
-		return nil
-	}
-
-	// Set the total results
-	thingsResponse.TotalResults = totalResult.Root.Related.Count
 
 	return nil
 }
@@ -679,8 +679,35 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*
 		filterWheres = fmt.Sprintf(" @filter(%s) ", filterWheres)
 	}
 
-	// Do a query to get all node-information
+	// Create query to count total results
 	req := dgraphClient.Req{}
+	req.SetQuery(fmt.Sprintf(`{
+		totalResults(func: eq(uuid, "%s")) {
+			related: ~things.object {
+				count()
+			}
+		}
+	}`, UUID))
+
+	// Run query created above
+	resp, err := f.client.Run(f.getContext(), &req)
+	if err != nil {
+		return err
+	}
+
+	// Unmarshal the dgraph response into a struct
+	var totalResult TotalResultsRelatedResult
+	err = dgraphClient.Unmarshal(resp.N, &totalResult)
+	if err != nil {
+		return nil
+	}
+
+	// Set the total results
+	actionsResponse.TotalResults = totalResult.Root.Related.Count
+	// TODO: NOT WORKING WITH @NORMALIZE, 1 level deeper now, MISSING 'totalResults' IN RETURN OBJ, DGRAPH bug?
+
+	// Do a query to get all node-information
+	req = dgraphClient.Req{}
 	query := fmt.Sprintf(`{
 		things(func: eq(uuid, "%s")) {
       		actions: ~things.object %s (orderdesc: creationTimeUnix) (first: %d, offset: %d) {
@@ -695,7 +722,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*
 	req.SetQuery(query)
 
 	// Run query created above
-	resp, err := f.client.Run(f.getContext(), &req)
+	resp, err = f.client.Run(f.getContext(), &req)
 	if err != nil {
 		return err
 	}
@@ -722,33 +749,6 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*
 		f.mergeActionNodeInResponse(node, actionResponse, "")
 		actionsResponse.Actions[i] = actionResponse
 	}
-
-	// Create query to count total results
-	req = dgraphClient.Req{}
-	req.SetQuery(fmt.Sprintf(`{
-		totalResults(func: eq(uuid, "%s")) {
-			related: ~things.object {
-				count()
-			}
-		}
-	}`, UUID))
-
-	// Run query created above
-	resp, err = f.client.Run(f.getContext(), &req)
-	if err != nil {
-		return err
-	}
-
-	// Unmarshal the dgraph response into a struct
-	var totalResult TotalResultsRelatedResult
-	err = dgraphClient.Unmarshal(resp.N, &totalResult)
-	if err != nil {
-		return nil
-	}
-
-	// Set the total results
-	actionsResponse.TotalResults = totalResult.Root.Related.Count
-	// TODO: NOT WORKING WITH @NORMALIZE, 1 level deeper now, MISSING 'totalResults' IN RETURN OBJ, DGRAPH bug?
 
 	return nil
 }

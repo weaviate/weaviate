@@ -397,15 +397,15 @@ func (f *GraphQLSchema) InitSchema() error {
 		Description: "Things listed from the Weaviate database belonging to the user, based on the Weaviate schema.",
 		Fields: graphql.Fields{
 			"things": &graphql.Field{
-				Type:        graphql.NewList(thingType),
+				Type:        graphql.NewNonNull(graphql.NewList(thingType)),
 				Description: "The actual things",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Things Response
-					if things, ok := p.Source.(models.ThingsListResponse); ok {
+					if things, ok := p.Source.(*models.ThingsListResponse); ok {
 						// TODO: https://github.com/weaviate/weaviate/issues/222
 						return things.Things, nil
 					}
-					return []interface{}{}, nil
+					return []*models.ThingGetResponse{}, nil
 				},
 			},
 			"totalResults": &graphql.Field{
@@ -413,7 +413,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The total amount of things without pagination",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Things Response
-					if things, ok := p.Source.(models.ThingsListResponse); ok {
+					if things, ok := p.Source.(*models.ThingsListResponse); ok {
 						return things.TotalResults, nil
 					}
 					return nil, nil
@@ -569,11 +569,11 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The actual actions",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Actions Response
-					if actions, ok := p.Source.(models.ActionsListResponse); ok {
+					if actions, ok := p.Source.(*models.ActionsListResponse); ok {
 						// TODO: https://github.com/weaviate/weaviate/issues/222
 						return actions.Actions, nil
 					}
-					return []interface{}{}, nil
+					return []*models.ActionGetResponse{}, nil
 				},
 			},
 			"totalResults": &graphql.Field{
@@ -581,7 +581,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The total amount of actions without pagination",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Actions Response
-					if actions, ok := p.Source.(models.ActionsListResponse); ok {
+					if actions, ok := p.Source.(*models.ActionsListResponse); ok {
 						return actions.TotalResults, nil
 					}
 					return nil, nil
@@ -604,8 +604,9 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        graphql.Int,
 			},
 			"offset": &graphql.ArgumentConfig{
-				Description: "Offset from the most recent item.",
-				Type:        graphql.Int,
+				Description:  "Offset from the most recent item.",
+				Type:         graphql.Int,
+				DefaultValue: 0,
 			},
 			"schema": &graphql.ArgumentConfig{
 				Description: "Schema filter options.",
@@ -616,7 +617,7 @@ func (f *GraphQLSchema) InitSchema() error {
 			// Resolve the data from the Thing Response
 			if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 				// Initialize the thing response
-				actionsResponse := models.ActionsListResponse{}
+				actionsResponse := &models.ActionsListResponse{}
 
 				// Get the pagination from the arguments
 				var first int
@@ -629,8 +630,6 @@ func (f *GraphQLSchema) InitSchema() error {
 				var offset int
 				if p.Args["offset"] != nil {
 					offset = p.Args["offset"].(int)
-				} else {
-					offset = 0
 				}
 
 				// Get the filter options for schema, init the options
@@ -651,7 +650,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				}
 
 				// Do a request on the database to get the Thing
-				err := f.dbConnector.ListActions(thing.ThingID, first, offset, wheres, &actionsResponse)
+				err := f.dbConnector.ListActions(thing.ThingID, first, offset, wheres, actionsResponse)
 
 				// Return error, if needed.
 				if err != nil {
@@ -764,8 +763,9 @@ func (f *GraphQLSchema) InitSchema() error {
 						Type:        graphql.Int,
 					},
 					"offset": &graphql.ArgumentConfig{
-						Description: "Offset from the most recent item.",
-						Type:        graphql.Int,
+						Description:  "Offset from the most recent item.",
+						Type:         graphql.Int,
+						DefaultValue: 0,
 					},
 					"schema": &graphql.ArgumentConfig{
 						Description: "Schema filter options.",
@@ -774,7 +774,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Initialize the thing response
-					thingsResponse := models.ThingsListResponse{}
+					thingsResponse := &models.ThingsListResponse{}
 
 					// Get the pagination from the arguments
 					var first int
@@ -787,8 +787,6 @@ func (f *GraphQLSchema) InitSchema() error {
 					var offset int
 					if p.Args["offset"] != nil {
 						offset = p.Args["offset"].(int)
-					} else {
-						offset = 0
 					}
 
 					// Get the filter options for schema, init the options
@@ -809,7 +807,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					}
 
 					// Do a request on the database to get the Thing
-					err := f.dbConnector.ListThings(first, offset, f.usedKey.KeyID, wheres, &thingsResponse)
+					err := f.dbConnector.ListThings(first, offset, f.usedKey.KeyID, wheres, thingsResponse)
 
 					// Return error, if needed.
 					if err != nil {
