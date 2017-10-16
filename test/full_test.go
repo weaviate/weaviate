@@ -2130,6 +2130,7 @@ func Test__weaviate_graphql_key_JSON(t *testing.T) {
 // 	// Delete keyID from database
 // 	responseKeyIDDeleted := doRequest("/keys/me", "DELETE", "application/json", nil, newAPIToken)
 // 	testStatusCode(t, responseKeyIDDeleted.StatusCode, http.StatusNoContent)
+//  TODO: test token in response at right time
 // }
 
 // weaviate.action.delete
