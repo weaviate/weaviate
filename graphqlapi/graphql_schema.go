@@ -160,12 +160,20 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 			},
 			"token": &graphql.Field{
-				Type:        graphql.NewNonNull(graphql.String),
+				Type:        graphql.String,
 				Description: "The token of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
 					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
-						return key.Token, nil // (https://github.com/weaviate/weaviate/issues/220)
+						// Return incl token if it is own key, otherwise do not return
+						if f.usedKey.Token != key.Token {
+							return nil, graphql.NewLocatedError(
+								errors.New("the asked token is not accessible for the given API-token"),
+								graphql.FieldASTsToNodeASTs(p.Info.FieldASTs),
+							)
+						}
+
+						return key.Token, nil
 					}
 					return nil, nil
 				},
@@ -857,8 +865,9 @@ func (f *GraphQLSchema) InitSchema() error {
 					// Do a request on the database to get the Key
 					err := f.dbConnector.GetKey(UUID, keyResponse)
 					if err != nil {
-						return keyResponse, err
+						return &models.KeyTokenGetResponse{}, err
 					}
+
 					return keyResponse, nil
 				},
 			},
