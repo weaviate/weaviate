@@ -105,7 +105,7 @@ func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
 
 	// Set which property
 	whereQuery.Property = prop
-	if len(result[1]) > 1 {
+	if len(result[1]) > 1 && len(result[4]) != 0 {
 		whereQuery.Property = fmt.Sprintf("%s.%s", prop, result[1])
 	}
 
@@ -133,11 +133,17 @@ func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
 	whereQuery.Value.Contains = result[3] == "~"
 
 	// Set the value itself
-	if result[4] == "" {
-		// When value is "", throw error
-		return whereQuery, errors.New("no value is set in the query")
+	if len(result[4]) == 0 {
+		if len(result[1]) > 0 && len(result[2]) == 0 && len(result[3]) == 0 {
+			// If only result[1] is set, just use that as search term.
+			whereQuery.Value.Value = result[1]
+		} else {
+			// When value is "", throw error
+			return whereQuery, errors.New("no value is set in the query")
+		}
+	} else {
+		whereQuery.Value.Value = result[4]
 	}
-	whereQuery.Value.Value = result[4]
 
 	return whereQuery, nil
 }
