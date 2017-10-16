@@ -160,7 +160,7 @@ func (f *Dgraph) Init() error {
 	if err := f.client.AddSchema(protos.SchemaUpdate{
 		Predicate: "atClass",
 		ValueType: uint32(types.StringID),
-		Tokenizer: []string{"exact", "term"},
+		Tokenizer: []string{"exact", "term", "trigram"},
 		Directive: protos.SchemaUpdate_INDEX,
 		Count:     true,
 	}); err != nil {
@@ -171,7 +171,7 @@ func (f *Dgraph) Init() error {
 	if err := f.client.AddSchema(protos.SchemaUpdate{
 		Predicate: "atContext",
 		ValueType: uint32(types.StringID),
-		Tokenizer: []string{"exact", "term"},
+		Tokenizer: []string{"exact", "term", "trigram"},
 		Directive: protos.SchemaUpdate_INDEX,
 		Count:     true,
 	}); err != nil {
