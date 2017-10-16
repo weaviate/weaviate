@@ -73,25 +73,6 @@ func (f *GraphQLSchema) GetGraphQLSchema() (graphql.Schema, error) {
 
 // InitSchema the GraphQL schema
 func (f *GraphQLSchema) InitSchema() error {
-	// objectEnum := graphql.NewEnum(graphql.EnumConfig{
-	// 	Name:        "ObjectType",
-	// 	Description: "One of the type of the objects.",
-	// 	Values: graphql.EnumValueConfigMap{
-	// 		"THING": &graphql.EnumValueConfig{
-	// 			Value:       connutils.RefTypeThing,
-	// 			Description: "Thing type",
-	// 		},
-	// 		"ACTION": &graphql.EnumValueConfig{
-	// 			Value:       connutils.RefTypeAction,
-	// 			Description: "Action type",
-	// 		},
-	// 		"KEY": &graphql.EnumValueConfig{
-	// 			Value:       connutils.RefTypeKey,
-	// 			Description: "Key type",
-	// 		},
-	// 	},
-	// })
-
 	// Create the interface to which all objects (Key, Thing and Action) must comply
 	objectInterface := graphql.NewInterface(graphql.InterfaceConfig{
 		Name:        "WeaviateObject",
@@ -270,7 +251,7 @@ func (f *GraphQLSchema) InitSchema() error {
 
 	// Add to keyType here, because when initializing the keyType, keyType itself does not exist.
 	keyType.AddFieldConfig("children", &graphql.Field{
-		Type:        graphql.NewList(keyType),
+		Type:        graphql.NewNonNull(graphql.NewList(keyType)),
 		Description: "Get all children of this key.",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			// Resolve the data from the Key Response
@@ -565,7 +546,7 @@ func (f *GraphQLSchema) InitSchema() error {
 		Description: "Actions listed from the Weaviate database belonging to the given thing and user, based on the Weaviate schema.",
 		Fields: graphql.Fields{
 			"actions": &graphql.Field{
-				Type:        graphql.NewList(actionType),
+				Type:        graphql.NewNonNull(graphql.NewList(actionType)),
 				Description: "The actual actions",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Actions Response
@@ -653,7 +634,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				err := f.dbConnector.ListActions(thing.ThingID, first, offset, wheres, actionsResponse)
 
 				// Return error, if needed.
-				if err != nil {
+				if err != nil && actionsResponse.TotalResults == 0 {
 					return actionsResponse, err
 				}
 				return actionsResponse, nil
@@ -810,7 +791,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					err := f.dbConnector.ListThings(first, offset, f.usedKey.KeyID, wheres, thingsResponse)
 
 					// Return error, if needed.
-					if err != nil {
+					if err != nil && thingsResponse.TotalResults == 0 {
 						return thingsResponse, err
 					}
 					return thingsResponse, nil
