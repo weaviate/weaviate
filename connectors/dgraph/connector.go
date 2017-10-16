@@ -381,7 +381,7 @@ func (f *Dgraph) indexSchema(ws *models.SemanticSchema) error {
 				if err := f.client.AddSchema(protos.SchemaUpdate{
 					Predicate: schemaPrefix + prop.Name,
 					ValueType: uint32(types.StringID),
-					Tokenizer: []string{"exact", "term", "fulltext"},
+					Tokenizer: []string{"exact", "term", "fulltext", "trigram"},
 					Directive: protos.SchemaUpdate_INDEX,
 					Count:     true,
 				}); err != nil {
@@ -1582,10 +1582,16 @@ func (f *Dgraph) parseWhereFilters(wheres []*connutils.WhereQuery) string {
 	for _, vWhere := range wheres {
 		// Set the operator
 		if vWhere.Value.Operator == connutils.Equal || vWhere.Value.Operator == connutils.NotEqual {
+			// Set the value from the object (now only string)
+			// TODO: https://github.com/weaviate/weaviate/issues/202
+			value = vWhere.Value.Value.(string)
+
 			if vWhere.Value.Contains {
-				op = "alloftext"
+				op = "regexp"
+				value = fmt.Sprintf(`/^.*%s.*$/`, value)
 			} else {
 				op = "eq"
+				value = fmt.Sprintf(`"%s"`, value)
 			}
 
 			if vWhere.Value.Operator == connutils.NotEqual {
@@ -1596,16 +1602,14 @@ func (f *Dgraph) parseWhereFilters(wheres []*connutils.WhereQuery) string {
 		// Set the property
 		prop = vWhere.Property
 
-		// Set the value from the object (now only string)
-		// TODO: https://github.com/weaviate/weaviate/issues/202
-		value = vWhere.Value.Value.(string)
-
 		// Filter on wheres variable which is used later in the query
 		andOp := ""
 		if filterWheres != "" {
 			andOp = "AND"
 		}
-		filterWheres = fmt.Sprintf(`%s %s %s(%s, "%s")`, filterWheres, andOp, op, prop, value)
+
+		// Parse the filter 'wheres'. Note that the 'value' may need block-quotes.
+		filterWheres = fmt.Sprintf(`%s %s %s(%s, %s)`, filterWheres, andOp, op, prop, value)
 	}
 
 	return filterWheres
