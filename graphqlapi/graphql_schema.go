@@ -593,6 +593,10 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Schema filter options.",
 				Type:        graphql.String,
 			},
+			"class": &graphql.ArgumentConfig{
+				Description: "Class filter options.",
+				Type:        graphql.String,
+			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			// Resolve the data from the Thing Response
@@ -620,6 +624,20 @@ func (f *GraphQLSchema) InitSchema() error {
 				if p.Args["schema"] != nil {
 					// Rewrite the string to structs
 					where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
+
+					// If error is given, return it
+					if err != nil {
+						return actionsResponse, err
+					}
+
+					// Append wheres to the list
+					wheres = append(wheres, &where)
+				}
+
+				// Check whether the class var is filled in
+				if p.Args["class"] != nil {
+					// Rewrite the string to structs
+					where, err := connutils.WhereStringToStruct("atClass", p.Args["class"].(string))
 
 					// If error is given, return it
 					if err != nil {

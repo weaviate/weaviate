@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/weaviate/weaviate/messages"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -732,6 +733,7 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 
 	// Globally set thingID
 	thingID = string(respObject.ThingID)
+	messages.InfoMessage(fmt.Sprintf("INFO: The 'thingID'-variable is set with UUID '%s'", thingID))
 
 	// Check whether the returned information is the same as the data added
 	require.Equal(t, thingTestString, respObject.Schema.(map[string]interface{})["testString"].(string))
@@ -748,7 +750,7 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 		// Handle request
 		jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 			"@context": "http://example.org",
-			"@class": "TestThing",
+			"@class": "TestThing2",
 			"schema": {
 				"testString": "%s",
 				"testInt": %d,
@@ -767,8 +769,11 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 		respObject := &models.ThingGetResponse{}
 		json.Unmarshal(body, respObject)
 
+		// Check adding succeeds
+		require.Equal(t, http.StatusAccepted, response.StatusCode)
+
 		// Set thingIDsubject
-		if i == 1 {
+		if i == 0 {
 			thingIDsubject = string(respObject.ThingID)
 		}
 
@@ -1549,6 +1554,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 
 	// Globally set actionID
 	actionID = string(respObject.ActionID)
+	messages.InfoMessage(fmt.Sprintf("INFO: The 'actionID'-variable is set with UUID '%s'", actionID))
 
 	// Check thing is set to known ThingID
 	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Object.NrDollarCref)
@@ -1583,7 +1589,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 		// Handle request
 		jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 			"@context": "http://schema.org",
-			"@class": "TestAction",
+			"@class": "TestAction2",
 			"schema": {
 				"testString": "%s",
 				"testInt": %d,
@@ -1613,6 +1619,9 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 		body := getResponseBody(response)
 		respObject := &models.ActionGetResponse{}
 		json.Unmarshal(body, respObject)
+
+		// Check adding succeeds
+		require.Equal(t, http.StatusAccepted, response.StatusCode)
 
 		// Fill array and time out for unlucky sorting issues
 		actionIDs[i] = string(respObject.ActionID)
@@ -1721,9 +1730,10 @@ func Test__weaviate_actions_get_JSON(t *testing.T) {
 func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	// Create patch request
 	newValue := int64(1337)
+	newValueStr := "New string patched!"
 
 	// Create JSON and do the request
-	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testInt", "value": %d}]`, newValue)))
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testInt", "value": %d}, { "op": "replace", "path": "/schema/testString", "value": "%s"}]`, newValue, newValueStr)))
 	response := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
 
 	body := getResponseBody(response)
@@ -1740,7 +1750,7 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	require.Equal(t, actionID, string(respObject.ActionID))
 
 	// Check whether the returned information is the same as the data updated
-	require.Equal(t, actionTestString, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newValueStr, respObject.Schema.(map[string]interface{})["testString"].(string))
 	require.Equal(t, newValue, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, actionTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, actionTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
@@ -1765,7 +1775,7 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	json.Unmarshal(bodyGet, respObjectGet)
 
 	// Check whether the returned information is the same as the data updated
-	require.Equal(t, actionTestString, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newValueStr, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
 	require.Equal(t, newValue, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, actionTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, actionTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
@@ -1822,9 +1832,16 @@ func Test__weaviate_actions_validate_JSON(t *testing.T) {
 /******************
  * GRAPHQL TESTS
  ******************/
-func doGraphQLRequest(body string, apiKey string) (*http.Response, *models.GraphQLResponse) {
+type graphQLQueryObject struct {
+	Query string `json:"query,omitempty"`
+}
+
+func doGraphQLRequest(body graphQLQueryObject, apiKey string) (*http.Response, *models.GraphQLResponse) {
+	// Marshal into json
+	bodyJSON, _ := json.Marshal(body)
+
 	// Make the IO input
-	jsonStr := bytes.NewBuffer([]byte(body))
+	jsonStr := bytes.NewBuffer(bodyJSON)
 
 	// Do the GraphQL request
 	response := doRequest("/graphql", "POST", "application/json", jsonStr, apiKey)
@@ -1842,19 +1859,22 @@ func Test__weaviate_graphql_common_JSON(t *testing.T) {
 		"querys": "{ }" 
 	}`
 
+	// Make the IO input
+	jsonStr := bytes.NewBuffer([]byte(bodyUnpr))
+
 	// Do the GraphQL request
-	responseUnpr, _ := doGraphQLRequest(fmt.Sprintf(bodyUnpr, actionID), apiKeyCmdLine)
+	responseUnpr := doRequest("/graphql", "POST", "application/json", jsonStr, apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusUnprocessableEntity, responseUnpr.StatusCode)
 
 	// Set the graphQL body
-	bodyNonExistingProperty := `{ 
-		"query": "{ action(uuid:\"%s\") { uuids atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
-	}`
+	bodyNonExistingProperty := graphQLQueryObject{
+		Query: fmt.Sprintf(`{ action(uuid:"%s") { uuids atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }`, actionID),
+	}
 
 	// Do the GraphQL request
-	responseNonExistingProperty, respObjectNonExistingProperty := doGraphQLRequest(fmt.Sprintf(bodyNonExistingProperty, actionID), apiKeyCmdLine)
+	responseNonExistingProperty, respObjectNonExistingProperty := doGraphQLRequest(bodyNonExistingProperty, apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseNonExistingProperty.StatusCode)
@@ -1868,12 +1888,14 @@ func Test__weaviate_graphql_common_JSON(t *testing.T) {
 
 func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	// Set the graphQL body
-	body := `{ 
-		"query": "{ thing(uuid:\"%s\") { uuid atContext atClass creationTimeUnix key { uuid read } } }" 
-	}`
+	body := `{ thing(uuid:"%s") { uuid atContext atClass creationTimeUnix key { uuid read } } }`
+
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, thingID),
+	}
 
 	// Do the GraphQL request
-	response, respObject := doGraphQLRequest(fmt.Sprintf(body, thingID), apiKeyCmdLine)
+	response, respObject := doGraphQLRequest(bodyObj, apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -1905,12 +1927,13 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 
 	// Test the related actions
 	// Set the graphQL body
-	body = `{ 
-		"query": "{ thing(uuid:\"%s\") { actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
-	}`
+	body = `{ thing(uuid:"%s") { actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
+	bodyObj = graphQLQueryObject{
+		Query: fmt.Sprintf(body, thingID),
+	}
 
 	// Do the GraphQL request
-	responseActions, respObjectActions := doGraphQLRequest(fmt.Sprintf(body, thingID), apiKeyCmdLine)
+	responseActions, respObjectActions := doGraphQLRequest(bodyObj, apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseActions.StatusCode)
@@ -1929,12 +1952,13 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	require.Equal(t, actionIDs[0], string(respActionsUUID))
 
 	// Set the graphQL body
-	body = `{ 
-		"query": "{ thing(uuid:\"%s\") { actions(first:3) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
-	}`
+	body = `{ thing(uuid:"%s") { actions(first:3) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
+	bodyObj = graphQLQueryObject{
+		Query: fmt.Sprintf(body, thingID),
+	}
 
 	// Do the GraphQL request
-	responseActionsLimit, respObjectActionsLimit := doGraphQLRequest(fmt.Sprintf(body, thingID), apiKeyCmdLine)
+	responseActionsLimit, respObjectActionsLimit := doGraphQLRequest(bodyObj, apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseActionsLimit.StatusCode)
@@ -1954,12 +1978,13 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	require.Equal(t, actionIDs[1], string(resultActionsLimit[1].(map[string]interface{})["uuid"].(string)))
 
 	// Set the graphQL body
-	body = `{ 
-		"query": "{ thing(uuid:\"%s\") { actions(first:5, offset:5) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }" 
-	}`
+	body = `{ thing(uuid:"%s") { actions(first:5, offset:5) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
+	bodyObj = graphQLQueryObject{
+		Query: fmt.Sprintf(body, thingID),
+	}
 
 	// Do the GraphQL request
-	responseActionsLimitOffset, respObjectActionsLimitOffset := doGraphQLRequest(fmt.Sprintf(body, thingID), apiKeyCmdLine)
+	responseActionsLimitOffset, respObjectActionsLimitOffset := doGraphQLRequest(bodyObj, apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseActionsLimitOffset.StatusCode)
@@ -1977,16 +2002,57 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 
 	// Test ID in the middle of the 3 results
 	require.Equal(t, actionIDs[7], string(resultActionsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
+
+	// Search class 'TestAction2', most recent should be the set actionID[0]
+	bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"TestAction2", first:1) { actions { uuid atClass } totalResults } } }`, thingID)}
+	_, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultActionsValueSearch1 := respObjectValueSearch1.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
+	require.Equal(t, actionIDs[0], string(resultActionsValueSearch1[0].(map[string]interface{})["uuid"].(string)))
+
+	// Search class NOT 'TestAction2', most recent should be the set actionID
+	bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"!:TestAction2", first:1) { actions { uuid atClass } totalResults } } }`, thingID)}
+	_, respObjectValueSearch2 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultActionsValueSearch2 := respObjectValueSearch2.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
+	require.Equal(t, actionID, string(resultActionsValueSearch2[0].(map[string]interface{})["uuid"].(string)))
+
+	// Search class '~TestAction', most recent 9 should be 'TestAction2' and the 10th is 'TestAction' (with uuid = actionID).
+	bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"~TestAction", first:10) { actions { uuid atClass } totalResults } } }`, thingID)}
+	_, respObjectValueSearch3 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultActionsValueSearch3 := respObjectValueSearch3.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
+	require.Equal(t, "TestAction2", string(resultActionsValueSearch3[3].(map[string]interface{})["atClass"].(string)))
+	require.Equal(t, "TestAction2", string(resultActionsValueSearch3[6].(map[string]interface{})["atClass"].(string)))
+	require.Equal(t, "TestAction", string(resultActionsValueSearch3[9].(map[string]interface{})["atClass"].(string)))
+	require.Equal(t, actionID, string(resultActionsValueSearch3[9].(map[string]interface{})["uuid"].(string)))
+
+	// Search class 'TestAction' AND 'schema:"testString:patch"', should find nothing.
+	bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"TestAction", schema:"testString:patch", first:1) { actions { uuid atClass } totalResults } } }`, thingID)}
+	_, respObjectValueSearch4 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	totalResultsValueSearch4 := respObjectValueSearch4.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["totalResults"].(float64)
+	require.Equal(t, float64(0), totalResultsValueSearch4)
+
+	// Search class 'TestAction' AND 'schema:"testString:~patch"', should find ActionID as most recent.
+	bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"TestAction", schema:"testString:~patch", first:1){ actions { uuid atClass } totalResults } } }`, thingID)}
+	_, respObjectValueSearch5 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultActionsValueSearch5 := respObjectValueSearch5.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
+	require.Equal(t, actionID, string(resultActionsValueSearch5[0].(map[string]interface{})["uuid"].(string)))
+
+	// Search class '~TestAction' AND NOT 'schema:"testString:~patch"', should find thing with id == actionIDs[0] and have a length of 9
+	bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"~TestAction", schema:"testString!:~patch", first:1){ actions { uuid atClass } totalResults } } }`, thingID)}
+	_, respObjectValueSearch6 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultActionsValueSearch6 := respObjectValueSearch6.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
+	require.Equal(t, actionIDs[0], string(resultActionsValueSearch6[0].(map[string]interface{})["uuid"].(string)))
+	totalResultsValueSearch6 := respObjectValueSearch6.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["totalResults"].(float64)
+	require.Equal(t, float64(9), totalResultsValueSearch6)
 }
 
 func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 	// Set the graphQL body
-	body := `{ 
-		"query": "{ listThings { things { uuid atContext atClass creationTimeUnix } totalResults } }" 
-	}`
+	bodyObj := graphQLQueryObject{
+		Query: `{ listThings { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
+	}
 
 	// Do the GraphQL request
-	response, respObject := doGraphQLRequest(body, apiKeyCmdLine)
+	response, respObject := doGraphQLRequest(bodyObj, apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -2005,12 +2071,12 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 	require.Equal(t, thingIDs[0], string(respUUID))
 
 	// Set the graphQL body
-	body = `{ 
-		"query": "{ listThings(first: 3) { things { uuid atContext atClass creationTimeUnix } totalResults } }" 
-	}`
+	bodyObj = graphQLQueryObject{
+		Query: `{ listThings(first: 3) { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
+	}
 
 	// Do the GraphQL request
-	responseLimit, respObjectLimit := doGraphQLRequest(body, apiKeyCmdLine)
+	responseLimit, respObjectLimit := doGraphQLRequest(bodyObj, apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseLimit.StatusCode)
@@ -2030,12 +2096,12 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 	require.Equal(t, thingIDs[1], string(resultThingsLimit[1].(map[string]interface{})["uuid"].(string)))
 
 	// Set the graphQL body
-	body = `{ 
-		"query": "{ listThings(first: 5, offset: 5) { things { uuid atContext atClass creationTimeUnix } totalResults } }" 
-	}`
+	bodyObj = graphQLQueryObject{
+		Query: `{ listThings(first: 5, offset: 5) { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
+	}
 
 	// Do the GraphQL request
-	responseLimitOffset, respObjectLimitOffset := doGraphQLRequest(body, apiKeyCmdLine)
+	responseLimitOffset, respObjectLimitOffset := doGraphQLRequest(bodyObj, apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseLimitOffset.StatusCode)
@@ -2053,16 +2119,56 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 
 	// Test ID in the middle of the 3 results
 	require.Equal(t, thingIDs[7], string(resultThingsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
+
+	// Search class 'TestThing2', most recent should be the set thingIDsubject
+	bodyObj = graphQLQueryObject{Query: `{ listThings(class:"TestThing2", first:1) { things { uuid atClass } totalResults } }`}
+	_, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultThingsValueSearch1 := respObjectValueSearch1.Data["listThings"].(map[string]interface{})["things"].([]interface{})
+	require.Equal(t, thingIDsubject, string(resultThingsValueSearch1[0].(map[string]interface{})["uuid"].(string)))
+
+	// Search class NOT 'TestThing2', most recent should be the set thingID
+	bodyObj = graphQLQueryObject{Query: `{ listThings(class:"!:TestThing2", first:1) { things { uuid atClass } totalResults } }`}
+	_, respObjectValueSearch2 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultThingsValueSearch2 := respObjectValueSearch2.Data["listThings"].(map[string]interface{})["things"].([]interface{})
+	require.Equal(t, thingID, string(resultThingsValueSearch2[0].(map[string]interface{})["uuid"].(string)))
+
+	// Search class '~TestThing', most recent 9 should be 'TestThing2' and the 10th is 'TestThing' (with uuid = thingID).
+	bodyObj = graphQLQueryObject{Query: `{ listThings(class:"~TestThing", first:10) { things { uuid atClass } totalResults } }`}
+	_, respObjectValueSearch3 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultThingsValueSearch3 := respObjectValueSearch3.Data["listThings"].(map[string]interface{})["things"].([]interface{})
+	require.Equal(t, "TestThing2", string(resultThingsValueSearch3[3].(map[string]interface{})["atClass"].(string)))
+	require.Equal(t, "TestThing2", string(resultThingsValueSearch3[6].(map[string]interface{})["atClass"].(string)))
+	require.Equal(t, "TestThing", string(resultThingsValueSearch3[9].(map[string]interface{})["atClass"].(string)))
+	require.Equal(t, thingID, string(resultThingsValueSearch3[9].(map[string]interface{})["uuid"].(string)))
+
+	// Search class 'TestThing' AND 'schema:"testString:patch"', should find nothing.
+	bodyObj = graphQLQueryObject{Query: `{ listThings(class:"TestThing", schema:"testString:patch", first:1) { things { uuid atClass } totalResults } }`}
+	_, respObjectValueSearch4 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	totalResultsValueSearch4 := respObjectValueSearch4.Data["listThings"].(map[string]interface{})["totalResults"].(float64)
+	require.Equal(t, float64(0), totalResultsValueSearch4)
+
+	// Search class 'TestThing' AND 'schema:"testString:~patch"', should find ThingID as most recent.
+	bodyObj = graphQLQueryObject{Query: `{ listThings(class:"TestThing", schema:"testString:~patch", first:1){ things { uuid atClass } totalResults } }`}
+	_, respObjectValueSearch5 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultThingsValueSearch5 := respObjectValueSearch5.Data["listThings"].(map[string]interface{})["things"].([]interface{})
+	require.Equal(t, thingID, string(resultThingsValueSearch5[0].(map[string]interface{})["uuid"].(string)))
+
+	// Search class '~TestThing' AND NOT 'schema:"testString:~patch"', should find thing with id == thingIDs[0]
+	bodyObj = graphQLQueryObject{Query: `{ listThings(class:"~TestThing", schema:"testString!:~patch", first:1){ things { uuid atClass } totalResults } }`}
+	_, respObjectValueSearch6 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultThingsValueSearch6 := respObjectValueSearch6.Data["listThings"].(map[string]interface{})["things"].([]interface{})
+	require.Equal(t, thingIDs[0], string(resultThingsValueSearch6[0].(map[string]interface{})["uuid"].(string)))
 }
 
 func Test__weaviate_graphql_action_JSON(t *testing.T) {
 	// Set the graphQL body
-	body := `{ 
-		"query": "{ action(uuid:\"%s\") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }" 
-	}`
+	body := `{ action(uuid:"%s") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }`
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, actionID),
+	}
 
 	// Do the GraphQL request
-	response, respObject := doGraphQLRequest(fmt.Sprintf(body, actionID), apiKeyCmdLine)
+	response, respObject := doGraphQLRequest(bodyObj, apiKeyCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -2091,9 +2197,10 @@ func Test__weaviate_graphql_action_JSON(t *testing.T) {
 
 func Test__weaviate_graphql_key_JSON(t *testing.T) {
 	// // Set the graphQL body
-	// body := `{
-	// 	"query": "{ key(uuid:\"%s\") { uuid read write ipOrigin parent { uuid read } } }"
-	// }`
+	// body := `{ key(uuid:"%s") { uuid read write ipOrigin parent { uuid read } } }`
+	// bodyObj := graphQLQueryObject{
+	// 	Query: fmt.Sprintf(body, keyID),
+	// }
 
 	// // Make the IO input
 	// jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(body, newAPIKeyID)))

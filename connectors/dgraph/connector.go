@@ -554,7 +554,7 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 
 	// No nodes = not found error. First level is root (always exists) so check children.
 	if len(nodes[0].GetChildren()) == 0 {
-		return errors_.New("no things found in database with used filters")
+		return nil
 	}
 
 	// Get subitems because we use a query with related things of a thing
@@ -683,11 +683,11 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(`{
 		totalResults(func: eq(uuid, "%s")) {
-			related: ~things.object {
+			related: ~things.object %s {
 				count()
 			}
 		}
-	}`, UUID))
+	}`, UUID, filterWheres))
 
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
@@ -732,7 +732,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*
 
 	// No nodes = not found error. First level is root (always exists) so check children.
 	if len(nodes[0].GetChildren()) == 0 {
-		return errors_.New("No actions found in database.")
+		return nil
 	}
 
 	// Get subitems because we use a query with related actions of a thing
