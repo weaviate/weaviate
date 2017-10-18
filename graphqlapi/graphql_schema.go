@@ -581,8 +581,9 @@ func (f *GraphQLSchema) InitSchema() error {
 		Description: "The actions belonging to this thing, sorted on creation time..",
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
-				Description: "First X items from the given offset, when none given, it will be 100.",
-				Type:        graphql.Int,
+				Description:  "First X items from the given offset, when none given, it will be " + string(connutils.DefaultFirst) + ".",
+				Type:         graphql.Int,
+				DefaultValue: connutils.DefaultFirst,
 			},
 			"offset": &graphql.ArgumentConfig{
 				Description:  "Offset from the most recent item.",
@@ -608,8 +609,6 @@ func (f *GraphQLSchema) InitSchema() error {
 				var first int
 				if p.Args["first"] != nil {
 					first = p.Args["first"].(int)
-				} else {
-					first = 100
 				}
 
 				var offset int
@@ -758,8 +757,9 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        thingListType,
 				Args: graphql.FieldConfigArgument{
 					"first": &graphql.ArgumentConfig{
-						Description: "First X items from the given offset, when none given, it will be 100.",
-						Type:        graphql.Int,
+						Description:  "First X items from the given offset, when none given, it will be " + string(connutils.DefaultFirst) + ".",
+						Type:         graphql.Int,
+						DefaultValue: connutils.DefaultFirst,
 					},
 					"offset": &graphql.ArgumentConfig{
 						Description:  "Offset from the most recent item.",
@@ -783,8 +783,6 @@ func (f *GraphQLSchema) InitSchema() error {
 					var first int
 					if p.Args["first"] != nil {
 						first = p.Args["first"].(int)
-					} else {
-						first = 100
 					}
 
 					var offset int
