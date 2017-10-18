@@ -33,7 +33,7 @@ func ValidateThingBody(thing *models.ThingCreate, databaseSchema schema.Weaviate
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(databaseSchema.ThingSchema.Schema, &thing.Schema, thing.AtClass)
+	sve := ValidateSchemaInBody(databaseSchema.ThingSchema.Schema, &thing.Schema, thing.AtClass, dbConnector)
 
 	return sve
 }
@@ -120,7 +120,7 @@ func ValidateActionBody(action *models.ActionCreate, databaseSchema schema.Weavi
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(databaseSchema.ActionSchema.Schema, &action.Schema, action.AtClass)
+	sve := ValidateSchemaInBody(databaseSchema.ActionSchema.Schema, &action.Schema, action.AtClass, dbConnector)
 
 	return sve
 }

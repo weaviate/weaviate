@@ -636,6 +636,22 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid7)), "requires one of the following values in 'type':")
 
+	// Test invalid property cref4
+	jsonStrInvalid7b := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, fakeID, getWeaviateURL())))
+	responseInvalid7b := doRequest(uri, method, "application/json", jsonStrInvalid7b, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7b.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid7b)), "error finding the 'cref' to a Thing in the database:")
+
 	// Test invalid property string
 	jsonStrInvalid8 := bytes.NewBuffer([]byte(`{
 		"@context": "http://example.org",
@@ -1439,6 +1455,22 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	responseInvalid7 := doRequest(uri, method, "application/json", jsonStrInvalid7, apiKeyCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid7)), "requires one of the following values in 'type':")
+
+	// Test invalid property cref3
+	jsonStrInvalid7b := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}%s
+	}`, fakeID, getWeaviateURL(), actionThingsJSON)))
+	responseInvalid7b := doRequest(uri, method, "application/json", jsonStrInvalid7b, apiKeyCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7b.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid7b)), "error finding the 'cref' to a Thing in the database:")
 
 	// Test invalid property string
 	jsonStrInvalid8 := bytes.NewBuffer([]byte(fmt.Sprintf(`{

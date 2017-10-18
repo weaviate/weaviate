@@ -16,15 +16,17 @@ package validation
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/go-openapi/strfmt"
 	"time"
 
+	"github.com/weaviate/weaviate/connectors"
 	"github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/models"
 	"github.com/weaviate/weaviate/schema"
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
-func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *models.Schema, className string) error {
+func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *models.Schema, className string, dbConnector dbconnector.DatabaseConnector) error {
 	// Validate whether the class exists in the given schema
 	// Get the class by its name
 	class, err := schema.GetClassByName(weaviateSchema, className)
@@ -85,11 +87,9 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 				)
 			}
 
-			// TODO: https://github.com/weaviate/weaviate/issues/219 Validate on existing UUID?
-			// TODO: Validate on existing locationURL?
-
 			// Return error if type is not right, when it is not one of the 3 possible types
-			if !validateRefType(pvcr["type"].(string)) {
+			refType := pvcr["type"].(string)
+			if !validateRefType(refType) {
 				return fmt.Errorf(
 					"class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s' or '%s'",
 					class.Class, pk,
@@ -97,6 +97,29 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 					connutils.RefTypeThing,
 					connutils.RefTypeKey,
 				)
+			}
+
+			// TODO: https://github.com/weaviate/weaviate/issues/237 Validate using / existing locationURL?
+			// Validate whether reference exists based on given Type
+			crefu := strfmt.UUID(pvcr["$cref"].(string))
+			if refType == connutils.RefTypeAction {
+				ar := &models.ActionGetResponse{}
+				are := dbConnector.GetAction(crefu, ar)
+				if are != nil {
+					return fmt.Errorf("error finding the 'cref' to an Action in the database: %s", are)
+				}
+			} else if refType == connutils.RefTypeKey {
+				kr := &models.KeyTokenGetResponse{}
+				kre := dbConnector.GetKey(crefu, kr)
+				if kre != nil {
+					return fmt.Errorf("error finding the 'cref' to a Key in the database: %s", kre)
+				}
+			} else if refType == connutils.RefTypeThing {
+				tr := &models.ThingGetResponse{}
+				tre := dbConnector.GetThing(crefu, tr)
+				if tre != nil {
+					return fmt.Errorf("error finding the 'cref' to a Thing in the database: %s", tre)
+				}
 			}
 		} else if *dt == schema.DataTypeString {
 			// Return error when the input can not be casted to a string
