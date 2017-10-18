@@ -56,8 +56,7 @@ import (
 	"github.com/weaviate/weaviate/validation"
 )
 
-const maxResultsOverride int64 = 100
-const pageOverride int64 = 1
+const pageOverride int = 1
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
 var databaseSchema schema.WeaviateSchema
@@ -80,25 +79,25 @@ func init() {
 
 // getLimit returns the maximized limit
 func getLimit(paramMaxResults *int64) int {
-	maxResults := maxResultsOverride
+	maxResults := int64(connutils.DefaultFirst)
 	// Get the max results from params, if exists
 	if paramMaxResults != nil {
 		maxResults = *paramMaxResults
 	}
 
-	// Max results form URL, otherwise max = maxResultsOverride.
-	return int(math.Min(float64(maxResults), float64(maxResultsOverride)))
+	// Max results form URL, otherwise max = connutils.DefaultFirst.
+	return int(math.Min(float64(maxResults), float64(connutils.DefaultFirst)))
 }
 
 // getPage returns the page if set
 func getPage(paramPage *int64) int {
-	page := pageOverride
+	page := int64(pageOverride)
 	// Get the page from params, if exists
 	if paramPage != nil {
 		page = *paramPage
 	}
 
-	// Page form URL, otherwise max = maxResultsOverride.
+	// Page form URL, otherwise max = connutils.DefaultFirst.
 	return int(page)
 }
 
