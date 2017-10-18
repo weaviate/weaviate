@@ -256,7 +256,6 @@ func (f *GraphQLSchema) InitSchema() error {
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			// Resolve the data from the Key Response
 			if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
-				// TODO: https://github.com/weaviate/weaviate/issues/221
 				// Init the respons as an array of keys
 				children := []*models.KeyTokenGetResponse{}
 
@@ -264,19 +263,11 @@ func (f *GraphQLSchema) InitSchema() error {
 				keyUUID := key.KeyID
 
 				// Get children UUID's from the database
-				childrenUUIDs, err := f.dbConnector.GetKeyChildrenUUIDs(keyUUID)
+				err := f.dbConnector.GetKeyChildren(keyUUID, &children)
 
 				// If an error is given, return the empty array
 				if err != nil {
 					return children, err
-				}
-
-				// For each childId, get the key from the database and add it to the response.
-				for _, childUUID := range childrenUUIDs {
-					child := &models.KeyTokenGetResponse{}
-					f.dbConnector.GetKey(childUUID, child)
-
-					children = append(children, child)
 				}
 
 				// Return children without error
