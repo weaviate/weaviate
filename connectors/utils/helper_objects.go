@@ -22,6 +22,9 @@ const RefTypeKey string = "Key"
 // RefTypeThing used for things in DB and requests
 const RefTypeThing string = "Thing"
 
+// DefaultFirst is used for the default items 'per page' in list request
+const DefaultFirst int = 100
+
 // Operator is a representation of the operator for queries
 type Operator uint16
 
