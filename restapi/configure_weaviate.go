@@ -23,9 +23,7 @@ import (
 	"math"
 	"net/http"
 	"os"
-	"reflect"
 	"strings"
-	"unicode"
 
 	"github.com/weaviate/weaviate/restapi/operations/graphql"
 	"github.com/weaviate/weaviate/restapi/operations/meta"
@@ -99,19 +97,6 @@ func getPage(paramPage *int64) int {
 
 	// Page form URL, otherwise max = connutils.DefaultFirst.
 	return int(page)
-}
-
-// getKind generates a kind out of an object
-func getKind(object interface{}) *string {
-	kinds := strings.Split(reflect.TypeOf(object).String(), ".")
-	kind := kinds[len(kinds)-1]
-	for i, v := range kind {
-		kind = string(unicode.ToLower(v)) + kind[i+1:]
-		break
-	}
-	kind = "weaviate#" + kind
-
-	return &kind
 }
 
 // isOwnKeyOrLowerInTree returns whether a key is his own or in his children
