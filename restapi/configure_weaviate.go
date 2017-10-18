@@ -133,16 +133,21 @@ func GetKeyChildrenUUIDs(databaseConnector dbconnector.DatabaseConnector, parent
 		allIDs = append(allIDs, parentUUID)
 	}
 
-	// Get children from the db-connector
-	childKeys, _ := databaseConnector.GetKeyChildrenUUIDs(parentUUID)
+	// Init children var
+	children := []*models.KeyTokenGetResponse{}
 
-	// Init error var
-	var err error
+	// Get children from the db-connector
+	err := databaseConnector.GetKeyChildren(parentUUID, &children)
+
+	// Return error
+	if err != nil {
+		return allIDs, err
+	}
 
 	// For every depth, get the ID's
 	if maxDepth == 0 || depth < maxDepth {
-		for _, childKey := range childKeys {
-			allIDs, err = GetKeyChildrenUUIDs(databaseConnector, childKey, filterOutDeleted, allIDs, maxDepth, depth+1)
+		for _, child := range children {
+			allIDs, err = GetKeyChildrenUUIDs(databaseConnector, child.KeyID, filterOutDeleted, allIDs, maxDepth, depth+1)
 		}
 	}
 
