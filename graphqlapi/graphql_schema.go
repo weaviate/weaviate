@@ -374,7 +374,6 @@ func (f *GraphQLSchema) InitSchema() error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Things Response
 					if things, ok := p.Source.(*models.ThingsListResponse); ok {
-						// TODO: https://github.com/weaviate/weaviate/issues/222
 						return things.Things, nil
 					}
 					return []*models.ThingGetResponse{}, nil
@@ -542,7 +541,6 @@ func (f *GraphQLSchema) InitSchema() error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Actions Response
 					if actions, ok := p.Source.(*models.ActionsListResponse); ok {
-						// TODO: https://github.com/weaviate/weaviate/issues/222
 						return actions.Actions, nil
 					}
 					return []*models.ActionGetResponse{}, nil
