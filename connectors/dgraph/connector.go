@@ -78,7 +78,7 @@ var (
 	keyChildrenQueryTemplate = `{ 
 		get(func: eq(uuid, "%s")) @filter(eq(` + refTypePointer + `, "` + connutils.RefTypeKey + `")) {
 			children: ~` + edgeNameKeyParent + ` {
-				uuid: uuid
+				expand(_all_)
 			}
 		}
 	}`
@@ -964,11 +964,8 @@ func (f *Dgraph) DeleteKey(UUID strfmt.UUID) error {
 	return err
 }
 
-// GetKeyChildrenUUIDs returns the key in the an array format
-func (f *Dgraph) GetKeyChildrenUUIDs(UUID strfmt.UUID) ([]strfmt.UUID, error) {
-	// Create the response object
-	response := []strfmt.UUID{}
-
+// GetKeyChildren returns the key in the an array format
+func (f *Dgraph) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error {
 	// Init the request
 	req := dgraphClient.Req{}
 	req.SetQuery(fmt.Sprintf(keyChildrenQueryTemplate, string(UUID)))
@@ -977,21 +974,26 @@ func (f *Dgraph) GetKeyChildrenUUIDs(UUID strfmt.UUID) ([]strfmt.UUID, error) {
 	var resp *protos.Response
 	var err error
 	if resp, err = f.client.Run(f.getContext(), &req); err != nil {
-		return response, err
+		return err
 	}
 
-	// Unmarshal the dgraph response into a struct
-	var childrenResult KeyChildrenResult
-	if err = dgraphClient.Unmarshal(resp.N, &childrenResult); err != nil {
-		return response, err
+	// Get the nodes from the response
+	nodes := resp.N
+
+	// Check if the response has children, because without object you cant select it
+	if len(nodes[0].Children) > 0 {
+
+		// For each children, add it in the slice
+		for _, v := range nodes[0].Children[0].GetChildren() {
+
+			// Fill KeyResponse object
+			keyResponse := models.KeyTokenGetResponse{}
+			f.mergeKeyNodeInResponse(v, &keyResponse)
+			*children = append(*children, &keyResponse)
+		}
 	}
 
-	// Convert the query result to function response
-	for _, v := range childrenResult.Root.Children {
-		response = append(response, v.UUID)
-	}
-
-	return response, nil
+	return nil
 }
 
 func (f *Dgraph) addNewNode(nType string, UUID strfmt.UUID) (dgraphClient.Node, error) {
@@ -1534,7 +1536,7 @@ func (f *Dgraph) mergeKeyNodeInResponse(node *protos.Node, key *models.KeyTokenG
 	attribute := node.Attribute
 
 	// Depending on the given function name in the query or depth in response, switch on the attribute.
-	if attribute == "get" {
+	if attribute == "get" || attribute == "children" {
 		// For all properties, fill them.
 		for _, prop := range node.GetProperties() {
 			// Fill basic properties of each thing.

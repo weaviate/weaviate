@@ -47,13 +47,3 @@ type NodeID struct {
 	ID   uint64      `dgraph:"_uid_"`
 	Type string      `dgraph:"_type_"`
 }
-
-// KeyChildrenResult is the struct for getting key's children
-type KeyChildrenResult struct {
-	Root KeyChild `dgraph:"get"`
-}
-
-// KeyChild is the struct for each child
-type KeyChild struct {
-	Children []NodeID `dgraph:"children"`
-}
