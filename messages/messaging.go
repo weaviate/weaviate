@@ -19,10 +19,15 @@ import (
 	"os"
 )
 
+// Messaging has some basic variables.
+type Messaging struct {
+	Debug bool
+}
+
 // ExitError exit the program and give standard weaviate-error message.
-func ExitError(code int, message interface{}) {
+func (f *Messaging) ExitError(code int, message interface{}) {
 	// Print Error
-	ErrorMessage(message.(string))
+	f.ErrorMessage(message.(string))
 	log.Println("ERROR: This error needs to be resolved. For more info, check https://weaviate.com/. Exiting now...")
 
 	// Exit with code
@@ -30,13 +35,21 @@ func ExitError(code int, message interface{}) {
 }
 
 // InfoMessage sends a message with 'INFO:' in front of it
-func InfoMessage(message interface{}) {
+func (f *Messaging) InfoMessage(message interface{}) {
 	// Print Message
 	log.Println("INFO: " + fmt.Sprint(message) + ".")
 }
 
+// DebugMessage sends a message with 'DEBUG:' in front of it
+func (f *Messaging) DebugMessage(message interface{}) {
+	// Print Message
+	if f.Debug {
+		log.Println("DEBUG: " + fmt.Sprint(message) + ".")
+	}
+}
+
 // ErrorMessage exit the program and give standard weaviate-error message.
-func ErrorMessage(message interface{}) {
+func (f *Messaging) ErrorMessage(message interface{}) {
 	// Print Error
 	log.Println("ERROR: " + fmt.Sprint(message) + ".")
 }
