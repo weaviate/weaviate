@@ -1100,7 +1100,7 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 	}
 
 	err = dbConnector.SetMessaging(messaging)
-	// Fatal error setting messagaging
+	// Fatal error setting messaging
 	if err != nil {
 		messaging.ExitError(78, err.Error())
 	}
