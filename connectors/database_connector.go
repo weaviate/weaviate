@@ -18,7 +18,7 @@ import (
 	"github.com/weaviate/weaviate/connectors/utils"
 
 	"github.com/weaviate/weaviate/config"
-	"github.com/weaviate/weaviate/connectors/dgraph"
+	"github.com/weaviate/weaviate/messages"
 	"github.com/weaviate/weaviate/models"
 	"github.com/weaviate/weaviate/schema"
 )
@@ -31,6 +31,7 @@ type DatabaseConnector interface {
 	SetServerAddress(serverAddress string)
 	SetConfig(configInput *config.Environment) error
 	SetSchema(schemaInput *schema.WeaviateSchema) error
+	SetMessaging(m *messages.Messaging) error
 
 	AddThing(thing *models.Thing, UUID strfmt.UUID) error
 	GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
@@ -51,27 +52,9 @@ type DatabaseConnector interface {
 	GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error
 }
 
-// GetAllConnectors contains all available connectors
-func GetAllConnectors() []DatabaseConnector {
-	// Set all existing connectors
-	connectors := []DatabaseConnector{
-		&dgraph.Dgraph{},
-	}
+// CacheConnector is the interface that all cache-connectors should have
+type CacheConnector interface {
+	DatabaseConnector
 
-	return connectors
-}
-
-// CreateDatabaseConnector gets the database connector by name from config
-func CreateDatabaseConnector(env *config.Environment) DatabaseConnector {
-	// Get all connectors
-	connectors := GetAllConnectors()
-
-	// Loop through all connectors and determine its name
-	for _, connector := range connectors {
-		if connector.GetName() == env.Database.Name {
-			return connector
-		}
-	}
-
-	return nil
+	SetDatabaseConnector(dbConnector DatabaseConnector)
 }
