@@ -10,7 +10,7 @@
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
  */
-package main
+package test
 
 import (
 	"bytes"
@@ -116,6 +116,8 @@ var actionTestBoolean bool
 var actionTestNumber float64
 var actionTestDate string
 
+var messaging *messages.Messaging
+
 func init() {
 	flag.StringVar(&apiKeyCmdLine, "api-key", "", "API-KEY as used as haeder in the tests.")
 	flag.StringVar(&serverPort, "server-port", "", "Port number on which the server is running.")
@@ -128,6 +130,10 @@ func init() {
 	}
 
 	fakeID = "11111111-1111-1111-1111-111111111111"
+
+	messaging = &messages.Messaging{
+		Debug: true,
+	}
 }
 
 // /******************
@@ -749,7 +755,7 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 
 	// Globally set thingID
 	thingID = string(respObject.ThingID)
-	messages.InfoMessage(fmt.Sprintf("INFO: The 'thingID'-variable is set with UUID '%s'", thingID))
+	messaging.InfoMessage(fmt.Sprintf("INFO: The 'thingID'-variable is set with UUID '%s'", thingID))
 
 	// Check whether the returned information is the same as the data added
 	require.Equal(t, thingTestString, respObject.Schema.(map[string]interface{})["testString"].(string))
@@ -1586,7 +1592,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 
 	// Globally set actionID
 	actionID = string(respObject.ActionID)
-	messages.InfoMessage(fmt.Sprintf("INFO: The 'actionID'-variable is set with UUID '%s'", actionID))
+	messaging.InfoMessage(fmt.Sprintf("INFO: The 'actionID'-variable is set with UUID '%s'", actionID))
 
 	// Check thing is set to known ThingID
 	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Object.NrDollarCref)
