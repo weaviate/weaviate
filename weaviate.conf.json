@@ -13,6 +13,9 @@
         },
         {
             "name": "test",
+            "cache": {
+                "name": "kv-cache"
+            },
             "database": {
                 "name": "dgraph",
                 "database_config" : {

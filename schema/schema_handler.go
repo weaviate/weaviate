@@ -43,6 +43,8 @@ type WeaviateSchema struct {
 
 	// The predicate dict to re-use for every schema (thing/action)
 	predicateDict map[string]DataType
+
+	messaging *messages.Messaging
 }
 
 // DataType is a representation of the predicate for queries
@@ -161,7 +163,7 @@ func IsValidValueDataType(dt string) bool {
 }
 
 // LoadSchema from config locations
-func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
+func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment, m *messages.Messaging) error {
 	f.ThingSchema.schemaLocationFromConfig = usedConfig.Schemas.Thing
 	f.ActionSchema.schemaLocationFromConfig = usedConfig.Schemas.Action
 	f.predicateDict = map[string]DataType{}
@@ -182,7 +184,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 
 		// With no error, it is an URL
 		if err == nil {
-			messages.InfoMessage(cfk + ": Downloading schema file..")
+			f.messaging.InfoMessage(cfk + ": Downloading schema file..")
 			cfv.localFile = "temp/schema" + string(connutils.GenerateUUID()) + ".json"
 
 			// Create local file
@@ -192,39 +194,39 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 			// Get the file from online
 			resp, err := http.Get(cfv.schemaLocationFromConfig)
 			if err != nil {
-				messages.ErrorMessage(cfk + ": Schema file '" + cfv.localFile + "' could not be downloaded")
+				f.messaging.ErrorMessage(cfk + ": Schema file '" + cfv.localFile + "' could not be downloaded")
 				return err
 			}
 			defer resp.Body.Close()
 
 			// Write file to local file
 			b, _ := io.Copy(schemaFile, resp.Body)
-			messages.InfoMessage(fmt.Sprintf("%s: Download complete, file size: %d", cfk, b))
+			f.messaging.InfoMessage(fmt.Sprintf("%s: Download complete, file size: %d", cfk, b))
 		} else {
-			messages.InfoMessage(cfk + ": Given schema location is not a valid URL, using local file")
+			f.messaging.InfoMessage(cfk + ": Given schema location is not a valid URL, using local file")
 
 			// Given schema location is not a valid URL, assume it is a local file
 			cfv.localFile = cfv.schemaLocationFromConfig
 		}
 
 		// Read local file which is either just downloaded or given in config.
-		messages.InfoMessage(cfk + ": Read local file " + cfv.localFile)
+		f.messaging.InfoMessage(cfk + ": Read local file " + cfv.localFile)
 
 		fileContents, err := ioutil.ReadFile(cfv.localFile)
 
 		// Return error when error is given reading file.
 		if err != nil {
-			messages.ErrorMessage(cfk + ": Schema file '" + cfv.localFile + "' could not be found")
+			f.messaging.ErrorMessage(cfk + ": Schema file '" + cfv.localFile + "' could not be found")
 			return err
 		}
 
 		// Merge JSON into Schema objects
 		err = json.Unmarshal([]byte(fileContents), &cfv.Schema)
-		messages.InfoMessage(cfk + ": File is loaded")
+		f.messaging.InfoMessage(cfk + ": File is loaded")
 
 		// Return error when error is given reading file.
 		if err != nil {
-			messages.ErrorMessage(cfk + ": Can not parse schema")
+			f.messaging.ErrorMessage(cfk + ": Can not parse schema")
 			return err
 		}
 
@@ -233,12 +235,12 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment) error {
 
 		// Return error when error is given validating the schema.
 		if err != nil {
-			messages.ErrorMessage(cfk + ": Can not validate schema")
+			f.messaging.ErrorMessage(cfk + ": Can not validate schema")
 			return err
 		}
 
 		// Add info message about the schema validation.
-		messages.InfoMessage(cfk + ": Schema is validated and correct")
+		f.messaging.InfoMessage(cfk + ": Schema is validated and correct")
 	}
 
 	return nil
