@@ -46,6 +46,7 @@ type Dgraph struct {
 	config        Config
 	serverAddress string
 	schema        *schema.WeaviateSchema
+	messaging     *messages.Messaging
 }
 
 // Config represents the config outline for Dgraph. The Database config shoud be of the following form:
@@ -107,6 +108,13 @@ func (f *Dgraph) SetSchema(schemaInput *schema.WeaviateSchema) error {
 	return nil
 }
 
+// SetMessaging is used to fill the messaging object
+func (f *Dgraph) SetMessaging(m *messages.Messaging) error {
+	f.messaging = m
+
+	return nil
+}
+
 // SetServerAddress is used to fill in a struct with schema
 func (f *Dgraph) SetServerAddress(addr string) {
 	f.serverAddress = addr
@@ -151,7 +159,7 @@ func (f *Dgraph) Init() error {
 	// Init error variable
 	var err error
 
-	messages.InfoMessage("Initializing Dgraph...")
+	f.messaging.InfoMessage("Initializing Dgraph...")
 
 	// Init flush variable
 	flushIt := false
@@ -346,7 +354,7 @@ func (f *Dgraph) Init() error {
 
 	// Set the total results
 	if totalResult.Root.Count == 0 {
-		messages.InfoMessage("No root-key found.")
+		f.messaging.InfoMessage("No root-key found.")
 
 		// Create new object and fill it
 		keyObject := models.Key{}
@@ -360,7 +368,7 @@ func (f *Dgraph) Init() error {
 	}
 	// END KEYS
 
-	messages.InfoMessage("Initializing Dgraph: done.")
+	f.messaging.InfoMessage("Initializing Dgraph: done.")
 
 	return nil
 }
@@ -481,6 +489,8 @@ func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 // GetThing returns the thing in the ThingGetResponse format
 func (f *Dgraph) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+	f.messaging.DebugMessage(fmt.Sprintf("Doing GET-request for a thing: %s", UUID))
+
 	// Get raw node for response
 	rawNode, err := f.getRawNodeByUUID(UUID, connutils.RefTypeThing, defaultSingleNodeQueryTemplate)
 	if err != nil {
@@ -657,6 +667,8 @@ func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 
 // GetAction returns an action from the database
 func (f *Dgraph) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
+	f.messaging.DebugMessage(fmt.Sprintf("Doing GET-request for an action: %s", UUID))
+
 	// Get raw node for response
 	rawNode, err := f.getRawNodeByUUID(UUID, connutils.RefTypeAction, defaultSingleNodeQueryTemplate)
 	if err != nil {
@@ -945,6 +957,8 @@ func (f *Dgraph) ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse
 
 // GetKey returns the key in the KeyGetResponse format
 func (f *Dgraph) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
+	f.messaging.DebugMessage(fmt.Sprintf("Doing GET-request for a key: %s", UUID))
+
 	// Get raw node for response
 	rawNode, err := f.getRawNodeByUUID(UUID, connutils.RefTypeKey, defaultSingleNodeQueryTemplate)
 	if err != nil {

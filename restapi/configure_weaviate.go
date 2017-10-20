@@ -18,6 +18,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	errors_ "errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"math"
@@ -41,6 +42,8 @@ import (
 
 	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors"
+	"github.com/weaviate/weaviate/connectors/dgraph"
+	"github.com/weaviate/weaviate/connectors/kvcache"
 	"github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/graphqlapi"
 	"github.com/weaviate/weaviate/messages"
@@ -61,6 +64,7 @@ var databaseSchema schema.WeaviateSchema
 var serverConfig config.WeaviateConfig
 var dbConnector dbconnector.DatabaseConnector
 var graphQLSchema *graphqlapi.GraphQLSchema
+var messaging *messages.Messaging
 
 func init() {
 	discard := ioutil.Discard
@@ -70,7 +74,7 @@ func init() {
 	// Create temp folder if it does not exist
 	tempFolder := "temp"
 	if _, err := os.Stat(tempFolder); os.IsNotExist(err) {
-		messages.InfoMessage("Temp folder created...")
+		messaging.InfoMessage("Temp folder created...")
 		os.Mkdir(tempFolder, 0766)
 	}
 }
@@ -187,6 +191,57 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 	for _, keyID := range allIDs {
 		go databaseConnector.DeleteKey(keyID)
 	}
+}
+
+// GetAllConnectors contains all available connectors
+func GetAllConnectors() []dbconnector.DatabaseConnector {
+	// Set all existing connectors
+	connectors := []dbconnector.DatabaseConnector{
+		&dgraph.Dgraph{},
+	}
+
+	return connectors
+}
+
+// GetAllCacheConnectors contains all available cache-connectors
+func GetAllCacheConnectors() []dbconnector.CacheConnector {
+	// Set all existing connectors
+	connectors := []dbconnector.CacheConnector{
+		&kvcache.KVCache{},
+	}
+
+	return connectors
+}
+
+// CreateDatabaseConnector gets the database connector by name from config
+func CreateDatabaseConnector(env *config.Environment) dbconnector.DatabaseConnector {
+	// Get all connectors
+	connectors := GetAllConnectors()
+	cacheConnectors := GetAllCacheConnectors()
+
+	// Init the db-connector variable
+	var connector dbconnector.DatabaseConnector
+
+	// Loop through all connectors and determine its name
+	for _, c := range connectors {
+		if c.GetName() == env.Database.Name {
+			messaging.InfoMessage(fmt.Sprintf("Using database '%s'", env.Database.Name))
+			connector = c
+			break
+		}
+	}
+
+	// Loop through all cache-connectors and determine its name
+	for _, cc := range cacheConnectors {
+		if cc.GetName() == env.Cache.Name {
+			messaging.InfoMessage(fmt.Sprintf("Using cache layer '%s'", env.Cache.Name))
+			cc.SetDatabaseConnector(connector)
+			connector = cc
+			break
+		}
+	}
+
+	return connector
 }
 
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
@@ -401,7 +456,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Update the database
 		insertErr := dbConnector.UpdateAction(action, UUID)
 		if insertErr != nil {
-			messages.ErrorMessage(insertErr)
+			messaging.ErrorMessage(insertErr)
 		}
 
 		// Create return Object
@@ -453,7 +508,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Save to DB, this needs to be a Go routine because we will return an accepted
 		insertErr := dbConnector.AddAction(action, UUID)
 		if insertErr != nil {
-			messages.ErrorMessage(insertErr)
+			messaging.ErrorMessage(insertErr)
 		}
 
 		// Initialize a response object
@@ -523,7 +578,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Save to DB, this needs to be a Go routine because we will return an accepted
 		insertErr := dbConnector.AddKey(&newKey.Key, newKey.KeyID, newKey.Token)
 		if insertErr != nil {
-			messages.ErrorMessage(insertErr)
+			messaging.ErrorMessage(insertErr)
 		}
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
@@ -671,7 +726,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Save to DB, this needs to be a Go routine because we will return an accepted
 		insertErr := dbConnector.AddThing(thing, UUID)
 		if insertErr != nil {
-			messages.ErrorMessage(insertErr)
+			messaging.ErrorMessage(insertErr)
 		}
 
 		// Create response Object from create object.
@@ -759,7 +814,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		err := dbConnector.ListThings(limit, (page-1)*limit, keyID, []*connutils.WhereQuery{}, &thingsResponse)
 
 		if err != nil {
-			messages.ErrorMessage(err)
+			messaging.ErrorMessage(err)
 		}
 
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
@@ -818,7 +873,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Update the database
 		insertErr := dbConnector.UpdateThing(thing, UUID)
 		if insertErr != nil {
-			messages.ErrorMessage(insertErr)
+			messaging.ErrorMessage(insertErr)
 		}
 
 		// Create return Object
@@ -857,7 +912,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
 		insertErr := dbConnector.UpdateThing(&params.Body.Thing, UUID)
 		if insertErr != nil {
-			messages.ErrorMessage(insertErr)
+			messaging.ErrorMessage(insertErr)
 		}
 
 		// Create object to return
@@ -925,12 +980,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		err := dbConnector.ListActions(params.ThingID, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
 
 		if err != nil {
-			messages.ErrorMessage(err)
+			messaging.ErrorMessage(err)
 		}
 
 		return things.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
 	})
 	api.GraphqlWeavaiteGraphqlPostHandler = graphql.WeavaiteGraphqlPostHandlerFunc(func(params graphql.WeavaiteGraphqlPostParams, principal interface{}) middleware.Responder {
+		messaging.DebugMessage("Starting GraphQL resolving")
+
 		// Get all input from the body of the request, as it is a POST.
 		query := params.Body.Query
 		operationName := params.Body.OperationName
@@ -975,6 +1032,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return graphql.NewWeavaiteGraphqlPostUnprocessableEntity()
 		}
 
+		messaging.DebugMessage("Ending GraphQL resolving")
+
 		// Return the response
 		return graphql.NewWeavaiteGraphqlPostOK().WithPayload(graphQLResponse)
 	})
@@ -994,9 +1053,12 @@ func configureTLS(tlsConfig *tls.Config) {
 // This function can be called multiple times, depending on the number of serving schemes.
 // scheme value will be set accordingly: "http", "https" or "unix"
 func configureServer(s *graceful.Server, scheme, addr string) {
+	// Create message service
+	messaging = &messages.Messaging{}
+
 	// Load the config using the flags
 	serverConfig = config.WeaviateConfig{}
-	err := serverConfig.LoadConfig(connectorOptionGroup)
+	err := serverConfig.LoadConfig(connectorOptionGroup, messaging)
 
 	// Add properties to the config
 	serverConfig.Hostname = addr
@@ -1004,37 +1066,43 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 
 	// Fatal error loading config file
 	if err != nil {
-		messages.ExitError(78, err.Error())
+		messaging.ExitError(78, err.Error())
 	}
 
 	// Load the schema using the config
 	databaseSchema = schema.WeaviateSchema{}
-	err = databaseSchema.LoadSchema(&serverConfig.Environment)
+	err = databaseSchema.LoadSchema(&serverConfig.Environment, messaging)
 
 	// Fatal error loading schema file
 	if err != nil {
-		messages.ExitError(78, err.Error())
+		messaging.ExitError(78, err.Error())
 	}
 
 	// Create the database connector usint the config
-	dbConnector = dbconnector.CreateDatabaseConnector(&serverConfig.Environment)
+	dbConnector = CreateDatabaseConnector(&serverConfig.Environment)
 
 	// Error the system when the database connector returns no connector
 	if dbConnector == nil {
-		messages.ExitError(78, "database with the name '"+serverConfig.Environment.Database.Name+"' couldn't be loaded from the config")
+		messaging.ExitError(78, "database with the name '"+serverConfig.Environment.Database.Name+"' couldn't be loaded from the config")
 	}
 
 	// Set connector vars
 	err = dbConnector.SetConfig(&serverConfig.Environment)
 	// Fatal error loading config file
 	if err != nil {
-		messages.ExitError(78, err.Error())
+		messaging.ExitError(78, err.Error())
 	}
 
 	err = dbConnector.SetSchema(&databaseSchema)
 	// Fatal error loading schema file
 	if err != nil {
-		messages.ExitError(78, err.Error())
+		messaging.ExitError(78, err.Error())
+	}
+
+	err = dbConnector.SetMessaging(messaging)
+	// Fatal error setting messagaging
+	if err != nil {
+		messaging.ExitError(78, err.Error())
 	}
 
 	dbConnector.SetServerAddress(serverConfig.GetHostAddress())
@@ -1042,22 +1110,22 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 	// connect the database
 	errConnect := dbConnector.Connect()
 	if errConnect != nil {
-		messages.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when connecting: "+errConnect.Error())
+		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when connecting: "+errConnect.Error())
 	}
 
 	// init the database
 	errInit := dbConnector.Init()
 	if errInit != nil {
-		messages.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
+		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
 	}
 
 	// Init the GraphQL schema
-	graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, &serverConfig, &databaseSchema)
+	graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, &serverConfig, &databaseSchema, messaging)
 
 	// Error init
 	errInitGQL := graphQLSchema.InitSchema()
 	if errInitGQL != nil {
-		messages.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+errInitGQL.Error())
+		messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+errInitGQL.Error())
 	}
 
 	// connect to mqtt

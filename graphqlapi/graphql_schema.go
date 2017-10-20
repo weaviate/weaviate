@@ -40,15 +40,17 @@ type GraphQLSchema struct {
 	serverSchema          *schema.WeaviateSchema
 	dbConnector           dbconnector.DatabaseConnector
 	usedKey               models.KeyTokenGetResponse
+	messaging             *messages.Messaging
 }
 
 // NewGraphQLSchema create a new schema object
-func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, serverSchema *schema.WeaviateSchema) *GraphQLSchema {
+func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, serverSchema *schema.WeaviateSchema, m *messages.Messaging) *GraphQLSchema {
 	// Initializing the schema and set its variables
 	gqls := new(GraphQLSchema)
 	gqls.dbConnector = databaseConnector
 	gqls.serverConfig = serverConfig
 	gqls.serverSchema = serverSchema
+	gqls.messaging = m
 
 	// Return the schema, note that InitSchema has to be runned before this could be used
 	return gqls
@@ -894,7 +896,7 @@ func (f *GraphQLSchema) InitSchema() error {
 	})
 
 	// Print for logging
-	messages.InfoMessage("GraphQL initialisation finished.")
+	f.messaging.InfoMessage("GraphQL initialisation finished.")
 
 	return err
 }

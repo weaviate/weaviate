@@ -47,6 +47,8 @@ type Environment struct {
 	Database    Database `json:"database"`
 	Schemas     Schemas  `json:"schemas"`
 	MQTTEnabled bool     `json:"mqttEnabled"`
+	Cache       Cache    `json:"cache"`
+	Debug       bool     `json:"debug"`
 }
 
 // Database is the outline of the database
@@ -59,6 +61,11 @@ type Database struct {
 type Schemas struct {
 	Thing  string `json:"thing"`
 	Action string `json:"action"`
+}
+
+// Cache is the outline of the cache-system
+type Cache struct {
+	Name string `json:"name"`
 }
 
 // GetConfigOptionGroup creates a option group for swagger
@@ -85,7 +92,7 @@ func (f *WeaviateConfig) GetHostAddress() string {
 }
 
 // LoadConfig from config locations
-func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup) error {
+func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *messages.Messaging) error {
 	// Get command line flags
 	configEnvironment := flags.Options.(*Flags).ConfigSection
 	configFileName := flags.Options.(*Flags).ConfigFile
@@ -93,7 +100,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup) error {
 	// Set default if not given
 	if configFileName == "" {
 		configFileName = DefaultConfigFile
-		messages.InfoMessage("Using default config file location '" + DefaultConfigFile + "'.")
+		m.InfoMessage("Using default config file location '" + DefaultConfigFile + "'.")
 	}
 
 	// Read config file
@@ -105,7 +112,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup) error {
 	// Set default env if not given
 	if err != nil || configEnvironment == "" {
 		configEnvironment = DefaultEnvironment
-		messages.InfoMessage("Using default environment '" + DefaultEnvironment + "'.")
+		m.InfoMessage("Using default environment '" + DefaultEnvironment + "'.")
 	}
 
 	// Read from the config file and add it to an object
@@ -133,7 +140,13 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup) error {
 		return errors.New("no environment found with name '" + configEnvironment + "'")
 	}
 
-	messages.InfoMessage("Config file found, loading environment...")
+	m.InfoMessage("Config file found, loading environment..")
+
+	// Check the debug mode
+	m.Debug = f.Environment.Debug
+	if f.Environment.Debug {
+		m.InfoMessage("Running in DEBUG-mode")
+	}
 
 	return nil
 }
