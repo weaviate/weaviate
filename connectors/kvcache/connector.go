@@ -86,7 +86,7 @@ func (f *KVCache) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 // GetThing function
 func (f *KVCache) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
 	// Create a cache key
-	key := fmt.Sprintf("getThing#%s", UUID)
+	key := fmt.Sprintf("Thing#%s", UUID)
 
 	// Get the item from the cache
 	v, found := f.cache.Get(key)
@@ -116,11 +116,19 @@ func (f *KVCache) ListThings(first int, offset int, keyID strfmt.UUID, wheres []
 
 // UpdateThing function
 func (f *KVCache) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
+	// Delete from cache before updating, otherwise the old version still exists
+	key := fmt.Sprintf("Thing#%s", UUID)
+	f.cache.Delete(key)
+
 	return f.databaseConnector.UpdateThing(thing, UUID)
 }
 
 // DeleteThing function
 func (f *KVCache) DeleteThing(UUID strfmt.UUID) error {
+	// Delete from cache before updating, otherwise the old version still exists
+	key := fmt.Sprintf("Thing#%s", UUID)
+	f.cache.Delete(key)
+
 	return f.databaseConnector.DeleteThing(UUID)
 }
 
@@ -132,7 +140,7 @@ func (f *KVCache) AddAction(action *models.Action, UUID strfmt.UUID) error {
 // GetAction function
 func (f *KVCache) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
 	// Create a cache key
-	key := fmt.Sprintf("getAction#%s", UUID)
+	key := fmt.Sprintf("Action#%s", UUID)
 
 	// Get the item from the cache
 	v, found := f.cache.Get(key)
@@ -162,11 +170,19 @@ func (f *KVCache) ListActions(UUID strfmt.UUID, first int, offset int, wheres []
 
 // UpdateAction function
 func (f *KVCache) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
+	// Delete from cache before updating, otherwise the old version still exists
+	key := fmt.Sprintf("Action#%s", UUID)
+	f.cache.Delete(key)
+
 	return f.databaseConnector.UpdateAction(action, UUID)
 }
 
 // DeleteAction function
 func (f *KVCache) DeleteAction(UUID strfmt.UUID) error {
+	// Delete from cache before updating, otherwise the old version still exists
+	key := fmt.Sprintf("Action#%s", UUID)
+	f.cache.Delete(key)
+
 	return f.databaseConnector.DeleteAction(UUID)
 }
 
@@ -177,13 +193,17 @@ func (f *KVCache) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) e
 
 // ValidateToken function
 func (f *KVCache) ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse) error {
+	// Delete from cache before updating, otherwise the old version still exists
+	ck := fmt.Sprintf("Key#%s", UUID)
+	f.cache.Delete(ck)
+
 	return f.databaseConnector.ValidateToken(UUID, key)
 }
 
 // GetKey function
 func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
 	// Create a cache key
-	key := fmt.Sprintf("getKey#%s", UUID)
+	key := fmt.Sprintf("Key#%s", UUID)
 
 	// Get the item from the cache
 	v, found := f.cache.Get(key)
@@ -208,6 +228,10 @@ func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetRespon
 
 // DeleteKey function
 func (f *KVCache) DeleteKey(UUID strfmt.UUID) error {
+	// Delete from cache before updating, otherwise the old version still exists
+	key := fmt.Sprintf("Key#%s", UUID)
+	f.cache.Delete(key)
+
 	return f.databaseConnector.DeleteKey(UUID)
 }
 
