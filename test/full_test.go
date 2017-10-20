@@ -136,12 +136,58 @@ func init() {
 	}
 }
 
+/******************
+ * BENCHMARKS
+ ******************/
+
+func Benchmark__weaviate_adding_things(b *testing.B) {
+	if testing.Short() {
+		b.Skip("skipping test in short mode.")
+	}
+
+	for i := 0; i < b.N; i++ {
+		// Create create request
+		body := bytes.NewBuffer([]byte(`{
+			"@context": "http://example.org",
+			"@class": "TestThing",
+			"schema": {
+				"testString": "Benchmark Thing",
+				"testInt": 1,
+				"testBoolean": true,
+				"testNumber": 1.337,
+				"testDateTime": "2017-10-06T08:15:30+01:00"
+			}
+		}`))
+
+		tr := &http.Transport{
+			MaxIdleConns:       10000,
+			IdleConnTimeout:    10 * time.Second,
+			DisableCompression: true,
+		}
+		client := &http.Client{Transport: tr}
+
+		req, _ := http.NewRequest("POST", getWeaviateURL()+"/weaviate/v1/things", body)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-API-KEY", apiKeyCmdLine)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			messaging.DebugMessage(fmt.Sprintf("Error in response occured during benchmark: %s", err.Error()))
+		}
+
+		resp.Body.Close()
+		// req.Body.Close()
+
+	}
+}
+
 // /******************
 //  * KEY TESTS
 //  ******************/
 
 // // weaviate.key.create
-// func Test__weaviate_key_create_JSON(t *testing.T) {
+// func XTest__weaviate_key_create_JSON(t *testing.T) {
 // 	// Create create request
 // 	jsonStr := bytes.NewBuffer([]byte(`{
 // 		"delete": true,
@@ -265,7 +311,7 @@ func init() {
 // }
 
 // // weaviate.key.me.get
-// func Test__weaviate_key_me_get_JSON(t *testing.T) {
+// func XTest__weaviate_key_me_get_JSON(t *testing.T) {
 // 	// Create get request
 // 	response := doRequest("/keys/me", "GET", "application/json", nil, newAPIToken)
 
@@ -298,7 +344,7 @@ func init() {
 // }
 
 // // weaviate.key.get
-// func Test__weaviate_key_get_JSON(t *testing.T) {
+// func XTest__weaviate_key_get_JSON(t *testing.T) {
 // 	// Create get request
 // 	response := doRequest("/keys/"+newAPIKeyID, "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -327,7 +373,7 @@ func init() {
 // }
 
 // // weaviate.key.children.get
-// func Test__weaviate_key_children_get_JSON(t *testing.T) {
+// func XTest__weaviate_key_children_get_JSON(t *testing.T) {
 // 	// HEAD: Create create request tree-head and process request
 // 	jsonStrKeyHead := bytes.NewBuffer([]byte(`{
 // 		"delete": true,
@@ -396,7 +442,7 @@ func init() {
 // }
 
 // // weaviate.key.me.children.get
-// func Test__weaviate_key_me_children_get_JSON(t *testing.T) {
+// func XTest__weaviate_key_me_children_get_JSON(t *testing.T) {
 // 	// Create get request
 // 	response := doRequest("/keys/me/children", "GET", "application/json", nil, newAPIToken)
 
@@ -432,7 +478,7 @@ func init() {
 // }
 
 // // weaviate.key.delete
-// func Test__weaviate_key_delete_JSON(t *testing.T) {
+// func XTest__weaviate_key_delete_JSON(t *testing.T) {
 // 	// Sleep, otherwise head-key is not added
 // 	time.Sleep(1 * time.Second)
 
@@ -526,7 +572,8 @@ func init() {
 /******************
  * META TESTS
  ******************/
-func Test__weaviate_meta_get_JSON(t *testing.T) {
+
+func XTest__weaviate_meta_get_JSON(t *testing.T) {
 	response := doRequest("/meta", "GET", "application/json", nil, apiKeyCmdLine)
 
 	// Check status code of create
@@ -720,7 +767,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 }
 
 // weaviate.thing.create
-func Test__weaviate_things_create_JSON(t *testing.T) {
+func XTest__weaviate_things_create_JSON(t *testing.T) {
 	// Set all thing values to compare
 	thingTestString = "Test string"
 	thingTestInt = 1
@@ -813,7 +860,7 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 }
 
 // weaviate.thing.list
-func Test__weaviate_things_list_JSON(t *testing.T) {
+func XTest__weaviate_things_list_JSON(t *testing.T) {
 	// Create list request
 	response := doRequest("/things", "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -860,7 +907,7 @@ func Test__weaviate_things_list_JSON(t *testing.T) {
 }
 
 // weaviate.thing.get
-func Test__weaviate_things_get_JSON(t *testing.T) {
+func XTest__weaviate_things_get_JSON(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingIDs[0], "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -891,7 +938,7 @@ func Test__weaviate_things_get_JSON(t *testing.T) {
 }
 
 // weaviate.thing.update
-func Test__weaviate_things_update_JSON(t *testing.T) {
+func XTest__weaviate_things_update_JSON(t *testing.T) {
 	// Create update request
 	newValue := "New string updated!"
 	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -960,7 +1007,7 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 }
 
 // weaviate.thing.patch
-func Test__weaviate_things_patch_JSON(t *testing.T) {
+func XTest__weaviate_things_patch_JSON(t *testing.T) {
 	// Create patch request
 	newValue := "New string patched!"
 
@@ -1081,7 +1128,7 @@ func Test__weaviate_things_patch_JSON(t *testing.T) {
 	require.Contains(t, string(getResponseBody(responseInvalid10)), "requires a string with a RFC3339 formatted date. The given value is")
 }
 
-func Test__weaviate_things_validate_JSON(t *testing.T) {
+func XTest__weaviate_things_validate_JSON(t *testing.T) {
 	// Test invalid requests
 	performInvalidThingRequests(t, "/things/validate", "POST")
 
@@ -1540,7 +1587,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 }
 
 // weaviate.actions.create
-func Test__weaviate_actions_create_JSON(t *testing.T) {
+func XTest__weaviate_actions_create_JSON(t *testing.T) {
 	// Set all thing values to compare
 	actionTestString = "Test string 2"
 	actionTestInt = 2
@@ -1674,7 +1721,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 }
 
 // weaviate.things.actions.list
-func Test__weaviate_things_actions_list_JSON(t *testing.T) {
+func XTest__weaviate_things_actions_list_JSON(t *testing.T) {
 	// Create list request
 	response := doRequest("/things/"+thingID+"/actions", "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -1724,7 +1771,7 @@ func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 }
 
 // weaviate.action.get
-func Test__weaviate_actions_get_JSON(t *testing.T) {
+func XTest__weaviate_actions_get_JSON(t *testing.T) {
 	// Create get request
 	response := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine)
 
@@ -1765,7 +1812,7 @@ func Test__weaviate_actions_get_JSON(t *testing.T) {
 }
 
 // weaviate.action.patch
-func Test__weaviate_actions_patch_JSON(t *testing.T) {
+func XTest__weaviate_actions_patch_JSON(t *testing.T) {
 	// Create patch request
 	newValue := int64(1337)
 	newValueStr := "New string patched!"
@@ -1830,7 +1877,7 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-func Test__weaviate_actions_validate_JSON(t *testing.T) {
+func XTest__weaviate_actions_validate_JSON(t *testing.T) {
 	// Test invalid requests
 	performInvalidActionRequests(t, "/actions/validate", "POST")
 
@@ -1891,7 +1938,7 @@ func doGraphQLRequest(body graphQLQueryObject, apiKey string) (*http.Response, *
 	return response, respObject
 }
 
-func Test__weaviate_graphql_common_JSON(t *testing.T) {
+func XTest__weaviate_graphql_common_JSON(t *testing.T) {
 	// Set the graphQL body
 	bodyUnpr := `{ 
 		"querys": "{ }" 
@@ -1924,7 +1971,7 @@ func Test__weaviate_graphql_common_JSON(t *testing.T) {
 	require.NotNil(t, respObjectNonExistingProperty.Errors)
 }
 
-func Test__weaviate_graphql_thing_JSON(t *testing.T) {
+func XTest__weaviate_graphql_thing_JSON(t *testing.T) {
 	// Set the graphQL body
 	body := `{ thing(uuid:"%s") { uuid atContext atClass creationTimeUnix key { uuid read } } }`
 
@@ -2083,7 +2130,7 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	require.Equal(t, float64(9), totalResultsValueSearch6)
 }
 
-func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
+func XTest__weaviate_graphql_thing_list_JSON(t *testing.T) {
 	// Set the graphQL body
 	bodyObj := graphQLQueryObject{
 		Query: `{ listThings { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
@@ -2198,7 +2245,7 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 	require.Equal(t, thingIDs[0], string(resultThingsValueSearch6[0].(map[string]interface{})["uuid"].(string)))
 }
 
-func Test__weaviate_graphql_action_JSON(t *testing.T) {
+func XTest__weaviate_graphql_action_JSON(t *testing.T) {
 	// Set the graphQL body
 	body := `{ action(uuid:"%s") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }`
 	bodyObj := graphQLQueryObject{
@@ -2233,7 +2280,7 @@ func Test__weaviate_graphql_action_JSON(t *testing.T) {
 	require.Equal(t, thingIDsubject, respSubjectUUID)
 }
 
-func Test__weaviate_graphql_key_JSON(t *testing.T) {
+func XTest__weaviate_graphql_key_JSON(t *testing.T) {
 	// // Set the graphQL body
 	// body := `{ key(uuid:"%s") { uuid read write ipOrigin parent { uuid read } } }`
 	// bodyObj := graphQLQueryObject{
@@ -2271,7 +2318,7 @@ func Test__weaviate_graphql_key_JSON(t *testing.T) {
  ******************/
 
 // // weaviate.key.me.delete
-// func Test__weaviate_key_me_delete_JSON(t *testing.T) {
+// func XTest__weaviate_key_me_delete_JSON(t *testing.T) {
 // 	// Delete keyID from database
 // 	responseKeyIDDeleted := doRequest("/keys/me", "DELETE", "application/json", nil, newAPIToken)
 // 	testStatusCode(t, responseKeyIDDeleted.StatusCode, http.StatusNoContent)
@@ -2279,7 +2326,7 @@ func Test__weaviate_graphql_key_JSON(t *testing.T) {
 // }
 
 // weaviate.action.delete
-func Test__weaviate_actions_delete_JSON(t *testing.T) {
+func XTest__weaviate_actions_delete_JSON(t *testing.T) {
 	// Create delete request
 	response := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyCmdLine)
 
@@ -2301,7 +2348,7 @@ func Test__weaviate_actions_delete_JSON(t *testing.T) {
 }
 
 // weaviate.thing.delete
-func Test__weaviate_things_delete_JSON(t *testing.T) {
+func XTest__weaviate_things_delete_JSON(t *testing.T) {
 	// Test whether all actions aren't deleted yet
 	for _, deletedActionID := range actionIDs {
 		// Skip the action ID that is deleted with the previous function
