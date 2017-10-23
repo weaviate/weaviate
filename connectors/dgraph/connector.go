@@ -515,13 +515,14 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 
 	// Create query to count total results
 	req := dgraphClient.Req{}
-	req.SetQuery(fmt.Sprintf(`{
+	query := fmt.Sprintf(`{
 		totalResults(func: eq(uuid, "%s")) {
 			related: ~key @filter(eq(%s, "%s") %s) {
 				count()
 			}
 		}
-	}`, keyID, refTypePointer, connutils.RefTypeThing, filterWheres))
+	}`, keyID, refTypePointer, connutils.RefTypeThing, filterWheres)
+	req.SetQuery(query)
 
 	// Run query created above
 	resp, err := f.client.Run(f.getContext(), &req)
@@ -541,7 +542,7 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 
 	// Do a query to get all node-information
 	req = dgraphClient.Req{}
-	query := fmt.Sprintf(`{
+	query = fmt.Sprintf(`{
 		keys(func: eq(uuid, "%s")) {
 			things: ~key @filter(eq(%s, "%s") %s) (orderdesc: creationTimeUnix, first: %d, offset: %d)  {
 				expand(_all_) {
@@ -551,6 +552,7 @@ func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 		}
 	}
 	`, keyID, refTypePointer, connutils.RefTypeThing, filterWheres, first, offset)
+
 	req.SetQuery(query)
 
 	// Run query created above
