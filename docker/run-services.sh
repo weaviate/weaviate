@@ -33,13 +33,13 @@ for container in $containers
 do
     if [[ $container == *"dgraph"* ]] ||  [[ $container == *"weaviate"* ]]; then
         echo "STOPPING: $container"
-        docker kill $container &>/dev/null
+        sudo docker kill $container &>/dev/null
     fi
 done
 
 # remove dgraph and weaviate
-docker rm dgraph &>/dev/null || true
-docker rm weaviate &>/dev/null || true
+sudo docker rm dgraph &>/dev/null || true
+sudo docker rm weaviate &>/dev/null || true
 
 # build and start dgraph docker
 mkdir -p ~/dgraph
