@@ -60,6 +60,7 @@ type Config struct {
 	Port int
 }
 
+// Some Dgraph connector-based constants
 const refLocationPointer string = "_location_"
 const refTypePointer string = "_type_"
 const edgeNameKey string = "key"
@@ -67,6 +68,7 @@ const edgeNameKeyParent string = "key.parent"
 const schemaPrefix string = "schema."
 const ipOriginDelimiter string = ";"
 
+// Some multiple used templates of queries used for doing a query on Dgraph database
 var (
 	defaultSingleNodeQueryTemplate = `{ 
 		get(func: eq(uuid, "%s")) @filter(eq(%s, "%s")) {
@@ -85,12 +87,21 @@ var (
 	}`
 )
 
-// GetName returns a unique connector name
+// GetName returns a unique connector name, this name is used to define the connector in the weaviate config
 func (f *Dgraph) GetName() string {
 	return "dgraph"
 }
 
-// SetConfig is used to fill in a struct with config variables
+// SetConfig is used to fill in a custom struct with config variables, especially for Dgraph. These
+// config variables are placed in the config file section "database_config" as follows:
+//
+// 	"database": {
+// 		"name": "dgraph",
+// 		"database_config" : {
+// 			"host": "127.0.0.1",
+// 			"port": 9080
+// 		}
+// 	},
 func (f *Dgraph) SetConfig(configInput *config.Environment) error {
 	err := mapstructure.Decode(configInput.Database.DatabaseConfig, &f.config)
 
@@ -101,26 +112,28 @@ func (f *Dgraph) SetConfig(configInput *config.Environment) error {
 	return nil
 }
 
-// SetSchema is used to fill in a struct with schema
+// SetSchema is used to fill in a struct with schema. Custom actions are used.
 func (f *Dgraph) SetSchema(schemaInput *schema.WeaviateSchema) error {
 	f.schema = schemaInput
 
 	return nil
 }
 
-// SetMessaging is used to fill the messaging object
+// SetMessaging is used to fill the messaging object which is initialized in the server-startup.
 func (f *Dgraph) SetMessaging(m *messages.Messaging) error {
 	f.messaging = m
 
 	return nil
 }
 
-// SetServerAddress is used to fill in a struct with schema
+// SetServerAddress is used to fill in a global variable with the server address, but can also be used
+// to do some custom actions.
 func (f *Dgraph) SetServerAddress(addr string) {
 	f.serverAddress = addr
 }
 
-// Connect creates connection and tables if not already available
+// Connect creates a connection to the database and tables if not already available.
+// The connections could not be closed because it is used more often.
 func (f *Dgraph) Connect() error {
 	// Connect with Dgraph host, create connection dail
 	dgraphGrpcAddress := fmt.Sprintf("%s:%d", f.config.Host, f.config.Port)
@@ -129,7 +142,6 @@ func (f *Dgraph) Connect() error {
 	if err != nil {
 		return errors_.New("error while connecting to the database")
 	}
-	// defer conn.Close()
 
 	// Create temp-folder for caching
 	dir, err := ioutil.TempDir("temp", "weaviate_dgraph")
@@ -137,7 +149,6 @@ func (f *Dgraph) Connect() error {
 	if err != nil {
 		return errors_.New("error while creating temp directory")
 	}
-	// defer os.RemoveAll(dir)
 
 	// Set custom options
 	var options = dgraphClient.BatchMutationOptions{
@@ -149,12 +160,11 @@ func (f *Dgraph) Connect() error {
 	}
 
 	f.client = dgraphClient.NewDgraphClient([]*grpc.ClientConn{conn}, options, dir)
-	// defer f.client.Close()
 
 	return nil
 }
 
-// Init creates a root key, normally this should be validaded, but because it is an indgraph DB it is created always
+// Init creates a root key and initializes the schema in the database
 func (f *Dgraph) Init() error {
 	// Init error variable
 	var err error
@@ -268,17 +278,6 @@ func (f *Dgraph) Init() error {
 		}
 	}
 
-	// KEYS
-	// Add index for keys
-	// if err := f.client.AddSchema(protos.SchemaUpdate{
-	// 	Predicate: edgeNameKeyChild,
-	// 	ValueType: uint32(types.UidID),
-	// 	Directive: protos.SchemaUpdate_REVERSE,
-	// 	Count:     true,
-	// }); err != nil {
-	// 	return errors_.New("error while adding '" + edgeNameKeyChild + "' Dgraph-schema")
-	// }
-
 	// Add index for keys parent
 	if err := f.client.AddSchema(protos.SchemaUpdate{
 		Predicate: edgeNameKeyParent,
@@ -368,12 +367,13 @@ func (f *Dgraph) Init() error {
 	}
 	// END KEYS
 
+	// Give message for end user to say that the initialization is done
 	f.messaging.InfoMessage("Initializing Dgraph: done.")
 
 	return nil
 }
 
-// indexSchema will index the schema based on DataType
+// indexSchema will index the schema based on DataType. This function is used for Dgraph only.
 func (f *Dgraph) indexSchema(ws *models.SemanticSchema) error {
 	for _, class := range ws.Classes {
 		for _, prop := range class.Properties {
@@ -384,7 +384,7 @@ func (f *Dgraph) indexSchema(ws *models.SemanticSchema) error {
 				return fmt.Errorf("error while adding '%s' Dgraph-schema", prop.Name)
 			}
 
-			// For each possible data type, add the indexes
+			// For each possible data type, add the indexes with the right properties.
 			if *dt == schema.DataTypeString {
 				if err := f.client.AddSchema(protos.SchemaUpdate{
 					Predicate: schemaPrefix + prop.Name,
@@ -453,7 +453,7 @@ func (f *Dgraph) indexSchema(ws *models.SemanticSchema) error {
 	return nil
 }
 
-// AddThing adds a thing to the Dgraph database with the given UUID
+// AddThing adds a thing to the Dgraph database with the given UUID.
 func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Create new node with base vars
 	newNode, err := f.addNewNode(
@@ -487,7 +487,7 @@ func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	return err
 }
 
-// GetThing returns the thing in the ThingGetResponse format
+// GetThing fills the given ThingGetResponse with the values from the database, based on the given UUID.
 func (f *Dgraph) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
 	f.messaging.DebugMessage(fmt.Sprintf("Doing GET-request for a thing: %s", UUID))
 
@@ -503,7 +503,7 @@ func (f *Dgraph) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespon
 	return nil
 }
 
-// ListThings returns the thing in the ThingGetResponse format
+// ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
 func (f *Dgraph) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 	// Set the filterWheres variable
 	filterWheres := f.parseWhereFilters(wheres)
@@ -665,7 +665,7 @@ func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	return err
 }
 
-// GetAction returns an action from the database
+// GetAction fills the given ActionGettResponse with the values from the database, based on the given UUID.
 func (f *Dgraph) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
 	f.messaging.DebugMessage(fmt.Sprintf("Doing GET-request for an action: %s", UUID))
 
@@ -681,7 +681,7 @@ func (f *Dgraph) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetRes
 	return nil
 }
 
-// ListActions lists actions for a specific thing
+// ListActions fills the given ActionsListResponse with the values from the database, based on the given parameters.
 func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
 	// Set the filterWheres variable
 	filterWheres := f.parseWhereFilters(wheres)
@@ -765,7 +765,7 @@ func (f *Dgraph) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*
 	return nil
 }
 
-// UpdateAction updates a specific action
+// UpdateAction updates a specific action based on the given UUID.
 func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 	// Get the thing-node from the database
 	nodeType := connutils.RefTypeAction
@@ -801,7 +801,7 @@ func (f *Dgraph) DeleteAction(UUID strfmt.UUID) error {
 	return err
 }
 
-// AddKey adds a key to the Dgraph database with the given UUID
+// AddKey adds a key to the Dgraph database with the given UUID and token.
 func (f *Dgraph) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error {
 	// Create new node with base vars
 	newNode, err := f.addNewNode(
@@ -908,12 +908,6 @@ func (f *Dgraph) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) er
 		if err != nil {
 			return err
 		}
-
-		// // Connect child node as child to parent
-		// err = f.connectRef(&req, parentNode, edgeNameKeyChild, newNode)
-		// if err != nil {
-		// 	return err
-		// }
 	}
 
 	// Call run after all mutations are added
@@ -924,7 +918,7 @@ func (f *Dgraph) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) er
 	return err
 }
 
-// ValidateToken adds a key to the Dgraph database with the given UUID
+// ValidateToken validates/gets a key to the Dgraph database with the given UUID
 func (f *Dgraph) ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse) error {
 	// Search for Root key
 	req := dgraphClient.Req{}
@@ -955,7 +949,7 @@ func (f *Dgraph) ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse
 	return nil
 }
 
-// GetKey returns the key in the KeyGetResponse format
+// GetKey fills the given KeyTokenGetResponse with the values from the database, based on the given UUID.
 func (f *Dgraph) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
 	f.messaging.DebugMessage(fmt.Sprintf("Doing GET-request for a key: %s", UUID))
 
@@ -978,7 +972,7 @@ func (f *Dgraph) DeleteKey(UUID strfmt.UUID) error {
 	return err
 }
 
-// GetKeyChildren returns the key in the an array format
+// GetKeyChildren fills the given KeyTokenGetResponse array with the values from the database, based on the given UUID.
 func (f *Dgraph) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error {
 	// Init the request
 	req := dgraphClient.Req{}
@@ -1010,6 +1004,7 @@ func (f *Dgraph) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGe
 	return nil
 }
 
+// addNewNode adds a new node to the database. This function is used for Dgraph only.
 func (f *Dgraph) addNewNode(nType string, UUID strfmt.UUID) (dgraphClient.Node, error) {
 	// Create new one and connect it
 	newNode, err := f.client.NodeBlank(fmt.Sprintf("%v", gouuid.NewV4()))
@@ -1056,6 +1051,7 @@ func (f *Dgraph) addNewNode(nType string, UUID strfmt.UUID) (dgraphClient.Node, 
 	return newNode, nil
 }
 
+// addNodeFirstLevelProperties add the properties to the first level (no schema). This function is used for Dgraph only.
 func (f *Dgraph) addNodeFirstLevelProperties(nodeContext string, nodeClass string, creationTimeUnix int64, lastUpdateTimeUnix int64, newNode dgraphClient.Node) (dgraphClient.Node, error) {
 	// Init the request
 	req := dgraphClient.Req{}
@@ -1104,7 +1100,7 @@ func (f *Dgraph) addNodeFirstLevelProperties(nodeContext string, nodeClass strin
 	return newNode, nil
 }
 
-// updateNodeSchemaProperties updates all the edges of the node in 'schema', used with a new node or to update/patch a node
+// updateNodeSchemaProperties updates all the edges of the node in 'schema', used with a new node or to update/patch a node. This function is used for Dgraph only.
 func (f *Dgraph) updateNodeSchemaProperties(node dgraphClient.Node, nodeSchema models.Schema, class string, schemaType string) error {
 	// Create update request
 	req := dgraphClient.Req{}
@@ -1143,7 +1139,7 @@ func (f *Dgraph) updateNodeSchemaProperties(node dgraphClient.Node, nodeSchema m
 	return err
 }
 
-// updateActionRelatedThings updates all the edges of the node, used with a new node or to update/patch a node
+// updateActionRelatedThings updates all the edges of the related things, using the existing action and things. This function is used for Dgraph only.
 func (f *Dgraph) updateActionRelatedThings(node dgraphClient.Node, action *models.Action) error {
 	// Create update request
 	req := dgraphClient.Req{}
@@ -1190,6 +1186,7 @@ func (f *Dgraph) updateActionRelatedThings(node dgraphClient.Node, action *model
 	return err
 }
 
+// addPropertyEdge adds properties to an certain edge. This function is used for Dgraph only.
 func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, propKey string, propValue interface{}, schemaClass *models.SemanticSchemaClass) error {
 	// Add prefix to the schema properties
 	edgeName := schemaPrefix + propKey
@@ -1254,7 +1251,7 @@ func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, 
 	return nil
 }
 
-// connectRef function to connect two nodes.
+// connectRef function to connect two nodes. This function is used for Dgraph only.
 func (f *Dgraph) connectRef(req *dgraphClient.Req, nodeFrom dgraphClient.Node, edgeName string, nodeTo dgraphClient.Node) error {
 	relatedEdge := nodeFrom.ConnectTo(edgeName, nodeTo)
 	if err := req.Set(relatedEdge); err != nil {
@@ -1263,7 +1260,7 @@ func (f *Dgraph) connectRef(req *dgraphClient.Req, nodeFrom dgraphClient.Node, e
 	return nil
 }
 
-// connectKey function to connect two nodes.
+// connectKey function to connect a node to a key-node, based on the key's UUID. This function is used for Dgraph only.
 func (f *Dgraph) connectKey(nodeFrom dgraphClient.Node, keyUUID strfmt.UUID) error {
 	// Create update request
 	req := dgraphClient.Req{}
@@ -1287,7 +1284,7 @@ func (f *Dgraph) connectKey(nodeFrom dgraphClient.Node, keyUUID strfmt.UUID) err
 	return err
 }
 
-// mergeThingNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
+// mergeThingNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264. This function is used for Dgraph only.
 func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *models.ThingGetResponse) {
 	// Get node attribute, this is the name of the parent node.
 	attribute := node.Attribute
@@ -1337,6 +1334,7 @@ func (f *Dgraph) mergeThingNodeInResponse(node *protos.Node, thingResponse *mode
 
 }
 
+// getPropValue gets the specific value from a property of a Dgraph query-result. This function is used for Dgraph only.
 func (f *Dgraph) getPropValue(prop *protos.Property) interface{} {
 	// Get the propvalye object
 	propValueObj := prop.GetValue().GetVal()
@@ -1374,6 +1372,7 @@ func (f *Dgraph) getPropValue(prop *protos.Property) interface{} {
 	return propValue
 }
 
+// createCrefObject is a helper function to create a cref-object. This function is used for Dgraph only.
 func (f *Dgraph) createCrefObject(node *protos.Node) *models.SingleRef {
 	// Create the 'cref'-node for the response.
 	crefObj := models.SingleRef{}
@@ -1393,7 +1392,7 @@ func (f *Dgraph) createCrefObject(node *protos.Node) *models.SingleRef {
 	return &crefObj
 }
 
-// mergeActionNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
+// mergeActionNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264. This function is used for Dgraph only.
 func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *models.ActionGetResponse, parentAttribute string) {
 	// Get node attribute, this is the name of the parent node.
 	attribute := node.Attribute
@@ -1448,6 +1447,7 @@ func (f *Dgraph) mergeActionNodeInResponse(node *protos.Node, actionResponse *mo
 	}
 }
 
+// getRawNodeByUUID returns a raw node from the database based on a UUID and some other properties. This function is used for Dgraph only.
 func (f *Dgraph) getRawNodeByUUID(UUID strfmt.UUID, typeName string, queryTemplate string) (*protos.Node, error) {
 	// Create the query for existing class
 	req := dgraphClient.Req{}
@@ -1470,6 +1470,7 @@ func (f *Dgraph) getRawNodeByUUID(UUID strfmt.UUID, typeName string, queryTempla
 	return nodes[0], err
 }
 
+// getNodeByUUID returns a node based on UUID and type. This function is used for Dgraph only.
 func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID, refType *string) (dgraphClient.Node, error) {
 	// Search for the class to make the connection, create variables
 	variables := make(map[string]string)
@@ -1516,6 +1517,7 @@ func (f *Dgraph) getNodeByUUID(UUID strfmt.UUID, refType *string) (dgraphClient.
 	return node, err
 }
 
+// deleteNodeByUUID deletes a node by UUID. This function is used for Dgraph only.
 func (f *Dgraph) deleteNodeByUUID(UUID strfmt.UUID) error {
 	// Create the query for removing query
 	variables := make(map[string]string)
@@ -1544,7 +1546,7 @@ func (f *Dgraph) getContext() context.Context {
 	return context.Background()
 }
 
-// mergeKeyNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264
+// mergeKeyNodeInResponse based on https://github.com/dgraph-io/dgraph/blob/release/v0.8.0/wiki/resources/examples/goclient/crawlerRDF/crawler.go#L250-L264. This function is used for Dgraph only.
 func (f *Dgraph) mergeKeyNodeInResponse(node *protos.Node, key *models.KeyTokenGetResponse) {
 	// Get node attribute, this is the name of the parent node.
 	attribute := node.Attribute
@@ -1586,7 +1588,7 @@ func (f *Dgraph) mergeKeyNodeInResponse(node *protos.Node, key *models.KeyTokenG
 
 }
 
-// parseWhereFilters returns a Dgraqh filter query based on the given where queries
+// parseWhereFilters returns a Dgraqh filter query based on the given where queries. This function is used for Dgraph only.
 func (f *Dgraph) parseWhereFilters(wheres []*connutils.WhereQuery) string {
 	// Init return variable
 	filterWheres := ""
@@ -1631,7 +1633,7 @@ func (f *Dgraph) parseWhereFilters(wheres []*connutils.WhereQuery) string {
 	return filterWheres
 }
 
-// JUST FOR TESTING PURPOSES
+// JUST FOR TESTING PURPOSES. This function is used for Dgraph only.
 func printNode(depth int, node *protos.Node) {
 
 	fmt.Println(strings.Repeat(" ", depth), "Atrribute : ", node.Attribute)
