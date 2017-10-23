@@ -12,6 +12,12 @@
 # Contact: @weaviate_iot / yourfriends@weaviate.com
 #
 
+# check if root
+if [ "$EUID" -ne 0 ]
+    then echo "Please run as root"
+    exit
+fi
+
 # check OS
 if [[ "$OSTYPE" == "win32" ]]; then
     echo "SORRY, NO WINDOWS SUPPORT"
