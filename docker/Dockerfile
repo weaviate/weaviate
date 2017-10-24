@@ -18,10 +18,10 @@ RUN apt-get -qq update && apt-get -qq install -y jq curl zip wget && \
     wget -q -O /var/weaviate/weaviate.conf.json https://raw.githubusercontent.com/weaviate/weaviate/develop/weaviate.conf.json && \
     chmod +x /var/weaviate/weaviate && \
     echo "UPDATE WITH" ${DGRAPHIP} && \
-    sed -i "s/x.x.x.x/${DGRAPHIP}/g" /var/weaviate/weaviate.conf.json
+    jq ".environments[] | select(.name | contains(\"${DGRAPHIP}\")) | .database.host = \"$v\"" /var/weaviate/weaviate.conf.json
 
 # Expose dgraph ports
-EXPOSE 8080
+EXPOSE 80
 
 # Run!
-CMD /var/weaviate/weaviate --scheme=http --port=8080 --host=localhost --config=docker --config-file=/var/weaviate/weaviate.conf.json
+CMD /var/weaviate/weaviate --scheme=http --port=80 --host=localhost --config=docker --config-file=/var/weaviate/weaviate.conf.json
