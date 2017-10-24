@@ -12,6 +12,9 @@
 # Contact: @weaviate_iot / yourfriends@weaviate.com
 #
 
+# Welkom message
+echo "Building weaviate with Docker..."
+
 # check OS
 if [[ "$OSTYPE" == "win32" ]]; then
     echo "SORRY, NO WINDOWS SUPPORT"
@@ -19,10 +22,25 @@ if [[ "$OSTYPE" == "win32" ]]; then
 fi
 
 # check if jq is installed
-jq --help >/dev/null 2>&1 || { echo >&2 "I require jq but it's not installed. Aborting."; exit 1; }
+jq --help >/dev/null 2>&1 || {
+    sudo apt-get -qq update
+    sudo apt-get -qq install jq
+}
 
 # check if docker is installed
-sudo docker ps >/dev/null 2>&1 || { echo >&2 "I require Docker to run but it's not running. Aborting."; exit 1; }
+sudo docker ps >/dev/null 2>&1 || {
+    sudo apt-get -qq update
+    sudo apt-get -qq install \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        jq \
+        software-properties-common
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add - 
+    sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+    sudo apt-get -qq update
+    sudo apt-get -qq install docker-ce
+}
 
 # get all running docker container names
 containers=$(sudo docker ps | awk '{if(NR>1) print $NF}')
@@ -43,13 +61,17 @@ sudo docker rm weaviate &>/dev/null || true
 
 # build and start dgraph docker
 mkdir -p ~/dgraph
-sudo docker run -it -p 8080:8080 -p 9080:9080 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraphzero -w zw
-DGRAPHID=$(sudo docker exec -it dgraph dgraph --bindall=true --memory_mb 2048 -peer 127.0.0.1:8888)
+DGRAPHID=$(sudo docker run -itd -p 8080:8080 -p 9080:9080 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraphzero -w zw)
+echo "starting dgraph cluster"
+sleep 10 # give it some time to run
+sudo docker exec -itd dgraph dgraph --bindall=true --memory_mb 2048 -peer 127.0.0.1:8888
+echo "starting dgraph"
+sleep 10 # give it some time to run
 DGRAPHIP=$(sudo docker inspect $DGRAPHID | jq -r '.[0].NetworkSettings.IPAddress')
 
 # build and start weaviate docker
-ECHO "BUILDING WITH DGRAPH IP: $DGRAPHIP"
-sudo docker build --no-cache --build-arg DGRAPHIP=$DGRAPHIP -t weaviate "https://raw.githubusercontent.com/weaviate/weaviate/develop/docker/Dockerfile?i=$(echo $((1 + RANDOM % 999999)))"
+echo "BUILDING WITH DGRAPH IP: $DGRAPHIP"
+sudo docker build --quiet --build-arg DGRAPHIP=$DGRAPHIP -t weaviate "https://raw.githubusercontent.com/weaviate/weaviate/develop/docker/Dockerfile?i=$(echo $((1 + RANDOM % 999999)))"
 WEAVIATEID=$(sudo docker run -d weaviate)
 WEAVIATEIP=$(sudo docker inspect $WEAVIATEID | jq -r '.[0].NetworkSettings.IPAddress')
 
