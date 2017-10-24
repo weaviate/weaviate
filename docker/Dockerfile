@@ -20,7 +20,7 @@ RUN apt-get -qq update && apt-get -qq install -y jq curl zip wget && \
     chmod +x /var/weaviate/weaviate && \
     echo "UPDATE WITH" ${DGRAPHIP} && \
     JSONRESULT=$(jq ".environments[] | select(.name | contains(\"docker\")) | .database.database_config.host = \"${DGRAPHIP}\"" /var/weaviate/weaviate.conf.json) && \
-    echo "{ environments[ $JSONRESULT ] }"  > /var/weaviate/weaviate.conf.json
+    echo "{ \"environments\": [ $JSONRESULT ] }"  > /var/weaviate/weaviate.conf.json
 
 # Expose dgraph ports
 EXPOSE 80
