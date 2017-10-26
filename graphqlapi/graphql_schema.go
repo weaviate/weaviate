@@ -596,6 +596,11 @@ func (f *GraphQLSchema) InitSchema() error {
 				// Initialize the thing response
 				actionsResponse := &models.ActionsListResponse{}
 
+				// Return if the ThingID is empty
+				if thing.ThingID == "" {
+					return actionsResponse, nil
+				}
+
 				// Get the pagination from the arguments
 				var first int
 				if p.Args["first"] != nil {
@@ -700,13 +705,13 @@ func (f *GraphQLSchema) InitSchema() error {
 	})
 
 	// Add the schema, as in this position all needed variables are set
-	actionType.AddFieldConfig("action", &graphql.Field{
+	actionType.AddFieldConfig("schema", &graphql.Field{
 		Type:        actionSchemaType,
 		Description: "The values filled in the schema properties.",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			// Resolve the data from the Thing Response
-			if thing, ok := p.Source.(*models.ThingGetResponse); ok {
-				return thing.Schema, nil
+			// Resolve the data from the Action Response
+			if action, ok := p.Source.(*models.ActionGetResponse); ok {
+				return action.Schema, nil
 			}
 
 			return nil, nil
@@ -1003,22 +1008,27 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.
 							if value, ok := rVal.(string); ok {
 								return value, nil
 							}
+							return nil, nil
 						} else if *dt == schema.DataTypeInt {
 							if value, ok := rVal.(int64); ok {
 								return value, nil
 							}
+							return nil, nil
 						} else if *dt == schema.DataTypeNumber {
 							if value, ok := rVal.(float64); ok {
 								return value, nil
 							}
+							return nil, nil
 						} else if *dt == schema.DataTypeBoolean {
 							if value, ok := rVal.(bool); ok {
 								return value, nil
 							}
+							return nil, nil
 						} else if *dt == schema.DataTypeDate {
 							if value, ok := rVal.(string); ok {
 								return graphql.DateTime.ParseValue(value), nil
 							}
+							return nil, nil
 						} else if *dt == schema.DataTypeCRef {
 							// Data type is not a value, but an cref object
 							thingResponse := &models.ThingGetResponse{}
