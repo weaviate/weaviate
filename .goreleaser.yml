@@ -4,8 +4,8 @@ builds:
     main: ./cmd/weaviate-server/main.go
     goos:
       # - android
-      - windows
-      - darwin
+      ##- windows
+      ##- darwin
       - linux
       # - dragonfly
       # - freebsd
@@ -15,14 +15,14 @@ builds:
       # - solaris
     goarch:
       - 386
-      - arm
-      - amd64
-      - ppc64
-      - ppc64le
-      - mips
-      - mipsle
-      - mips64
-      - mips64le
+      ##- arm
+      ##- amd64
+      ##- ppc64
+      ##- ppc64le
+      ##- mips
+      ##- mipsle
+      ##- mips64
+      ##- mips64le
     ignore:
       #- goos: darwin
       #  goarch: amd64
