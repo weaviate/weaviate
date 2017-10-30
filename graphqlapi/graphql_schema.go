@@ -346,15 +346,24 @@ func (f *GraphQLSchema) InitSchema() error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					keyResponse := &models.KeyTokenGetResponse{}
 					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
+						// If no UUID is given, just return nil
+						if thing.Key.NrDollarCref == "" {
+							return nil, nil
+						}
+
 						// Do a new request with the key from the reference object
 						err := f.resolveCrossRef(p.Info.FieldASTs, thing.Key, keyResponse)
 
 						if err != nil {
 							return keyResponse, err
 						}
+
+						// Return found
+						return keyResponse, nil
 					}
 
-					return keyResponse, nil
+					// Return nothing
+					return nil, nil
 				},
 			},
 		},
@@ -410,14 +419,23 @@ func (f *GraphQLSchema) InitSchema() error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					thingResponse := &models.ThingGetResponse{}
 					if ref, ok := p.Source.(*models.ObjectSubject); ok {
+						// If no UUID is given, just return nil
+						if ref.Object.NrDollarCref == "" {
+							return nil, nil
+						}
+
 						// Evaluate the Cross reference
 						err := f.resolveCrossRef(p.Info.FieldASTs, ref.Object, thingResponse)
+
 						if err != nil {
 							return thingResponse, err
 						}
 
+						// Return found
+						return thingResponse, nil
 					}
-					return thingResponse, nil
+					// Return nothing
+					return nil, nil
 				},
 			},
 			"subject": &graphql.Field{
@@ -426,13 +444,22 @@ func (f *GraphQLSchema) InitSchema() error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					thingResponse := &models.ThingGetResponse{}
 					if ref, ok := p.Source.(*models.ObjectSubject); ok {
+						// If no UUID is given, just return nil
+						if ref.Subject.NrDollarCref == "" {
+							return nil, nil
+						}
+
 						// Do a new request with the thing from the reference object
 						err := f.resolveCrossRef(p.Info.FieldASTs, ref.Subject, thingResponse)
 						if err != nil {
 							return thingResponse, err
 						}
+
+						// Return found
+						return thingResponse, nil
 					}
-					return thingResponse, nil
+					// Return nothing
+					return nil, nil
 				},
 			},
 		},
@@ -515,13 +542,23 @@ func (f *GraphQLSchema) InitSchema() error {
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					keyResponse := &models.KeyTokenGetResponse{}
 					if action, ok := p.Source.(*models.ActionGetResponse); ok {
+						// If no UUID is given, just return nil
+						if action.Key.NrDollarCref == "" {
+							return nil, nil
+						}
+
 						// Do a new request with the key from the reference object
 						err := f.resolveCrossRef(p.Info.FieldASTs, action.Key, keyResponse)
 						if err != nil {
 							return keyResponse, err
 						}
+
+						// Return found
+						return keyResponse, nil
 					}
-					return keyResponse, nil
+
+					// Return nothing
+					return nil, nil
 				},
 			},
 		},
@@ -595,6 +632,11 @@ func (f *GraphQLSchema) InitSchema() error {
 			if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 				// Initialize the thing response
 				actionsResponse := &models.ActionsListResponse{}
+
+				// Return if the ThingID is empty
+				if thing.ThingID == "" {
+					return actionsResponse, nil
+				}
 
 				// Get the pagination from the arguments
 				var first int
@@ -700,13 +742,13 @@ func (f *GraphQLSchema) InitSchema() error {
 	})
 
 	// Add the schema, as in this position all needed variables are set
-	actionType.AddFieldConfig("action", &graphql.Field{
+	actionType.AddFieldConfig("schema", &graphql.Field{
 		Type:        actionSchemaType,
 		Description: "The values filled in the schema properties.",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			// Resolve the data from the Thing Response
-			if thing, ok := p.Source.(*models.ThingGetResponse); ok {
-				return thing.Schema, nil
+			// Resolve the data from the Action Response
+			if action, ok := p.Source.(*models.ActionGetResponse); ok {
+				return action.Schema, nil
 			}
 
 			return nil, nil
@@ -981,6 +1023,7 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.
 				} else if *dt == schema.DataTypeDate {
 					scalar = graphql.DateTime
 				} else if *dt == schema.DataTypeCRef {
+					// TODO: Cref is not always of type 'thing'
 					scalar = thingType
 				}
 
@@ -1003,35 +1046,50 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.
 							if value, ok := rVal.(string); ok {
 								return value, nil
 							}
+							return nil, nil
 						} else if *dt == schema.DataTypeInt {
 							if value, ok := rVal.(int64); ok {
 								return value, nil
 							}
+							return nil, nil
 						} else if *dt == schema.DataTypeNumber {
 							if value, ok := rVal.(float64); ok {
 								return value, nil
 							}
+							return nil, nil
 						} else if *dt == schema.DataTypeBoolean {
 							if value, ok := rVal.(bool); ok {
 								return value, nil
 							}
+							return nil, nil
 						} else if *dt == schema.DataTypeDate {
 							if value, ok := rVal.(string); ok {
 								return graphql.DateTime.ParseValue(value), nil
 							}
+							return nil, nil
 						} else if *dt == schema.DataTypeCRef {
+							// TODO: Cref is not always of type 'thing'
 							// Data type is not a value, but an cref object
 							thingResponse := &models.ThingGetResponse{}
 
 							if value, ok := rVal.(*models.SingleRef); ok {
+								// If no UUID is given, just return nil
+								if value.NrDollarCref == "" {
+									return nil, nil
+								}
+
 								// Evaluate the Cross reference
 								err := f.resolveCrossRef(p.Info.FieldASTs, value, thingResponse)
 								if err != nil {
 									return thingResponse, err
 								}
 
+								// Return found
+								return thingResponse, nil
 							}
-							return thingResponse, nil
+
+							// Return nothing
+							return nil, nil
 						}
 
 						// Return parsing error
