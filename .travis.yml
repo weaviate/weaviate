@@ -1,5 +1,8 @@
 sudo: required
 language: go
+branches:
+  except:
+    - master # ignore master branch
 go:
   - 1.8.3
 services:
