@@ -2,6 +2,9 @@
 *.OLD
 *.OLD.go
 
+# Do not include dist tmp
+dist_tmp
+
 # Logs
 logs
 *.log

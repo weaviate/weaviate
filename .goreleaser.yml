@@ -4,8 +4,8 @@ builds:
     main: ./cmd/weaviate-server/main.go
     goos:
       # - android
-      ##- windows
-      ##- darwin
+      - windows
+      - darwin
       - linux
       # - dragonfly
       # - freebsd
@@ -15,37 +15,14 @@ builds:
       # - solaris
     goarch:
       - 386
-      ##- arm
-      ##- amd64
-      ##- ppc64
-      ##- ppc64le
-      ##- mips
-      ##- mipsle
-      ##- mips64
-      ##- mips64le
-    ignore:
-      #- goos: darwin
-      #  goarch: amd64
-      #- goos: windows
-      #  goarch: amd64
-      #- goos: linux
-      #  goarch: arm64
-      #- goos: linux
-      #  goarch: ppc64
-      #- goos: linux
-      #  goarch: mips
-      #- goos: linux
-      #  goarch: mipsle
-      #- goos: linux
-      #  goarch: mips64
-      #- goos: linux
-      #  goarch: ppc64le
-      #- goos: linux
-      #  goarch: amd64
-      #- goos: linux
-      #  goarch: mips64le
-      #- goos: linux
-      #  goarch: arm6
+      - arm
+      - amd64
+      - ppc64
+      - ppc64le
+      - mips
+      - mipsle
+      - mips64
+      - mips64le
 archive:
   format: zip
   name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
