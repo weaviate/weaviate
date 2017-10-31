@@ -25,7 +25,7 @@ script:
   - git config credential.helper "store --file=.git/credentials"
   - echo "https://${GH_TOKEN}:@github.com" > .git/credentials
   - git add -A
-  - git commit -m "🤖 updated nightly builds with travis"
+  - git commit -m "🤖 updated nightly builds with travis" || true
   - git push origin HEAD:${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH} || true
 env:
   global:
