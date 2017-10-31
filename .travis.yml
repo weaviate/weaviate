@@ -20,7 +20,7 @@ script:
   - echo "https://${GH_TOKEN}:@github.com" > .git/credentials
   - git add -A
   - git commit -m "🤖 updated nightly builds with travis"
-  - git push
+  - git push origin HEAD:${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
 env:
   global:
     secure: lgvDdvtiar2YW00brPv48BtcehGMkY9wTHRhUcTEZWqgYwQrfBK+mFTRy3N+r1JRZ5ke4qmGM5ikaDEpcbt3wLfDVhluXoluGr/mA32UE1xhfubM6ognlYAqpN9dBt6eLGn+HoXkOtFxnzDNdLoZ1tIgXfF7TB9F3WKCgkDWJc/nnW/GzXfoZ82LB1nf5Pry+UE9oapoO3mWj1Ub/NgFfNS6YkMS4TW2yYh+TO2XPTRO2U/Jk9kRLAoCfJGP2o8vIRXr/p0/G0KEoIqdLbAj0A4J/JV4RgXEu/cav97f4P2nU0IMSgzbzSHY7J7iUKzlbebHcKoX1RPfD8dWUvzV9645/U2+egGOkE1XoXLnB/WUx14xFOqU6uCjAOeJTN3WUs6UdlTG7Ni0HtsqpCq63YN3qj7WG2OpAmvICJ3cmjNaHhuwfQ2HLr87BTzYNXZstcNZC10xHl5dc6Vlni3qXLr/OJ5ZHQOavUPi5H9VBLYvCGBJUM11sNgvKSVREe+ZSoNmrHgzhVuqiZ9cGThCafBNw3PAH+k5ufc9d9tp25l31LdSf6LbiVqE2E9Da3aH1rnQ48ZdGxR7ENwAyM0Rmj4JibE8yA7hUAVohmB4VBtkKOUqV3RReFo6Zkkyz4OU3IS9nxdCOe9MGJsRAdWMIc63t7N+txktDKnuviqXg+M=
