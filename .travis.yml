@@ -14,7 +14,13 @@ before_install:
 before_script:
   - curl https://git.io/vdwgr -sL | bash
 script:
+  # update nightly builds
   - goreleaser --rm-dist --snapshot --skip-validate
+  # remove all that is not the zip
+  - mkdir -p dist_tmp
+  - mv dist/*.zip dist_tmp
+  - rm -r dist
+  - mv dist_tmp dist
   # commit back to GH
   - git config credential.helper "store --file=.git/credentials"
   - echo "https://${GH_TOKEN}:@github.com" > .git/credentials
