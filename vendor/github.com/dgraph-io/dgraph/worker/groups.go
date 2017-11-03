@@ -30,7 +30,6 @@ import (
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/raftwal"
 	"github.com/dgraph-io/dgraph/schema"
-	"github.com/dgraph-io/dgraph/types"
 	"github.com/dgraph-io/dgraph/x"
 )
 
@@ -86,14 +85,12 @@ func StartRaftNodes(walStore *badger.KV, bindall bool) {
 	}
 
 	if Config.InMemoryComm {
-		atomic.StoreUint32(&gr.gid, 1)
 		gr.state = &protos.MembershipState{}
-		gr.state.Groups = make(map[uint32]*protos.Group)
-		gr.state.Groups[gr.groupId()] = &protos.Group{}
+		atomic.StoreUint32(&gr.gid, 1)
 		inMemoryTablet = &protos.Tablet{GroupId: gr.groupId()}
 	} else {
-		x.AssertTruefNoTrace(len(Config.PeerAddr) > 0, "Providing dgraphzero address is mandatory.")
-		x.AssertTruefNoTrace(Config.PeerAddr != Config.MyAddr,
+		x.AssertTruef(len(Config.PeerAddr) > 0, "Providing dgraphzero address is mandatory.")
+		x.AssertTruef(Config.PeerAddr != Config.MyAddr,
 			"Dgraphzero address and Dgraph address can't be the same.")
 
 		// Successfully connect with dgraphzero, before doing anything else.
@@ -123,7 +120,7 @@ func StartRaftNodes(walStore *badger.KV, bindall bool) {
 	gr.delPred = make(chan struct{}, 1)
 	gid := gr.groupId()
 	gr.Node = newNode(gid, Config.RaftId, Config.MyAddr)
-	x.Checkf(schema.LoadFromDb(), "Error while initializing schema")
+	x.Checkf(schema.LoadFromDb(), "Error while initilizating schema")
 	raftServer.Node = gr.Node.Node
 	gr.Node.InitAndStartNode(gr.wal)
 
@@ -131,30 +128,6 @@ func StartRaftNodes(walStore *badger.KV, bindall bool) {
 	if !Config.InMemoryComm {
 		go gr.periodicMembershipUpdate() // Now set it to be run periodically.
 		go gr.cleanupTablets()
-	}
-	gr.proposeInitialSchema()
-}
-
-func (g *groupi) proposeInitialSchema() {
-	g.RLock()
-	_, ok := g.tablets[x.PredicateListAttr]
-	g.RUnlock()
-	if ok {
-		return
-	}
-
-	// Propose schema mutation.
-	var m protos.Mutations
-	m.Schema = append(m.Schema, &protos.SchemaUpdate{
-		Predicate: x.PredicateListAttr,
-		ValueType: uint32(types.StringID),
-		List:      true,
-	})
-
-	// This would propose the schema mutation and make sure some node serves this predicate
-	// and has the schema defined above.
-	if err := MutateOverNetwork(gr.ctx, &m); err != nil {
-		fmt.Println("Error while proposing initial schema: ", err)
 	}
 }
 
@@ -177,10 +150,6 @@ func (g *groupi) calculateTabletSizes() map[string]*protos.Tablet {
 		item := itr.Item()
 
 		pk := x.Parse(item.Key())
-		if pk == nil {
-			itr.Next()
-			continue
-		}
 		if pk.IsSchema() {
 			itr.Seek(pk.SkipSchema())
 			continue
@@ -278,7 +247,7 @@ func (g *groupi) Tablet(key string) *protos.Tablet {
 		return tablet
 	}
 
-	fmt.Printf("Asking if I can serve tablet for: %v\n", key)
+	fmt.Printf("Asking if I serve tablet: %v\n", key)
 	// We don't know about this tablet.
 	// Check with dgraphzero if we can serve it.
 	pl := g.AnyServer(0)
@@ -520,10 +489,6 @@ func (g *groupi) cleanupTablets() {
 				item := itr.Item()
 
 				pk := x.Parse(item.Key())
-				if pk == nil {
-					itr.Next()
-					continue
-				}
 
 				// Delete at most one predicate at a time.
 				// Tablet is not being served by me and is not read only.

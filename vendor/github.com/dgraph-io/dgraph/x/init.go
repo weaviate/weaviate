@@ -51,8 +51,7 @@ func AddInit(f func()) {
 }
 
 // Init initializes flags and run all functions in initFunc.
-func Init(debug bool) {
-	Config.DebugMode = debug
+func Init() {
 	// Lets print the details of the current build on startup.
 	printBuildDetails()
 
