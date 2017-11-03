@@ -13,7 +13,6 @@
 
 package dgraph
 
-import ()
 import "github.com/go-openapi/strfmt"
 
 // TotalResultsResult is the root of a single node with the result count
