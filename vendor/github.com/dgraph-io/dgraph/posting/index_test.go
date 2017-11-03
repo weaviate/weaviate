@@ -45,35 +45,35 @@ func uids(pl *protos.PostingList) []uint64 {
 
 func TestIndexingInt(t *testing.T) {
 	schema.ParseBytes([]byte("age:int @index(int) ."), 1)
-	a, err := IndexTokens("age", "", types.Val{types.StringID, []byte("10")})
+	a, err := indexTokens("age", "", types.Val{types.StringID, []byte("10")})
 	require.NoError(t, err)
 	require.EqualValues(t, []byte{0x6, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xa}, []byte(a[0]))
 }
 
 func TestIndexingIntNegative(t *testing.T) {
 	schema.ParseBytes([]byte("age:int @index(int) ."), 1)
-	a, err := IndexTokens("age", "", types.Val{types.StringID, []byte("-10")})
+	a, err := indexTokens("age", "", types.Val{types.StringID, []byte("-10")})
 	require.NoError(t, err)
 	require.EqualValues(t, []byte{0x6, 0x0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf6}, []byte(a[0]))
 }
 
 func TestIndexingFloat(t *testing.T) {
 	schema.ParseBytes([]byte("age:float @index(float) ."), 1)
-	a, err := IndexTokens("age", "", types.Val{types.StringID, []byte("10.43")})
+	a, err := indexTokens("age", "", types.Val{types.StringID, []byte("10.43")})
 	require.NoError(t, err)
 	require.EqualValues(t, []byte{0x7, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0xa}, []byte(a[0]))
 }
 
 func TestIndexingTime(t *testing.T) {
 	schema.ParseBytes([]byte("age:dateTime @index(year) ."), 1)
-	a, err := IndexTokens("age", "", types.Val{types.StringID, []byte("0010-01-01T01:01:01.000000001")})
+	a, err := indexTokens("age", "", types.Val{types.StringID, []byte("0010-01-01T01:01:01.000000001")})
 	require.NoError(t, err)
 	require.EqualValues(t, []byte{0x4, 0x0, 0xa}, []byte(a[0]))
 }
 
 func TestIndexing(t *testing.T) {
 	schema.ParseBytes([]byte("name:string @index(term) ."), 1)
-	a, err := IndexTokens("name", "", types.Val{types.StringID, []byte("abc")})
+	a, err := indexTokens("name", "", types.Val{types.StringID, []byte("abc")})
 	require.NoError(t, err)
 	require.EqualValues(t, "\x01abc", string(a[0]))
 }
@@ -82,22 +82,22 @@ func TestIndexingMultiLang(t *testing.T) {
 	schema.ParseBytes([]byte("name:string @index(fulltext) ."), 1)
 
 	// ensure that default tokenizer is suitable for English
-	a, err := IndexTokens("name", "", types.Val{types.StringID, []byte("stemming")})
+	a, err := indexTokens("name", "", types.Val{types.StringID, []byte("stemming")})
 	require.NoError(t, err)
 	require.EqualValues(t, "\x08stem", string(a[0]))
 
 	// ensure that Finnish tokenizer is used
-	a, err = IndexTokens("name", "fi", types.Val{types.StringID, []byte("edeltäneessä")})
+	a, err = indexTokens("name", "fi", types.Val{types.StringID, []byte("edeltäneessä")})
 	require.NoError(t, err)
 	require.EqualValues(t, "\x08edeltän", string(a[0]))
 
 	// ensure that German tokenizer is used
-	a, err = IndexTokens("name", "de", types.Val{types.StringID, []byte("Auffassungsvermögen")})
+	a, err = indexTokens("name", "de", types.Val{types.StringID, []byte("Auffassungsvermögen")})
 	require.NoError(t, err)
 	require.EqualValues(t, "\x08auffassungsvermog", string(a[0]))
 
 	// ensure that default tokenizer works differently than German
-	a, err = IndexTokens("name", "", types.Val{types.StringID, []byte("Auffassungsvermögen")})
+	a, err = indexTokens("name", "", types.Val{types.StringID, []byte("Auffassungsvermögen")})
 	require.NoError(t, err)
 	require.EqualValues(t, "\x08auffassungsvermögen", string(a[0]))
 }
@@ -106,7 +106,7 @@ func TestIndexingInvalidLang(t *testing.T) {
 	schema.ParseBytes([]byte("name:string @index(fulltext) ."), 1)
 
 	// there is no tokenizer for "xx" language
-	_, err := IndexTokens("name", "xx", types.Val{types.StringID, []byte("error")})
+	_, err := indexTokens("name", "xx", types.Val{types.StringID, []byte("error")})
 	require.Error(t, err)
 }
 
@@ -147,19 +147,26 @@ func TestTokensTable(t *testing.T) {
 
 	key = x.IndexKey("name", "david")
 	var item badger.KVItem
+	time.Sleep(10 * time.Millisecond)
 	err = ps.Get(key, &item)
-	x.Check(err)
+	require.NoError(t, err)
 
 	var pl protos.PostingList
-	UnmarshalWithCopy(item.Value(), item.UserMeta(), &pl)
+	require.NoError(t, item.Value(func(val []byte) error {
+		UnmarshalOrCopy(val, item.UserMeta(), &pl)
+		return nil
+	}))
 
 	require.EqualValues(t, []string{"\x01david"}, tokensForTest("name"))
 
 	CommitLists(10, 1)
 
 	err = ps.Get(key, &item)
-	x.Check(err)
-	UnmarshalWithCopy(item.Value(), item.UserMeta(), &pl)
+	require.NoError(t, err)
+	require.NoError(t, item.Value(func(val []byte) error {
+		UnmarshalOrCopy(val, item.UserMeta(), &pl)
+		return nil
+	}))
 
 	require.EqualValues(t, []string{"\x01david"}, tokensForTest("name"))
 	deletePl(t)
@@ -195,7 +202,7 @@ func addEdgeToValue(t *testing.T, attr string, src uint64,
 		Entity: src,
 		Op:     protos.DirectedEdge_SET,
 	}
-	l := GetOrCreate(x.DataKey(attr, src), 1)
+	l := Get(x.DataKey(attr, src))
 	// No index entries added here as we do not call AddMutationWithIndex.
 	ok, err := l.AddMutation(context.Background(), edge)
 	require.NoError(t, err)
@@ -212,7 +219,7 @@ func addEdgeToUID(t *testing.T, attr string, src uint64,
 		Entity:  src,
 		Op:      protos.DirectedEdge_SET,
 	}
-	l := GetOrCreate(x.DataKey(attr, src), 1)
+	l := Get(x.DataKey(attr, src))
 	// No index entries added here as we do not call AddMutationWithIndex.
 	ok, err := l.AddMutation(context.Background(), edge)
 	require.NoError(t, err)
@@ -267,7 +274,10 @@ func TestRebuildIndex(t *testing.T) {
 		}
 		idxKeys = append(idxKeys, string(key))
 		pl := new(protos.PostingList)
-		UnmarshalWithCopy(item.Value(), item.UserMeta(), pl)
+		require.NoError(t, item.Value(func(val []byte) error {
+			UnmarshalOrCopy(val, item.UserMeta(), pl)
+			return nil
+		}))
 		idxVals = append(idxVals, pl)
 	}
 	require.Len(t, idxKeys, 2)
@@ -282,10 +292,10 @@ func TestRebuildIndex(t *testing.T) {
 	require.EqualValues(t, 20, uids1[0])
 	require.EqualValues(t, 1, uids2[0])
 
-	l1 := GetOrCreate(x.DataKey("name", 1), 1)
+	l1 := Get(x.DataKey("name", 1))
 	deletePl(t)
 	ps.Delete(l1.key)
-	l2 := GetOrCreate(x.DataKey("name", 20), 1)
+	l2 := Get(x.DataKey("name", 20))
 	deletePl(t)
 	ps.Delete(l2.key)
 }
@@ -314,13 +324,16 @@ func TestRebuildReverseEdges(t *testing.T) {
 	var revVals []*protos.PostingList
 	for it.Seek(prefix); it.Valid(); it.Next() {
 		item := it.Item()
-		key, value := item.Key(), item.Value()
+		key := item.Key()
 		if !bytes.HasPrefix(key, prefix) {
 			break
 		}
 		revKeys = append(revKeys, string(key))
 		pl := new(protos.PostingList)
-		UnmarshalWithCopy(value, item.UserMeta(), pl)
+		require.NoError(t, item.Value(func(val []byte) error {
+			UnmarshalOrCopy(val, item.UserMeta(), pl)
+			return nil
+		}))
 		revVals = append(revVals, pl)
 	}
 	require.Len(t, revKeys, 2)

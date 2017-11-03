@@ -54,6 +54,7 @@ var (
 	MaxPlLength      *expvar.Int
 
 	PredicateStats *expvar.Map
+	Conf           *expvar.Map
 
 	MaxPlSz int64
 	// TODO: Request statistics, latencies, 500, timeouts
@@ -80,20 +81,20 @@ func init() {
 	TotalOSMemory = expvar.NewInt("dgraph_proc_memory_bytes")
 	ActiveMutations = expvar.NewInt("dgraph_active_mutations_total")
 	PredicateStats = expvar.NewMap("dgraph_predicate_stats")
+	Conf = expvar.NewMap("dgraph_config")
 	CacheHit = expvar.NewInt("dgraph_cache_hits_total")
 	CacheMiss = expvar.NewInt("dgraph_cache_miss_total")
 	CacheRace = expvar.NewInt("dgraph_cache_race_total")
 	MaxPlSize = expvar.NewInt("dgraph_max_list_bytes")
 	MaxPlLength = expvar.NewInt("dgraph_max_list_length")
 
-	ticker := time.NewTicker(5 * time.Second)
-
 	go func() {
-		var err error
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
-				if err = HealthCheck(); err == nil {
+				if err := HealthCheck(); err == nil {
 					ServerHealth.Set(1)
 				} else {
 					ServerHealth.Set(0)
