@@ -19,19 +19,27 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	context "golang.org/x/net/context"
+	"google.golang.org/grpc"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/dgraph-io/dgraph/dgraph"
 	"github.com/dgraph-io/dgraph/gql"
-	"github.com/dgraph-io/dgraph/group"
 	"github.com/dgraph-io/dgraph/posting"
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/query"
@@ -58,7 +66,91 @@ var m = `
 	}
 `
 
+type raftServer struct {
+}
+
+func (c *raftServer) Echo(ctx context.Context, in *protos.Payload) (*protos.Payload, error) {
+	return in, nil
+}
+
+func (c *raftServer) RaftMessage(ctx context.Context, in *protos.Payload) (*protos.Payload, error) {
+	return &protos.Payload{}, nil
+}
+
+func (c *raftServer) JoinCluster(ctx context.Context, in *protos.RaftContext) (*protos.Payload, error) {
+	return &protos.Payload{}, nil
+}
+
+// For now same as in query_test but would change the implementation here later for integration tests
+type zeroServer struct {
+	sync.Mutex
+	nextLeaseId uint64
+}
+
+func (z *zeroServer) AssignUids(ctx context.Context, n *protos.Num) (*protos.AssignedIds, error) {
+	a := &protos.AssignedIds{}
+	z.Lock()
+	defer z.Unlock()
+	a.StartId = z.nextLeaseId
+	z.nextLeaseId += n.Val
+	a.EndId = z.nextLeaseId - 1
+	return a, nil
+}
+
+func (z *zeroServer) Connect(ctx context.Context, in *protos.Member) (*protos.MembershipState, error) {
+	m := &protos.MembershipState{}
+	m.Zeros = make(map[uint64]*protos.Member)
+	m.Zeros[2] = &protos.Member{Id: 2, Leader: true, Addr: "localhost:12341"}
+	m.Groups = make(map[uint32]*protos.Group)
+	g := &protos.Group{}
+	g.Members = make(map[uint64]*protos.Member)
+	g.Members[1] = &protos.Member{Id: 1, Addr: "localhost:12345"}
+	m.Groups[1] = g
+	return m, nil
+}
+
+// Used by sync membership
+// TODO: For now same as in query_test.go, change it later to have integration tests.
+func (z *zeroServer) Update(stream protos.Zero_UpdateServer) error {
+	for {
+		_, err := stream.Recv()
+		if err != nil {
+			return err
+		}
+		m := &protos.MembershipState{}
+		m.Zeros = make(map[uint64]*protos.Member)
+		m.Zeros[2] = &protos.Member{Id: 2, Leader: true, Addr: "localhost:12341"}
+		m.Groups = make(map[uint32]*protos.Group)
+		g := &protos.Group{}
+		g.Members = make(map[uint64]*protos.Member)
+		g.Members[1] = &protos.Member{Id: 1, Addr: "localhost:12345"}
+		m.Groups[1] = g
+		stream.Send(m)
+	}
+}
+
+func (z *zeroServer) ShouldServe(ctx context.Context, in *protos.Tablet) (*protos.Tablet, error) {
+	in.GroupId = 1
+	return in, nil
+}
+
+func StartDummyZero() *grpc.Server {
+	ln, err := net.Listen("tcp", "localhost:12341")
+	x.Check(err)
+	x.Printf("zero listening at address: %v", ln.Addr())
+
+	s := grpc.NewServer()
+	z := &zeroServer{}
+	// some uids are used in queries so setting some high value which is not used.
+	z.nextLeaseId = 10000
+	protos.RegisterZeroServer(s, z)
+	protos.RegisterRaftServer(s, &raftServer{})
+	go s.Serve(ln)
+	return s
+}
+
 func prepare() (dir1, dir2 string, rerr error) {
+	StartDummyZero()
 	var err error
 	dir1, err = ioutil.TempDir("", "storetest_")
 	if err != nil {
@@ -76,9 +168,11 @@ func prepare() (dir1, dir2 string, rerr error) {
 	dgraph.State = dgraph.NewServerState()
 
 	posting.Init(dgraph.State.Pstore)
-	group.ParseGroupConfig("groups.conf")
 	schema.Init(dgraph.State.Pstore)
 	worker.Init(dgraph.State.Pstore)
+	worker.Config.MyAddr = "localhost:12345"
+	worker.Config.PeerAddr = "localhost:12341"
+	worker.Config.RaftId = 1
 	worker.StartRaftNodes(dgraph.State.WALstore, false)
 	return dir1, dir2, nil
 }
@@ -109,7 +203,7 @@ func processToFastJSON(q string) string {
 	var l query.Latency
 	ctx := defaultContext()
 	qr := query.QueryRequest{Latency: &l, GqlQuery: &res}
-	err = qr.ProcessQuery(ctx)
+	_, err = qr.ProcessQuery(ctx)
 
 	if err != nil {
 		log.Fatal(err)
@@ -124,26 +218,24 @@ func processToFastJSON(q string) string {
 }
 
 func runQuery(q string) (string, error) {
-	res, err := gql.Parse(gql.Request{Str: q, Http: true})
+	req, err := http.NewRequest("POST", "/query", bytes.NewBufferString(q))
 	if err != nil {
 		return "", err
 	}
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(queryHandler)
+	handler.ServeHTTP(rr, req)
 
-	var l query.Latency
-	ctx := defaultContext()
-	qr := query.QueryRequest{Latency: &l, GqlQuery: &res}
-	err = qr.ProcessQuery(ctx)
-
-	if err != nil {
-		return "", err
+	if status := rr.Code; status != http.StatusOK {
+		return "", fmt.Errorf("Unexpected status code: %v", status)
 	}
 
-	var buf bytes.Buffer
-	err = query.ToJson(qr.Latency, qr.Subgraphs, &buf, nil, false)
-	if err != nil {
-		return "", err
+	var qr x.QueryResWithData
+	json.Unmarshal(rr.Body.Bytes(), &qr)
+	if len(qr.Errors) > 0 {
+		return "", errors.New(qr.Errors[0].Message)
 	}
-	return string(buf.Bytes()), nil
+	return rr.Body.String(), nil
 }
 
 func runMutation(m string) error {
@@ -164,6 +256,7 @@ func TestDeletePredicate(t *testing.T) {
 		delete {
 			* <friend> * .
 			* <name> * .
+			* <salary> * .
 		}
 	}
 	`
@@ -177,6 +270,7 @@ func TestDeletePredicate(t *testing.T) {
 			<0x2> <name> "Alice1" .
 			<0x3> <name> "Alice2" .
 			<0x3> <age> "13" .
+			<0x11> <salary> "100000" . # should be deleted from schema after we delete the predicate
 		}
 	}
 	`
@@ -271,17 +365,21 @@ func TestDeletePredicate(t *testing.T) {
 
 	output, err = runQuery(q4)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"data": {"user":[{"_predicate_":[{"_name_":"age"},{"_name_":"name"}]}]}}`, output)
+	require.JSONEq(t, `{"data": {"user":[{"_predicate_":["name","age"]}]}}`, output)
 
 	err = runMutation(m2)
 	require.NoError(t, err)
 
+	output, err = runQuery(`schema{}`)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"data":{"schema":[{"predicate":"_predicate_","type":"string","list":true},{"predicate":"age","type":"default"},{"predicate":"friend","type":"uid","reverse":true},{"predicate":"name","type":"string","index":true,"tokenizer":["term"]}]}}`, output)
+
 	output, err = runQuery(q1)
-	require.JSONEq(t, `{"data": {}}`, output)
+	require.JSONEq(t, `{"data": {"user": []}}`, output)
 
 	output, err = runQuery(q2)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"data": {}}`, output)
+	require.JSONEq(t, `{"data": {"user": []}}`, output)
 
 	output, err = runQuery(q5)
 	require.NoError(t, err)
@@ -289,7 +387,7 @@ func TestDeletePredicate(t *testing.T) {
 
 	output, err = runQuery(q4)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"data": {"user":[{"_predicate_":[{"_name_":"age"},{"_name_":"name"}]}]}}`, output)
+	require.JSONEq(t, `{"data": {"user":[{"_predicate_":["name","age"]}]}}`, output)
 
 	// Lets try to change the type of predicates now.
 	err = runMutation(s2)
@@ -319,9 +417,38 @@ func TestSchemaMutation(t *testing.T) {
 	schema.ParseBytes([]byte(""), 1)
 	expected := map[string]*protos.SchemaUpdate{
 		"name": {
+			Predicate: "name",
 			Tokenizer: []string{"term", "exact"},
 			ValueType: uint32(types.StringID),
-			Directive: protos.SchemaUpdate_INDEX},
+			Directive: protos.SchemaUpdate_INDEX,
+			Explicit:  true},
+	}
+
+	err := runMutation(m)
+	require.NoError(t, err)
+	for k, v := range expected {
+		s, ok := schema.State().Get(k)
+		require.True(t, ok)
+		require.Equal(t, *v, s)
+	}
+}
+
+func TestSchemaMutation1(t *testing.T) {
+	var m = `
+	mutation {
+		set {
+			<0x1234> <pred1> "12345"^^<xs:string> .
+			<0x1234> <pred2> "12345" .
+		}
+	}
+
+` // reset schema
+	schema.ParseBytes([]byte(""), 1)
+	expected := map[string]*protos.SchemaUpdate{
+		"pred1": {
+			ValueType: uint32(types.StringID)},
+		"pred2": {
+			ValueType: uint32(types.DefaultID)},
 	}
 
 	err := runMutation(m)
@@ -574,7 +701,7 @@ func TestSchemaMutationReverseRemove(t *testing.T) {
 func TestSchemaMutationCountAdd(t *testing.T) {
 	var q1 = `
 	{
-		user(func:ge(count(friend),4)) {
+		user(func:eq(count(friend),4)) {
 			name
 		}
 	}
@@ -609,6 +736,7 @@ func TestSchemaMutationCountAdd(t *testing.T) {
 	err = runMutation(s)
 	require.NoError(t, err)
 
+	time.Sleep(10 * time.Millisecond)
 	output, err := runQuery(q1)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"data": {"user":[{"name":"Alice"}]}}`, output)
@@ -684,11 +812,11 @@ func TestDeleteAll(t *testing.T) {
 
 	output, err = runQuery(q1)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"data": {}}`, output)
+	require.JSONEq(t, `{"data": {"user": []}}`, output)
 
 	output, err = runQuery(q2)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"data": {}}`, output)
+	require.JSONEq(t, `{"data": {"user": []}}`, output)
 }
 
 func TestDeleteAllSP(t *testing.T) {
@@ -738,7 +866,7 @@ func TestDeleteAllSP(t *testing.T) {
 			uid(a) * * .
 		}
 	}
-	
+
 	{
 		a as var(func: uid(1))
 	}
@@ -782,7 +910,7 @@ func TestDeleteAllSP(t *testing.T) {
 
 	output, err = runQuery(q3)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"data": {"user":[{"_predicate_":[{"_name_":"friend"},{"_name_":"name"}]}]}}`,
+	require.JSONEq(t, `{"data": {"user":[{"_predicate_":["name","friend"]}]}}`,
 		output)
 
 	output, err = runQuery(q4)
@@ -800,16 +928,28 @@ func TestDeleteAllSP(t *testing.T) {
 
 	output, err = runQuery(q1)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"data": {}}`, output)
+	require.JSONEq(t, `{"data": {"user": []}}`, output)
 
 	output, err = runQuery(q2)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"data": {}}`, output)
+	require.JSONEq(t, `{"data": {"user": []}}`, output)
 
 	output, err = runQuery(q3)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"data": {}}`,
+	require.JSONEq(t, `{"data": {"user": []}}`,
 		output)
+}
+
+func TestDeleteAllSP1(t *testing.T) {
+	var m = `
+	mutation{
+		delete{
+			<2000> * * .
+		}
+	}`
+	time.Sleep(20 * time.Millisecond)
+	err := runMutation(m)
+	require.NoError(t, err)
 }
 
 func TestQuery(t *testing.T) {
@@ -846,7 +986,7 @@ func TestSchemaValidationError(t *testing.T) {
 	_, err := gql.Parse(gql.Request{Str: m5, Http: true})
 	require.Error(t, err)
 	output := processToFastJSON(strings.Replace(q5, "<id>", "0x8", -1))
-	require.JSONEq(t, `{"data": {}}`, output)
+	require.JSONEq(t, `{"data": {"user": []}}`, output)
 }
 
 var m6 = `
@@ -999,7 +1139,7 @@ func TestListPred(t *testing.T) {
 
 	output, err := runQuery(q1)
 	require.NoError(t, err)
-	require.Equal(t, `{"data": {"listpred":[{"_predicate_":[{"_name_":"age"},{"_name_":"friend"},{"_name_":"name"}]}]}}`,
+	require.Equal(t, `{"data": {"listpred":[{"_predicate_":["name","age","friend"]}]}}`,
 		output)
 }
 
@@ -1007,7 +1147,7 @@ func TestExpandPredError(t *testing.T) {
 	var q1 = `
 	{
 		me(func:anyofterms(name, "Alice")) {
-  		expand(_all_)
+  			expand(_all_)
 			name
 			friend
 		}
@@ -1043,12 +1183,13 @@ func TestExpandPredError(t *testing.T) {
 
 	_, err = runQuery(q1)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "Repeated subgraph")
 }
 
 func TestExpandPred(t *testing.T) {
 	var q1 = `
 	{
-		me(func:anyofterms(name, "Alice")) {
+		me(func: uid(0x11)) {
 			expand(_all_) {
 				expand(_all_)
 			}
@@ -1058,9 +1199,9 @@ func TestExpandPred(t *testing.T) {
 	var m = `
 	mutation {
 		set {
-			<0x1> <name> "Alice" .
-			<0x1> <age> "13" .
-			<0x1> <friend> <0x4> .
+			<0x11> <name> "Alice" .
+			<0x11> <age> "13" .
+			<0x11> <friend> <0x4> .
 			<0x4> <name> "bob" .
 			<0x4> <age> "12" .
 		}
@@ -1362,16 +1503,451 @@ func TestSchemaMutation5Error(t *testing.T) {
 	require.Error(t, err)
 }
 
+// A basic sanity check. We will do more extensive testing for multiple values in query.
+func TestMultipleValues(t *testing.T) {
+	schema.ParseBytes([]byte(""), 1)
+	m := `
+	mutation {
+		schema {
+			occupations: [string] .
+		}
+	}`
+
+	err := runMutation(m)
+	require.NoError(t, err)
+
+	m = `
+		mutation {
+			set {
+				<0x88> <occupations> "Pianist" .
+				<0x88> <occupations> "Software Engineer" .
+			}
+		}
+	`
+
+	err = runMutation(m)
+	require.NoError(t, err)
+
+	q := `{
+			me(func: uid(0x88)) {
+				occupations
+			}
+		}`
+	res, err := runQuery(q)
+	require.NoError(t, err)
+	require.Equal(t, `{"data": {"me":[{"occupations":["Software Engineer","Pianist"]}]}}`, res)
+}
+
+func TestListTypeSchemaChange(t *testing.T) {
+	schema.ParseBytes([]byte(""), 1)
+	m := `
+	mutation {
+		schema {
+			occupations: [string] @index(term) .
+		}
+	}`
+
+	err := runMutation(m)
+	require.NoError(t, err)
+
+	m = `
+		mutation {
+			set {
+				<0x88> <occupations> "Pianist" .
+				<0x88> <occupations> "Software Engineer" .
+			}
+		}
+	`
+
+	err = runMutation(m)
+	require.NoError(t, err)
+
+	q := `{
+			me(func: uid(0x88)) {
+				occupations
+			}
+		}`
+	res, err := runQuery(q)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"data": {"me":[{"occupations":["Software Engineer","Pianist"]}]}}`, res)
+
+	q = `{
+			me(func: anyofterms(occupations, "Engineer")) {
+				occupations
+			}
+	}`
+
+	res, err = runQuery(q)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"data": {"me":[{"occupations":["Software Engineer","Pianist"]}]}}`, res)
+
+	q = `{
+			me(func: allofterms(occupations, "Software Engineer")) {
+				occupations
+			}
+	}`
+
+	res, err = runQuery(q)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"data": {"me":[{"occupations":["Software Engineer","Pianist"]}]}}`, res)
+
+	m = `
+		mutation {
+			schema {
+				occupations: string .
+			}
+		}
+	`
+
+	// Cant change from list-type to non-list till we have data.
+	err = runMutation(m)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Schema change not allowed from [string] => string")
+
+	sm := `
+		mutation {
+			delete {
+				* <occupations> * .
+			}
+		}
+	`
+	err = runMutation(sm)
+	require.NoError(t, err)
+
+	require.NoError(t, runMutation(m))
+
+	q = `schema{}`
+	res, err = runQuery(q)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"data":{"schema":[{"predicate":"_predicate_","type":"string","list":true},{"predicate":"occupations","type":"string"}]}}`, res)
+
+}
+
+func TestUpsertError(t *testing.T) {
+	query := `
+	mutation {
+		schema {
+			name: string .
+		}
+	}
+
+	{
+		me(func: eq(name, "XYZ")) @upsert
+	}`
+
+	_, err := runQuery(query)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Attribute name is not indexed.")
+}
+
+func TestUpsert(t *testing.T) {
+	query := `
+	mutation {
+		schema {
+			name: string @index(exact) .
+		}
+	}
+
+	{
+		me(func: eq(name, "XYZ")) @upsert {
+			name
+		}
+	}
+	`
+
+	res, err := runQuery(query)
+	require.NoError(t, err)
+	require.Equal(t, `{"data": {"me":[{"name":"XYZ"}],"uids":{"me":"0x2718"}}}`, res)
+}
+
+func TestUpsert2(t *testing.T) {
+	query := `
+	{
+		a as var(func: eq(name, "person")) @upsert
+		b as var(func: eq(age, 20)) @upsert
+	}
+
+	mutation {
+		schema {
+			name: string @index(term) .
+			age: int @index(int) .
+		}
+		set {
+			uid(a) <age> "13" .
+			uid(a) <friend> <100> .
+			<100> <name> "Friend1" .
+			uid(b) <name> "person2" .
+		}
+	}
+
+	`
+
+	res, err := runQuery(query)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"data": {"uids":{"b":"0x271a","a":"0x2719"}}}`, res)
+
+	m := make(map[string]interface{})
+	require.NoError(t, json.Unmarshal([]byte(res), &m))
+	uids := m["data"].(map[string]interface{})["uids"].(map[string]interface{})
+	require.Equal(t, 2, len(uids))
+
+	// Upsert shouldn't assign a new _uid_ now.
+	query = `
+	{
+		me(func: eq(name, "person")) @upsert {
+			name
+			age
+			friend {
+				name
+			}
+		}
+
+		me(func: eq(age, 20)) {
+			name
+			age
+		}
+	}
+	`
+	res, err = runQuery(query)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"data": {"me":[{"name":"person","age":13,"friend":[{"name":"Friend1"}]},{"name":"person2","age":20}]}}`,
+		res)
+}
+
+func TestDeleteAllSP2(t *testing.T) {
+	var m = `
+	mutation {
+	  set {
+	    _:day1 <nodeType> "TRACKED_DAY" .
+	    _:day1 <name> "July 3 2017" .
+	    _:day1 <date> "2017-07-03T03:49:03+00:00" .
+	    _:day1 <weight> "262.3" .
+	    _:day1 <weightUnit> "pound" .
+	    _:day1 <lifeLoad> "5" .
+	    _:day1 <stressLevel> "3" .
+	    _:day1 <plan> "modest day" .
+	    _:day1 <postMortem> "win!" .
+	  }
+	}
+	`
+	output, err := runQuery(m)
+	require.NoError(t, err)
+	out := make(map[string]interface{})
+	require.NoError(t, json.Unmarshal([]byte(output), &out))
+	uid := out["data"].(map[string]interface{})["uids"].(map[string]interface{})["day1"].(string)
+
+	q := fmt.Sprintf(`
+	{
+	  me(func: uid(%s)) {
+		_predicate_
+		name
+	    date
+	    weight
+	    lifeLoad
+	    stressLevel
+	  }
+	}`, uid)
+
+	output, err = runQuery(q)
+	require.NoError(t, err)
+	require.Equal(t, `{"data": {"me":[{"_predicate_":["name","date","weightUnit","postMortem","lifeLoad","weight","stressLevel","nodeType","plan"],"name":"July 3 2017","date":"2017-07-03T03:49:03+00:00","weight":"262.3","lifeLoad":"5","stressLevel":"3"}]}}`, output)
+
+	m = fmt.Sprintf(`
+		mutation {
+			delete {
+				<%s> * * .
+			}
+		}`, uid)
+
+	output, err = runQuery(m)
+	require.NoError(t, err)
+
+	output, err = runQuery(q)
+	require.NoError(t, err)
+	require.Equal(t, `{"data": {"me":[]}}`, output)
+}
+
+func TestUpsertRace(t *testing.T) {
+	s := `
+	mutation {
+		schema {
+			xid: string @index(exact) .
+		}
+	}
+	`
+	_, err := runQuery(s)
+	require.NoError(t, err)
+
+	q := `
+{
+  email as var(func: eq(xid, "<2519643.1075860072192.JavaMail.evans@thyme>")) @upsert
+  human as var(func: eq(xid, "mark.taylor@enron.com")) @upsert
+  human_to_0 as var(func: eq(xid, "leonardo.pacheco@enron.com")) @upsert
+  human_cc_0 as var(func: eq(xid, "jay.hawthorn@enron.com")) @upsert
+  human_cc_1 as var(func: eq(xid, "cynthia.harkness@enron.com")) @upsert
+  human_cc_2 as var(func: eq(xid, "jean.mrha@enron.com")) @upsert
+  human_cc_3 as var(func: eq(xid, "david.forster@enron.com")) @upsert
+  human_cc_4 as var(func: eq(xid, "julie.ferrara@enron.com")) @upsert
+  human_cc_5 as var(func: eq(xid, "kal.shah@enron.com")) @upsert
+  human_bcc_0 as var(func: eq(xid, "jay.hawthorn@enron.com")) @upsert
+  human_bcc_1 as var(func: eq(xid, "cynthia.harkness@enron.com")) @upsert
+  human_bcc_2 as var(func: eq(xid, "jean.mrha@enron.com")) @upsert
+  human_bcc_3 as var(func: eq(xid, "david.forster@enron.com")) @upsert
+  human_bcc_4 as var(func: eq(xid, "julie.ferrara@enron.com")) @upsert
+  human_bcc_5 as var(func: eq(xid, "kal.shah@enron.com")) @upsert
+}
+mutation {
+  set {
+   uid(email) <xid> "<2519643.1075860072192.JavaMail.evans@thyme>" .
+   uid(email) <filename> "data/maildir/taylor-m/sent/1018." .
+   uid(email) <date> "2000-05-01 01:31:00 -0700 PDT" .
+   uid(human) <sent> uid(email) .
+   uid(email) <from> "mark.taylor@enron.com" .
+   uid(email) <subject> "Re: Bandwidth Launch on EOL Website Ticker Text" .
+   uid(human_to_0) <xid> "leonardo.pacheco@enron.com" .
+   uid(human_cc_0) <xid> "jay.hawthorn@enron.com" .
+   uid(human_cc_1) <xid> "cynthia.harkness@enron.com" .
+   uid(human_cc_2) <xid> "jean.mrha@enron.com" .
+   uid(human_cc_3) <xid> "david.forster@enron.com" .
+   uid(human_cc_4) <xid> "julie.ferrara@enron.com" .
+   uid(human_cc_5) <xid> "kal.shah@enron.com" .
+   uid(human_bcc_0) <xid> "jay.hawthorn@enron.com" .
+   uid(human_bcc_1) <xid> "cynthia.harkness@enron.com" .
+   uid(human_bcc_2) <xid> "jean.mrha@enron.com" .
+   uid(human_bcc_3) <xid> "david.forster@enron.com" .
+   uid(human_bcc_4) <xid> "julie.ferrara@enron.com" .
+   uid(human_bcc_5) <xid> "kal.shah@enron.com" .
+  }
+}
+	`
+	_, err = runQuery(q)
+	require.NoError(t, err)
+}
+
+func TestDropAll(t *testing.T) {
+	var q1 = `
+	mutation{
+		schema{
+			name: string @index(term) .
+		}
+		set{
+			_:foo <name> "Foo" .
+		}
+	}
+	{
+		q(func: allofterms(name, "Foo")) {
+			_uid_
+			name
+		}
+	}`
+	output, err := runQuery(q1)
+	require.NoError(t, err)
+	q1Result := map[string]interface{}{}
+	require.NoError(t, json.Unmarshal([]byte(output), &q1Result))
+	queryResults := q1Result["data"].(map[string]interface{})["q"].([]interface{})
+	name := queryResults[0].(map[string]interface{})["name"].(string)
+	require.Equal(t, "Foo", name)
+
+	q2 := "mutation{ dropall {} }"
+	_, err = runQuery(q2)
+	require.NoError(t, err)
+
+	q3 := "schema{}"
+	output, err = runQuery(q3)
+	require.NoError(t, err)
+	require.Equal(t,
+		`{"data":{"schema":[{"predicate":"_predicate_","type":"string","list":true}]}}`, output)
+
+	// Reinstate schema so that we can re-run the original query.
+	q4 := `
+	mutation {
+		schema{
+			name: string @index(term) .
+		}
+	}`
+	_, err = runQuery(q4)
+	require.NoError(t, err)
+
+	q5 := `
+	{
+		q(func: allofterms(name, "Foo")) {
+			_uid_
+			name
+		}
+	}`
+	output, err = runQuery(q5)
+	require.NoError(t, err)
+	require.Equal(t, `{"data": {"q":[]}}`, output)
+}
+
+func TestRecurseExpandAll(t *testing.T) {
+	var q1 = `
+	{
+		recurse(func:anyofterms(name, "Alica")) {
+  			expand(_all_)
+		}
+	}
+	`
+	var m = `
+	mutation {
+		set {
+			<0x1> <name> "Alica" .
+			<0x1> <age> "13" .
+			<0x1> <friend> <0x4> .
+			<0x4> <name> "bob" .
+			<0x4> <age> "12" .
+		}
+	}
+	`
+
+	var s = `
+	mutation {
+		schema {
+			name:string @index(term) .
+		}
+	}
+	`
+
+	// reset Schema
+	schema.ParseBytes([]byte(""), 1)
+	err := runMutation(m)
+	require.NoError(t, err)
+
+	err = runMutation(s)
+	require.NoError(t, err)
+
+	output, err := runQuery(q1)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"data": {"recurse":[{"name":"Alica","age":"13","friend":[{"name":"bob","age":"12"}]}]}}`, output)
+}
+
+func TestIllegalCountInQueryFn(t *testing.T) {
+	q := `
+	mutation{
+		schema{
+			friend: uid @count .
+		}
+	}
+	{
+		q(func: eq(count(friend), 0)) {
+			count
+		}
+	}`
+	_, err := runQuery(q)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "count")
+	require.Contains(t, err.Error(), "zero")
+}
+
 func TestMain(m *testing.M) {
 	dc := dgraph.DefaultConfig
 	dc.AllottedMemory = 2048.0
 	dgraph.SetConfiguration(dc)
-	x.Init()
+	x.Init(true)
 
 	dir1, dir2, _ := prepare()
+	time.Sleep(10 * time.Millisecond)
 
-	// we need watermarks for reindexing
-	x.AssertTrue(!x.IsTestRun())
 	// Parse GQL into internal query representation.
 	r := m.Run()
 	closeAll(dir1, dir2)

@@ -25,7 +25,6 @@ import (
 	"github.com/dgraph-io/badger"
 	"golang.org/x/net/trace"
 
-	"github.com/dgraph-io/dgraph/group"
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/tok"
 	"github.com/dgraph-io/dgraph/types"
@@ -37,7 +36,7 @@ const (
 )
 
 var (
-	pstate *state
+	pstate *stateGroup
 	pstore *badger.KV
 	syncCh chan SyncEntry
 )
@@ -50,9 +49,9 @@ type stateGroup struct {
 	elog      trace.EventLog
 }
 
-func (s *stateGroup) init(group uint32) {
+func (s *stateGroup) init() {
 	s.predicate = make(map[string]*protos.SchemaUpdate)
-	s.elog = trace.NewEventLog("Dynamic Schema", fmt.Sprintf("%d", group))
+	s.elog = trace.NewEventLog("Dgraph", "Schema")
 }
 
 type state struct {
@@ -61,79 +60,80 @@ type state struct {
 	elog trace.EventLog
 }
 
-func (s *state) create(group uint32) *stateGroup {
+// SateFor returns the schema for given group
+func State() *stateGroup {
+	return pstate
+}
+
+func (s *stateGroup) DeleteAll() {
 	s.Lock()
 	defer s.Unlock()
-	if s.m == nil {
-		s.m = make(map[uint32]*stateGroup)
-	}
 
-	if prev, present := s.m[group]; present {
-		return prev
+	for pred := range s.predicate {
+		// We set schema for _predicate_, hence it shouldn't be deleted.
+		if pred != x.PredicateListAttr {
+			delete(s.predicate, pred)
+		}
 	}
-	shard := &stateGroup{}
-	shard.init(group)
-	s.m[group] = shard
-	return shard
-}
-
-func (s *state) get(group uint32) *stateGroup {
-	s.RLock()
-	if shard, present := s.m[group]; present {
-		s.RUnlock()
-		return shard
-	}
-	s.RUnlock()
-	return s.create(group)
-}
-
-// SateFor returns the schema for given group
-func State() *state {
-	return pstate
 }
 
 // Update updates the schema in memory and sends an entry to syncCh so that it can be
 // committed later
-func (s *state) Update(se SyncEntry) {
-	s.get(group.BelongsTo(se.Attr)).update(se)
-}
-
-func (s *stateGroup) update(se SyncEntry) {
+func (s *stateGroup) Update(se SyncEntry) {
 	s.Lock()
 	defer s.Unlock()
 
 	s.predicate[se.Attr] = &se.Schema
-	se.Water.Ch <- x.Mark{Index: se.Index, Done: false}
+	se.Water.Begin(se.Index)
 	syncCh <- se
-	s.elog.Printf("Setting schema type for attr %s: %v, tokenizer: %v, directive: %v, count: %v\n",
-		se.Attr, types.TypeID(se.Schema.ValueType).Name(), se.Schema.Tokenizer, se.Schema.Directive,
-		se.Schema.Count)
-	x.Printf("Setting schema type for attr %s: %v, tokenizer: %v, directive: %v, count: %v\n",
-		se.Attr, types.TypeID(se.Schema.ValueType).Name(), se.Schema.Tokenizer, se.Schema.Directive,
-		se.Schema.Count)
+	s.elog.Printf(logUpdate(se.Schema, se.Attr))
+	x.Printf(logUpdate(se.Schema, se.Attr))
+}
+
+// Delete updates the schema in memory and sends an entry to syncCh so that it can be
+// committed later
+func (s *stateGroup) Delete(se SyncEntry) {
+	s.Lock()
+	defer s.Unlock()
+
+	delete(s.predicate, se.Attr)
+	se.Water.Begin(se.Index)
+	syncCh <- se
+	s.elog.Printf("Deleting schema for attr: %s", se.Attr)
+	x.Printf("Deleting schema for attr: %s", se.Attr)
+}
+
+// Remove deletes the schema from memory and disk. Used after predicate move to do
+// cleanup
+func (s *stateGroup) Remove(predicate string) error {
+	s.Lock()
+	defer s.Unlock()
+
+	delete(s.predicate, predicate)
+	return pstore.Delete(x.SchemaKey(predicate))
+}
+
+func logUpdate(schema protos.SchemaUpdate, pred string) string {
+	typ := types.TypeID(schema.ValueType).Name()
+	if schema.List {
+		typ = fmt.Sprintf("[%s]", typ)
+	}
+	return fmt.Sprintf("Setting schema for attr %s: %v, tokenizer: %v, directive: %v, count: %v\n",
+		pred, typ, schema.Tokenizer, schema.Directive, schema.Count)
 }
 
 // Set sets the schema for given predicate in memory
 // schema mutations must flow through update function, which are
 // synced to db
-func (s *state) Set(pred string, schema protos.SchemaUpdate) {
-	s.get(group.BelongsTo(pred)).set(pred, schema)
-}
-
-func (s *stateGroup) set(pred string, schema protos.SchemaUpdate) {
+func (s *stateGroup) Set(pred string, schema protos.SchemaUpdate) {
 	s.Lock()
 	defer s.Unlock()
 	s.predicate[pred] = &schema
-	s.elog.Printf("Setting schema type for attr %s: %v, tokenizer: %v, directive: %v\n", pred,
-		types.TypeID(schema.ValueType).Name(), schema.Tokenizer, schema.Directive)
+	s.elog.Printf(logUpdate(schema, pred))
 }
 
 // Get gets the schema for given predicate
-func (s *state) Get(pred string) (protos.SchemaUpdate, bool) {
-	return s.get(group.BelongsTo(pred)).get(pred)
-}
-
-func (s *stateGroup) get(pred string) (protos.SchemaUpdate, bool) {
+func (s *stateGroup) Get(pred string) (protos.SchemaUpdate, bool) {
 	s.Lock()
 	defer s.Unlock()
 	schema, has := s.predicate[pred]
@@ -144,25 +144,17 @@ func (s *stateGroup) get(pred string) (protos.SchemaUpdate, bool) {
 }
 
 // TypeOf returns the schema type of predicate
-func (s *state) TypeOf(pred string) (types.TypeID, error) {
-	return s.get(group.BelongsTo(pred)).typeOf(pred)
-}
-
-func (s *stateGroup) typeOf(pred string) (types.TypeID, error) {
+func (s *stateGroup) TypeOf(pred string) (types.TypeID, error) {
 	s.RLock()
 	defer s.RUnlock()
 	if schema, ok := s.predicate[pred]; ok {
 		return types.TypeID(schema.ValueType), nil
 	}
-	return types.TypeID(100), x.Errorf("Undefined predicate: %v.", pred)
+	return types.TypeID(100), x.Errorf("Schema not defined for predicate: %v.", pred)
 }
 
 // IsIndexed returns whether the predicate is indexed or not
-func (s *state) IsIndexed(pred string) bool {
-	return s.get(group.BelongsTo(pred)).isIndexed(pred)
-}
-
-func (s *stateGroup) isIndexed(pred string) bool {
+func (s *stateGroup) IsIndexed(pred string) bool {
 	s.RLock()
 	defer s.RUnlock()
 	if schema, ok := s.predicate[pred]; ok {
@@ -172,11 +164,7 @@ func (s *stateGroup) isIndexed(pred string) bool {
 }
 
 // IndexedFields returns the list of indexed fields
-func (s *state) IndexedFields(gid uint32) []string {
-	return s.get(gid).indexedFields()
-}
-
-func (s *stateGroup) indexedFields() []string {
+func (s *stateGroup) IndexedFields() []string {
 	s.RLock()
 	defer s.RUnlock()
 	var out []string
@@ -189,11 +177,7 @@ func (s *stateGroup) indexedFields() []string {
 }
 
 // Predicates returns the list of predicates for given group
-func (s *state) Predicates(group uint32) []string {
-	return s.get(group).predicates()
-}
-
-func (s *stateGroup) predicates() []string {
+func (s *stateGroup) Predicates() []string {
 	s.RLock()
 	defer s.RUnlock()
 	out := make([]string, 0, len(s.predicate))
@@ -204,11 +188,7 @@ func (s *stateGroup) predicates() []string {
 }
 
 // Tokenizer returns the tokenizer for given predicate
-func (s *state) Tokenizer(pred string) []tok.Tokenizer {
-	return s.get(group.BelongsTo(pred)).tokenizer(pred)
-}
-
-func (s *stateGroup) tokenizer(pred string) []tok.Tokenizer {
+func (s *stateGroup) Tokenizer(pred string) []tok.Tokenizer {
 	s.RLock()
 	defer s.RUnlock()
 	schema, ok := s.predicate[pred]
@@ -222,12 +202,8 @@ func (s *stateGroup) tokenizer(pred string) []tok.Tokenizer {
 	return tokenizers
 }
 
-// Tokenizer returns the tokenizer names for given predicate
-func (s *state) TokenizerNames(pred string) []string {
-	return s.get(group.BelongsTo(pred)).tokenizerNames(pred)
-}
-
-func (s *stateGroup) tokenizerNames(pred string) []string {
+// TokenizerNames returns the tokenizer names for given predicate
+func (s *stateGroup) TokenizerNames(pred string) []string {
 	s.RLock()
 	defer s.RUnlock()
 	schema, ok := s.predicate[pred]
@@ -242,11 +218,7 @@ func (s *stateGroup) tokenizerNames(pred string) []string {
 }
 
 // IsReversed returns whether the predicate has reverse edge or not
-func (s *state) IsReversed(pred string) bool {
-	return s.get(group.BelongsTo(pred)).isReversed(pred)
-}
-
-func (s *stateGroup) isReversed(pred string) bool {
+func (s *stateGroup) IsReversed(pred string) bool {
 	s.RLock()
 	defer s.RUnlock()
 	if schema, ok := s.predicate[pred]; ok {
@@ -255,16 +227,22 @@ func (s *stateGroup) isReversed(pred string) bool {
 	return false
 }
 
-// AddCount returns whether we want to mantain a count index for the given predicate or not.
-func (s *state) HasCount(pred string) bool {
-	return s.get(group.BelongsTo(pred)).hasCount(pred)
-}
-
-func (s *stateGroup) hasCount(pred string) bool {
+// HasCount returns whether we want to mantain a count index for the given predicate or not.
+func (s *stateGroup) HasCount(pred string) bool {
 	s.RLock()
 	defer s.RUnlock()
 	if schema, ok := s.predicate[pred]; ok {
 		return schema.Count
+	}
+	return false
+}
+
+// IsList returns whether the predicate is of list type.
+func (s *stateGroup) IsList(pred string) bool {
+	s.RLock()
+	defer s.RUnlock()
+	if schema, ok := s.predicate[pred]; ok {
+		return schema.List
 	}
 	return false
 }
@@ -276,8 +254,28 @@ func Init(ps *badger.KV) {
 	go batchSync()
 }
 
+func Load(predicate string) error {
+	if len(predicate) == 0 {
+		return x.Errorf("Empty predicate")
+	}
+	key := x.SchemaKey(predicate)
+	var item badger.KVItem
+	err := pstore.Get(key, &item)
+	if err != nil {
+		return err
+	}
+	return item.Value(func(val []byte) error {
+		var s protos.SchemaUpdate
+		x.Check(s.Unmarshal(val))
+		State().Set(predicate, s)
+		State().elog.Printf(logUpdate(s, predicate))
+		x.Printf(logUpdate(s, predicate))
+		return nil
+	})
+}
+
 // LoadFromDb reads schema information from db and stores it in memory
-func LoadFromDb(gid uint32) error {
+func LoadFromDb() error {
 	prefix := x.SchemaPrefix()
 	itr := pstore.NewIterator(badger.DefaultIteratorOptions) // Need values, reversed=false.
 	defer itr.Close()
@@ -288,11 +286,18 @@ func LoadFromDb(gid uint32) error {
 		if !bytes.HasPrefix(key, prefix) {
 			break
 		}
-		attr := x.Parse(key).Attr
-		var s protos.SchemaUpdate
-		x.Checkf(s.Unmarshal(item.Value()), "Error while loading schema from db")
-		if group.BelongsTo(attr) != gid {
+		pk := x.Parse(key)
+		if pk == nil {
 			continue
+		}
+		attr := pk.Attr
+		var s protos.SchemaUpdate
+		err := item.Value(func(val []byte) error {
+			x.Checkf(s.Unmarshal(val), "Error while loading schema from db")
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 		State().Set(attr, s)
 	}
@@ -300,8 +305,8 @@ func LoadFromDb(gid uint32) error {
 }
 
 func reset() {
-	pstate = new(state)
-	pstate.elog = trace.NewEventLog("Dynamic Schema", "schema")
+	pstate = new(stateGroup)
+	pstate.init()
 }
 
 // SyncEntry stores the schema mutation information
@@ -312,10 +317,10 @@ type SyncEntry struct {
 	Index  uint64
 }
 
-func addToEntriesMap(entriesMap map[chan x.Mark][]uint64, entries []SyncEntry) {
+func addToEntriesMap(entriesMap map[*x.WaterMark][]uint64, entries []SyncEntry) {
 	for _, entry := range entries {
 		if entry.Water != nil {
-			entriesMap[entry.Water.Ch] = append(entriesMap[entry.Water.Ch], entry.Index)
+			entriesMap[entry.Water] = append(entriesMap[entry.Water], entry.Index)
 		}
 	}
 }
@@ -343,6 +348,10 @@ func batchSync() {
 		loop++
 		State().elog.Printf("[%4d] Writing schema batch of size: %v\n", loop, len(entries))
 		for _, e := range entries {
+			if e.Schema.Directive == protos.SchemaUpdate_DELETE {
+				wb = badger.EntriesDelete(wb, x.SchemaKey(e.Attr))
+				continue
+			}
 			val, err := e.Schema.Marshal()
 			x.Checkf(err, "Error while marshalling schema description")
 			wb = badger.EntriesSet(wb, x.SchemaKey(e.Attr), val)
@@ -350,10 +359,10 @@ func batchSync() {
 		pstore.BatchSet(wb)
 		wb = wb[:0]
 
-		entriesMap := make(map[chan x.Mark][]uint64)
+		entriesMap := make(map[*x.WaterMark][]uint64)
 		addToEntriesMap(entriesMap, entries)
-		for ch, indices := range entriesMap {
-			ch <- x.Mark{Indices: indices, Done: true}
+		for wm, indices := range entriesMap {
+			wm.DoneMany(indices)
 		}
 		entries = entries[:0]
 	}

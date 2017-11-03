@@ -23,6 +23,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -56,7 +57,8 @@ func sane(s string) bool {
 }
 
 // Parse parses a mutation string and returns the NQuad representation for it.
-func Parse(line string) (rnq protos.NQuad, rerr error) {
+func Parse(line string) (protos.NQuad, error) {
+	var rnq protos.NQuad
 	l := lex.Lexer{
 		Input: line,
 	}
@@ -105,7 +107,11 @@ L:
 				rnq.ObjectValue = &protos.Value{&protos.Value_DefaultVal{x.Star}}
 			}
 		case itemLiteral:
-			oval = item.Val
+			var err error
+			oval, err = strconv.Unquote(item.Val)
+			if err != nil {
+				return rnq, x.Wrapf(err, "while unquoting")
+			}
 			if oval == "" {
 				oval = "_nil_"
 			}
@@ -117,8 +123,6 @@ L:
 			// grammar allows either ^^ iriref or lang tag
 			if len(oval) > 0 {
 				rnq.ObjectValue = &protos.Value{&protos.Value_DefaultVal{oval}}
-				// If no type is specified, we default to string.
-				rnq.ObjectType = int32(types.StringID)
 				oval = ""
 			}
 		case itemObjectType:
@@ -144,7 +148,6 @@ L:
 			if oval == "_nil_" && t != types.StringID {
 				return rnq, x.Errorf("Invalid ObjectValue")
 			}
-			rnq.ObjectType = int32(t)
 			src := types.ValueForType(types.StringID)
 			src.Value = []byte(oval)
 			p, err := types.Convert(src, t)
@@ -197,8 +200,6 @@ L:
 	}
 	if len(oval) > 0 {
 		rnq.ObjectValue = &protos.Value{&protos.Value_DefaultVal{oval}}
-		// If no type is specified, we default to string.
-		rnq.ObjectType = int32(types.DefaultID)
 	}
 	if (len(rnq.Subject) == 0 && len(rnq.SubjectVar) == 0) || len(rnq.Predicate) == 0 {
 		return rnq, x.Errorf("Empty required fields in NQuad. Input: [%s]", line)
@@ -239,8 +240,7 @@ func ConvertToNQuads(mutation string) ([]*protos.NQuad, error) {
 		if err == ErrEmpty { // special case: comment/empty line
 			continue
 		} else if err != nil {
-			// x.TraceError(ctx, x.Wrapf(err, "Error while parsing RDF"))
-			return nquads, err
+			return nquads, x.Wrapf(err, "While parsing RDF: %s", strBuf.String())
 		}
 		nquads = append(nquads, &nq)
 	}
@@ -316,15 +316,6 @@ func parseFacets(it *lex.ItemIterator, rnq *protos.NQuad) error {
 		return x.Errorf("Expected , or ) after facet. Received %s", item.Val)
 	}
 
-	if rnq.Facets != nil {
-		facets.SortFacets(rnq.Facets)
-	}
-	for i := 1; i < len(rnq.Facets); i++ {
-		if rnq.Facets[i-1].Key == rnq.Facets[i].Key {
-			return x.Errorf("Repeated keys are not allowed in facets. But got %s",
-				rnq.Facets[i].Key)
-		}
-	}
 	return nil
 }
 
@@ -343,7 +334,6 @@ var typeMap = map[string]types.TypeID{
 	"xs:float":                                         types.FloatID,
 	"xs:base64Binary":                                  types.BinaryID,
 	"geo:geojson":                                      types.GeoID,
-	"pwd:password":                                     types.PasswordID,
 	"http://www.w3.org/2001/XMLSchema#string":          types.StringID,
 	"http://www.w3.org/2001/XMLSchema#dateTime":        types.DateTimeID,
 	"http://www.w3.org/2001/XMLSchema#date":            types.DateTimeID,

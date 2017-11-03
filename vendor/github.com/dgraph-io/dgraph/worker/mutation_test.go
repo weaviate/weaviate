@@ -25,7 +25,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/dgraph-io/dgraph/group"
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/schema"
 	"github.com/dgraph-io/dgraph/types"
@@ -74,7 +73,7 @@ func TestConvertEdgeType(t *testing.T) {
 	}
 
 	for _, testEdge := range testEdges {
-		err := validateAndConvert(testEdge.input, testEdge.to)
+		err := ValidateAndConvert(testEdge.input, testEdge.to)
 		if testEdge.expectErr {
 			require.Error(t, err)
 		} else {
@@ -92,12 +91,11 @@ func TestValidateEdgeTypeError(t *testing.T) {
 		Attr:  "name",
 	}
 
-	err := validateAndConvert(edge, types.DateTimeID)
+	err := ValidateAndConvert(edge, types.DateTimeID)
 	require.Error(t, err)
 }
 
 func TestAddToMutationArray(t *testing.T) {
-	group.ParseGroupConfig("")
 	dir, err := ioutil.TempDir("", "storetest_")
 	require.NoError(t, err)
 	defer os.RemoveAll(dir)
@@ -115,15 +113,15 @@ func TestAddToMutationArray(t *testing.T) {
 	})
 	m := &protos.Mutations{Edges: edges, Schema: schema}
 
-	addToMutationMap(mutationsMap, m)
+	err = addToMutationMap(mutationsMap, m)
+	require.NoError(t, err)
 	mu := mutationsMap[1]
 	require.NotNil(t, mu)
 	require.NotNil(t, mu.Edges)
 }
 
 func TestCheckSchema(t *testing.T) {
-	group.ParseGroupConfig("")
-	dir, _ := initTest(t, "name:string @index .")
+	dir, _ := initTest(t, "name:string @index(term) .")
 	defer os.RemoveAll(dir)
 	// non uid to uid
 	s1 := &protos.SchemaUpdate{Predicate: "name", ValueType: uint32(types.UidID)}
@@ -149,7 +147,7 @@ func TestCheckSchema(t *testing.T) {
 	s1 = &protos.SchemaUpdate{Predicate: "name", ValueType: uint32(types.StringID), Directive: protos.SchemaUpdate_REVERSE}
 	require.Error(t, checkSchema(s1))
 
-	s1 = &protos.SchemaUpdate{Predicate: "name", ValueType: uint32(types.FloatID), Directive: protos.SchemaUpdate_INDEX}
+	s1 = &protos.SchemaUpdate{Predicate: "name", ValueType: uint32(types.FloatID), Directive: protos.SchemaUpdate_INDEX, Tokenizer: []string{"term"}}
 	require.NoError(t, checkSchema(s1))
 
 	s1 = &protos.SchemaUpdate{Predicate: "friend", ValueType: uint32(types.UidID), Directive: protos.SchemaUpdate_REVERSE}

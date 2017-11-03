@@ -55,6 +55,9 @@ func verifyStringIndex(attr string, funcType FuncType) (string, bool) {
 // Return string tokens from function arguments. It maps function type to correct tokenizer.
 // Note: regexp functions require regexp compilation of argument, not tokenization.
 func getStringTokens(funcArgs []string, lang string, funcType FuncType) ([]string, error) {
+	if lang == "." {
+		lang = "en"
+	}
 	switch funcType {
 	case FullTextSearchFn:
 		return tok.GetTextTokens(funcArgs, lang)
@@ -126,7 +129,7 @@ func getInequalityTokens(attr, f string, ineqValue types.Val) ([]string, string,
 
 	isgeOrGt := f == "ge" || f == "gt"
 	itOpt := badger.DefaultIteratorOptions
-	itOpt.FetchValues = false
+	itOpt.PrefetchValues = false
 	itOpt.Reverse = !isgeOrGt
 	it := pstore.NewIterator(itOpt)
 	defer it.Close()
@@ -136,7 +139,9 @@ func getInequalityTokens(attr, f string, ineqValue types.Val) ([]string, string,
 	for it.Seek(x.IndexKey(attr, ineqToken)); it.ValidForPrefix(indexPrefix); it.Next() {
 		key := it.Item().Key()
 		k := x.Parse(key)
-		x.AssertTrue(k != nil)
+		if k == nil {
+			continue
+		}
 		out = append(out, k.Term)
 	}
 	return out, ineqToken, nil

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source ./contrib/functions.sh
+
 SRC="$( cd -P "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/.."
 
 BUILD=$1
@@ -23,118 +25,95 @@ ls -la goldendata.rdf.gz
 benchmark=$(pwd)
 popd &> /dev/null
 
+pushd cmd/dgraphzero &> /dev/null
+echo -e "\nBuilding and running Dgraph Zero."
+go build .
+
+startZero
+popd &> /dev/null
+
 pushd cmd/dgraph &> /dev/null
 echo -e "\nBuilding and running Dgraph."
 go build .
 
 ./dgraph --version
 if [ $? -eq 0 ]; then
-    echo -e "dgraph --version succeeded.\n"
+  echo -e "dgraph --version succeeded.\n"
 else
-    echo "dgraph --version command failed."
+  echo "dgraph --version command failed."
 fi
 
-./dgraph -gentlecommit 1.0 -p $BUILD/p -w $BUILD/loader/w -memory_mb 6000 > $BUILD/server.log &
+# Start Dgraph
+start
 popd &> /dev/null
-
-sleep 15
 
 #Set Schema
 curl -X POST  -d 'mutation {
   schema {
     name: string @index(term) .
-		_xid_: string @index(exact,term) .
+    xid: string @index(exact) .
     initial_release_date: datetime @index(year) .
-	}
+  }
 }' "http://localhost:8080/query"
 
-echo -e "\nBuilding and running dgraphloader."
-pushd cmd/dgraphloader &> /dev/null
+res=$(curl -X POST  -d 'schema {}' "http://localhost:8080/query")
+expected='{"data":{"schema":[{"predicate":"_predicate_","type":"string","list":true},{"predicate":"initial_release_date","type":"datetime","index":true,"tokenizer":["year"]},{"predicate":"name","type":"string","index":true,"tokenizer":["term"]},{"predicate":"xid","type":"string","index":true,"tokenizer":["exact"]}]}}'
+echo -e "Response $res"
+
+# For some reason the comparison fails on Mac because of `_predicate_`
+if [[ $TRAVIS_OS_NAME ==  "linux" ]] && [[ "$res" != "$expected" ]]; then
+  echo "Schema comparison failed."
+  quit 1
+else
+  echo "Schema comparison successful."
+fi
+
+echo -e "\nBuilding and running dgraph-live-loader."
+pushd cmd/dgraph-live-loader &> /dev/null
 # Delete client directory to clear checkpoints.
 rm -rf c
 go build .
-./dgraphloader -r $benchmark/goldendata.rdf.gz -x true
+./dgraph-live-loader -r $benchmark/goldendata.rdf.gz -x true -d "localhost:8080,localhost:8082"
 popd &> /dev/null
 
-pushd $GOPATH/src/github.com/dgraph-io/dgraph/contrib/indextest &> /dev/null
 
-function quit {
-	curl localhost:8080/admin/shutdown
-	return $1
-}
-
-function run_index_test {
-  local max_attempts=${ATTEMPTS-5}
-  local timeout=${TIMEOUT-1}
-  local attempt=0
-  local exitCode=0
-
-  X=$1
-	GREPFOR=$2
-	ANS=$3
-  echo "Running test: ${X}"
-  while (( $attempt < $max_attempts ))
-  do
-    set +e
-    N=`curl -s localhost:8080/query -XPOST -d @${X}.in`
-    exitCode=$?
-
-    set -e
-
-    if [[ $exitCode == 0 ]]
-    then
-      break
-    fi
-
-    echo "Failure! Retrying in $timeout.." 1>&2
-    sleep $timeout
-    attempt=$(( attempt + 1 ))
-    timeout=$(( timeout * 2 ))
-  done
-
-  NUM=$(echo $N | python -m json.tool | grep $GREPFOR | wc -l)
-	if [[ ! "$NUM" -eq "$ANS" ]]; then
-	  echo "Index test failed: ${X}  Expected: $ANS  Got: $NUM"
-	  quit 1
-  else
-    echo -e "Index test passed: ${X}\n"
-  fi
-}
-
-echo -e "\nRunning some queries and checking count of results returned."
-run_index_test basic name 138676
-run_index_test allof_the name 25431
-run_index_test allof_the_a name 367
-run_index_test allof_the_first name 4383
-run_index_test releasedate release_date 137858
-run_index_test releasedate_sort release_date 137858
-run_index_test releasedate_sort_first_offset release_date 2315
-run_index_test releasedate_geq release_date 60991
-run_index_test gen_anyof_good_bad name 1103
-
+# Restart Dgraph so that we are sure that index keys are persisted.
+quit 0
+# Wait for a clean shutdown.
+echo -e "\nClean Shutdown Done"
+pushd cmd/dgraphzero &> /dev/null
+startZero
 popd &> /dev/null
+
+pushd cmd/dgraph &> /dev/null
+start
+popd &> /dev/null
+
+./contrib/goldendata-queries.sh
 
 echo -e "\nShutting down Dgraph"
 quit 0
 
-# Wait for clean shutdown.
-sleep 20
-
 echo -e "\nTrying to restart Dgraph and match export count"
+pushd cmd/dgraphzero &> /dev/null
+startZero
+popd &> /dev/null
+
 pushd cmd/dgraph &> /dev/null
-./dgraph -p $BUILD/p -w $BUILD/loader/w -memory_mb 4000 &
-# Wait to become leader.
-sleep 15
+start
 echo -e "\nTrying to export data."
+rm -rf export/*
 curl http://localhost:8080/admin/export
 echo -e "\nExport done."
 
-# This is count of RDF's in goldendata.rdf.gz + xids because we ran dgraphloader with -xid flag.
+# This is count of RDF's in goldendata.rdf.gz + xids because we ran dgraph-live-loader with -xid flag.
 dataCount="1475250"
+# Concat exported files to get total count.
+cat $(ls -t export/dgraph-1-* | head -1) $(ls -t export/dgraph-2-* | head -1) > export/dgraph-export.rdf.gz
 if [[ $TRAVIS_OS_NAME == "osx" ]]; then
-  exportCount=$(zcat < $(ls -t export/dgraph-1-* | head -1) | wc -l)
+  exportCount=$(zcat < export/dgraph-export.rdf.gz | wc -l)
 else
-  exportCount=$(zcat $(ls -t export/dgraph-1-* | head -1) | wc -l)
+  exportCount=$(zcat export/dgraph-export.rdf.gz | wc -l)
 fi
 
 

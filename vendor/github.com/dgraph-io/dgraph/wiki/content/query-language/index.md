@@ -45,7 +45,7 @@ Query Example: In the example dataset, as well as edges that link movies to dire
 
 The query first searches the graph, using indexes to make the search efficient, for all nodes with a `name` edge equalling "Blade Runner".  For the found node the query then returns the listed outgoing edges.
 
-Every node had a unique 64 bit identifier.  The `_uid_` edge in the query above returns that identifier.  If the required node is already known, then the function `uid` finds the node.  
+Every node had a unique 64 bit identifier.  The `_uid_` edge in the query above returns that identifier.  If the required node is already known, then the function `uid` finds the node.
 
 Query Example: "Blade Runner" movie data found by UID.
 
@@ -75,7 +75,7 @@ Query Example: All nodes that have either "Blade" or "Runner" in the name.
 }
 {{< /runnable >}}
 
-Multiple IDs can be specified in a list to the `uid` function.  
+Multiple IDs can be specified in a list to the `uid` function.
 
 Query Example:
 {{< runnable >}}
@@ -90,9 +90,12 @@ Query Example:
 {{< /runnable >}}
 
 
+{{% notice "note" %}} If your predicate has special characters, then you should wrap it with angular
+brackets while asking for it in the query. E.g. `<first:name>`{{% /notice %}}
+
 ### Expanding Graph Edges
 
-A query expands edges from node to node by nesting query blocks with `{ }`.  
+A query expands edges from node to node by nesting query blocks with `{ }`.
 
 Query Example: The actors and characters played in "Blade Runner".  The query first finds the node with name "Blade Runner", then follows  outgoing `starring` edges to nodes representing an actor's performance as a character.  From there the `performance.actor` and `performance,character` edges are expanded to find the actor names and roles for every actor in the movie.
 {{< runnable >}}
@@ -150,7 +153,7 @@ Query Example: Movies with either "Blade" or "Runner" in the title and released 
 
 ### Language Support
 
-Dgraph supports UTF-8 strings.  
+Dgraph supports UTF-8 strings.
 
 In a query, for a string valued edge `edge`, the syntax
 ```
@@ -350,7 +353,7 @@ Schema Types: `string`
 Index Required: `fulltext`
 
 
-Apply full text search with stemming and stop words to find strings matching all or any of the given text.  
+Apply full text search with stemming and stop words to find strings matching all or any of the given text.
 
 The following steps are applied during index generation and to process full text search arguments:
 
@@ -385,13 +388,11 @@ Following table contains all supported languages and corresponding country-codes
 
 Query Example: All names that have `run`, `running`, etc and `man`.  Stop word removal eliminates `the` and `maybe`
 
-{{< runnable >}}
 {
   movie(func:alloftext(name@en, "the man maybe runs")) {
 	 name@en
   }
 }
-{{< /runnable >}}
 
 
 ### Inequality
@@ -402,12 +403,13 @@ Syntax Examples:
 
 * `eq(predicate, value)`
 * `eq(val(varName), value)`
+* `eq(predicate, val(varName))`
 * `eq(count(predicate), value)`
 * `eq(predicate, [val1, val2, ..., valN])`
 
 Schema Types: `int`, `float`, `bool`, `string`, `dateTime`
 
-Index Required: An index is required for the `eq(predicate, ...)` forms (see table below).  For `count(predicate)` at the query root, the `@count` index is required. For variables the values have been calculated as part of the query, so no index is required.  
+Index Required: An index is required for the `eq(predicate, ...)` forms (see table below).  For `count(predicate)` at the query root, the `@count` index is required. For variables the values have been calculated as part of the query, so no index is required.
 
 | Type       | Index Options |
 |:-----------|:--------------|
@@ -457,6 +459,7 @@ Syntax Examples: for inequality `IE`
 
 * `IE(predicate, value)`
 * `IE(val(varName), value)`
+* `IE(predicate, val(varName))`
 * `IE(count(predicate), value)`
 
 With `IE` replaced by
@@ -526,6 +529,26 @@ Query Example: A movie in each genre that has over 30000 movies.  Because there 
 }
 {{< /runnable >}}
 
+Query Example: Directors called Steven and their movies which have `initial_release_date` greater
+than that of the movie Minority Report.
+
+{{< runnable >}}
+{
+  var(func: eq(name@en,"Minority Report")) {
+    d as initial_release_date
+  }
+
+  me(func: eq(name@en, "Steven Spielberg")) {
+    name@en
+    director.film @filter(ge(initial_release_date, val(d))) {
+      initial_release_date
+      name@en
+    }
+  }
+}
+{{< /runnable >}}
+
+
 ### uid
 
 Syntax Examples:
@@ -536,7 +559,7 @@ Syntax Examples:
 * `q(func: uid(a,b))` for variables `a` and `b`
 
 
-Filters nodes at the current query level to only nodes in the given set of UIDs.  
+Filters nodes at the current query level to only nodes in the given set of UIDs.
 
 For query variable `a`, `uid(a)` represents the set of UIDs stored in `a`.  For value variable `b`, `uid(b)` represents the UIDs from the UID to value map.  With two or more variables, `uid(a,b,...)` represents the union of all the variables.
 
@@ -660,9 +683,48 @@ Query Example: First five directors and all their movies that have a release dat
 
 ### Geolocation
 
+{{% notice "note" %}} As of now we only support indexing Point, Polygon and MultiPolygon [geometry types](https://github.com/twpayne/go-geom#geometry-types).{{% /notice %}}
+
 Note that for geo queries, any polygon with holes is replace with the outer loop, ignoring holes.  Also, as for version 0.7.7 polygon containment checks are approximate.
 
-#### near
+#### Mutations
+
+To make use of the geo functions you would need an index on your predicate.
+```
+mutation {
+  schema {
+    loc: geo @index(geo) .
+  }
+}
+```
+
+Here is how you would add a `Point`.
+
+```
+mutation {
+  set {
+    <_:0xeb1dde9c> <loc> "{'type':'Point','coordinates':[-122.4220186,37.772318]}"^^<geo:geojson> .
+    <_:0xf15448e2> <name> "Hamon Tower" .
+  }
+}
+```
+
+Here is how you would associate a `Polygon` with a node. Adding a `MultiPolygon` is also similar.
+
+```
+mutation {
+  set {
+    <_:0xf76c276b> <loc> "{'type':'Polygon','coordinates':[[[-122.409869,37.7785442],[-122.4097444,37.7786443],[-122.4097544,37.7786521],[-122.4096334,37.7787494],[-122.4096233,37.7787416],[-122.4094004,37.7789207],[-122.4095818,37.7790617],[-122.4097883,37.7792189],[-122.4102599,37.7788413],[-122.409869,37.7785442]],[[-122.4097357,37.7787848],[-122.4098499,37.778693],[-122.4099025,37.7787339],[-122.4097882,37.7788257],[-122.4097357,37.7787848]]]}"^^<geo:geojson> .
+    <_:0xf76c276b> <name> "Best Western Americana Hotel" .
+  }
+}
+```
+
+The above examples have been picked from our [SF Tourism](https://github.com/dgraph-io/benchmarks/blob/master/data/sf.tourism.gz?raw=true) dataset.
+
+#### Query
+
+##### near
 
 Syntax Example: `near(predicate, [long, lat], distance)`
 
@@ -683,9 +745,9 @@ Query Example: Tourist destinations within 1 kilometer of a point in Golden Gate
 {{< /runnable >}}
 
 
-#### within
+##### within
 
-Syntax Example: `within(predicate, [[long1, lat1], ..., [longN, latN]])`
+Syntax Example: `within(predicate, [[[long1, lat1], ..., [longN, latN]]])`
 
 Schema Types: `geo`
 
@@ -693,18 +755,18 @@ Index Required: `geo`
 
 Matches all entities where the location given by `predicate` lies within the polygon specified by the geojson coordinate array.
 
-Query Example: Tourist destinations within the specified area of Golden Gate Park, San Fransico.  
+Query Example: Tourist destinations within the specified area of Golden Gate Park, San Fransico.
 
 {{< runnable >}}
 {
-  tourist(func: within(loc, [[-122.47266769409178, 37.769018558337926 ], [ -122.47266769409178, 37.773699921075135 ], [ -122.4651575088501, 37.773699921075135 ], [ -122.4651575088501, 37.769018558337926 ], [ -122.47266769409178, 37.769018558337926]] )) {
+  tourist(func: within(loc, [[[-122.47266769409178, 37.769018558337926 ], [ -122.47266769409178, 37.773699921075135 ], [ -122.4651575088501, 37.773699921075135 ], [ -122.4651575088501, 37.769018558337926 ], [ -122.47266769409178, 37.769018558337926]]] )) {
     name
   }
 }
 {{< /runnable >}}
 
 
-#### contains
+##### contains
 
 Syntax Examples: `contains(predicate, [long, lat])` or `contains(predicate, [[long1, lat1], ..., [longN, latN]])`
 
@@ -724,9 +786,9 @@ Query Example : All entities that contain a point in the flamingo enclosure of S
 {{< /runnable >}}
 
 
-#### intersects
+##### intersects
 
-Syntax Example: `intersects(predicate, [[long1, lat1], ..., [longN, latN]])`
+Syntax Example: `intersects(predicate, [[[long1, lat1], ..., [longN, latN]]])`
 
 Schema Types: `geo`
 
@@ -737,7 +799,7 @@ Matches all entities where the polygon describing the location given by `predica
 
 {{< runnable >}}
 {
-  tourist(func: intersects(loc, [[-122.503325343132, 37.73345766902749 ], [ -122.503325343132, 37.733903134117966 ], [ -122.50271648168564, 37.733903134117966 ], [ -122.50271648168564, 37.73345766902749 ], [ -122.503325343132, 37.73345766902749]] )) {
+  tourist(func: intersects(loc, [[[-122.503325343132, 37.73345766902749 ], [ -122.503325343132, 37.733903134117966 ], [ -122.50271648168564, 37.733903134117966 ], [ -122.50271648168564, 37.73345766902749 ], [ -122.503325343132, 37.73345766902749]]] )) {
     name
   }
 }
@@ -778,11 +840,11 @@ Syntax Examples:
 * `aliasName : count(predicate)`
 * `aliasName : max(val(varName))`
 
-An alias provides an alternate name in results.  Predicates, variables and aggregates can be aliased by prefixing with the alias name and `:`.  Aliases do not have to be different to the original predicate name, but, within a block, an alias must be distinct from predicate names and other aliases returned in the same block.  Aliases can be used to return the same predicate multiple times within a block.  
+An alias provides an alternate name in results.  Predicates, variables and aggregates can be aliased by prefixing with the alias name and `:`.  Aliases do not have to be different to the original predicate name, but, within a block, an alias must be distinct from predicate names and other aliases returned in the same block.  Aliases can be used to return the same predicate multiple times within a block.
 
 
 
-Query Example: Directors with `name` matching term `Steven`, their UID, english name, average number of actors per movie, total number of films and the name of each film in english and french.  
+Query Example: Directors with `name` matching term `Steven`, their UID, english name, average number of actors per movie, total number of films and the name of each film in english and french.
 {{< runnable >}}
 {
   ID as var(func: allofterms(name@en, "Steven")) @filter(has(director.film)) {
@@ -812,7 +874,7 @@ Query Example: Directors with `name` matching term `Steven`, their UID, english 
 
 Pagination allows returning only a portion, rather than the whole, result set.  This can be useful for top-k style queries as well as to reduce the size of the result set for client side processing or to allow paged access to results.
 
-Pagination is often used with [sorting]({{< relref "#sorting">}}).  
+Pagination is often used with [sorting]({{< relref "#sorting">}}).
 
 {{% notice "note" %}}Without a sort order specified, the results are sorted by `_uid_`, which is assigned randomly. So the ordering, while deterministic, might not be what you expected.{{% /notice  %}}
 
@@ -824,7 +886,7 @@ Syntax Examples:
 * `predicate (first: N) { ... }`
 * `predicate @filter(...) (first: N) { ... }`
 
-For positive `N`, `first: N` retrieves the first `N` results, by sorted or UID order.  
+For positive `N`, `first: N` retrieves the first `N` results, by sorted or UID order.
 
 For negative `N`, `first: N` retrieves the last `N` results, by sorted or UID order.  Currently, negative is only supported when no order is applied.  To achieve the effect of a negative with a sort, reverse the order of the sort and use a positive `N`.
 
@@ -1005,6 +1067,7 @@ Syntax Examples:
 * `q(func: ..., orderdesc: val(varName))`
 * `predicate (orderdesc: predicate) { ... }`
 * `predicate @filter(...) (orderasc: N) { ... }`
+* `q(func: ..., orderasc: predicate1, orderdesc: predicate2)`
 
 Sortable Types: `int`, `float`, `String`, `dateTime`, `id`, `default`
 
@@ -1050,7 +1113,20 @@ Query Example: All genres sorted alphabetically and the five movies in each genr
 }
 {{< /runnable >}}
 
+Sorting can also be performed by multiple predicates as shown below. If the values are equal for the
+first predicate, then they are sorted by the second predicate and so on.
 
+Query Example: Find all nodes which have type Person, sort them by their first_name and among those
+that have the same first_name sort them by last_name in descending order.
+
+```
+{
+  me(func: eq(type, "Person", orderasc: first_name, orderdesc: last_name)) {
+    first_name
+    last_name
+  }
+}
+```
 
 ## Multiple Query Blocks
 
@@ -1088,7 +1164,7 @@ Query Example: All of Angelina Jolie's films, with genres, and Peter Jackson's f
 
 If queries contain some overlap in answers, the result sets are still independent
 
-Query Example: The movies Mackenzie Crook has acted in and the movies Jack Davenport has acted in.  The results sets overlap because both have acted in the Pirates of the Caribbean movies, but the results are independent and both contain the full answers sets.  
+Query Example: The movies Mackenzie Crook has acted in and the movies Jack Davenport has acted in.  The results sets overlap because both have acted in the Pirates of the Caribbean movies, but the results are independent and both contain the full answers sets.
 
 {{< runnable >}}
 {
@@ -1165,7 +1241,7 @@ Query variables do not affect the semantics of the query at the point of definit
 
 In general, query blocks are executed in parallel, but variables impose an evaluation order on some blocks.  Cycles induced by variable dependence are not permitted.
 
-If a variable is defined, it must be used elsewhere in the query.  
+If a variable is defined, it must be used elsewhere in the query.
 
 A query variable is used by extracting the UIDs in it with `uid(var-name)`.
 
@@ -1278,7 +1354,7 @@ For example:
   }
 }
 ```
-At line A, a value variable `myscore` is defined as mapping node with UID `0x01` to value 1.  At B, the value for each friend is still 1: there is only one path to each friend.  Traversing the friend edge twice reaches the friends of friends. The variable `myscore` gets propagated such that each friend of friend will receive the sum of its parents values:  if a friend of a friend is reachable from only one friend, the value is still 1, if they are reachable from two friends, the value is two and so on.  That is, the value of `myscore` for each friend of friends inside the block marked C will be the number of paths to them.  
+At line A, a value variable `myscore` is defined as mapping node with UID `0x01` to value 1.  At B, the value for each friend is still 1: there is only one path to each friend.  Traversing the friend edge twice reaches the friends of friends. The variable `myscore` gets propagated such that each friend of friend will receive the sum of its parents values:  if a friend of a friend is reachable from only one friend, the value is still 1, if they are reachable from two friends, the value is two and so on.  That is, the value of `myscore` for each friend of friends inside the block marked C will be the number of paths to them.
 
 **The value that a node receives for a propagated variable is the sum of the values of all its parent nodes.**
 
@@ -1306,7 +1382,7 @@ Query Example: For each Harry Potter movie, the number of roles played by actor 
 {{< /runnable >}}
 
 
-Query Example: Each actor who has been in a Peter Jackson movie and the fraction of Peter Jackson movies they have appeared in.  
+Query Example: Each actor who has been in a Peter Jackson movie and the fraction of Peter Jackson movies they have appeared in.
 {{< runnable >}}
 {
 	movie_fraction(func:eq(name@en, "Peter Jackson")) @normalize {
@@ -1489,10 +1565,10 @@ Query Example: For each actor in a Peter Jackson film, find the number of roles 
     director.film {
       starring {  # starring an actor
         performance.actor {
-          movies as count(actor.film)  
+          movies as count(actor.film)
           # number of roles for this actor
         }
-        perf_total as sum(val(movies))       
+        perf_total as sum(val(movies))
       }
       movie_total as sum(val(perf_total))
       # total roles for all actors in this movie
@@ -1611,11 +1687,11 @@ Syntax Examples:
 
 A `groupby` query aggregates query results given a set of properties on which to group elements.  For example, a query containing the block `friend @groupby(age) { count(_uid_) }`, finds all nodes reachable along the friend edge, partitions these into groups based on age, then counts how many nodes are in each group.  The returned result is the grouped edges and the aggregations.
 
-Inside a `groupby` block, only aggregations are allowed and `count` may only be applied to `_uid_`.   
+Inside a `groupby` block, only aggregations are allowed and `count` may only be applied to `_uid_`.
 
 If the `groupby` is applied to a `uid` predicate, the resulting aggregations can be saved in a variable (mapping the grouped UIDs to aggregate values) and used elsewhere in the query to extract information other than the grouped or aggregated edges.
 
-Query Example: For Steven Spielberg movies, count the number of movies in each genre and for each of those genres return the genre name and the count.  The name can't be extracted in the `groupby` because it is not an aggregate, but `uid(a)` can be used to extract the UIDs from the UID to value map and thus organize the `byGenre` query by genre UID.  
+Query Example: For Steven Spielberg movies, count the number of movies in each genre and for each of those genres return the genre name and the count.  The name can't be extracted in the `groupby` because it is not an aggregate, but `uid(a)` can be used to extract the UIDs from the UID to value map and thus organize the `byGenre` query by genre UID.
 
 
 {{< runnable >}}
@@ -1705,6 +1781,36 @@ Query Example: Predicates saved to a variable and queried with `expand()`.
 {{< /runnable >}}
 
 `_predicate_` returns string valued predicates as a name without language tag.  If the predicate has no string without a language tag, `expand()` won't expand it (see [language preference]({{< relref "#language-support" >}})).  For example, above `name` generally doesn't have strings without tags in the dataset, so `name@.` is required.
+
+## Upsert
+
+Syntax Example: `me(func: eq(predicate, "value")) @upsert`
+
+With the `@upsert` directive, nodes can be upserted i.e. they would be created if they don't already
+exist. This is useful when you want to search for nodes using a predicate value and create a new one if
+one doesn't already exist.
+
+Query Example: Search for a node with name `Steven Spielberg` and create it if one doesn't exist
+already.
+
+```
+{
+  a as var(func: eq(name@en, "Steven Spielberg")) @upsert
+}
+
+mutation {
+  set {
+    uid(a) <age> "70" .
+  }
+}
+```
+
+The above query would check if a node with a name `Steven Spielberg` exists. If it does then it
+would return the `uid` of the node which can be used later. If it doesn't exist then it will create
+a new node and do a mutation for the `name` and then return the `uid`. You can also assign the
+returned uid in a variable and use it later for doing other mutations.
+
+{{% notice "note" %}} You need to have the appropriate index for using the [eq]({{<ref "#inequality">}}) function. {{% /notice %}}
 
 ## Cascade Directive
 
@@ -1860,6 +1966,7 @@ For all triples with a predicate of scalar types the object is a literal.
 |  `id`       | string  |
 |  `dateTime` | time.Time (RFC3339 format [Optional timezone] eg: 2006-01-02T15:04:05.999999999+10:00 or 2006-01-02T15:04:05.999999999)    |
 |  `geo`      | [go-geom](https://github.com/twpayne/go-geom)    |
+|  `password` | string (encrypted) |
 
 #### UID Type
 
@@ -1886,13 +1993,13 @@ mutation {
   _:b <age> "13" .
   _:c <age> "14"^^<xs:string> .
   _:d <age> "14.5"^^<xs:string> .
-  _:e <age> "14.5"
+  _:e <age> "14.5" .
  }
 }
 ```
 Dgraph:
 
-* sets the schema type to `int`, as implied by the first triple,  
+* sets the schema type to `int`, as implied by the first triple,
 * converts `"13"` to `int` on storage,
 * checks `"14"` can be converted to `int`, but stores as `string`,
 * throws an error for the remaining two triples, because `"14.5"` can't be converted to `int`.
@@ -1903,14 +2010,17 @@ The following types are also accepted.
 
 #### Password type
 
-A password for an entity is set with `^^<pwd:password>`.  Passwords cannot be queried directly, only checked for a match using the `checkpwd` function.
+A password for an entity is set with setting the schema for the attribute to be of type `password`.  Passwords cannot be queried directly, only checked for a match using the `checkpwd` function.
 
 For example: to set a password:
 ```
 mutation {
+  schema {
+    pass: password .
+  }
   set {
     <0x123> <name> "Password Example"
-    <0x123> <password> "ThePassword"^^<pwd:password>     .
+    <0x123> <pass> "ThePassword" .
   }
 }
 ```
@@ -1920,7 +2030,7 @@ to check a password:
 {
   check(func: uid(0x123)) {
     name
-    checkpwd(password, "ThePassword")
+    checkpwd(pass, "ThePassword")
   }
 }
 ```
@@ -1931,7 +2041,7 @@ output:
   "check": [
     {
       "name": "Password Example",
-      "password": [
+      "pass": [
         {
           "checkpwd": true
         }
@@ -1947,7 +2057,7 @@ output:
 
 When filtering by applying a function, Dgraph uses the index to make the search through a potentially large dataset efficient.
 
-All scalar types can be indexed.  
+All scalar types can be indexed.
 
 Types `int`, `float`, `bool` and `geo` have only a default index each: with tokenizers named `int`, `float`, `bool` and `geo`.
 
@@ -1986,7 +2096,7 @@ All the `dateTime` indices are sortable.
 
 Not all the indices establish a total order among the values that they index. Sortable indices allow inequality functions and sorting.
 
-* Indexes `int` and `float` are sortable.  
+* Indexes `int` and `float` are sortable.
 * `string` index `exact` is sortable.
 * All `dateTime` indices are sortable.
 
@@ -2018,6 +2128,9 @@ For predicates with the `@count` Dgraph indexes the number of edges out of each 
 
 Schema mutations add or modify schema.
 
+Multiple scalar values can also be added for a `S P` by specifying the schema to be of
+list type. Occupations in the example below can store a list of strings for each `S P`.
+
 An index is specified with `@index`, with arguments to specify the tokenizer. When specifying an
 index for a predicate it is mandatory to specify the type of the index. For example:
 
@@ -2029,6 +2142,7 @@ mutation {
     friend: uid @count .
     dob: dateTime .
     location: geo @index(geo) .
+    occupations: [string] @index(term) .
   }
 }
 ```
@@ -2041,11 +2155,34 @@ If data exists and new indices are specified in a schema mutation, any index not
 
 Reverse edges are also computed if specified by a schema mutation.
 
+### List Type
+
+Predicate with scalar types can also store a list of values if specified in the schema. The scalar
+type needs to be enclosed within `[]` to indicate that its a list type. These lists are like an
+unordered set.
+
+```
+mutation {
+  schema {
+    occupations: [string] .
+    score: [int] .
+  }
+}
+```
+
+* A set operation adds to the list of values. The order of the stored values is non-deterministic.
+* A delete operation deletes the value from the list.
+* Querying for these predicates would return the list in an array.
+* Indexes can be applied on predicates which have a list type and you can use [Functions]({{<ref
+  "#functions">}}) on them.
+* Sorting is not allowed using these predicates.
+
+
 ### Reverse Edges
 
 A graph edge is unidirectional. For node-node edges, sometimes modeling requires reverse edges.  If only some subject-predicate-object triples have a reverse, these must be manually added.  But if a predicate always has a reverse, Dgraph computes the reverse edges if `@reverse` is specified in the schema.
 
-The reverse edge of `anEdge` is `~anEdge`.  
+The reverse edge of `anEdge` is `~anEdge`.
 
 For existing data, Dgraph computes all reverse edges.  For data added after the schema mutation, Dgraph computes and stores the reverse edge for each added triple.
 
@@ -2156,7 +2293,7 @@ The graph has thus been updated as if it had stored the triples
 <0xc3bcc578868b719d> <friend> <0xb294fb8464357b0a> .
 <0xb294fb8464357b0a> <name> "Bob" .
 ```
-The blank node labels `_:class`, `_:x` and `_:y` do not identify the nodes after the mutation, and can be safely reused to identify new nodes in later mutations.  
+The blank node labels `_:class`, `_:x` and `_:y` do not identify the nodes after the mutation, and can be safely reused to identify new nodes in later mutations.
 
 A later mutation can update the data for existing UIDs.  For example, the following to add a new student to the class.
 ```
@@ -2244,7 +2381,7 @@ Query Example: Robin Wright by external ID.
 
 ```
 
-{{% notice "note" %}} `xid` edges are not added automatically in mutations.  In general it is a user's responsibility to check for existing `xid`'s and add nodes and `xid` edges if necessary.  `dgraphloader` adds `xid` edges for bulk uploads with `-x`, see [Bulk Data Loading]({{< relref "deploy/index.md#bulk-data-loading" >}}).  Dgraph leaves all checking of uniqueness of such `xid`'s to external processes. {{% /notice %}}
+{{% notice "note" %}} `xid` edges are not added automatically in mutations.  In general it is a user's responsibility to check for existing `xid`'s and add nodes and `xid` edges if necessary.  `dgraph-live-loader` adds `xid` edges for bulk uploads with `-x`, see [Bulk Data Loading]({{< relref "deploy/index.md#bulk-data-loading" >}}).  Dgraph leaves all checking of uniqueness of such `xid`'s to external processes. {{% /notice %}}
 
 
 
@@ -2290,18 +2427,18 @@ See the section on [RDF schema types]({{< relref "#rdf-types" >}}) to understand
 
 ### Batch mutations
 
-Each mutation may contain multiple RDF triples.  For large data uploads many such mutations can be batched in parallel.  The tool `dgraphloader` does just this; by default batching 1000 RDF lines into a query, while running 100 such queries in parallel.
+Each mutation may contain multiple RDF triples.  For large data uploads many such mutations can be batched in parallel.  The tool `dgraph-live-loader` does just this; by default batching 1000 RDF lines into a query, while running 100 such queries in parallel.
 
 Dgraphloader takes as input gzipped N-Quad files (that is triple lists without `mutation { set {`) and batches mutations for all triples in the input.  The tool has documentation of options.
 
 ```
-dgraphloader --help
+dgraph-live-loader --help
 ```
 See also [Bulk Data Loading]({{< relref "deploy/index.md#bulk-data-loading" >}}).
 
 ### Delete
 
-A delete mutation, signified with the `delete` keyword, removes triples from the store.  
+A delete mutation, signified with the `delete` keyword, removes triples from the store.
 
 For example, if the store contained
 ```
@@ -2321,7 +2458,7 @@ mutation {
 
 Deletes the erroneous data and removes it from indexes if present.
 
-For a particular node `N`, all data for predicate `P` (and corresponding indexing) is removed with the pattern `S P *`.  
+For a particular node `N`, all data for predicate `P` (and corresponding indexing) is removed with the pattern `S P *`.
 
 ```
 mutation {
@@ -2350,12 +2487,13 @@ mutation {
 }
 ```
 
-After such a delete mutation, the schema of the predicate may be changed --- even from UID to scalar, or scalar to UID; such a change is allowed only after all data is deleted.  
+After such a delete mutation, the schema of the predicate may be changed --- even from UID to scalar, or scalar to UID; such a change is allowed only after all data is deleted.
 
+{{% notice "note" %}} The patterns `* P O` and `* * O` are not supported since its expensive to store/find all the incoming edges. {{% /notice %}}
 
 ### Variables in mutations
 
-A mutation may depend on a query through query variables.  
+A mutation may depend on a query through query variables.
 
 For example, in a graph with people and ages, the following updates all people 18 and over as adults.
 

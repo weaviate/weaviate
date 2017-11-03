@@ -27,22 +27,6 @@ import (
 	"github.com/dgraph-io/dgraph/x"
 )
 
-func From(s *protos.SchemaUpdate) protos.SchemaUpdate {
-	if s.Directive == protos.SchemaUpdate_REVERSE {
-		return protos.SchemaUpdate{
-			ValueType: s.ValueType,
-			Directive: protos.SchemaUpdate_REVERSE,
-			Count:     s.Count}
-	} else if s.Directive == protos.SchemaUpdate_INDEX {
-		return protos.SchemaUpdate{
-			ValueType: s.ValueType,
-			Directive: protos.SchemaUpdate_INDEX,
-			Tokenizer: s.Tokenizer,
-			Count:     s.Count}
-	}
-	return protos.SchemaUpdate{ValueType: s.ValueType, Count: s.Count}
-}
-
 // ParseBytes parses the byte array which holds the schema. We will reset
 // all the globals.
 // Overwrites schema blindly - called only during initilization in testing
@@ -50,15 +34,19 @@ func ParseBytes(s []byte, gid uint32) (rerr error) {
 	if pstate == nil {
 		reset()
 	}
-	pstate.m = make(map[uint32]*stateGroup)
+	pstate.predicate = make(map[string]*protos.SchemaUpdate)
 	updates, err := Parse(string(s))
 	if err != nil {
 		return err
 	}
 
 	for _, update := range updates {
-		State().Set(update.Predicate, From(update))
+		State().Set(update.Predicate, *update)
 	}
+	State().Set("_predicate_", protos.SchemaUpdate{
+		ValueType: uint32(types.StringID),
+		List:      true,
+	})
 	return nil
 }
 
@@ -98,8 +86,20 @@ func parseScalarPair(it *lex.ItemIterator, predicate string) (*protos.SchemaUpda
 		return nil, x.Errorf("Missing colon")
 	}
 
-	it.Next()
+	if !it.Next() {
+		return nil, x.Errorf("Invalid ending while trying to parse schema.")
+	}
 	next := it.Item()
+	schema := &protos.SchemaUpdate{Predicate: predicate, Explicit: true}
+	// Could be list type.
+	if next.Typ == itemLeftSquare {
+		schema.List = true
+		if !it.Next() {
+			return nil, x.Errorf("Invalid ending while trying to parse schema.")
+		}
+		next = it.Item()
+	}
+
 	if next.Typ != itemText {
 		return nil, x.Errorf("Missing Type")
 	}
@@ -109,11 +109,29 @@ func parseScalarPair(it *lex.ItemIterator, predicate string) (*protos.SchemaUpda
 	if !ok {
 		return nil, x.Errorf("Undefined Type")
 	}
+	if schema.List {
+		if !t.IsScalar() {
+			return nil, x.Errorf("Expected scalar type inside []. Got: [%s] for attr: [%s].",
+				t.Name(), predicate)
+		}
+		if uint32(t) == uint32(types.PasswordID) || uint32(t) == uint32(types.BoolID) {
+			return nil, x.Errorf("Unsupported type for list: [%s].", types.TypeID(t).Name())
+		}
+	}
+	schema.ValueType = uint32(t)
 
 	// Check for index / reverse.
-	schema := &protos.SchemaUpdate{Predicate: predicate, ValueType: uint32(t)}
 	it.Next()
 	next = it.Item()
+	if schema.List {
+		if next.Typ != itemRightSquare {
+			return nil, x.Errorf("Unclosed [ while parsing schema for: %s", predicate)
+		}
+		if !it.Next() {
+			return nil, x.Errorf("Invalid ending")
+		}
+		next = it.Item()
+	}
 	if next.Typ == itemAt {
 		if err := parseDirective(it, schema, t); err != nil {
 			return nil, err
