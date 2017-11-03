@@ -1,17 +1,6 @@
 {
     "environments": [
         {
-            "name": "development",
-            "database": {
-                "name": "dgraph"
-            },
-            "schemas": {
-                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.min.json",
-                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.min.json"
-            },
-            "mqttEnabled": false
-        },
-        {
             "name": "test",
             "cache": {
                 "name": "kv-cache"
@@ -35,7 +24,7 @@
                 "name": "dgraph",
                 "database_config" : {
                     "host": "127.0.0.1",
-                    "port": 9080
+                    "port": 8888
                 }
             },
             "schemas": {
