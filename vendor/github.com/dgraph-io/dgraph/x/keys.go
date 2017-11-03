@@ -18,6 +18,7 @@ package x
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 )
 
@@ -241,6 +242,16 @@ func SchemaPrefix() []byte {
 	return buf
 }
 
+// PredicatePrefix returns the prefix for all keys belonging
+// to this predicate except schema key.
+func PredicatePrefix(predicate string) []byte {
+	buf := make([]byte, 1+2+len(predicate))
+	buf[0] = defaultPrefix
+	k := writeAttr(buf[1:], predicate)
+	AssertTrue(len(k) == 0)
+	return buf
+}
+
 func Parse(key []byte) *ParsedKey {
 	p := &ParsedKey{}
 
@@ -255,13 +266,23 @@ func Parse(key []byte) *ParsedKey {
 	k = k[1:]
 
 	switch p.byteType {
-	case ByteData:
-		fallthrough
-	case ByteReverse:
+	case ByteData, ByteReverse:
+		if len(k) < 8 {
+			if Config.DebugMode {
+				fmt.Printf("Error: Uid length < 8 for key: %q, parsed key: %+v\n", key, p)
+			}
+			return nil
+		}
 		p.Uid = binary.BigEndian.Uint64(k)
 	case ByteIndex:
 		p.Term = string(k)
 	case ByteCount, ByteCountRev:
+		if len(k) < 4 {
+			if Config.DebugMode {
+				fmt.Printf("Error: Count length < 4 for key: %q, parsed key: %+v\n", key, p)
+			}
+			return nil
+		}
 		p.Count = binary.BigEndian.Uint32(k)
 	case byteSchema:
 		break

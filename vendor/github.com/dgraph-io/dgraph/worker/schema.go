@@ -18,10 +18,12 @@
 package worker
 
 import (
+	"fmt"
+
 	"golang.org/x/net/context"
 	"golang.org/x/net/trace"
 
-	"github.com/dgraph-io/dgraph/group"
+	"github.com/dgraph-io/dgraph/conn"
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/schema"
 	"github.com/dgraph-io/dgraph/types"
@@ -47,18 +49,19 @@ func getSchema(ctx context.Context, s *protos.SchemaRequest) (*protos.SchemaResu
 	if len(s.Predicates) > 0 {
 		predicates = s.Predicates
 	} else {
-		predicates = schema.State().Predicates(s.GroupId)
+		predicates = schema.State().Predicates()
 	}
 	if len(s.Fields) > 0 {
 		fields = s.Fields
 	} else {
-		fields = []string{"type", "index", "tokenizer", "reverse", "count"}
+		fields = []string{"type", "index", "tokenizer", "reverse", "count", "list"}
 	}
 
 	for _, attr := range predicates {
-		if !groups().ServesGroup(group.BelongsTo(attr)) {
-			return &emptySchemaResult,
-				x.Errorf("Predicate fingerprint doesn't match this instance")
+		// This can happen after a predicate is moved. We don't delete predicate from schema state
+		// immediately. So lets ignore this predicate.
+		if !groups().ServesTablet(attr) {
+			continue
 		}
 		if schemaNode := populateSchema(attr, fields); schemaNode != nil {
 			result.Schema = append(result.Schema, schemaNode)
@@ -91,6 +94,8 @@ func populateSchema(attr string, fields []string) *protos.SchemaNode {
 			schemaNode.Reverse = schema.State().IsReversed(attr)
 		case "count":
 			schemaNode.Count = schema.State().HasCount(attr)
+		case "list":
+			schemaNode.List = schema.State().IsList(attr)
 		default:
 			//pass
 		}
@@ -102,7 +107,7 @@ func populateSchema(attr string, fields []string) *protos.SchemaNode {
 // empty then it adds all known groups
 func addToSchemaMap(schemaMap map[uint32]*protos.SchemaRequest, schema *protos.SchemaRequest) {
 	for _, attr := range schema.Predicates {
-		gid := group.BelongsTo(attr)
+		gid := groups().BelongsTo(attr)
 		s := schemaMap[gid]
 		if s == nil {
 			s = &protos.SchemaRequest{GroupId: gid}
@@ -140,13 +145,11 @@ func getSchemaOverNetwork(ctx context.Context, gid uint32, s *protos.SchemaReque
 		return
 	}
 
-	_, addr := groups().Leader(gid)
-	pl, err := pools().get(addr)
-	if err != nil {
-		ch <- resultErr{err: err}
+	pl := groups().Leader(gid)
+	if pl == nil {
+		ch <- resultErr{err: conn.ErrNoConnection}
 		return
 	}
-	defer pools().release(pl)
 	conn := pl.Get()
 	c := protos.NewWorkerClient(conn)
 	schema, e := c.Schema(ctx, s)
@@ -169,6 +172,10 @@ func GetSchemaOverNetwork(ctx context.Context, schema *protos.SchemaRequest) ([]
 	var schemaNodes []*protos.SchemaNode
 
 	for gid, s := range schemaMap {
+		if gid == 0 {
+			fmt.Printf("Schemamap: %+v\n", schemaMap)
+			return schemaNodes, errUnservedTablet
+		}
 		go getSchemaOverNetwork(ctx, gid, s, results)
 	}
 

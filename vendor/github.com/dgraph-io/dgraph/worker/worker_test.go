@@ -52,7 +52,7 @@ func delEdge(t *testing.T, edge *protos.DirectedEdge, l *posting.List) {
 }
 
 func getOrCreate(key []byte) *posting.List {
-	l := posting.GetOrCreate(key, 1)
+	l := posting.Get(key)
 	return l
 }
 
@@ -105,7 +105,8 @@ func taskValues(t *testing.T, v []*protos.TaskValue) []string {
 }
 
 func initTest(t *testing.T, schemaStr string) (string, *badger.KV) {
-	schema.ParseBytes([]byte(schemaStr), 1)
+	err := schema.ParseBytes([]byte(schemaStr), 1)
+	require.NoError(t, err)
 
 	dir, err := ioutil.TempDir("", "storetest_")
 	require.NoError(t, err)
@@ -124,12 +125,12 @@ func initTest(t *testing.T, schemaStr string) (string, *badger.KV) {
 }
 
 func TestProcessTask(t *testing.T) {
-	dir, ps := initTest(t, `friend:string @index .`)
+	dir, ps := initTest(t, `neighbour: uid .`)
 	defer os.RemoveAll(dir)
 	defer ps.Close()
 
 	query := newQuery("neighbour", []uint64{10, 11, 12}, nil)
-	r, err := processTask(context.Background(), query, 1)
+	r, err := helpProcessTask(context.Background(), query, 1)
 	require.NoError(t, err)
 	require.EqualValues(t,
 		[][]uint64{
@@ -142,11 +143,23 @@ func TestProcessTask(t *testing.T) {
 // newQuery creates a Query task and returns it.
 func newQuery(attr string, uids []uint64, srcFunc []string) *protos.Query {
 	x.AssertTrue(uids == nil || srcFunc == nil)
-	return &protos.Query{
+	// TODO: Change later, hacky way to make the tests work
+	var srcFun *protos.SrcFunction
+	if len(srcFunc) > 0 {
+		srcFun = new(protos.SrcFunction)
+		srcFun.Name = srcFunc[0]
+		srcFun.Args = append(srcFun.Args, srcFunc[2:]...)
+	}
+	q := &protos.Query{
 		UidList: &protos.List{uids},
-		SrcFunc: srcFunc,
+		SrcFunc: srcFun,
 		Attr:    attr,
 	}
+	// It will have either nothing or attr, lang
+	if len(srcFunc) > 0 && srcFunc[1] != "" {
+		q.Langs = []string{srcFunc[1]}
+	}
+	return q
 }
 
 // Index-related test. Similar to TestProcessTaskIndex but we call MergeLists only
@@ -158,7 +171,7 @@ func TestProcessTaskIndexMLayer(t *testing.T) {
 	defer ps.Close()
 
 	query := newQuery("friend", nil, []string{"anyofterms", "", "hey photon"})
-	r, err := processTask(context.Background(), query, 1)
+	r, err := helpProcessTask(context.Background(), query, 1)
 	require.NoError(t, err)
 
 	require.EqualValues(t, [][]uint64{
@@ -180,7 +193,7 @@ func TestProcessTaskIndexMLayer(t *testing.T) {
 
 	// Issue a similar query.
 	query = newQuery("friend", nil, []string{"anyofterms", "", "hey photon notphoton notphotonExtra"})
-	r, err = processTask(context.Background(), query, 1)
+	r, err = helpProcessTask(context.Background(), query, 1)
 	require.NoError(t, err)
 
 	require.EqualValues(t, [][]uint64{
@@ -210,7 +223,7 @@ func TestProcessTaskIndexMLayer(t *testing.T) {
 
 	// Issue a similar query.
 	query = newQuery("friend", nil, []string{"anyofterms", "", "photon notphoton ignored"})
-	r, err = processTask(context.Background(), query, 1)
+	r, err = helpProcessTask(context.Background(), query, 1)
 	require.NoError(t, err)
 
 	require.EqualValues(t, [][]uint64{
@@ -220,7 +233,7 @@ func TestProcessTaskIndexMLayer(t *testing.T) {
 	}, algo.ToUintsListForTest(r.UidMatrix))
 
 	query = newQuery("friend", nil, []string{"anyofterms", "", "photon notphoton ignored"})
-	r, err = processTask(context.Background(), query, 1)
+	r, err = helpProcessTask(context.Background(), query, 1)
 	require.NoError(t, err)
 
 	require.EqualValues(t, [][]uint64{
@@ -238,7 +251,7 @@ func TestProcessTaskIndex(t *testing.T) {
 	defer ps.Close()
 
 	query := newQuery("friend", nil, []string{"anyofterms", "", "hey photon"})
-	r, err := processTask(context.Background(), query, 1)
+	r, err := helpProcessTask(context.Background(), query, 1)
 	require.NoError(t, err)
 
 	require.EqualValues(t, [][]uint64{
@@ -260,7 +273,7 @@ func TestProcessTaskIndex(t *testing.T) {
 
 	// Issue a similar query.
 	query = newQuery("friend", nil, []string{"anyofterms", "", "hey photon notphoton notphotonExtra"})
-	r, err = processTask(context.Background(), query, 1)
+	r, err = helpProcessTask(context.Background(), query, 1)
 	require.NoError(t, err)
 
 	require.EqualValues(t, [][]uint64{
@@ -290,7 +303,7 @@ func TestProcessTaskIndex(t *testing.T) {
 
 	// Issue a similar query.
 	query = newQuery("friend", nil, []string{"anyofterms", "", "photon notphoton ignored"})
-	r, err = processTask(context.Background(), query, 1)
+	r, err = helpProcessTask(context.Background(), query, 1)
 	require.NoError(t, err)
 
 	require.EqualValues(t, [][]uint64{
@@ -602,9 +615,18 @@ func TestProcessSortOffsetCount(t *testing.T) {
 */
 
 func TestMain(m *testing.M) {
-	x.Init()
+	x.Init(true)
 	posting.Config.AllottedMemory = 1024.0
 	posting.Config.CommitFraction = 0.10
-	x.AssertTruef(!x.IsTestRun(), "We use watermarks for syncing.")
+	gr = new(groupi)
+	gr.gid = 1
+	gr.tablets = make(map[string]*protos.Tablet)
+	gr.tablets["name"] = &protos.Tablet{GroupId: 1}
+	gr.tablets["name2"] = &protos.Tablet{GroupId: 1}
+	gr.tablets["age"] = &protos.Tablet{GroupId: 1}
+	gr.tablets["friend"] = &protos.Tablet{GroupId: 1}
+	gr.tablets["http://www.w3.org/2000/01/rdf-schema#range"] = &protos.Tablet{GroupId: 1}
+	gr.tablets["friend_not_served"] = &protos.Tablet{GroupId: 2}
+	gr.tablets[""] = &protos.Tablet{GroupId: 1}
 	os.Exit(m.Run())
 }

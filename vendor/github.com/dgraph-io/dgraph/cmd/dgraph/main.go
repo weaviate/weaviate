@@ -36,6 +36,7 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/pprof"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -48,7 +49,6 @@ import (
 	"github.com/cockroachdb/cmux"
 	"github.com/dgraph-io/dgraph/dgraph"
 	"github.com/dgraph-io/dgraph/gql"
-	"github.com/dgraph-io/dgraph/group"
 	"github.com/dgraph-io/dgraph/posting"
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/query"
@@ -59,7 +59,6 @@ import (
 )
 
 var (
-	gconf        string
 	baseHttpPort int
 	baseGrpcPort int
 	bindall      bool
@@ -89,7 +88,7 @@ func setupConfigOpts() {
 		"Directory to store posting lists.")
 	flag.StringVar(&config.PostingTables, "posting_tables", defaults.PostingTables,
 		"Specifies how Badger LSM tree is stored. Options are loadtoram, memorymap and "+
-			"nothing; which consume most to least RAM while providing best to worst "+
+			"fileio; which consume most to least RAM while providing best to worst "+
 			"performance respectively.")
 	flag.StringVar(&config.WALDir, "w", defaults.WALDir,
 		"Directory to store raft write-ahead logs.")
@@ -133,7 +132,6 @@ func setupConfigOpts() {
 	flag.IntVar(&x.Config.PortOffset, "port_offset", 0,
 		"Value added to all listening port numbers.")
 
-	flag.StringVar(&gconf, "group_conf", "", "group configuration file")
 	flag.IntVar(&baseHttpPort, "port", 8080, "Port to run HTTP service on.")
 	flag.IntVar(&baseGrpcPort, "grpc_port", 9080, "Port to run gRPC service on.")
 	flag.BoolVar(&bindall, "bindall", false,
@@ -167,7 +165,9 @@ func setupConfigOpts() {
 	}
 	// Lets check version flag before we SetConfiguration because we validate AllottedMemory in
 	// SetConfiguration.
-	x.PrintVersionOnly()
+	if x.Config.Version {
+		x.PrintVersionOnly()
+	}
 
 	dgraph.SetConfiguration(config)
 }
@@ -206,18 +206,8 @@ func stopProfiling() {
 	}
 }
 
-func addCorsHeaders(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers",
-		"Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token,"+
-			"X-Auth-Token, Cache-Control, X-Requested-With")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Connection", "close")
-}
-
 func healthCheck(w http.ResponseWriter, r *http.Request) {
-	addCorsHeaders(w)
+	x.AddCorsHeaders(w)
 	if err := x.HealthCheck(); err == nil {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
@@ -227,7 +217,7 @@ func healthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func queryHandler(w http.ResponseWriter, r *http.Request) {
-	addCorsHeaders(w)
+	x.AddCorsHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := x.HealthCheck(); err != nil {
@@ -254,10 +244,9 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	ctx = context.WithValue(ctx, "mutation_allowed", !dgraph.Config.Nomutations)
 
 	if rand.Float64() < worker.Config.Tracing {
-		tr := trace.New("Dgraph", "Query")
-		tr.SetMaxEvents(1000)
+		var tr trace.Trace
+		tr, ctx = x.NewTrace("Query", ctx)
 		defer tr.Finish()
-		ctx = trace.NewContext(ctx, tr)
 	}
 
 	invalidRequest := func(err error, msg string) {
@@ -281,7 +270,7 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("Received query: %+v\n", q)
 	}
 	parseStart := time.Now()
-	parsed, err := dgraph.ParseQueryAndMutation(ctx, gql.Request{
+	parsed, err := gql.Parse(gql.Request{
 		Str:       q,
 		Variables: map[string]string{},
 		Http:      true,
@@ -303,7 +292,10 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 	// After execution starts according to the GraphQL spec data key must be returned. It would be
 	// null if any error is encountered, else non-null.
 	var res query.ExecuteResult
-	var queryRequest = query.QueryRequest{Latency: &l, GqlQuery: &parsed}
+	var queryRequest = query.QueryRequest{
+		Latency:  &l,
+		GqlQuery: &parsed,
+	}
 	if res, err = queryRequest.ProcessWithMutation(ctx); err != nil {
 		switch errors.Cause(err).(type) {
 		case *query.InvalidRequestError:
@@ -337,6 +329,9 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 			if len(res.SchemaNode) == 0 {
 				mp["schema"] = json.RawMessage("{}")
 			} else {
+				sort.Slice(res.SchemaNode, func(i, j int) bool {
+					return res.SchemaNode[i].Predicate < res.SchemaNode[j].Predicate
+				})
 				js, err := json.Marshal(res.SchemaNode)
 				if err != nil {
 					x.SetStatusWithData(w, x.Error, "Unable to marshal schema")
@@ -344,11 +339,14 @@ func queryHandler(w http.ResponseWriter, r *http.Request) {
 				}
 				mp["schema"] = json.RawMessage(string(js))
 			}
-			if addLatency {
-				mp["server_latency"] = l.ToMap()
-			}
 		}
 		schemaRes["data"] = mp
+		if addLatency {
+			e := query.Extensions{
+				Latency: l.ToMap(),
+			}
+			schemaRes["extensions"] = e
+		}
 		if js, err := json.Marshal(schemaRes); err == nil {
 			w.Write(js)
 		} else {
@@ -406,7 +404,7 @@ func shareHandler(w http.ResponseWriter, r *http.Request) {
 	var rawQuery []byte
 
 	w.Header().Set("Content-Type", "application/json")
-	addCorsHeaders(w)
+	x.AddCorsHeaders(w)
 	if r.Method != "POST" {
 		x.SetStatus(w, x.ErrorInvalidMethod, "Invalid method")
 		return
@@ -458,7 +456,7 @@ func shareHandler(w http.ResponseWriter, r *http.Request) {
 
 // storeStatsHandler outputs some basic stats for data store.
 func storeStatsHandler(w http.ResponseWriter, r *http.Request) {
-	addCorsHeaders(w)
+	x.AddCorsHeaders(w)
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte("<pre>"))
 	w.Write([]byte(worker.StoreStats()))
@@ -467,7 +465,7 @@ func storeStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 // handlerInit does some standard checks. Returns false if something is wrong.
 func handlerInit(w http.ResponseWriter, r *http.Request) bool {
-	if r.Method != "GET" {
+	if r.Method != http.MethodGet {
 		x.SetStatus(w, x.ErrorInvalidMethod, "Invalid method")
 		return false
 	}
@@ -522,6 +520,50 @@ func exportHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"code": "Success", "message": "Export completed."}`))
 }
 
+func memoryLimitHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		memoryLimitGetHandler(w, r)
+	case http.MethodPut:
+		memoryLimitPutHandler(w, r)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func memoryLimitPutHandler(w http.ResponseWriter, r *http.Request) {
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	memoryMB, err := strconv.ParseFloat(string(body), 64)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if memoryMB < dgraph.MinAllottedMemory {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "memory_mb must be at least %.0f\n", dgraph.MinAllottedMemory)
+		return
+	}
+
+	posting.Config.Mu.Lock()
+	posting.Config.AllottedMemory = memoryMB
+	posting.Config.Mu.Unlock()
+	w.WriteHeader(http.StatusOK)
+}
+
+func memoryLimitGetHandler(w http.ResponseWriter, r *http.Request) {
+	posting.Config.Mu.Lock()
+	memoryMB := posting.Config.AllottedMemory
+	posting.Config.Mu.Unlock()
+
+	if _, err := fmt.Fprintln(w, memoryMB); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
 func hasGraphOps(mu *protos.Mutation) bool {
 	return len(mu.Set) > 0 || len(mu.Del) > 0 || len(mu.Schema) > 0
 }
@@ -568,10 +610,11 @@ func setupListener(addr string, port int) (listener net.Listener, err error) {
 	} else {
 		var tlsCfg *tls.Config
 		tlsCfg, reload, err = x.GenerateTLSConfig(x.TLSHelperConfig{
-			ConfigType:   x.TLSServerConfig,
-			CertRequired: tlsEnabled,
-			Cert:         tlsCert,
-
+			ConfigType:             x.TLSServerConfig,
+			CertRequired:           tlsEnabled,
+			Cert:                   tlsCert,
+			Key:                    tlsKey,
+			KeyPassphrase:          tlsKeyPass,
 			ClientAuth:             tlsClientAuth,
 			ClientCACerts:          tlsClientCACerts,
 			UseSystemClientCACerts: tlsSystemCACerts,
@@ -648,6 +691,8 @@ func setupServer(che chan error) {
 		log.Fatal(err)
 	}
 
+	// TODO: Consider removing the cmux here. We already separated gprc and http listeners to
+	// different ports.
 	httpMux := cmux.New(httpListener)
 	httpl := httpMux.Match(cmux.HTTP1Fast())
 	http2 := httpMux.Match(cmux.HTTP2())
@@ -658,6 +703,7 @@ func setupServer(che chan error) {
 	http.HandleFunc("/debug/store", storeStatsHandler)
 	http.HandleFunc("/admin/shutdown", shutDownHandler)
 	http.HandleFunc("/admin/export", exportHandler)
+	http.HandleFunc("/admin/config/memory_mb", memoryLimitHandler)
 
 	// UI related API's.
 	// Share urls have a hex string as the shareId. So if
@@ -695,20 +741,20 @@ func main() {
 	runtime.GOMAXPROCS(128)
 
 	setupConfigOpts() // flag.Parse is called here.
-	x.Init()
+	x.Init(dgraph.Config.DebugMode)
 
 	setupProfiling()
 
 	dgraph.State = dgraph.NewServerState()
-	defer dgraph.State.Dispose()
+	defer func() {
+		x.Check(dgraph.State.Dispose())
+	}()
 
 	if exposeTrace {
 		trace.AuthRequest = func(req *http.Request) (any, sensitive bool) {
 			return true, true
 		}
 	}
-
-	group.ParseGroupConfig(gconf)
 
 	// Posting will initialize index which requires schema. Hence, initialize
 	// schema before calling posting.Init().
@@ -721,8 +767,8 @@ func main() {
 	sdCh := make(chan os.Signal, 3)
 	var numShutDownSig int
 	defer close(sdCh)
-	// sigint : Ctrl-C, sigquit : Ctrl-\ (backslash), sigterm : kill command.
-	signal.Notify(sdCh, os.Interrupt, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
+	// sigint : Ctrl-C, sigterm : kill command.
+	signal.Notify(sdCh, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		for {
 			select {

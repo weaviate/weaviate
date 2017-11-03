@@ -21,9 +21,9 @@ import (
 	"testing"
 
 	"github.com/dgraph-io/dgraph/protos"
+	"github.com/dgraph-io/dgraph/types/facets"
 	"github.com/dgraph-io/dgraph/x"
 
-	"github.com/dgraph-io/dgraph/types/facets"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -103,7 +103,6 @@ var testNQuads = []struct {
 			Predicate:   "name",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"Alice In Wonderland"}},
-			ObjectType:  0,
 		},
 	},
 	{
@@ -114,7 +113,6 @@ var testNQuads = []struct {
 			ObjectId:    "",
 			Lang:        "en-0",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"Alice In Wonderland"}},
-			ObjectType:  9,
 		},
 	},
 	{
@@ -124,7 +122,6 @@ var testNQuads = []struct {
 			Predicate:   "name",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_StrVal{"Alice In Wonderland"}},
-			ObjectType:  9,
 		},
 	},
 	{
@@ -134,7 +131,6 @@ var testNQuads = []struct {
 			Predicate:   "age",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_IntVal{13}},
-			ObjectType:  2,
 		},
 	},
 	{
@@ -145,7 +141,6 @@ var testNQuads = []struct {
 			ObjectId:    "",
 			Lang:        "en-US",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"N-Edges"}},
-			ObjectType:  9,
 		},
 	},
 	{
@@ -286,7 +281,6 @@ var testNQuads = []struct {
 			Predicate:   "knows",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"_nil_"}},
-			ObjectType:  0,
 		},
 		expectedErr: false,
 	},
@@ -297,7 +291,6 @@ var testNQuads = []struct {
 			Predicate:   "knows",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_StrVal{"_nil_"}},
-			ObjectType:  9,
 		},
 		expectedErr: false,
 	},
@@ -312,7 +305,6 @@ var testNQuads = []struct {
 			Predicate:   "knows",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"*"}},
-			ObjectType:  0,
 		},
 		expectedErr: false,
 	},
@@ -324,7 +316,6 @@ var testNQuads = []struct {
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_StrVal{"stuff"}},
 			Label:       "label",
-			ObjectType:  9,
 		},
 		expectedErr: false,
 	},
@@ -336,7 +327,6 @@ var testNQuads = []struct {
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_StrVal{"stuff"}},
 			Label:       "_:label",
-			ObjectType:  9,
 		},
 		expectedErr: false,
 	},
@@ -348,7 +338,6 @@ var testNQuads = []struct {
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_StrVal{"stuff"}},
 			Label:       "_:label",
-			ObjectType:  9,
 		},
 		expectedErr: false,
 	},
@@ -381,8 +370,7 @@ var testNQuads = []struct {
 		nq: protos.NQuad{
 			Subject:     "_:alice",
 			Predicate:   "likes",
-			ObjectValue: &protos.Value{&protos.Value_DefaultVal{`mov\"enpick`}},
-			ObjectType:  0,
+			ObjectValue: &protos.Value{&protos.Value_DefaultVal{`mov"enpick`}},
 		},
 	},
 	{
@@ -483,8 +471,7 @@ var testNQuads = []struct {
 			Subject:     "alice",
 			Predicate:   "lives",
 			ObjectId:    "",
-			ObjectValue: &protos.Value{&protos.Value_DefaultVal{`\u0045 wonderland`}},
-			ObjectType:  0,
+			ObjectValue: &protos.Value{&protos.Value_DefaultVal{`E wonderland`}},
 		},
 		expectedErr: false,
 	},
@@ -497,14 +484,17 @@ var testNQuads = []struct {
 		expectedErr: true, // object langtag can not end with -
 	},
 	{
-		input: `<alice> <lives> "\t\b\n\r\f\"\'\\"@a-b .`,
+		input: `<alice> <lives> "\t\b\n\r\f\"\\"@a-b .`,
 		nq: protos.NQuad{
 			Subject:     "alice",
 			Predicate:   "lives",
 			Lang:        "a-b",
-			ObjectValue: &protos.Value{&protos.Value_DefaultVal{`\t\b\n\r\f\"\'\\`}},
-			ObjectType:  9,
+			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"\t\b\n\r\f\"\\"}},
 		},
+	},
+	{
+		input:       `<alice> <lives> "\'" .`,
+		expectedErr: true, // \' isn't a valid escape sequence
 	},
 	{
 		input:       `<alice> <lives> "\a" .`,
@@ -542,7 +532,6 @@ var testNQuads = []struct {
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"stuff"}},
 			Label:       "_:label",
-			ObjectType:  0,
 			Facets: []*protos.Facet{
 				{"key1",
 					[]byte("val1"),
@@ -567,7 +556,6 @@ var testNQuads = []struct {
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"stuff"}},
 			Label:       "_:label",
-			ObjectType:  0,
 			Facets: []*protos.Facet{
 				{"key1",
 					[]byte(""),
@@ -592,7 +580,6 @@ var testNQuads = []struct {
 			Predicate:   "knows",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"stuff"}},
-			ObjectType:  0,
 			Facets: []*protos.Facet{
 				{"key1",
 					[]byte(""),
@@ -617,7 +604,6 @@ var testNQuads = []struct {
 			Predicate:   "knows",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"stuff"}},
-			ObjectType:  0,
 			Facets: []*protos.Facet{
 				{"key1",
 					[]byte("\014\000\000\000\000\000\000\000"),
@@ -649,7 +635,6 @@ var testNQuads = []struct {
 			Predicate:   "knows",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"stuff"}},
-			ObjectType:  0,
 			Facets: []*protos.Facet{
 				{"key1", []byte("\014\000\000\000\000\000\000\000"),
 					facets.ValTypeForTypeID(facets.IntID),
@@ -681,7 +666,6 @@ var testNQuads = []struct {
 			Predicate:   "knows",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"stuff"}},
-			ObjectType:  0,
 			Facets: []*protos.Facet{
 				{"key1", []byte("\001\000\000\000\016\265-\000\360\002\372\360\200\377\377"),
 					facets.ValTypeForTypeID(facets.DateTimeID),
@@ -703,7 +687,6 @@ var testNQuads = []struct {
 			Predicate:   "knows",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"stuff"}},
-			ObjectType:  0,
 			Facets: []*protos.Facet{
 				{"k", []byte("\r\000\000\000\000\000\000\000"),
 					facets.ValTypeForTypeID(facets.IntID),
@@ -719,7 +702,6 @@ var testNQuads = []struct {
 			Predicate:   "knows",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"stuff"}},
-			ObjectType:  0,
 			Facets: []*protos.Facet{
 				{"k", []byte("\240\250OlX\207\267D"),
 					facets.ValTypeForTypeID(facets.FloatID),
@@ -729,17 +711,26 @@ var testNQuads = []struct {
 	},
 	{
 		// Quotes inside facet string values.
-		input: `_:alice <knows> "stuff" (key1="\"hello world\"") .`,
+		input: `_:alice <knows> "stuff" (key1="\"hello world\"",key2="LineA\nLineB") .`,
 		nq: protos.NQuad{
 			Subject:     "_:alice",
 			Predicate:   "knows",
 			ObjectId:    "",
 			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"stuff"}},
-			ObjectType:  0,
 			Facets: []*protos.Facet{
-				{"key1", []byte(`\"hello world\"`),
-					facets.ValTypeForTypeID(facets.StringID),
-					[]string{"\001hello", "\001world"}, "",
+				{
+					Key:     "key1",
+					Value:   []byte(`"hello world"`),
+					ValType: facets.ValTypeForTypeID(facets.StringID),
+					Tokens:  []string{"\001hello", "\001world"},
+					Val:     "",
+				},
+				{
+					Key:     "key2",
+					Value:   []byte("LineA\nLineB"),
+					ValType: facets.ValTypeForTypeID(facets.StringID),
+					Tokens:  []string{"\001linea", "\001lineb"},
+					Val:     "",
 				},
 			},
 		},
@@ -782,18 +773,6 @@ var testNQuads = []struct {
 		expectedErr: true, // comma should be followed by another key-value pair.
 	},
 	{
-		input:       `_:alice <knows> "stuff" (k=1,k=2) .`,
-		expectedErr: true, // Duplicate keys not allowed.
-	},
-	{
-		input:       `_:alice <knows> "stuff" (k=1,k1=1,k=2) .`,
-		expectedErr: true, // Duplicate keys not allowed.
-	},
-	{
-		input:       `_:alice <knows> "stuff" (k=1,k1=,k=2) .`,
-		expectedErr: true, // Duplicate keys not allowed.
-	},
-	{
 		input:       `_:alice <knows> "stuff" (k=111111111111111111888888) .`,
 		expectedErr: true, // integer can not fit in int64.
 	},
@@ -803,8 +782,8 @@ var testNQuads = []struct {
 	},
 	// Facet tests end
 	{
-		input:       `<alice> <password> "guess"^^<pwd:password> .`,
-		expectedErr: true, // len(password) should >= 6
+		input:       `<alice> <password> "guess123"^^<pwd:password> .`,
+		expectedErr: true,
 	},
 	// Test variable in subject
 	{
@@ -854,6 +833,22 @@ var testNQuads = []struct {
 	},
 	{
 		input:       `_:company <name> "TurfBytes" . _:company <owner> _:owner . _:owner <name> "Jason" .  `,
+		expectedErr: true,
+	},
+	{
+		input: `<alice> <lives> "A\tB" .`,
+		nq: protos.NQuad{
+			Subject:     "alice",
+			Predicate:   "lives",
+			ObjectValue: &protos.Value{&protos.Value_DefaultVal{"A\tB"}},
+		},
+	},
+	{
+		input:       `<alice> <age> "NaN"^^<xs:double> .`,
+		expectedErr: true,
+	},
+	{
+		input:       `<alice> <age> "13"^^<xs:double> (salary=NaN) .`,
 		expectedErr: true,
 	},
 }

@@ -19,7 +19,6 @@ package gql
 
 import (
 	"errors"
-	"fmt"
 	"strconv"
 
 	"github.com/dgraph-io/dgraph/protos"
@@ -33,9 +32,10 @@ var (
 
 // Mutation stores the strings corresponding to set and delete operations.
 type Mutation struct {
-	Set    []*protos.NQuad
-	Del    []*protos.NQuad
-	Schema string
+	Set     []*protos.NQuad
+	Del     []*protos.NQuad
+	DropAll bool
+	Schema  string
 }
 
 func (m Mutation) HasVariables() bool {
@@ -55,7 +55,7 @@ func (m Mutation) HasVariables() bool {
 // HasOps returns true iff the mutation has at least one non-empty
 // part.
 func (m Mutation) HasOps() bool {
-	return len(m.Set) > 0 || len(m.Del) > 0 || len(m.Schema) > 0
+	return len(m.Set) > 0 || len(m.Del) > 0 || len(m.Schema) > 0 || m.DropAll
 }
 
 // NeededVars retrieves NQuads and variable names of NQuads that refer a variable.
@@ -163,6 +163,9 @@ func typeValFrom(val *protos.Value) types.Val {
 	case *protos.Value_IntVal:
 		return types.Val{types.IntID, val.GetIntVal()}
 	case *protos.Value_StrVal:
+		if val.GetStrVal() == "" {
+			return types.Val{types.StringID, "_nil_"}
+		}
 		return types.Val{types.StringID, val.GetStrVal()}
 	case *protos.Value_BoolVal:
 		return types.Val{types.BoolID, val.GetBoolVal()}
@@ -175,26 +178,30 @@ func typeValFrom(val *protos.Value) types.Val {
 	case *protos.Value_PasswordVal:
 		return types.Val{types.PasswordID, val.GetPasswordVal()}
 	case *protos.Value_DefaultVal:
+		if val.GetDefaultVal() == "" {
+			return types.Val{types.DefaultID, "_nil_"}
+		}
 		return types.Val{types.DefaultID, val.GetDefaultVal()}
 	}
+
 	return types.Val{types.StringID, ""}
 }
 
-func byteVal(nq NQuad) ([]byte, error) {
+func byteVal(nq NQuad) ([]byte, types.TypeID, error) {
 	// We infer object type from type of value. We set appropriate type in parse
 	// function or the Go client has already set.
 	p := typeValFrom(nq.ObjectValue)
 	// These three would have already been marshalled to bytes by the client or
 	// in parse function.
 	if p.Tid == types.GeoID || p.Tid == types.DateTimeID {
-		return p.Value.([]byte), nil
+		return p.Value.([]byte), p.Tid, nil
 	}
 
 	p1 := types.ValueForType(types.BinaryID)
 	if err := types.Marshal(p, &p1); err != nil {
-		return []byte{}, err
+		return []byte{}, p.Tid, err
 	}
-	return []byte(p1.Value.([]byte)), nil
+	return []byte(p1.Value.([]byte)), p.Tid, nil
 }
 
 func toUid(subject string, newToUid map[string]uint64) (uid uint64, err error) {
@@ -251,13 +258,13 @@ func (nq NQuad) createEdgePrototype(subjectUid uint64) *protos.DirectedEdge {
 	}
 }
 
-func (nq NQuad) createUidEdge(subjectUid uint64, objectUid uint64) *protos.DirectedEdge {
+func (nq NQuad) CreateUidEdge(subjectUid uint64, objectUid uint64) *protos.DirectedEdge {
 	out := nq.createEdgePrototype(subjectUid)
 	out.ValueId = objectUid
 	return out
 }
 
-func (nq NQuad) createValueEdge(subjectUid uint64) (*protos.DirectedEdge, error) {
+func (nq NQuad) CreateValueEdge(subjectUid uint64) (*protos.DirectedEdge, error) {
 	var err error
 
 	out := nq.createEdgePrototype(subjectUid)
@@ -303,11 +310,11 @@ func (nq NQuad) ToEdgeUsing(newToUid map[string]uint64) (*protos.DirectedEdge, e
 		if err != nil {
 			return nil, err
 		}
-		edge = nq.createUidEdge(sUid, oUid)
+		edge = nq.CreateUidEdge(sUid, oUid)
 	case x.ValuePlain, x.ValueMulti:
-		edge, err = nq.createValueEdge(sUid)
+		edge, err = nq.CreateValueEdge(sUid)
 	default:
-		return &emptyEdge, errors.New("unknow value type")
+		return &emptyEdge, x.Errorf("unknown value type for nquad: %+v", nq)
 	}
 	if err != nil {
 		return nil, err
@@ -315,15 +322,14 @@ func (nq NQuad) ToEdgeUsing(newToUid map[string]uint64) (*protos.DirectedEdge, e
 	return edge, nil
 }
 
-func (nq NQuad) ExpandVariables(newToUid map[string]uint64,
-	subjectUids []uint64,
+func (nq *NQuad) ExpandVariables(newToUid map[string]uint64, subjectUids []uint64,
 	objectUids []uint64) (edges []*protos.DirectedEdge, err error) {
 	var edge *protos.DirectedEdge
 	edges = make([]*protos.DirectedEdge, 0, len(subjectUids)*len(objectUids))
 
+	// Empty subject variable.
 	if len(subjectUids) == 0 {
 		if len(nq.Subject) == 0 {
-			// Empty variable.
 			return
 		}
 		sUid, err := toUid(nq.Subject, newToUid)
@@ -333,35 +339,40 @@ func (nq NQuad) ExpandVariables(newToUid map[string]uint64,
 		subjectUids = []uint64{sUid}[:]
 	}
 
+	// Empty object variable.
+	if len(objectUids) == 0 {
+		// No object id given, lets return
+		if len(nq.ObjectId) == 0 {
+			if nq.ObjectValue == nil {
+				return edges, nil
+			}
+		} else {
+			oUid, err := toUid(nq.ObjectId, newToUid)
+			if err != nil {
+				return edges, err
+			}
+			objectUids = append(objectUids, oUid)
+		}
+	}
+
 	switch nq.valueType() {
 	case x.ValueUid:
 		for _, sUid := range subjectUids {
-			if len(objectUids) > 0 {
-				for _, oUid := range objectUids {
-					edge = nq.createUidEdge(sUid, oUid)
-					edges = append(edges, edge)
-				}
-			} else {
-				x.AssertTruef(len(nq.ObjectId) > 0, "Empty objectId %s", nq.String())
-				oUid, err := toUid(nq.ObjectId, newToUid)
-				if err != nil {
-					return edges, err
-				}
-				edge = nq.createUidEdge(sUid, oUid)
+			for _, oUid := range objectUids {
+				edge = nq.CreateUidEdge(sUid, oUid)
 				edges = append(edges, edge)
 			}
-
 		}
 	case x.ValuePlain, x.ValueMulti:
 		for _, sUid := range subjectUids {
-			edge, err = nq.createValueEdge(sUid)
+			edge, err = nq.CreateValueEdge(sUid)
 			if err != nil {
 				return edges, err
 			}
 			edges = append(edges, edge)
 		}
 	default:
-		return edges, fmt.Errorf("unknow value type: %s", nq.String())
+		return edges, x.Errorf("unknown value type for nquad: %+v", nq)
 	}
 	return edges, nil
 
@@ -369,10 +380,11 @@ func (nq NQuad) ExpandVariables(newToUid map[string]uint64,
 
 func copyValue(out *protos.DirectedEdge, nq NQuad) error {
 	var err error
-	if out.Value, err = byteVal(nq); err != nil {
+	var t types.TypeID
+	if out.Value, t, err = byteVal(nq); err != nil {
 		return err
 	}
-	out.ValueType = uint32(nq.ObjectType)
+	out.ValueType = uint32(t)
 	return nil
 }
 
