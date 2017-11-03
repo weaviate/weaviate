@@ -35,8 +35,8 @@ import (
 
 	"github.com/dgraph-io/dgraph/algo"
 	"github.com/dgraph-io/dgraph/bp128"
-	"github.com/dgraph-io/dgraph/group"
 	"github.com/dgraph-io/dgraph/protos"
+	"github.com/dgraph-io/dgraph/schema"
 	"github.com/dgraph-io/dgraph/types"
 	"github.com/dgraph-io/dgraph/types/facets"
 	"github.com/dgraph-io/dgraph/x"
@@ -169,15 +169,19 @@ func getNew(key []byte, pstore *badger.KV) *List {
 	if err != nil {
 		x.Fatalf("Unable to retrieve val for key: %q. Error: %v", err, l.key)
 	}
-	val := item.Value()
-	x.BytesRead.Add(int64(len(val)))
-
 	l.plist = new(protos.PostingList)
-	if item.UserMeta() == bitUidPostings {
-		l.plist.Uids = val
-	} else if val != nil {
-		x.Checkf(l.plist.Unmarshal(val), "Unable to Unmarshal PostingList from store")
-	}
+	err = item.Value(func(val []byte) error {
+		x.BytesRead.Add(int64(len(val)))
+		if item.UserMeta() == bitUidPostings {
+			l.plist.Uids = make([]byte, len(val))
+			copy(l.plist.Uids, val)
+		} else if val != nil {
+			x.Checkf(l.plist.Unmarshal(val), "Unable to Unmarshal PostingList from store")
+		}
+		return nil
+	})
+	x.Checkf(err, "While trying to get Value from badger for key: %v", key)
+
 	atomic.StoreUint32(&l.estimatedSize, l.calculateSize())
 	return l
 }
@@ -225,7 +229,7 @@ func samePosting(oldp *protos.Posting, newp *protos.Posting) bool {
 	return facets.SameFacets(oldp.Facets, newp.Facets)
 }
 
-func newPosting(t *protos.DirectedEdge) *protos.Posting {
+func NewPosting(t *protos.DirectedEdge) *protos.Posting {
 	x.AssertTruef(edgeType(t) != x.ValueEmpty,
 		"This should have been set by the caller.")
 
@@ -249,17 +253,16 @@ func newPosting(t *protos.DirectedEdge) *protos.Posting {
 		postingType = protos.Posting_VALUE
 	}
 
-	p := new(protos.Posting)
-	p.Uid = t.ValueId
-	p.Value = t.Value
-	p.ValType = protos.Posting_ValType(t.ValueType)
-	p.PostingType = postingType
-	p.Metadata = metadata
-	p.Label = t.Label
-	p.Op = op
-	p.Facets = t.Facets
-	return p
-
+	return &protos.Posting{
+		Uid:         t.ValueId,
+		Value:       t.Value,
+		ValType:     protos.Posting_ValType(t.ValueType),
+		PostingType: postingType,
+		Metadata:    metadata,
+		Label:       t.Label,
+		Op:          op,
+		Facets:      t.Facets,
+	}
 }
 
 func (l *List) EstimatedSize() uint32 {
@@ -423,10 +426,8 @@ func (l *List) addMutation(ctx context.Context, t *protos.DirectedEdge) (bool, e
 
 	l.AssertLock()
 	var index uint64
-	var gid uint32
 	if rv, ok := ctx.Value("raft").(x.RaftValue); ok {
 		index = rv.Index
-		gid = rv.Group
 	}
 	// Calculate 5% of immutable layer
 	numUids := (bp128.NumIntegers(l.plist.Uids) * 5) / 100
@@ -438,30 +439,39 @@ func (l *List) addMutation(ctx context.Context, t *protos.DirectedEdge) (bool, e
 		// we don't have too many pending proposals.
 		// TODO: Come up with a good limit, based on size of proposals
 		(len(l.pending) > 0 && index > l.pending[0]+10000) {
-		l.syncIfDirty(false)
+		if _, err := l.syncIfDirty(false); err != nil {
+			return false, err
+		}
 	}
 
 	// All edges with a value without LANGTAG, have the same uid. In other words,
 	// an (entity, attribute) can only have one untagged value.
 	if !bytes.Equal(t.Value, nil) {
+		// There could be a collision if the user gives us a value with Lang = "en" and later gives
+		// us a value = "en" for the same predicate. We would end up overwritting his older lang
+		// value.
+
+		// Value with a lang type.
 		if len(t.Lang) > 0 {
 			t.ValueId = farm.Fingerprint64([]byte(t.Lang))
-		} else {
-			t.ValueId = math.MaxUint64
-		}
-
-		if t.Attr == "_predicate_" {
+		} else if schema.State().IsList(t.Attr) {
+			// TODO - When values are deleted for list type, then we should only delete the uid from
+			// index if no other values produces that index token.
+			// Value for list type.
 			t.ValueId = farm.Fingerprint64(t.Value)
+		} else {
+			// Plain value for non-list type and without a language.
+			t.ValueId = math.MaxUint64
 		}
 	}
 	if t.ValueId == 0 {
-		err := x.Errorf("ValueId cannot be zero")
+		err := x.Errorf("ValueId cannot be zero for edge: %+v", t)
 		if tr, ok := trace.FromContext(ctx); ok {
 			tr.LazyPrintf(err.Error())
 		}
 		return false, err
 	}
-	mpost := newPosting(t)
+	mpost := NewPosting(t)
 	atomic.AddUint32(&l.estimatedSize, uint32(mpost.Size()+16 /* various overhead */))
 
 	// Mutation arrives:
@@ -481,12 +491,8 @@ func (l *List) addMutation(ctx context.Context, t *protos.DirectedEdge) (bool, e
 
 	if hasMutated {
 		if index != 0 {
-			l.water.Ch <- x.Mark{Index: index}
+			l.water.Begin(index)
 			l.pending = append(l.pending, index)
-		}
-		// if mutation doesn't come via raft
-		if gid == 0 {
-			gid = group.BelongsTo(t.Attr)
 		}
 		if dirtyChan != nil {
 			dirtyChan <- l.key
@@ -501,16 +507,11 @@ func (l *List) delete(ctx context.Context, attr string) error {
 	l.mlayer = l.mlayer[:0] // Clear the mutation layer.
 	atomic.StoreInt32(&l.deleteAll, 1)
 
-	var gid uint32
 	if rv, ok := ctx.Value("raft").(x.RaftValue); ok {
-		l.water.Ch <- x.Mark{Index: rv.Index}
+		l.water.Begin(rv.Index)
 		l.pending = append(l.pending, rv.Index)
-		gid = rv.Group
 	}
 	// if mutation doesn't come via raft
-	if gid == 0 {
-		gid = group.BelongsTo(attr)
-	}
 	if dirtyChan != nil {
 		dirtyChan <- l.key
 	}
@@ -640,7 +641,7 @@ func (l *List) syncIfDirty(delFromCache bool) (committed bool, err error) {
 	// deleteAll is used to differentiate when we don't have any updates, v/s
 	// when we have explicitly deleted everything.
 	if len(l.mlayer) == 0 && atomic.LoadInt32(&l.deleteAll) == 0 {
-		l.water.Ch <- x.Mark{Indices: l.pending, Done: true}
+		l.water.DoneMany(l.pending)
 		l.pending = make([]uint64, 0, 3)
 		return false, nil
 	}
@@ -721,7 +722,7 @@ func (l *List) syncIfDirty(delFromCache bool) (committed bool, err error) {
 		x.BytesWrite.Add(int64(len(data)))
 		x.PostingWrites.Add(1)
 		if l.water != nil {
-			l.water.Ch <- x.Mark{Indices: pending, Done: true}
+			l.water.DoneMany(pending)
 		}
 		if delFromCache {
 			x.AssertTrue(atomic.LoadInt32(&l.deleteMe) == 1)
@@ -745,7 +746,7 @@ func (l *List) LastCompactionTs() time.Time {
 }
 
 // Copies the val if it's uid only posting, be careful
-func UnmarshalWithCopy(val []byte, metadata byte, pl *protos.PostingList) {
+func UnmarshalOrCopy(val []byte, metadata byte, pl *protos.PostingList) {
 	if metadata == bitUidPostings {
 		buf := make([]byte, len(val))
 		copy(buf, val)
@@ -804,8 +805,6 @@ func (l *List) AllValues() (vals []types.Val, rerr error) {
 	defer l.RUnlock()
 
 	l.iterate(0, func(p *protos.Posting) bool {
-		// x.AssertTruef(postingType(p) == x.ValueMulti,
-		//	"Expected a value posting.")
 		vals = append(vals, types.Val{
 			Tid:   types.TypeID(p.ValType),
 			Value: p.Value,
@@ -866,10 +865,9 @@ func valueToTypesVal(p *protos.Posting) (rval types.Val) {
 
 func (l *List) postingForLangs(langs []string) (pos *protos.Posting, rerr error) {
 	l.AssertRLock()
-	var found bool
 
 	any := false
-	// look for language in preffered order
+	// look for language in preferred order
 	for _, lang := range langs {
 		if lang == "." {
 			any = true
@@ -882,12 +880,15 @@ func (l *List) postingForLangs(langs []string) (pos *protos.Posting, rerr error)
 	}
 
 	// look for value without language
-	if !found && (any || len(langs) == 0) {
-		found, pos = l.findPosting(math.MaxUint64)
+	if any || len(langs) == 0 {
+		if found, pos := l.findPosting(math.MaxUint64); found {
+			return pos, nil
+		}
 	}
 
+	var found bool
 	// last resort - return value with smallest lang Uid
-	if !found && any {
+	if any {
 		l.iterate(0, func(p *protos.Posting) bool {
 			if postingType(p) == x.ValueMulti {
 				pos = p
@@ -898,11 +899,11 @@ func (l *List) postingForLangs(langs []string) (pos *protos.Posting, rerr error)
 		})
 	}
 
-	if !found {
-		return pos, ErrNoValue
+	if found {
+		return pos, nil
 	}
 
-	return pos, nil
+	return pos, ErrNoValue
 }
 
 func (l *List) postingForTag(tag string) (p *protos.Posting, rerr error) {

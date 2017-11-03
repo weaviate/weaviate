@@ -17,12 +17,15 @@
 package client
 
 import (
+	"encoding/base64"
 	"fmt"
 	"reflect"
 	"strings"
 	"time"
 
 	"github.com/dgraph-io/dgraph/protos"
+	"github.com/twpayne/go-geom/encoding/geojson"
+	"github.com/twpayne/go-geom/encoding/wkb"
 )
 
 func unmarshalToStruct(f reflect.StructField, n *protos.Node, val reflect.Value) error {
@@ -32,10 +35,12 @@ func unmarshalToStruct(f reflect.StructField, n *protos.Node, val reflect.Value)
 		// it can unmarshal node and its properties.
 		typ = typ.Elem()
 	}
+
 	rcv, err := unmarshal(n, typ)
 	if err != nil {
 		return err
 	}
+
 	fieldVal := val.FieldByName(f.Name)
 	if !fieldVal.CanSet() {
 		return fmt.Errorf("Cant set field: %+v", f.Name)
@@ -111,7 +116,25 @@ func setField(val reflect.Value, value *protos.Value, field reflect.StructField)
 	}
 	switch field.Type.Kind() {
 	case reflect.String:
-		f.SetString(value.GetStrVal())
+		switch value.Val.(type) {
+		case *protos.Value_GeoVal:
+			v := value.GetGeoVal()
+			if len(v) == 0 {
+				return nil
+			}
+
+			g, err := wkb.Unmarshal(v)
+			if err != nil {
+				return nil
+			}
+			b, err := geojson.Marshal(g)
+			if err != nil {
+				return nil
+			}
+			f.SetString(string(b))
+		default:
+			f.SetString(value.GetStrVal())
+		}
 	case reflect.Int64, reflect.Int:
 		f.SetInt(value.GetIntVal())
 	case reflect.Float64:
@@ -148,6 +171,47 @@ func setField(val reflect.Value, value *protos.Value, field reflect.StructField)
 			case *protos.Value_BytesVal:
 				v := value.GetBytesVal()
 				f.Set(reflect.ValueOf(v))
+			case *protos.Value_StrVal:
+				// []byte arrays are marshalled into string by JSON.Marshal which is called by
+				// SetObject. So if the user wants to unmarshal them back into []byte, we do that
+				// here.
+				str := value.GetStrVal()
+				data, err := base64.StdEncoding.DecodeString(str)
+				if err == nil {
+					f.Set(reflect.ValueOf(data))
+					return nil
+				}
+				// User could be trying to unmarshal a string to []byte.
+				f.Set(reflect.ValueOf([]byte(str)))
+			}
+		default:
+			// We would be here when an attr has multiple values.
+			// TODO - Refactor to remove this duplication.
+			elemType := field.Type.Elem()
+			switch elemType.Kind() {
+			case reflect.String:
+				f.Set(reflect.Append(f, reflect.ValueOf(value.GetStrVal())))
+			case reflect.Int64, reflect.Int:
+				f.Set(reflect.Append(f, reflect.ValueOf(value.GetIntVal())))
+			case reflect.Float64:
+				f.Set(reflect.Append(f, reflect.ValueOf(value.GetDoubleVal())))
+			case reflect.Bool:
+				f.Set(reflect.Append(f, reflect.ValueOf(value.GetBoolVal())))
+			case reflect.Uint64:
+				f.Set(reflect.Append(f, reflect.ValueOf(value.GetUidVal())))
+			case reflect.Struct:
+				switch elemType {
+				case reflect.TypeOf(time.Time{}):
+					v := value.GetStrVal()
+					if v == "" {
+						return nil
+					}
+					t, err := time.Parse(time.RFC3339, v)
+					if err == nil {
+						f.Set(reflect.Append(f, reflect.ValueOf(t)))
+					}
+				default:
+				}
 			}
 		}
 	default:
@@ -201,9 +265,15 @@ func fieldMap(typ reflect.Type) map[string]reflect.StructField {
 	fmap := make(map[string]reflect.StructField)
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
-		// If dgraph tag for a field exists we store that.
-		if tag, ok := field.Tag.Lookup("dgraph"); ok {
+		// If json tag for a field exists we store that.
+		if tag, ok := field.Tag.Lookup("json"); ok {
 			// Store in lower case to do a case-insensitive match.
+			tags := strings.Split(tag, ",")
+			// User could give other things after the actual name e.g. json:"friend,omitempty"
+			// We only store the first part in this case.
+			if len(tags) > 1 {
+				tag = tags[0]
+			}
 			fmap[strings.ToLower(tag)] = field
 		} else {
 			// Else we store the field Name.
@@ -226,6 +296,9 @@ func resetStruct(t reflect.Type, v reflect.Value) {
 		case reflect.Struct:
 			resetStruct(ft.Type, f)
 		case reflect.Ptr:
+			if ft.Type.Elem().Kind() != reflect.Struct {
+				continue
+			}
 			fv := reflect.New(ft.Type.Elem())
 			resetStruct(ft.Type.Elem(), fv.Elem())
 			f.Set(fv)

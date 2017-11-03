@@ -25,7 +25,6 @@ import (
 	"github.com/dgraph-io/badger"
 	"github.com/stretchr/testify/require"
 
-	"github.com/dgraph-io/dgraph/group"
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/types"
 	"github.com/dgraph-io/dgraph/x"
@@ -55,16 +54,29 @@ name: string .
 
 func TestSchema(t *testing.T) {
 	require.NoError(t, ParseBytes([]byte(schemaVal), 1))
-	checkSchema(t, State().get(1).predicate, []nameType{
+	checkSchema(t, State().predicate, []nameType{
 		{"name", &protos.SchemaUpdate{
+			Predicate: "name",
 			ValueType: uint32(types.StringID),
+			Explicit:  true,
 		}},
-		{"address", &protos.SchemaUpdate{ValueType: uint32(types.StringID)}},
-		{"http://scalar.com/helloworld/", &protos.SchemaUpdate{
+		{"_predicate_", &protos.SchemaUpdate{
 			ValueType: uint32(types.StringID),
+			List:      true,
+		}},
+		{"address", &protos.SchemaUpdate{
+			Predicate: "address",
+			ValueType: uint32(types.StringID),
+			Explicit:  true}},
+		{"http://scalar.com/helloworld/", &protos.SchemaUpdate{
+			Predicate: "http://scalar.com/helloworld/",
+			ValueType: uint32(types.StringID),
+			Explicit:  true,
 		}},
 		{"age", &protos.SchemaUpdate{
+			Predicate: "age",
 			ValueType: uint32(types.IntID),
+			Explicit:  true,
 		}},
 	})
 
@@ -113,7 +125,7 @@ address: string @index(term) .`
 
 func TestSchemaIndex(t *testing.T) {
 	require.NoError(t, ParseBytes([]byte(schemaIndexVal1), 1))
-	require.Equal(t, 2, len(State().IndexedFields(1)))
+	require.Equal(t, 2, len(State().IndexedFields()))
 }
 
 var schemaIndexVal2 = `
@@ -165,38 +177,52 @@ friend  : uid @reverse @count .
 
 func TestSchemaIndexCustom(t *testing.T) {
 	require.NoError(t, ParseBytes([]byte(schemaIndexVal5), 1))
-	checkSchema(t, State().get(1).predicate, []nameType{
+	checkSchema(t, State().predicate, []nameType{
+		{"_predicate_", &protos.SchemaUpdate{
+			ValueType: uint32(types.StringID),
+			List:      true,
+		}},
 		{"name", &protos.SchemaUpdate{
+			Predicate: "name",
 			ValueType: uint32(types.StringID),
 			Tokenizer: []string{"exact"},
 			Directive: protos.SchemaUpdate_INDEX,
 			Count:     true,
+			Explicit:  true,
 		}},
 		{"address", &protos.SchemaUpdate{
+			Predicate: "address",
 			ValueType: uint32(types.StringID),
 			Tokenizer: []string{"term"},
 			Directive: protos.SchemaUpdate_INDEX,
+			Explicit:  true,
 		}},
 		{"age", &protos.SchemaUpdate{
+			Predicate: "age",
 			ValueType: uint32(types.IntID),
 			Tokenizer: []string{"int"},
 			Directive: protos.SchemaUpdate_INDEX,
+			Explicit:  true,
 		}},
 		{"id", &protos.SchemaUpdate{
+			Predicate: "id",
 			ValueType: uint32(types.StringID),
 			Tokenizer: []string{"exact", "term"},
 			Directive: protos.SchemaUpdate_INDEX,
+			Explicit:  true,
 		}},
 		{"friend", &protos.SchemaUpdate{
 			ValueType: uint32(types.UidID),
+			Predicate: "friend",
 			Directive: protos.SchemaUpdate_REVERSE,
 			Count:     true,
+			Explicit:  true,
 		}},
 	})
 	require.True(t, State().IsIndexed("name"))
 	require.False(t, State().IsReversed("name"))
 	require.Equal(t, "int", State().Tokenizer("age")[0].Name())
-	require.Equal(t, 4, len(State().IndexedFields(1)))
+	require.Equal(t, 4, len(State().IndexedFields()))
 }
 
 func TestParse(t *testing.T) {
@@ -262,11 +288,82 @@ func TestParse8_Error(t *testing.T) {
 	require.Nil(t, schemas)
 }
 
+func TestParseScalarList(t *testing.T) {
+	reset()
+	schemas, err := Parse(`
+		jobs: [string] @index(term) .
+		occupations: [string] .
+		graduation: [dateTime] .
+	`)
+	require.NoError(t, err)
+	require.Equal(t, 3, len(schemas))
+	require.EqualValues(t, &protos.SchemaUpdate{
+		Predicate: "jobs",
+		ValueType: 9,
+		Directive: protos.SchemaUpdate_INDEX,
+		Tokenizer: []string{"term"},
+		List:      true,
+		Explicit:  true,
+	}, schemas[0])
+
+	require.EqualValues(t, &protos.SchemaUpdate{
+		Predicate: "occupations",
+		ValueType: 9,
+		List:      true,
+		Explicit:  true,
+	}, schemas[1])
+
+	require.EqualValues(t, &protos.SchemaUpdate{
+		Predicate: "graduation",
+		ValueType: 5,
+		List:      true,
+		Explicit:  true,
+	}, schemas[2])
+}
+
+func TestParseScalarListError1(t *testing.T) {
+	reset()
+	schemas, err := Parse(`
+		friend: [uid] .
+	`)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Expected scalar type inside []. Got: [uid] for attr: [friend].")
+	require.Nil(t, schemas)
+}
+
+func TestParseScalarListError2(t *testing.T) {
+	reset()
+	schemas, err := Parse(`
+		friend: [string .
+	`)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Unclosed [ while parsing schema for: friend")
+	require.Nil(t, schemas)
+}
+
+func TestParseScalarListError3(t *testing.T) {
+	reset()
+	schemas, err := Parse(`
+		friend: string] .
+	`)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Invalid ending")
+	require.Nil(t, schemas)
+}
+
+func TestParseScalarListError4(t *testing.T) {
+	reset()
+	_, err := Parse(`
+		friend: [bool] .
+	`)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Unsupported type for list: [bool]")
+}
+
 var ps *badger.KV
 
 func TestMain(m *testing.M) {
-	x.SetTestRun()
-	x.Init()
+	x.Init(true)
 
 	dir, err := ioutil.TempDir("", "storetest_")
 	x.Check(err)
@@ -275,7 +372,6 @@ func TestMain(m *testing.M) {
 	kvOpt.ValueDir = dir
 	ps, err = badger.NewKV(&kvOpt)
 	x.Check(err)
-	x.Check(group.ParseGroupConfig("groups.conf"))
 	Init(ps)
 
 	r := m.Run()

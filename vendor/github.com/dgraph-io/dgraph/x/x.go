@@ -19,6 +19,7 @@ package x
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -28,6 +29,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/net/trace"
 )
 
 // Error constants representing different types of errors.
@@ -46,6 +49,8 @@ const (
 	ValidHostnameRegex      = "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-]*[a-zA-Z0-9])\\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\\-]*[A-Za-z0-9])$"
 	Star                    = "_STAR_ALL"
 	GrpcMaxSize             = 256 << 20
+	// The attr used to store list of predicates for a node.
+	PredicateListAttr = "_predicate_"
 )
 
 var (
@@ -84,7 +89,17 @@ func SetStatus(w http.ResponseWriter, code, msg string) {
 	}
 }
 
-type queryResWithData struct {
+func AddCorsHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers",
+		"Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token,"+
+			"X-Auth-Token, Cache-Control, X-Requested-With")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Connection", "close")
+}
+
+type QueryResWithData struct {
 	Errors []errRes `json:"errors"`
 	Data   *string  `json:"data"`
 }
@@ -92,7 +107,7 @@ type queryResWithData struct {
 // In case an error was encountered after the query execution started, we have to return data
 // key with null value according to GraphQL spec.
 func SetStatusWithData(w http.ResponseWriter, code, msg string) {
-	var qr queryResWithData
+	var qr QueryResWithData
 	qr.Errors = append(qr.Errors, errRes{Code: code, Message: msg})
 	// This would ensure that data key is present with value null.
 	if js, err := json.Marshal(qr); err == nil {
@@ -231,6 +246,13 @@ func RemoveDuplicates(s []string) (out []string) {
 		out = append(out, s[i])
 	}
 	return
+}
+
+func NewTrace(title string, ctx context.Context) (trace.Trace, context.Context) {
+	tr := trace.New("Dgraph", title)
+	tr.SetMaxEvents(1000)
+	ctx = trace.NewContext(ctx, tr)
+	return tr, ctx
 }
 
 type BytesBuffer struct {

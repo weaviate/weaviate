@@ -51,7 +51,9 @@ type GraphQuery struct {
 	Func       *Function
 	Expand     string // Which variable to expand with.
 
-	Args         map[string]string
+	Args map[string]string
+	// Query can have multiple sort parameters.
+	Order        []*protos.Order
 	Children     []*GraphQuery
 	Filter       *FilterTree
 	MathExp      *MathTree
@@ -76,6 +78,7 @@ type GraphQuery struct {
 	// True for blocks that don't have a starting function and hence no starting nodes. They are
 	// used to aggregate and get variables defined in another block.
 	IsEmpty bool
+	Upsert  bool // Whether we should add the edge in case it doesn't exist.
 }
 
 type AttrLang struct {
@@ -130,14 +133,22 @@ type FilterTree struct {
 	Func  *Function
 }
 
+type Arg struct {
+	Value        string
+	IsValueVar   bool // If argument is val(a)
+	IsGraphQLVar bool
+}
+
 // Function holds the information about gql functions.
 type Function struct {
-	Attr     string
-	Lang     string   // language of the attribute value
-	Name     string   // Specifies the name of the function.
-	Args     []string // Contains the arguments of the function.
-	UID      []uint64
-	NeedsVar []VarContext // If the function requires some variable
+	Attr       string
+	Lang       string // language of the attribute value
+	Name       string // Specifies the name of the function.
+	Args       []Arg  // Contains the arguments of the function.
+	UID        []uint64
+	NeedsVar   []VarContext // If the function requires some variable
+	IsCount    bool         // gt(count(friends),0)
+	IsValueVar bool         // eq(val(s), 5)
 }
 
 // Facet holds the information about gql Facets (edge key-value pairs).
@@ -422,7 +433,10 @@ func substituteVariables(gq *GraphQuery, vmap varMap) error {
 		}
 
 		for idx, v := range gq.Func.Args {
-			if err := substituteVar(v, &gq.Func.Args[idx], vmap); err != nil {
+			if !v.IsGraphQLVar {
+				continue
+			}
+			if err := substituteVar(v.Value, &gq.Func.Args[idx].Value, vmap); err != nil {
 				return err
 			}
 		}
@@ -448,7 +462,7 @@ func substituteVariablesFilter(f *FilterTree, vmap varMap) error {
 		}
 
 		for idx, v := range f.Func.Args {
-			if err := substituteVar(v, &f.Func.Args[idx], vmap); err != nil {
+			if err := substituteVar(v.Value, &f.Func.Args[idx].Value, vmap); err != nil {
 				return err
 			}
 		}
@@ -553,6 +567,7 @@ func Parse(r Request) (res Result, rerr error) {
 		}
 		res.Mutation.Set = append(res.Mutation.Set, r.Mutation.Set...)
 		res.Mutation.Del = append(res.Mutation.Del, r.Mutation.Del...)
+		res.Mutation.DropAll = r.Mutation.DropAll
 	}
 
 	if res.Mutation != nil {
@@ -781,6 +796,14 @@ L:
 				parseGroupby(it, gq)
 			case "ignorereflex":
 				gq.IgnoreReflex = true
+			case "upsert":
+				if gq.Func == nil || gq.Func.Name != "eq" {
+					return nil, x.Errorf("Upsert query can only be done with eq function.")
+				}
+				if len(gq.Func.Args) != 1 {
+					return nil, x.Errorf("Upsert query can only have one argument.")
+				}
+				gq.Upsert = true
 			default:
 				return nil, x.Errorf("Unknown directive [%s]", item.Val)
 			}
@@ -1013,6 +1036,8 @@ func parseMutationOp(it *lex.ItemIterator, op string, mu *Mutation) error {
 					return x.Errorf("Multiple 'schema' blocks not allowed.")
 				}
 				mu.Schema = item.Val
+			} else if op == "dropall" {
+				mu.DropAll = true
 			} else {
 				return x.Errorf("Invalid mutation operation.")
 			}
@@ -1060,7 +1085,7 @@ func parseGqlVariables(it *lex.ItemIterator, vmap varMap) error {
 		it.Next()
 		item = it.Item()
 		if item.Typ != itemColon {
-			return x.Errorf("Expecting a collon. Got: %v", item)
+			return x.Errorf("Expecting a colon. Got: %v", item)
 		}
 
 		// Get variable type.
@@ -1110,8 +1135,12 @@ func parseGqlVariables(it *lex.ItemIterator, vmap varMap) error {
 			// If value is empty replace, otherwise ignore the default value
 			// as the intialised value will override the default value.
 			if vmap[varName].Value == "" {
+				uq, err := unquoteIfQuoted(it.Val)
+				if err != nil {
+					return err
+				}
 				vmap[varName] = varInfo{
-					Value: strings.Trim(it.Val, "\""),
+					Value: uq,
 					Type:  varType,
 				}
 			}
@@ -1126,9 +1155,21 @@ func parseGqlVariables(it *lex.ItemIterator, vmap varMap) error {
 	return nil
 }
 
+// unquoteIfQuoted checks if str is quoted (starts and ends with quotes). If
+// so, it tries to unquote str possibly returning an error. Otherwise, the
+// original value is returned.
+func unquoteIfQuoted(str string) (string, error) {
+	if len(str) < 2 || str[0] != quote || str[len(str)-1] != quote {
+		return str, nil
+	}
+	uq, err := strconv.Unquote(str)
+	return uq, x.Wrapf(err, "could not unquote %q:", str)
+}
+
 // parseArguments parses the arguments part of the GraphQL query root.
 func parseArguments(it *lex.ItemIterator, gq *GraphQuery) (result []pair, rerr error) {
 	expectArg := true
+	orderCount := 0
 	for it.Next() {
 		var p pair
 		// Get key.
@@ -1138,6 +1179,9 @@ func parseArguments(it *lex.ItemIterator, gq *GraphQuery) (result []pair, rerr e
 				return result, x.Errorf("Expecting a comma. But got: %v", item.Val)
 			}
 			p.Key = collectName(it, item.Val)
+			if isSortkey(p.Key) {
+				orderCount++
+			}
 			expectArg = false
 		} else if item.Typ == itemRightRound {
 			if expectArg {
@@ -1175,6 +1219,9 @@ func parseArguments(it *lex.ItemIterator, gq *GraphQuery) (result []pair, rerr e
 			gq.NeedsVar[len(gq.NeedsVar)-1].Typ = VALUE_VAR
 			p.Val = gq.NeedsVar[len(gq.NeedsVar)-1].Name
 			result = append(result, p)
+			if isSortkey(p.Key) && orderCount > 1 {
+				return result, x.Errorf("Multiple sorting only allowed by predicates. Got: %+v", p.Val)
+			}
 			continue
 		}
 
@@ -1232,16 +1279,30 @@ func (t *FilterTree) stringHelper(buf *bytes.Buffer) {
 
 		if len(t.Func.Attr) > 0 {
 			buf.WriteRune(' ')
+			if t.Func.IsCount {
+				buf.WriteString("count(")
+			}
 			buf.WriteString(t.Func.Attr)
+			if t.Func.IsCount {
+				buf.WriteRune(')')
+			}
 			if len(t.Func.Lang) > 0 {
 				buf.WriteRune('@')
 				buf.WriteString(t.Func.Lang)
 			}
 
 			for _, arg := range t.Func.Args {
-				buf.WriteString(" \"")
-				buf.WriteString(arg)
-				buf.WriteRune('"')
+				if arg.IsValueVar {
+					buf.WriteString(" val(")
+				} else {
+					buf.WriteString(" \"")
+				}
+				buf.WriteString(arg.Value)
+				if arg.IsValueVar {
+					buf.WriteRune(')')
+				} else {
+					buf.WriteRune('"')
+				}
 			}
 		}
 		buf.WriteRune(')')
@@ -1344,7 +1405,7 @@ func parseGeoArgs(it *lex.ItemIterator, g *Function) error {
 				item.Val)
 		}
 
-		if depth > 2 || depth < 0 {
+		if depth > 4 || depth < 0 {
 			return x.Errorf("Invalid bracket sequence")
 		} else if depth == 0 {
 			break
@@ -1352,7 +1413,7 @@ func parseGeoArgs(it *lex.ItemIterator, g *Function) error {
 	}
 	// Lets append the concatenated Geo token to Args.
 	// TODO - See if we can directly encode to Geo format.
-	g.Args = append(g.Args, buf.String())
+	g.Args = append(g.Args, Arg{Value: buf.String()})
 	items, err := it.Peek(1)
 	if err != nil {
 		return x.Errorf("Unexpected EOF while parsing args")
@@ -1378,7 +1439,7 @@ func validFuncName(name string) bool {
 }
 
 func parseFunction(it *lex.ItemIterator, gq *GraphQuery) (*Function, error) {
-	var g *Function
+	var function *Function
 	var expectArg, seenFuncArg, expectLang, isDollar bool
 L:
 	for it.Next() {
@@ -1389,16 +1450,20 @@ L:
 		}
 
 		val := collectName(it, item.Val)
-		g = &Function{
+		function = &Function{
 			Name: strings.ToLower(val),
 		}
 		if _, ok := tryParseItemType(it, itemLeftRound); !ok {
-			return nil, x.Errorf("Expected ( after func name [%s]", g.Name)
+			return nil, x.Errorf("Expected ( after func name [%s]", function.Name)
 		}
 
+		attrItemsAgo := -1
 		expectArg = true
 		for it.Next() {
 			itemInFunc := it.Item()
+			if attrItemsAgo >= 0 {
+				attrItemsAgo++
+			}
 			var val string
 			if itemInFunc.Typ == itemRightRound {
 				break L
@@ -1418,40 +1483,42 @@ L:
 				}
 				it.Prev()
 				it.Prev()
-				f, err := parseFunction(it, gq)
+				nestedFunc, err := parseFunction(it, gq)
 				if err != nil {
 					return nil, err
 				}
 				seenFuncArg = true
-				if f.Name == value {
-					if len(f.NeedsVar) > 1 {
+				if nestedFunc.Name == value {
+					if len(nestedFunc.NeedsVar) > 1 {
 						return nil, x.Errorf("Multiple variables not allowed in a function")
 					}
-					g.Attr = value
-					g.Args = append(g.Args, f.NeedsVar[0].Name)
-					g.NeedsVar = append(g.NeedsVar, f.NeedsVar...)
-					g.NeedsVar[0].Typ = VALUE_VAR
-				} else {
-					if f.Name != "count" {
-						return nil,
-							x.Errorf("Only val/count allowed as function within another. Got: %s", f.Name)
+					// Variable is used in place of attribute, eq(val(a), 5)
+					if len(function.Attr) == 0 {
+						function.Attr = nestedFunc.NeedsVar[0].Name
+						function.IsValueVar = true
+					} else {
+						// eq(name, val(a))
+						function.Args = append(function.Args, Arg{Value: nestedFunc.NeedsVar[0].Name, IsValueVar: true})
 					}
-					g.Attr = f.Attr
-					g.Args = append(g.Args, f.Name)
+					function.NeedsVar = append(function.NeedsVar, nestedFunc.NeedsVar...)
+					function.NeedsVar[0].Typ = VALUE_VAR
+				} else {
+					if nestedFunc.Name != "count" {
+						return nil,
+							x.Errorf("Only val/count allowed as function within another. Got: %s", nestedFunc.Name)
+					}
+					function.Attr = nestedFunc.Attr
+					function.IsCount = true
 				}
 				expectArg = false
 				continue
 			} else if itemInFunc.Typ == itemAt {
-				if len(g.Attr) > 0 && len(g.Lang) == 0 {
-					itNext, err := it.Peek(1)
-					if err == nil && itNext[0].Val == "filter" {
-						return nil, x.Errorf("Filter cannot be used inside a function.")
-					}
-					expectLang = true
-					continue
-				} else {
-					return nil, x.Errorf("Invalid usage of '@' in function argument")
+				if attrItemsAgo != 1 {
+					return nil, x.Errorf("Invalid usage of '@' in function " +
+						"argument, must only appear immediately after attr.")
 				}
+				expectLang = true
+				continue
 			} else if itemInFunc.Typ == itemMathOp {
 				val = itemInFunc.Val
 				it.Next()
@@ -1471,18 +1538,18 @@ L:
 					flags = itemInFunc.Val[end+1:]
 				}
 
-				g.Args = append(g.Args, expr, flags)
+				function.Args = append(function.Args, Arg{Value: expr}, Arg{Value: flags})
 				expectArg = false
 				continue
 				// Lets reassemble the geo tokens.
 			} else if itemInFunc.Typ == itemLeftSquare {
-				isGeo := isGeoFunc(g.Name)
-				if !isGeo && !isInequalityFn(g.Name) {
+				isGeo := isGeoFunc(function.Name)
+				if !isGeo && !isInequalityFn(function.Name) {
 					return nil, x.Errorf("Unexpected character [ while parsing request.")
 				}
 
 				if isGeo {
-					if err := parseGeoArgs(it, g); err != nil {
+					if err := parseGeoArgs(it, function); err != nil {
 						return nil, err
 					}
 					expectArg = false
@@ -1503,7 +1570,13 @@ L:
 				continue
 			} else if itemInFunc.Typ != itemName {
 				return nil, x.Errorf("Expected arg after func [%s], but got item %v",
-					g.Name, itemInFunc)
+					function.Name, itemInFunc)
+			}
+
+			item, ok := it.PeekOne()
+			// Part of function continue
+			if ok && item.Typ == itemLeftRound {
+				continue
 			}
 
 			if !expectArg && !expectLang {
@@ -1512,56 +1585,63 @@ L:
 
 			// TODO - Move this to a function.
 			v := strings.Trim(itemInFunc.Val, " \t")
-			// Trim just one leading and trailing "
-			v = strings.TrimPrefix(v, "\"")
-			val += strings.TrimSuffix(v, "\"")
+			var err error
+			v, err = unquoteIfQuoted(v)
+			if err != nil {
+				return nil, err
+			}
+			val += v
 			if val == "" {
 				return nil, x.Errorf("Empty argument received")
+			}
+			if val == "uid" {
+				return nil, x.Errorf("Argument cannot be %q", val)
 			}
 
 			if isDollar {
 				val = "$" + val
 				isDollar = false
-				if g.Name == uid && gq != nil {
+				if function.Name == uid && gq != nil {
 					if len(gq.Args["id"]) > 0 {
 						return nil,
 							x.Errorf("Only one GraphQL variable allowed inside uid function.")
 					}
 					gq.Args["id"] = val
 				} else {
-					g.Args = append(g.Args, val)
+					function.Args = append(function.Args, Arg{Value: val, IsGraphQLVar: true})
 				}
 				expectArg = false
 				continue
 			}
 
 			// Unlike other functions, uid function has no attribute, everything is args.
-			if len(g.Attr) == 0 && g.Name != "uid" {
+			if len(function.Attr) == 0 && function.Name != "uid" {
 				if strings.ContainsRune(itemInFunc.Val, '"') {
 					return nil, x.Errorf("Attribute in function must not be quoted with \": %s",
 						itemInFunc.Val)
 				}
-				g.Attr = val
+				function.Attr = val
+				attrItemsAgo = 0
 			} else if expectLang {
-				g.Lang = val
+				function.Lang = val
 				expectLang = false
-			} else if g.Name != uid {
+			} else if function.Name != uid {
 				// For UID function. we set g.UID
-				g.Args = append(g.Args, val)
+				function.Args = append(function.Args, Arg{Value: val})
 			}
 
-			if g.Name == "var" {
+			if function.Name == "var" {
 				return nil, x.Errorf("Unexpected var(). Maybe you want to try using uid()")
 			}
 
 			expectArg = false
-			if g.Name == value {
+			if function.Name == value {
 				// E.g. @filter(gt(val(a), 10))
-				g.NeedsVar = append(g.NeedsVar, VarContext{
+				function.NeedsVar = append(function.NeedsVar, VarContext{
 					Name: val,
 					Typ:  VALUE_VAR,
 				})
-			} else if g.Name == uid {
+			} else if function.Name == uid {
 				// uid function could take variables as well as actual uids.
 				// If we can parse the value that means its an uid otherwise a variable.
 				uid, err := strconv.ParseUint(val, 0, 64)
@@ -1571,19 +1651,24 @@ L:
 						gq.UID = append(gq.UID, uid)
 						// Or uid function in filter.
 					} else {
-						g.UID = append(g.UID, uid)
+						function.UID = append(function.UID, uid)
 					}
 					continue
 				}
 				// E.g. @filter(uid(a, b, c))
-				g.NeedsVar = append(g.NeedsVar, VarContext{
+				function.NeedsVar = append(function.NeedsVar, VarContext{
 					Name: val,
 					Typ:  UID_VAR,
 				})
 			}
 		}
 	}
-	return g, nil
+
+	if function.Name != uid && len(function.Attr) == 0 {
+		return nil, x.Errorf("Got empty attr for function: [%s]", function.Name)
+	}
+
+	return function, nil
 }
 
 type facetRes struct {
@@ -1881,7 +1966,9 @@ func parseFilter(it *lex.ItemIterator) (*FilterTree, error) {
 	// For other applications, typically after all items are
 	// consumed, we will run a loop like "while opStack is nonempty, evalStack".
 	// This is not needed here.
-	x.AssertTruef(opStack.empty(), "Op stack should be empty when we exit")
+	if !opStack.empty() {
+		return nil, x.Errorf("Unbalanced parentheses in @filter statement")
+	}
 
 	if valueStack.empty() {
 		// This happens when we have @filter(). We can either return an error or
@@ -2083,6 +2170,16 @@ func validKey(k string) bool {
 	return false
 }
 
+func attrAndLang(attrData string) (attr string, langs []string) {
+	idx := strings.Index(attrData, "@")
+	if idx < 0 {
+		return attrData, langs
+	}
+	attr = attrData[:idx]
+	langs = strings.Split(attrData[idx+1:], ":")
+	return
+}
+
 // getRoot gets the root graph query object after parsing the args.
 func getRoot(it *lex.ItemIterator) (gq *GraphQuery, rerr error) {
 	gq = &GraphQuery{
@@ -2117,6 +2214,7 @@ func getRoot(it *lex.ItemIterator) (gq *GraphQuery, rerr error) {
 	}
 
 	expectArg := true
+	order := make(map[string]bool)
 	// Parse in KV fashion. Depending on the value of key, decide the path.
 	for it.Next() {
 		var key string
@@ -2219,17 +2317,37 @@ func getRoot(it *lex.ItemIterator) (gq *GraphQuery, rerr error) {
 
 			}
 
+			// TODO - Allow only order by one of variable/predicate for now.
+			if val == "" {
+				// Right now we only allow one sort by a variable and it has to be at the first
+				// position.
+				val = gq.NeedsVar[len(gq.NeedsVar)-1].Name
+				if len(gq.Order) > 0 && isSortkey(key) {
+					return nil, x.Errorf("Multiple sorting only allowed by predicates. Got: %+v", val)
+				}
+			}
+			if isSortkey(key) {
+				if order[val] {
+					return nil, x.Errorf("Sorting by an attribute: [%s] can only be done once", val)
+				}
+				attr, langs := attrAndLang(val)
+				gq.Order = append(gq.Order, &protos.Order{attr, key == "orderdesc", langs})
+				order[val] = true
+				continue
+			}
+
 			if _, ok := gq.Args[key]; ok {
 				return gq, x.Errorf("Repeated key %q at root", key)
-			}
-			if val == "" {
-				val = gq.NeedsVar[len(gq.NeedsVar)-1].Name
 			}
 			gq.Args[key] = val
 		}
 	}
 
 	return gq, nil
+}
+
+func isSortkey(k string) bool {
+	return k == "orderasc" || k == "orderdesc"
 }
 
 type Count int
@@ -2335,7 +2453,7 @@ func godeep(it *lex.ItemIterator, gq *GraphQuery) error {
 				if child.Func, err = parseFunction(it, gq); err != nil {
 					return err
 				}
-				child.Func.Args = append(child.Func.Args, child.Func.Attr)
+				child.Func.Args = append(child.Func.Args, Arg{Value: child.Func.Attr})
 				child.Attr = child.Func.Attr
 				gq.Children = append(gq.Children, child)
 				curp = nil
@@ -2410,7 +2528,8 @@ func godeep(it *lex.ItemIterator, gq *GraphQuery) error {
 					MathExp:    mathTree,
 					IsInternal: true,
 				}
-				varName = ""
+				// TODO - See that if we can instead initialize this at the top.
+				varName, alias = "", ""
 				gq.Children = append(gq.Children, child)
 				curp = nil
 				continue
@@ -2564,6 +2683,9 @@ func godeep(it *lex.ItemIterator, gq *GraphQuery) error {
 				count = seenWithPred
 			}
 		case itemLeftCurl:
+			if curp == nil {
+				return x.Errorf("Query syntax invalid.")
+			}
 			if len(curp.Langs) > 0 {
 				return x.Errorf("Cannot have children for attr: %s with lang tags: %v", curp.Attr,
 					curp.Langs)
@@ -2572,6 +2694,9 @@ func godeep(it *lex.ItemIterator, gq *GraphQuery) error {
 				return err
 			}
 		case itemLeftRound:
+			if curp == nil {
+				return x.Errorf("Query syntax invalid.")
+			}
 			if curp.Attr == "" {
 				return x.Errorf("Predicate name cannot be empty.")
 			}
@@ -2580,6 +2705,7 @@ func godeep(it *lex.ItemIterator, gq *GraphQuery) error {
 				return err
 			}
 			// Stores args in GraphQuery, will be used later while retrieving results.
+			order := make(map[string]bool)
 			for _, p := range args {
 				if !validKey(p.Key) {
 					return x.Errorf("Got invalid keyword: %s", p.Key)
@@ -2590,6 +2716,16 @@ func godeep(it *lex.ItemIterator, gq *GraphQuery) error {
 				if p.Val == "" {
 					return x.Errorf("Got empty argument")
 				}
+				if p.Key == "orderasc" || p.Key == "orderdesc" {
+					if order[p.Val] {
+						return x.Errorf("Sorting by an attribute: [%s] can only be done once", p.Val)
+					}
+					attr, langs := attrAndLang(p.Val)
+					curp.Order = append(curp.Order, &protos.Order{attr, p.Key == "orderdesc", langs})
+					order[p.Val] = true
+					continue
+				}
+
 				curp.Args[p.Key] = p.Val
 			}
 		case itemAt:
