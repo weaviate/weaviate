@@ -40,7 +40,7 @@ func NewEmbeddedDgraphClient(config Options, opts client.BatchMutationOptions,
 
 	SetConfiguration(config)
 
-	x.Init(config.DebugMode)
+	x.Init()
 	State = NewServerState()
 	schema.Init(State.Pstore)
 	posting.Init(State.Pstore)
