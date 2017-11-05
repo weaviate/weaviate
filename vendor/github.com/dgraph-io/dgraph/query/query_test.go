@@ -7030,7 +7030,7 @@ func StartDummyZero() *grpc.Server {
 }
 
 func TestMain(m *testing.M) {
-	x.Init(true)
+	x.Init()
 
 	StartDummyZero()
 
@@ -7052,7 +7052,6 @@ func TestMain(m *testing.M) {
 	worker.Config.RaftId = 1
 	worker.Config.MyAddr = "localhost:12345"
 	worker.Config.ExpandEdge = true
-	worker.Config.NumPendingProposals = 100 // So that mutations can run.
 	schema.Init(ps)
 	posting.Init(ps)
 	worker.Init(ps)
@@ -9629,19 +9628,4 @@ func TestPasswordError(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t,
 		err.Error(), "checkpwd fn can only be used on attr: [name] with schema type password. Got type: string")
-}
-
-func TestCountPanic(t *testing.T) {
-	populateGraph(t)
-	query := `
-	{
-		q(func: uid(1, 300)) {
-			_uid_
-			name
-			count(name)
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"q":[{"_uid_":"0x1","name":"Michonne","count(name)":1},{"_uid_":"0x12c","count(name)":0}]}}`, js)
 }
