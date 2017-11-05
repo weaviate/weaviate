@@ -56,7 +56,6 @@ func populateGraphExport(t *testing.T) {
 		`<2> <name> "pho\ton"@en <author0> .`,
 		`<3> <name> "First Line\nSecondLine" .`,
 		"<1> <friend_not_served> <5> <author0> .",
-		`<5> <name> "" .`,
 	}
 	idMap := map[string]uint64{
 		"1": 1,
@@ -156,7 +155,7 @@ func TestExport(t *testing.T) {
 	for scanner.Scan() {
 		nq, err := rdf.Parse(scanner.Text())
 		require.NoError(t, err)
-		require.Contains(t, []string{"_:uid1", "_:uid2", "_:uid3", "_:uid4", "_:uid5"}, nq.Subject)
+		require.Contains(t, []string{"_:uid1", "_:uid2", "_:uid3", "_:uid4"}, nq.Subject)
 		if nq.ObjectValue != nil {
 			switch nq.Subject {
 			case "_:uid1", "_:uid2":
@@ -166,10 +165,6 @@ func TestExport(t *testing.T) {
 				require.Equal(t, &protos.Value{&protos.Value_DefaultVal{"First Line\nSecondLine"}},
 					nq.ObjectValue)
 			case "_:uid4":
-			case "_:uid5":
-				// Compare directly with the raw string to avoid the object
-				// being convert from "" to "_nil_" when it is parsed as an RDF.
-				require.Equal(t, `<_:uid5> <name> "" .`, scanner.Text())
 			default:
 				t.Errorf("Unexpected subject: %v", nq.Subject)
 			}
@@ -208,7 +203,7 @@ func TestExport(t *testing.T) {
 			require.Equal(t, 4, int(nq.Facets[4].ValType))
 		}
 		// Test label
-		if nq.Subject != "_:uid3" && nq.Subject != "_:uid5" {
+		if nq.Subject != "_:uid3" {
 			require.Equal(t, "author0", nq.Label)
 		} else {
 			require.Equal(t, "", nq.Label)
@@ -216,8 +211,8 @@ func TestExport(t *testing.T) {
 		count++
 	}
 	require.NoError(t, scanner.Err())
-	// This order will be preserved due to file naming.
-	require.Equal(t, 8, count)
+	// This order will be presereved due to file naming.
+	require.Equal(t, 7, count)
 
 	require.Equal(t, 1, len(schemaFileList))
 	file = schemaFileList[0]

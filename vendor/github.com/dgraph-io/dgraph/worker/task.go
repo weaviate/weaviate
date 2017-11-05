@@ -363,12 +363,7 @@ func handleValuePostings(ctx context.Context, args funcArgs) error {
 
 		if err != nil || len(vals) == 0 {
 			out.UidMatrix = append(out.UidMatrix, &emptyUIDList)
-			if q.DoCount {
-				out.Counts = append(out.Counts, 0)
-			} else {
-				out.ValueMatrix = append(out.ValueMatrix, &emptyValueList)
-				out.FacetMatrix = append(out.FacetMatrix, &protos.FacetsList{})
-			}
+			out.ValueMatrix = append(out.ValueMatrix, &emptyValueList)
 			continue
 		}
 
@@ -1443,9 +1438,7 @@ func (cp *countParams) evaluate(out *protos.Result) error {
 
 	for it.Seek(countKey); it.ValidForPrefix(countPrefix); it.Next() {
 		key := it.Item().Key()
-		nk := make([]byte, len(key))
-		copy(nk, key)
-		pl := posting.Get(nk)
+		pl := posting.Get(key)
 		out.UidMatrix = append(out.UidMatrix, pl.Uids(posting.ListOptions{}))
 	}
 	return nil
