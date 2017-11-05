@@ -546,7 +546,7 @@
     },
     "description": "Semantic Graphql, RESTful and MQTT Web of Things platform.",
     "title": "Weaviate - Semantic Graphql, RESTful and MQTT Web of Things platform.",
-    "version": "v0.6.0"
+    "version": "v0.6.1"
   },
   "parameters": {
     "CommonPageParameterQuery": {
@@ -792,7 +792,7 @@
     "/graphql": {
       "post": {
         "description": "Get an object based on GraphQL",
-        "operationId": "weavaite.graphql.post",
+        "operationId": "weaviate.graphql.post",
         "parameters": [
           {
             "in": "body",
