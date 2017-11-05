@@ -1,10 +1,7 @@
 #!/bin/bash
 
-set -e
-
 if [[ $TRAVIS_OS_NAME == "osx" ]]; then
-  brew update
-  brew install jq
+	brew install jq
 fi
 
 # Lets install the dependencies that are not vendored in anymore.
