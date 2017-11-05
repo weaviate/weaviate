@@ -69,11 +69,11 @@ func (s *stateGroup) DeleteAll() {
 	s.Lock()
 	defer s.Unlock()
 
-	for pred := range s.predicate {
-		// We set schema for _predicate_, hence it shouldn't be deleted.
-		if pred != x.PredicateListAttr {
-			delete(s.predicate, pred)
-		}
+	s.predicate = map[string]*protos.SchemaUpdate{
+		"_predicate_": &protos.SchemaUpdate{
+			ValueType: uint32(types.StringID),
+			List:      true,
+		},
 	}
 }
 
@@ -254,26 +254,6 @@ func Init(ps *badger.KV) {
 	go batchSync()
 }
 
-func Load(predicate string) error {
-	if len(predicate) == 0 {
-		return x.Errorf("Empty predicate")
-	}
-	key := x.SchemaKey(predicate)
-	var item badger.KVItem
-	err := pstore.Get(key, &item)
-	if err != nil {
-		return err
-	}
-	return item.Value(func(val []byte) error {
-		var s protos.SchemaUpdate
-		x.Check(s.Unmarshal(val))
-		State().Set(predicate, s)
-		State().elog.Printf(logUpdate(s, predicate))
-		x.Printf(logUpdate(s, predicate))
-		return nil
-	})
-}
-
 // LoadFromDb reads schema information from db and stores it in memory
 func LoadFromDb() error {
 	prefix := x.SchemaPrefix()
@@ -286,11 +266,7 @@ func LoadFromDb() error {
 		if !bytes.HasPrefix(key, prefix) {
 			break
 		}
-		pk := x.Parse(key)
-		if pk == nil {
-			continue
-		}
-		attr := pk.Attr
+		attr := x.Parse(key).Attr
 		var s protos.SchemaUpdate
 		err := item.Value(func(val []byte) error {
 			x.Checkf(s.Unmarshal(val), "Error while loading schema from db")
@@ -301,6 +277,10 @@ func LoadFromDb() error {
 		}
 		State().Set(attr, s)
 	}
+	State().Set("_predicate_", protos.SchemaUpdate{
+		ValueType: uint32(types.StringID),
+		List:      true,
+	})
 	return nil
 }
 

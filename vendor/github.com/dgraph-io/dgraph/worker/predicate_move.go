@@ -26,7 +26,6 @@ import (
 
 	"github.com/dgraph-io/badger"
 	"github.com/dgraph-io/dgraph/protos"
-	"github.com/dgraph-io/dgraph/schema"
 	"github.com/dgraph-io/dgraph/x"
 )
 
@@ -136,7 +135,6 @@ func batchAndProposeKeyValues(ctx context.Context, kvs chan *protos.KV) error {
 	proposal := &protos.Proposal{}
 	size := 0
 	firstKV := true
-	var predicate string
 
 	for kv := range kvs {
 		if size >= 32<<20 { // 32 MB
@@ -151,7 +149,6 @@ func batchAndProposeKeyValues(ctx context.Context, kvs chan *protos.KV) error {
 		if firstKV {
 			firstKV = false
 			pk := x.Parse(kv.Key)
-			predicate = pk.Attr
 			// Delete on all nodes.
 			p := &protos.Proposal{CleanPredicate: pk.Attr}
 			err := groups().Node.ProposeAndWait(ctx, p)
@@ -166,7 +163,7 @@ func batchAndProposeKeyValues(ctx context.Context, kvs chan *protos.KV) error {
 	if err := n.ProposeAndWait(ctx, proposal); err != nil {
 		return err
 	}
-	return schema.Load(predicate)
+	return nil
 }
 
 // Returns count which can be used to verify whether we have moved all keys
