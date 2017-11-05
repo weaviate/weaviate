@@ -217,11 +217,7 @@ BUCKETS:
 			return &sortresult{&emptySortResult, nil, ctx.Err()}
 		default:
 			k := x.Parse(key)
-			if k == nil {
-				it.Next()
-				continue
-			}
-
+			x.AssertTrue(k != nil)
 			x.AssertTrue(k.IsIndex())
 			token := k.Term
 			if tr, ok := trace.FromContext(ctx); ok {

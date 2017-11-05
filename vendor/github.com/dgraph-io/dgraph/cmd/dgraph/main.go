@@ -610,11 +610,10 @@ func setupListener(addr string, port int) (listener net.Listener, err error) {
 	} else {
 		var tlsCfg *tls.Config
 		tlsCfg, reload, err = x.GenerateTLSConfig(x.TLSHelperConfig{
-			ConfigType:             x.TLSServerConfig,
-			CertRequired:           tlsEnabled,
-			Cert:                   tlsCert,
-			Key:                    tlsKey,
-			KeyPassphrase:          tlsKeyPass,
+			ConfigType:   x.TLSServerConfig,
+			CertRequired: tlsEnabled,
+			Cert:         tlsCert,
+
 			ClientAuth:             tlsClientAuth,
 			ClientCACerts:          tlsClientCACerts,
 			UseSystemClientCACerts: tlsSystemCACerts,
@@ -741,7 +740,7 @@ func main() {
 	runtime.GOMAXPROCS(128)
 
 	setupConfigOpts() // flag.Parse is called here.
-	x.Init(dgraph.Config.DebugMode)
+	x.Init()
 
 	setupProfiling()
 

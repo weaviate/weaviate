@@ -52,9 +52,11 @@ You can download one of our nightly builds here:
 You can create an array of `environments` that should include:
 
 - **name** the name that you will use to refer to the configuration.
+- **cache** possiblity to add cache layer between database and core. Without cache layer Weaviate will connect directly to the DB.
+- **cache -> name** name of the cache layer (kv-cache is implemented)
 - **database -> name** name of the database.
 - **database -> database_config -> host** hostname of the DB.
-- **database -> database_config -> port** port of the databse.
+- **database -> database_config -> port** port of the database.
 - **schemas -> Thing** file or URL of a semantic schema of Things
 - **schemas -> Thing** file or URL of a semantic schema of Actions
 - **mqttEnabled** boolean, do you want to publish information on the MQTT busses?
@@ -66,6 +68,9 @@ Example of config file:
     "environments": [
         {
             "name": "default",
+            "cache": {
+                "name": "kv-cache"
+            },
             "database": {
                 "name": "dgraph",
                 "database_config" : {

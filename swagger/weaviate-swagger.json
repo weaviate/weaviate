@@ -1,0 +1,1482 @@
+{
+  "basePath": "/weaviate/v1",
+  "consumes": [
+    "application/json",
+    "application/xml",
+    "application/x-yaml",
+    "text/plain",
+    "application/octet-stream",
+    "multipart/form-data",
+    "application/x-www-form-urlencoded",
+    "application/json-patch+json"
+  ],
+  "definitions": {
+    "Action": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ActionCreate"
+        },
+        {
+          "properties": {
+            "key": {
+              "$ref": "#/definitions/SingleRef"
+            },
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this action in milliseconds since epoch UTC.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "lastUpdateTimeUnix": {
+              "description": "Timestamp since epoch of last update made to the action.",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        }
+      ],
+      "type": "object"
+    },
+    "ActionCreate": {
+      "properties": {
+        "@context": {
+          "description": "Available context schema.",
+          "type": "string"
+        },
+        "@class": {
+          "description": "Type of the Action, defined in the schema.",
+          "type": "string"
+        },
+        "things": {
+          "$ref": "#/definitions/ObjectSubject"
+        },
+        "schema": {
+          "$ref": "#/definitions/Schema"
+        }
+      },
+      "type": "object"
+    },
+    "ActionGetResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Action"
+        },
+        {
+          "properties": {
+            "actionId": {
+              "description": "ID of the action.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        }
+      ],
+      "type": "object"
+    },
+    "ActionsListResponse": {
+      "description": "List of actions for specific Thing.",
+      "properties": {
+        "actions": {
+          "description": "The actual list of actions.",
+          "items": {
+            "$ref": "#/definitions/ActionGetResponse"
+          },
+          "type": "array"
+        },
+        "totalResults": {
+          "description": "The total number of actions for the query. The number of items in a response may be smaller due to paging.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "ActionValidate": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ActionCreate"
+        }
+      ],
+      "type": "object"
+    },
+    "ErrorResponse": {
+      "description": "An error response given by Weaviate end-points.",
+      "properties": {
+        "error": {
+          "properties": {
+            "message": {
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "GraphQLError": {
+      "description": "Error messages responded only if error exists.",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "line": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "column": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          }
+        },
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "GraphQLQuery": {
+      "description": "GraphQL query based on: http://facebook.github.io/graphql/",
+      "properties": {
+        "query": {
+          "description": "Query based on GraphQL syntax",
+          "type": "string"
+        },
+        "operationName": {
+          "description": "Name of the operation if multiple exist in query.",
+          "type": "string"
+        },
+        "variables": {
+          "description": "Additional variables for the query.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "GraphQLResponse": {
+      "description": "GraphQL based repsonse: http://facebook.github.io/graphql/",
+      "properties": {
+        "data": {
+          "description": "GraphQL data object",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonObject"
+          }
+        },
+        "errors": {
+          "description": "Array with errors",
+          "items": {
+            "$ref": "#/definitions/GraphQLError"
+          },
+          "type": "array"
+        }
+      }
+    },
+    "JsonObject": {
+      "description": "JSON object value.",
+      "type": "object"
+    },
+    "Key": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/KeyCreate"
+        },
+        {
+          "properties": {
+            "parent": {
+              "$ref": "#/definitions/SingleRef"
+            }
+          }
+        }
+      ]
+    },
+    "KeyCreate": {
+      "properties": {
+        "delete": {
+          "description": "Is user allowed to delete.",
+          "type": "boolean"
+        },
+        "email": {
+          "description": "Email associated with this account.",
+          "type": "string"
+        },
+        "execute": {
+          "description": "Is user allowed to execute.",
+          "type": "boolean"
+        },
+        "ipOrigin": {
+          "description": "Origin of the IP using CIDR notation.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "keyExpiresUnix": {
+          "description": "Time as Unix timestamp that the key expires. Set to 0 for never.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "read": {
+          "description": "Is user allowed to read.",
+          "type": "boolean"
+        },
+        "write": {
+          "description": "Is user allowed to write.",
+          "type": "boolean"
+        }
+      }
+    },
+    "KeyChildrenGetResponse": {
+      "properties": {
+        "children": {
+          "$ref": "#/definitions/MultipleRef"
+        }
+      }
+    },
+    "KeyGetResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Key"
+        },
+        {
+          "properties": {
+            "keyId": {
+              "description": "Id of the key.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "KeyTokenGetResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/KeyGetResponse"
+        },
+        {
+          "properties": {
+            "token": {
+              "description": "Key for user to use.",
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "Meta": {
+      "description": "Contains meta information of the current Weaviate instance.",
+      "type": "object",
+      "properties": {
+        "hostname": {
+          "description": "The url of the host",
+          "format": "url",
+          "type": "string"
+        },
+        "thingsSchema": {
+          "$ref": "#/definitions/SemanticSchema"
+        },
+        "actionsSchema": {
+          "$ref": "#/definitions/SemanticSchema"
+        }
+      }
+    },
+    "MultipleRef": {
+      "description": "Multiple instances of references to other objects.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/SingleRef"
+      }
+    },
+    "ObjectSubject": {
+      "description": "returns a ref to the object and the subject",
+      "type": "object",
+      "properties": {
+        "object": {
+          "$ref": "#/definitions/SingleRef"
+        },
+        "subject": {
+          "$ref": "#/definitions/SingleRef"
+        }
+      }
+    },
+    "PatchDocument": {
+      "description": "A JSONPatch document as defined by RFC 6902.",
+      "required": [
+        "op",
+        "path"
+      ],
+      "properties": {
+        "op": {
+          "type": "string",
+          "description": "The operation to be performed.",
+          "enum": [
+            "add",
+            "remove",
+            "replace",
+            "move",
+            "copy",
+            "test"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "description": "A JSON-Pointer."
+        },
+        "value": {
+          "type": "object",
+          "description": "The value to be used within the operations."
+        },
+        "from": {
+          "type": "string",
+          "description": "A string containing a JSON Pointer value."
+        }
+      }
+    },
+    "SemanticSchema": {
+      "description": "Definitions of semantic schemas (also see: https://github.com/weaviate/weaviate-semantic-schemas)",
+      "type": "object",
+      "properties": {
+        "@context": {
+          "description": "URL of the context",
+          "format": "uri",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type of schema, should be \"thing\" or \"action\".",
+          "type": "string",
+          "enum": [
+            "thing",
+            "action"
+          ]
+        },
+        "version": {
+          "description": "Version number of the schema in semver format.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name of the schema",
+          "type": "string"
+        },
+        "maintainer": {
+          "description": "Email of the maintainer.",
+          "format": "email",
+          "type": "string"
+        },
+        "classes": {
+          "description": "Semantic classes that are available.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SemanticSchemaClass"
+          }
+        }
+      }
+    },
+    "SemanticSchemaClass": {
+      "type": "object",
+      "properties": {
+        "class": {
+          "description": "Name of the class as URI relative to the schema URL.",
+          "type": "string"
+        },
+        "description": {
+          "description": "Description of the class",
+          "type": "string"
+        },
+        "properties": {
+          "description": "The properties of the class.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SemanticSchemaClassProperty"
+          }
+        }
+      }
+    },
+    "SemanticSchemaClassProperty": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name of the property as URI relative to the schema URL.",
+          "type": "string"
+        },
+        "@dataType": {
+          "description": "Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise \"string\" or \"int\".",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "description": "Description of the property",
+          "type": "string"
+        }
+      }
+    },
+    "SingleRef": {
+      "properties": {
+        "$cref": {
+          "description": "Location of the cross reference.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "locationUrl": {
+          "description": "url of location. http://localhost means this database. This option can be used to refer to other databases.",
+          "format": "url",
+          "type": "string",
+          "default": "http://localhost/"
+        },
+        "type": {
+          "description": "Type should be Thing, Action or Key",
+          "type": "string",
+          "enum": [
+            "Thing",
+            "Action",
+            "Key"
+          ]
+        }
+      }
+    },
+    "Thing": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ThingCreate"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this thing in milliseconds since epoch UTC.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "key": {
+              "$ref": "#/definitions/SingleRef"
+            },
+            "lastUpdateTimeUnix": {
+              "description": "Timestamp of the last thing update in milliseconds since epoch UTC.",
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        }
+      ]
+    },
+    "ThingCreate": {
+      "type": "object",
+      "properties": {
+        "@context": {
+          "description": "Available context schema.",
+          "type": "string"
+        },
+        "@class": {
+          "description": "Class of the Thing, defined in the schema.",
+          "type": "string"
+        },
+        "schema": {
+          "$ref": "#/definitions/Schema"
+        }
+      }
+    },
+    "ThingGetResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Thing"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "thingId": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "ThingUpdate": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Thing"
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "ThingsListResponse": {
+      "description": "List of things.",
+      "properties": {
+        "things": {
+          "description": "The actual list of things.",
+          "items": {
+            "$ref": "#/definitions/ThingGetResponse"
+          },
+          "type": "array"
+        },
+        "totalResults": {
+          "description": "The total number of things for the query. The number of items in a response may be smaller due to paging.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Schema": {
+      "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "type": "object"
+    }
+  },
+  "externalDocs": {
+    "url": "https://weaviate.com"
+  },
+  "info": {
+    "contact": {
+      "name": "Weaviate",
+      "url": "https://weaviate.com",
+      "email": "yourfriends@weaviate.com"
+    },
+    "description": "Semantic Graphql, RESTful and MQTT Web of Things platform.",
+    "title": "Weaviate - Semantic Graphql, RESTful and MQTT Web of Things platform.",
+    "version": "v0.6.1"
+  },
+  "parameters": {
+    "CommonPageParameterQuery": {
+      "name": "page",
+      "description": "The page number of the items to be returned.",
+      "format": "int64",
+      "type": "integer",
+      "in": "query",
+      "required": false
+    },
+    "CommonMaxResultsParameterQuery": {
+      "name": "maxResults",
+      "description": "The maximum number of items to be returned per page.",
+      "format": "int64",
+      "type": "integer",
+      "in": "query",
+      "required": false
+    }
+  },
+  "paths": {
+    "/actions": {
+      "post": {
+        "description": "Create action.",
+        "operationId": "weaviate.actions.create",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ActionCreate"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Create actions between two things (object and subject).",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/actions/{actionId}": {
+      "delete": {
+        "description": "Deletes an action from the system.",
+        "operationId": "weaviate.actions.delete",
+        "parameters": [
+          {
+            "description": "Unique ID of the thing.",
+            "format": "uuid",
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Delete an action based on its uuid related to this key.",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-mqtt": false
+      },
+      "get": {
+        "description": "Lists actions.",
+        "operationId": "weaviate.actions.get",
+        "parameters": [
+          {
+            "description": "Unique ID of the action.",
+            "format": "uuid",
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a specific action based on its uuid and a thing uuid related to this key. Also available as MQTT bus.",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-mqtt": false
+      },
+      "patch": {
+        "description": "Updates an action. This method supports patch semantics.",
+        "operationId": "weaviate.actions.patch",
+        "parameters": [
+          {
+            "description": "Unique ID of the action.",
+            "format": "uuid",
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "JSONPatch document as defined by RFC 6902.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PatchDocument"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful updated.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Update an action based on its uuid (using patch semantics) related to this key.",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/actions/validate": {
+      "post": {
+        "description": "Validate an action object. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
+        "operationId": "weaviate.actions.validate",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ActionValidate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful validated."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Validate an action based on a schema.",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/graphql": {
+      "post": {
+        "description": "Get an object based on GraphQL",
+        "operationId": "weaviate.graphql.post",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "description": "The GraphQL query request parameters.",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GraphQLQuery"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Succesful query (with select).",
+            "schema": {
+              "$ref": "#/definitions/GraphQLResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a response based on GraphQL",
+        "tags": [
+          "graphql"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/keys": {
+      "post": {
+        "description": "Creates a new key.",
+        "operationId": "weaviate.key.create",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/KeyCreate"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/KeyTokenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Create a new key related to this key.",
+        "tags": [
+          "keys"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/keys/{keyId}": {
+      "delete": {
+        "description": "Deletes a key. Only parent or self is allowed to delete key.",
+        "operationId": "weaviate.keys.delete",
+        "parameters": [
+          {
+            "description": "Unique ID of the key.",
+            "format": "uuid",
+            "in": "path",
+            "name": "keyId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Delete a key based on its uuid related to this key.",
+        "tags": [
+          "keys"
+        ],
+        "x-available-in-mqtt": false
+      },
+      "get": {
+        "description": "Get a key.",
+        "operationId": "weaviate.keys.get",
+        "parameters": [
+          {
+            "description": "Unique ID of the key.",
+            "format": "uuid",
+            "in": "path",
+            "name": "keyId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a key based on its uuid related to this key.",
+        "tags": [
+          "keys"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/keys/{keyId}/children": {
+      "get": {
+        "description": "Get children of a key, only one step deep. A child can have children of its own.",
+        "operationId": "weaviate.keys.children.get",
+        "parameters": [
+          {
+            "description": "Unique ID of the key.",
+            "format": "uuid",
+            "in": "path",
+            "name": "keyId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyChildrenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented"
+          }
+        },
+        "summary": "Get an object of this keys' children related to this key.",
+        "tags": [
+          "keys"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/keys/me": {
+      "get": {
+        "description": "Get the key-information of the key used.",
+        "operationId": "weaviate.keys.me.get",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyTokenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a key based on the key used to do the request.",
+        "tags": [
+          "keys"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/keys/me/children": {
+      "get": {
+        "description": "Get children of used key, only one step deep. A child can have children of its own.",
+        "operationId": "weaviate.keys.me.children.get",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyChildrenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented"
+          }
+        },
+        "summary": "Get an object of this keys' children related to the key used for request.",
+        "tags": [
+          "keys"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/meta": {
+      "get": {
+        "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
+        "operationId": "weaviate.meta.get",
+        "produces": [
+          "application/json"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/Meta"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "501": {
+            "description": "Not (yet) implemented"
+          }
+        },
+        "summary": "Returns meta information of the current Weaviate instance.",
+        "tags": [
+          "meta"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/things": {
+      "get": {
+        "description": "Lists all things in reverse order of creation, owned by the user that belongs to the used token.",
+        "operationId": "weaviate.things.list",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ThingsListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a list of things related to this key.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": false
+      },
+      "post": {
+        "description": "Registers a new thing. This method may be used only by aggregator things or adapters.",
+        "operationId": "weaviate.things.create",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ThingCreate"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Create a new thing based on a thing template related to this key.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/things/validate": {
+      "post": {
+        "description": "Validate thing.",
+        "operationId": "weaviate.things.validate",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ThingCreate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful validated."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Validate Things schema.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/things/{thingId}": {
+      "delete": {
+        "description": "Deletes a thing from the system.",
+        "operationId": "weaviate.things.delete",
+        "parameters": [
+          {
+            "description": "Unique ID of the thing.",
+            "format": "uuid",
+            "in": "path",
+            "name": "thingId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Delete a thing based on its uuid related to this key.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": false
+      },
+      "get": {
+        "description": "Returns a particular thing data.",
+        "operationId": "weaviate.things.get",
+        "parameters": [
+          {
+            "description": "Unique ID of the thing.",
+            "format": "uuid",
+            "in": "path",
+            "name": "thingId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a thing based on its uuid related to this key.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": false
+      },
+      "patch": {
+        "description": "Updates a thing data. This method supports patch semantics.",
+        "operationId": "weaviate.things.patch",
+        "parameters": [
+          {
+            "description": "Unique ID of the thing.",
+            "format": "uuid",
+            "in": "path",
+            "name": "thingId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "JSONPatch document as defined by RFC 6902.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/PatchDocument"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful update.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
+          "400": {
+            "description": "The patch-JSON is malformed."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "The patch-JSON is valid but unprocessable.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Update a thing based on its uuid (using patch semantics) related to this key.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": false
+      },
+      "put": {
+        "description": "Updates a thing data.",
+        "operationId": "weaviate.things.update",
+        "parameters": [
+          {
+            "description": "Unique ID of the thing.",
+            "format": "uuid",
+            "in": "path",
+            "name": "thingId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ThingUpdate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful update.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Update a thing based on its uuid related to this key.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": false
+      }
+    },
+    "/things/{thingId}/actions": {
+      "get": {
+        "description": "Returns the actions of a thing in a list.",
+        "operationId": "weaviate.things.actions.list",
+        "parameters": [
+          {
+            "description": "Unique ID of the thing.",
+            "format": "uuid",
+            "in": "path",
+            "name": "thingId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a thing based on its uuid related to this thing. Also available as MQTT.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": true
+      }
+    }
+  },
+  "produces": [
+    "application/json",
+    "application/xml",
+    "application/x-yaml",
+    "text/plain",
+    "application/octet-stream",
+    "multipart/form-data",
+    "application/x-www-form-urlencoded"
+  ],
+  "schemes": [
+    "https"
+  ],
+  "securityDefinitions": {
+    "apiKey": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-API-KEY"
+    }
+  },
+  "security": [
+    {
+      "apiKey": []
+    }
+  ],
+  "swagger": "2.0",
+  "tags": [
+    {
+      "name": "actions"
+    },
+    {
+      "name": "graphql"
+    },
+    {
+      "name": "keys"
+    },
+    {
+      "name": "meta"
+    },
+    {
+      "name": "things"
+    }
+  ]
+}
