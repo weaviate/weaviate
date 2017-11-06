@@ -1,7 +1,7 @@
 {
     "environments": [
         {
-            "name": "test",
+            "name": "test-dgraph",
             "cache": {
                 "name": "kv-cache"
             },
@@ -10,6 +10,21 @@
                 "database_config" : {
                     "host": "127.0.0.1",
                     "port": 9080
+                }
+            },
+            "schemas": {
+                "Thing": "test/schema/test-thing-schema.json",
+                "Action": "test/schema/test-action-schema.json"
+            },
+            "mqttEnabled": false
+        },
+        {
+            "name": "test-gremlin",
+            "database": {
+                "name": "gremlin",
+                "database_config" : {
+                    "host": "127.0.0.1",
+                    "port": 8182
                 }
             },
             "schemas": {
