@@ -32,7 +32,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"github.com/dgraph-io/badger"
-	"github.com/dgraph-io/badger/options"
+	"github.com/dgraph-io/badger/table"
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/x"
 )
@@ -45,7 +45,6 @@ var (
 	ErrEmptyVar       = errors.New("Empty variable name.")
 	ErrNotConnected   = errors.New("Edge needs to be connected to another node or a value.")
 	ErrInvalidSubject = errors.New("Edge should have one of Subject/SubjectVar set.")
-	ErrEmptyPredicate = errors.New("Edge should have a predicate set.")
 	ErrMaxTries       = errors.New("Max retries exceeded for request while doing batch mutations.")
 	emptyEdge         Edge
 )
@@ -92,7 +91,6 @@ func (a *allocator) fetchOne() (uint64, error) {
 		for {
 			assignedIds, err := a.dc.AssignUids(context.Background(), &protos.Num{Val: 1000})
 			if err != nil {
-				x.Printf("Error while getting lease %v\n", err)
 				time.Sleep(factor)
 				if factor < 256*time.Second {
 					factor = factor * 2
@@ -117,25 +115,18 @@ func (a *allocator) fetchOne() (uint64, error) {
 
 func (a *allocator) getFromKV(id string) (uint64, error) {
 	var item badger.KVItem
-	var err error
-	if err = a.kv.Get([]byte(id), &item); err != nil {
+	if err := a.kv.Get([]byte(id), &item); err != nil {
 		return 0, err
 	}
-
-	var uid uint64
-	err = item.Value(func(val []byte) error {
-		if len(val) > 0 {
-			var n int
-			uid, n = binary.Uvarint(val)
-			if n <= 0 {
-				return fmt.Errorf("Unable to parse val %q to uint64 for %q", val, id)
-			}
+	val := item.Value()
+	if len(val) > 0 {
+		uid, n := binary.Uvarint(val)
+		if n <= 0 {
+			return 0, fmt.Errorf("Unable to parse val %q to uint64 for %q", val, id)
 		}
-		return nil
-
-	})
-
-	return uid, err
+		return uid, nil
+	}
+	return 0, nil
 }
 
 func (a *allocator) assignOrGet(id string) (uid uint64, isNew bool, err error) {
@@ -233,7 +224,7 @@ func NewClient(clients []protos.DgraphClient, opts BatchMutationOptions, clientD
 	x.Check(os.MkdirAll(clientDir, 0700))
 	opt := badger.DefaultOptions
 	opt.SyncWrites = true // So that checkpoints are persisted immediately.
-	opt.TableLoadingMode = options.MemoryMap
+	opt.MapTablesTo = table.MemoryMap
 	opt.Dir = clientDir
 	opt.ValueDir = clientDir
 
@@ -314,7 +305,8 @@ func (d *Dgraph) batchSync() {
 		loop++
 
 		for _, e := range entries {
-			buf := make([]byte, binary.MaxVarintLen64)
+			// Atmost 10 bytes are needed for uvarint encoding
+			buf := make([]byte, 10)
 			n := binary.PutUvarint(buf[:], e.value)
 			wb = badger.EntriesSet(wb, []byte(e.key), buf[:n])
 		}
@@ -379,10 +371,9 @@ RETRY:
 
 	// Mark watermarks as done.
 	if req.line != 0 && req.mark != nil {
-		req.mark.Done(req.line)
-		req.markWg.Done()
+		atomic.AddUint64(&d.rdfs, uint64(req.size()))
+		req.mark.Ch <- x.Mark{Index: req.line, Done: true}
 	}
-	atomic.AddUint64(&d.rdfs, uint64(req.Size()))
 	return nil
 }
 
@@ -420,7 +411,7 @@ LOOP:
 				return
 			}
 			start := time.Now()
-			if req.Size() > 0 {
+			if req.size() > 0 {
 				d.request(req)
 				req = new(Req)
 			}
@@ -431,7 +422,7 @@ LOOP:
 		}
 	}
 
-	if req.Size() > 0 {
+	if req.size() > 0 {
 		d.request(req)
 	}
 	d.che <- nil
@@ -451,13 +442,13 @@ func (d *Dgraph) batchNquads() {
 		} else if n.op == DEL {
 			req.Delete(n.e)
 		}
-		if req.Size() == d.opts.Size {
+		if req.size() == d.opts.Size {
 			d.reqs <- req
 			req = new(Req)
 		}
 	}
 
-	if req.Size() > 0 {
+	if req.size() > 0 {
 		d.reqs <- req
 	}
 	close(d.reqs)
@@ -490,7 +481,7 @@ L:
 
 // BatchSetWithMark takes a Req which has a batch of edges. It accepts a file to which the edges
 // belong and also the line number of the last line that the batch contains. This is used by the
-// dgraph-live-loader to do checkpointing so that in case the loader crashes, we can skip the lines
+// dgraphloader to do checkpointing so that in case the loader crashes, we can skip the lines
 // which the server has already processed. Most users would only need BatchSet which does the
 // batching automatically.
 func (d *Dgraph) BatchSetWithMark(r *Req, file string, line uint64) error {
@@ -498,9 +489,7 @@ func (d *Dgraph) BatchSetWithMark(r *Req, file string, line uint64) error {
 	if sm.mark != nil && line != 0 {
 		r.mark = sm.mark
 		r.line = line
-		r.markWg = sm.wg
-		sm.mark.Begin(line)
-		sm.wg.Add(1)
+		sm.mark.Ch <- x.Mark{Index: line}
 	}
 
 L:
@@ -543,21 +532,6 @@ L:
 	}
 	atomic.AddUint64(&d.rdfs, 1)
 	return nil
-}
-
-// DropAll deletes all edges and schema from Dgraph.
-func (d *Dgraph) DropAll() error {
-	req := &Req{
-		gr: protos.Request{
-			Mutation: &protos.Mutation{DropAll: true},
-		},
-	}
-	select {
-	case d.reqs <- req:
-		return nil
-	case <-d.opts.Ctx.Done():
-		return d.opts.Ctx.Err()
-	}
 }
 
 // AddSchema adds the given schema mutation to the batch of schema mutations.  If the schema
@@ -622,7 +596,9 @@ func (d *Dgraph) BatchFlush() error {
 	// After we have received response from server and sent the marks for completion,
 	// we need to wait for all of them to be processed.
 	for _, wm := range d.marks {
-		wm.wg.Wait()
+		for wm.mark.WaitingFor() {
+			time.Sleep(100 * time.Millisecond)
+		}
 	}
 	// Write final checkpoint before stopping.
 	d.writeCheckpoint()
@@ -691,11 +667,7 @@ func (d *Dgraph) BatchFlush() error {
 // It's often easier to unpack directly into a struct with Unmarshal, than to
 // step through the response.
 func (d *Dgraph) Run(ctx context.Context, req *Req) (*protos.Response, error) {
-	res, err := d.dc[rand.Intn(len(d.dc))].Run(ctx, &req.gr)
-	if err == nil {
-		req = &Req{}
-	}
-	return res, err
+	return d.dc[rand.Intn(len(d.dc))].Run(ctx, &req.gr)
 }
 
 // Counter returns the current state of the BatchMutation.
@@ -707,7 +679,7 @@ func (d *Dgraph) Counter() Counter {
 	}
 }
 
-// CheckVersion checks if the version of dgraph and dgraph-live-loader are the same.  If either the
+// CheckVersion checks if the version of dgraph and dgraphloader are the same.  If either the
 // versions don't match or the version information could not be obtained an error message is
 // printed.
 func (d *Dgraph) CheckVersion(ctx context.Context) {
@@ -754,8 +726,8 @@ func (d *Dgraph) NodeBlank(varname string) (Node, error) {
 }
 
 // NodeXid creates or returns a Node given a string name for an XID node. An XID node identifies a
-// node with an edge xid, as in
-// 	node --- xid ---> XID string
+// node with an edge _xid_, as in
+// 	node --- _xid_ ---> XID string
 // See https://docs.dgraph.io/query-language/#external-ids If the XID has already been allocated
 // in this client session the allocated UID is returned, otherwise a new UID is allocated
 // for xid and returned.

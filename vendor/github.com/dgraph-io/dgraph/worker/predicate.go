@@ -20,13 +20,13 @@ package worker
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
 	"io"
+	"sort"
 
 	"github.com/dgraph-io/badger"
 	"golang.org/x/net/trace"
 
-	"github.com/dgraph-io/dgraph/conn"
+	"github.com/dgraph-io/dgraph/group"
 	"github.com/dgraph-io/dgraph/posting"
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/x"
@@ -38,31 +38,19 @@ const (
 )
 
 // writeBatch performs a batch write of key value pairs to RocksDB.
-func writeBatch(ctx context.Context, pstore *badger.KV, kv chan *protos.KV, che chan error) {
+func writeBatch(ctx context.Context, kv chan *protos.KV, che chan error) {
 	wb := make([]*badger.Entry, 0, 100)
 	batchSize := 0
 	batchWriteNum := 1
 	for i := range kv {
-		if len(i.Val) == 0 {
-			wb = badger.EntriesDelete(wb, i.Key)
-		} else {
-			entry := &badger.Entry{
-				Key:      i.Key,
-				Value:    i.Val,
-				UserMeta: i.UserMeta[0],
-			}
-			wb = append(wb, entry)
-		}
+		wb = badger.EntriesSet(wb, i.Key, i.Val)
 		batchSize += len(i.Key) + len(i.Val)
 		// We write in batches of size 32MB.
 		if batchSize >= 32*MB {
 			if tr, ok := trace.FromContext(ctx); ok {
 				tr.LazyPrintf("SNAPSHOT: Doing batch write num: %d", batchWriteNum)
 			}
-			if err := pstore.BatchSet(wb); err != nil {
-				che <- err
-				return
-			}
+			pstore.BatchSet(wb)
 
 			batchWriteNum++
 			// Resetting batch size after a batch write.
@@ -76,20 +64,17 @@ func writeBatch(ctx context.Context, pstore *badger.KV, kv chan *protos.KV, che 
 		if tr, ok := trace.FromContext(ctx); ok {
 			tr.LazyPrintf("Doing batch write %d.", batchWriteNum)
 		}
-		if err := pstore.BatchSet(wb); err != nil {
-			che <- err
-			return
-		}
+		pstore.BatchSet(wb)
 	}
 	che <- nil
 }
 
-func streamKeys(pstore *badger.KV, stream protos.Worker_PredicateAndSchemaDataClient) error {
+func streamKeys(stream protos.Worker_PredicateAndSchemaDataClient, groupId uint32) error {
 	it := pstore.NewIterator(badger.DefaultIteratorOptions)
 	defer it.Close()
 
 	g := &protos.GroupKeys{
-		GroupId: groups().groupId(),
+		GroupId: groupId,
 	}
 
 	// Do NOT go to next by default. Be careful when you "continue" in loop.
@@ -108,24 +93,20 @@ func streamKeys(pstore *badger.KV, stream protos.Worker_PredicateAndSchemaDataCl
 			// Do not go next.
 			continue
 		}
-
-		if !groups().ServesTablet(pk.Attr) {
+		if group.BelongsTo(pk.Attr) != g.GroupId {
 			it.Seek(pk.SkipPredicate())
+			// Do not go next.
 			continue
 		}
+
+		var pl protos.PostingList
+		posting.UnmarshalWithCopy(iterItem.Value(), iterItem.UserMeta(), &pl)
 
 		kdup := make([]byte, len(k))
 		copy(kdup, k)
 		key := &protos.KC{
-			Key: kdup,
-		}
-		err := iterItem.Value(func(val []byte) error {
-			checksum := md5.Sum(val)
-			key.Checksum = checksum[:]
-			return nil
-		})
-		if err != nil {
-			return err
+			Key:      kdup,
+			Checksum: pl.Checksum,
 		}
 		g.Keys = append(g.Keys, key)
 		if len(g.Keys) >= 1000 {
@@ -144,7 +125,7 @@ func streamKeys(pstore *badger.KV, stream protos.Worker_PredicateAndSchemaDataCl
 
 // PopulateShard gets data for predicate pred from server with id serverId and
 // writes it to RocksDB.
-func populateShard(ctx context.Context, ps *badger.KV, pl *conn.Pool, group uint32) (int, error) {
+func populateShard(ctx context.Context, pl *pool, group uint32) (int, error) {
 	conn := pl.Get()
 	c := protos.NewWorkerClient(conn)
 
@@ -159,7 +140,7 @@ func populateShard(ctx context.Context, ps *badger.KV, pl *conn.Pool, group uint
 		tr.LazyPrintf("Streaming data for group: %v", group)
 	}
 
-	if err := streamKeys(ps, stream); err != nil {
+	if err := streamKeys(stream, group); err != nil {
 		if tr, ok := trace.FromContext(ctx); ok {
 			tr.LazyPrintf(err.Error())
 		}
@@ -168,7 +149,7 @@ func populateShard(ctx context.Context, ps *badger.KV, pl *conn.Pool, group uint
 
 	kvs := make(chan *protos.KV, 1000)
 	che := make(chan error)
-	go writeBatch(ctx, ps, kvs, che)
+	go writeBatch(ctx, kvs, che)
 
 	// We can use count to check the number of posting lists returned in tests.
 	count := 0
@@ -195,14 +176,13 @@ func populateShard(ctx context.Context, ps *badger.KV, pl *conn.Pool, group uint
 				tr.LazyPrintf("Context timed out while streaming group: %v", group)
 			}
 			close(kvs)
-			return 0, ctx.Err()
+			return count, ctx.Err()
 		case err := <-che:
 			if tr, ok := trace.FromContext(ctx); ok {
 				tr.LazyPrintf("Error while doing a batch write for group: %v", group)
 			}
 			close(kvs)
-			// Important: Don't put return count, err
-			return 0, err
+			return count, err
 		}
 	}
 	close(kvs)
@@ -225,8 +205,6 @@ func (w *grpcWorker) PredicateAndSchemaData(stream protos.Worker_PredicateAndSch
 	gkeys := &protos.GroupKeys{}
 
 	// Receive all keys from client first.
-	// TODO: Weird that we batch keys in batches of 1000 on the client, but but not here.
-	// TODO: Don't fetch all at once, use stream and iterate in parallel
 	for {
 		keys, err := stream.Recv()
 		if err == io.EOF {
@@ -247,21 +225,18 @@ func (w *grpcWorker) PredicateAndSchemaData(stream protos.Worker_PredicateAndSch
 		tr.LazyPrintf("Got %d keys from client\n", len(gkeys.Keys))
 	}
 
-	if !x.IsTestRun() {
-		if !groups().ServesGroup(gkeys.GroupId) {
-			return x.Errorf("Group %d not served.", gkeys.GroupId)
-		}
-		n := groups().Node
-		if !n.AmLeader() {
-			return x.Errorf("Not leader of group: %d", gkeys.GroupId)
-		}
+	if !groups().ServesGroup(gkeys.GroupId) {
+		return x.Errorf("Group %d not served.", gkeys.GroupId)
+	}
+	n := groups().Node(gkeys.GroupId)
+	if !n.AmLeader() {
+		return x.Errorf("Not leader of group: %d", gkeys.GroupId)
 	}
 
 	it := pstore.NewIterator(badger.DefaultIteratorOptions)
 	defer it.Close()
 
 	var count int
-	var gidx int
 	// Do NOT it.Next() by default. Be careful when you "continue" in loop!
 	for it.Rewind(); it.Valid(); {
 		iterItem := it.Item()
@@ -272,55 +247,44 @@ func (w *grpcWorker) PredicateAndSchemaData(stream protos.Worker_PredicateAndSch
 			it.Next()
 			continue
 		}
-
-		// No checksum check for schema keys
-		var v []byte
-		err := iterItem.Value(func(val []byte) error {
-			v = make([]byte, len(val))
-			// Copy it as we have to access it outside.
-			copy(v, val)
-			return nil
-		})
-		if err != nil {
-			return err
+		if group.BelongsTo(pk.Attr) != gkeys.GroupId && !pk.IsSchema() {
+			it.Seek(pk.SkipPredicate())
+			// Do not go next.
+			continue
+		} else if group.BelongsTo(pk.Attr) != gkeys.GroupId {
+			it.Next()
+			continue
 		}
 
+		// No checksum check for schema keys
+		v := iterItem.Value()
 		if !pk.IsSchema() {
 			var pl protos.PostingList
-			posting.UnmarshalOrCopy(v, iterItem.UserMeta(), &pl)
+			posting.UnmarshalWithCopy(v, iterItem.UserMeta(), &pl)
 
-			// If a key is present in follower but not in leader, send a kv with empty value
-			// so that the follower can delete it
-			for gidx < len(gkeys.Keys) && bytes.Compare(gkeys.Keys[gidx].Key, k) < 0 {
-				kv := &protos.KV{Key: gkeys.Keys[gidx].Key}
-				gidx++
-				if err := stream.Send(kv); err != nil {
-					return err
-				}
-			}
+			idx := sort.Search(len(gkeys.Keys), func(i int) bool {
+				t := gkeys.Keys[i]
+				return bytes.Compare(k, t.Key) <= 0
+			})
 
-			// Found a match.
-			if gidx < len(gkeys.Keys) && bytes.Compare(k, gkeys.Keys[gidx].Key) == 0 {
-				t := gkeys.Keys[gidx]
-				gidx++
+			if idx < len(gkeys.Keys) {
+				// Found a match.
+				t := gkeys.Keys[idx]
 				// Different keys would have the same prefix. So, check Checksum first,
 				// it would be cheaper when there's no match.
-				// TODO: What if checksum collides ?
-				checksum := md5.Sum(v)
-				if bytes.Equal(checksum[:], t.Checksum) {
+				if bytes.Equal(pl.Checksum, t.Checksum) && bytes.Equal(k, t.Key) {
+					// No need to send this.
 					it.Next()
 					continue
 				}
 			}
 		}
-		// TODO - Verify that schema key is deleted from follower after leader deletes it.
 
 		// We just need to stream this kv. So, we can directly use the key
 		// and val without any copying.
 		kv := &protos.KV{
-			Key:      k,
-			Val:      v,
-			UserMeta: []byte{iterItem.UserMeta()},
+			Key: k,
+			Val: v,
 		}
 
 		count++
@@ -329,14 +293,6 @@ func (w *grpcWorker) PredicateAndSchemaData(stream protos.Worker_PredicateAndSch
 		}
 		it.Next()
 	} // end of iterator
-	// All these keys are not present in leader, so mark them for deletion
-	for gidx < len(gkeys.Keys) {
-		kv := &protos.KV{Key: gkeys.Keys[gidx].Key}
-		gidx++
-		if err := stream.Send(kv); err != nil {
-			return err
-		}
-	}
 	if tr, ok := trace.FromContext(stream.Context()); ok {
 		tr.LazyPrintf("Sent %d keys to client. Done.\n", count)
 	}

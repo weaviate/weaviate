@@ -147,20 +147,16 @@
 			"revisionTime": "2016-10-10T02:54:55Z"
 		},
 		{
-			"checksumSHA1": "h1nLibY0IliypSG0cwbXpSpcsMA=",
+			"checksumSHA1": "jw+XDfPJgogfSPCsuebqFZj/GJc=",
 			"path": "github.com/coreos/etcd/raft",
-			"revision": "9d43462d174c664f5edf313dec0de31e1ef4ed47",
-			"revisionTime": "2017-08-21T17:40:55Z",
-			"version": "v3.2.6",
-			"versionExact": "v3.2.6"
+			"revision": "1ebeef5cbfe69c0dab2bc701ee5307eed7a7d8d2",
+			"revisionTime": "2016-09-05T06:26:19Z"
 		},
 		{
-			"checksumSHA1": "L0Ds4Qp/I/bPN9+y+0zN2SF0KJg=",
+			"checksumSHA1": "7iseLdwhxsT7LD5n3g01bfpTd/0=",
 			"path": "github.com/coreos/etcd/raft/raftpb",
-			"revision": "9d43462d174c664f5edf313dec0de31e1ef4ed47",
-			"revisionTime": "2017-08-21T17:40:55Z",
-			"version": "v3.2.6",
-			"versionExact": "v3.2.6"
+			"revision": "1ebeef5cbfe69c0dab2bc701ee5307eed7a7d8d2",
+			"revisionTime": "2016-09-05T06:26:19Z"
 		},
 		{
 			"checksumSHA1": "Lf3uUXTkKK5DJ37BxQvxO1Fq+K8=",
@@ -169,40 +165,34 @@
 			"revisionTime": "2016-09-07T16:21:46Z"
 		},
 		{
-			"checksumSHA1": "UEpH8OEeMQV+vj5yjEV8Gcz7fgU=",
+			"checksumSHA1": "29slN5NTh9oH+D8arfNLl4zyBiA=",
 			"path": "github.com/dgraph-io/badger",
-			"revision": "7f945c8fffd35e73f278fc3f0bce9961398dc1e1",
-			"revisionTime": "2017-09-28T02:11:23Z"
-		},
-		{
-			"checksumSHA1": "oOuT7ebEiZ1ViHLKdFxKFOvobAQ=",
-			"path": "github.com/dgraph-io/badger/options",
-			"revision": "7f945c8fffd35e73f278fc3f0bce9961398dc1e1",
-			"revisionTime": "2017-09-28T02:11:23Z"
+			"revision": "ad23a425b3c87b8223780cb882bed568ca14b9f0",
+			"revisionTime": "2017-08-15T01:13:50Z"
 		},
 		{
 			"checksumSHA1": "FB7rDZgiLfpIGi9RqWbgxjZ0Vjg=",
 			"path": "github.com/dgraph-io/badger/protos",
-			"revision": "7f945c8fffd35e73f278fc3f0bce9961398dc1e1",
-			"revisionTime": "2017-09-28T02:11:23Z"
+			"revision": "ad23a425b3c87b8223780cb882bed568ca14b9f0",
+			"revisionTime": "2017-08-15T01:13:50Z"
 		},
 		{
-			"checksumSHA1": "+WRzlEkaNDITqaYzuG1z3NwxDZo=",
+			"checksumSHA1": "DqFosafuhUYdRhCpNRAe57ph4ms=",
 			"path": "github.com/dgraph-io/badger/skl",
-			"revision": "7f945c8fffd35e73f278fc3f0bce9961398dc1e1",
-			"revisionTime": "2017-09-28T02:11:23Z"
+			"revision": "ad23a425b3c87b8223780cb882bed568ca14b9f0",
+			"revisionTime": "2017-08-15T01:13:50Z"
 		},
 		{
-			"checksumSHA1": "p03nWiAKduR/uci7cdpIba0lA1E=",
+			"checksumSHA1": "eQhOsB1q3Le/PbKaP0mupNkGdN0=",
 			"path": "github.com/dgraph-io/badger/table",
-			"revision": "7f945c8fffd35e73f278fc3f0bce9961398dc1e1",
-			"revisionTime": "2017-09-28T02:11:23Z"
+			"revision": "ad23a425b3c87b8223780cb882bed568ca14b9f0",
+			"revisionTime": "2017-08-15T01:13:50Z"
 		},
 		{
-			"checksumSHA1": "yi7zCzAJ9WzSo3/IVcMn3ALfEx0=",
+			"checksumSHA1": "Mrpn82hjQ5gbtBfo4FbKu1NRU7Y=",
 			"path": "github.com/dgraph-io/badger/y",
-			"revision": "7f945c8fffd35e73f278fc3f0bce9961398dc1e1",
-			"revisionTime": "2017-09-28T02:11:23Z"
+			"revision": "ad23a425b3c87b8223780cb882bed568ca14b9f0",
+			"revisionTime": "2017-08-15T01:13:50Z"
 		},
 		{
 			"checksumSHA1": "a29TtOU87eZA0S6wL+rAkpqUEzc=",
@@ -211,46 +201,40 @@
 			"revisionTime": "2015-09-09T17:09:13Z"
 		},
 		{
-			"checksumSHA1": "aZgc99rAVaEA9gYf6D4n1iF8oHs=",
-			"path": "github.com/gogo/protobuf/jsonpb",
-			"revision": "e57a569e1882958f6b188cb42231d6db87701f2a",
-			"revisionTime": "2016-07-19T14:39:48Z"
-		},
-		{
 			"checksumSHA1": "HIXTnq2r3h/9X1lc7Td4AopDmZs=",
 			"path": "github.com/gogo/protobuf/proto",
 			"revision": "e57a569e1882958f6b188cb42231d6db87701f2a",
 			"revisionTime": "2016-07-19T14:39:48Z"
 		},
 		{
-			"checksumSHA1": "ewUc/AddabJQQ6xmSgRTY+T5cRg=",
+			"checksumSHA1": "/iFfZBskKPCDfxdzgmbVw5OBd/Y=",
 			"path": "github.com/golang/geo/r1",
-			"revision": "31fb0106dc4a947e5aaee1fe186e56447f839510",
-			"revisionTime": "2017-08-10T00:29:00Z"
+			"revision": "3a42ea109208469f16baf9e090135dd0e82ece5c",
+			"revisionTime": "2016-07-25T01:59:00Z"
 		},
 		{
 			"checksumSHA1": "bhbWcOOLa1ovcW+EwRoX6YuxxIg=",
 			"path": "github.com/golang/geo/r2",
-			"revision": "31fb0106dc4a947e5aaee1fe186e56447f839510",
-			"revisionTime": "2017-08-10T00:29:00Z"
+			"revision": "3a42ea109208469f16baf9e090135dd0e82ece5c",
+			"revisionTime": "2016-07-25T01:59:00Z"
 		},
 		{
-			"checksumSHA1": "NKLkQBzGY85mQ+JJEJa2QkZAoRE=",
+			"checksumSHA1": "tZc17BIf/0Lt8JXT/lBntM2fuSk=",
 			"path": "github.com/golang/geo/r3",
-			"revision": "31fb0106dc4a947e5aaee1fe186e56447f839510",
-			"revisionTime": "2017-08-10T00:29:00Z"
+			"revision": "3a42ea109208469f16baf9e090135dd0e82ece5c",
+			"revisionTime": "2016-07-25T01:59:00Z"
 		},
 		{
-			"checksumSHA1": "qgDYNsWxk0RzqfwEisknCuRNfPQ=",
+			"checksumSHA1": "wXH4DCGrteisPtpZwR6pqy9fTns=",
 			"path": "github.com/golang/geo/s1",
-			"revision": "31fb0106dc4a947e5aaee1fe186e56447f839510",
-			"revisionTime": "2017-08-10T00:29:00Z"
+			"revision": "3a42ea109208469f16baf9e090135dd0e82ece5c",
+			"revisionTime": "2016-07-25T01:59:00Z"
 		},
 		{
-			"checksumSHA1": "Y//RpLE6mqfW/+pIcjd5Mr/qr8Y=",
+			"checksumSHA1": "7E+vomjB3cPNn1WFYxNMYKhBv0U=",
 			"path": "github.com/golang/geo/s2",
-			"revision": "31fb0106dc4a947e5aaee1fe186e56447f839510",
-			"revisionTime": "2017-08-10T00:29:00Z"
+			"revision": "3a42ea109208469f16baf9e090135dd0e82ece5c",
+			"revisionTime": "2016-07-25T01:59:00Z"
 		},
 		{
 			"checksumSHA1": "kBeNcaKk56FguvPSUCEaH6AxpRc=",
@@ -287,12 +271,6 @@
 			"path": "github.com/matttproud/golang_protobuf_extensions/pbutil",
 			"revision": "c12348ce28de40eed0136aa2b644d0ee0650e56c",
 			"revisionTime": "2016-04-24T11:30:07Z"
-		},
-		{
-			"checksumSHA1": "i5DYjDaR52hXzynKeIW6RZY/4yI=",
-			"path": "github.com/paulmach/go.geojson",
-			"revision": "40612a87147b9cf5cd0e397ced54d89e623647ff",
-			"revisionTime": "2017-03-27T17:05:36Z"
 		},
 		{
 			"checksumSHA1": "Hky3u+8Rqum+wB5BHMj0A8ZmT4g=",

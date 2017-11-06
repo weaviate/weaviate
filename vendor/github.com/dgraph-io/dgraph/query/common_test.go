@@ -20,9 +20,6 @@ package query
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"io"
-	"os"
 	"sort"
 	"testing"
 
@@ -31,12 +28,10 @@ import (
 	"github.com/dgraph-io/badger"
 	"github.com/stretchr/testify/require"
 	geom "github.com/twpayne/go-geom"
-	"github.com/twpayne/go-geom/encoding/geojson"
 
 	"github.com/dgraph-io/dgraph/gql"
 	"github.com/dgraph-io/dgraph/posting"
 	"github.com/dgraph-io/dgraph/protos"
-	"github.com/dgraph-io/dgraph/schema"
 	"github.com/dgraph-io/dgraph/types"
 	"github.com/dgraph-io/dgraph/types/facets"
 	"github.com/dgraph-io/dgraph/worker"
@@ -51,24 +46,16 @@ func childAttrs(sg *SubGraph) []string {
 	return out
 }
 
-func taskValues(t *testing.T, v []*protos.ValueList) []string {
+func taskValues(t *testing.T, v []*protos.TaskValue) []string {
 	out := make([]string, len(v))
 	for i, tv := range v {
-		out[i] = string(tv.Values[0].Val)
+		out[i] = string(tv.Val)
 	}
 	return out
 }
 
 func addEdge(t *testing.T, attr string, src uint64, edge *protos.DirectedEdge) {
-	// Mutations don't go through normal flow, so default schema for predicate won't be present.
-	// Lets add it.
-	if _, ok := schema.State().Get(attr); !ok {
-		schema.State().Set(attr, protos.SchemaUpdate{
-			Predicate: attr,
-			ValueType: edge.ValueType,
-		})
-	}
-	l := posting.Get(x.DataKey(attr, src))
+	l := posting.GetOrCreate(x.DataKey(attr, src), 1)
 	require.NoError(t,
 		l.AddMutationWithIndex(context.Background(), edge))
 }
@@ -93,21 +80,9 @@ func makeFacets(facetKVs map[string]string) (fs []*protos.Facet, err error) {
 	return fs, nil
 }
 
-func addPredicateEdge(t *testing.T, attr string, src uint64) {
-	if worker.Config.ExpandEdge {
-		edge := &protos.DirectedEdge{
-			Value: []byte(attr),
-			Attr:  "_predicate_",
-			Op:    protos.DirectedEdge_SET,
-		}
-		addEdge(t, "_predicate_", src, edge)
-	}
-}
-
 func addEdgeToValue(t *testing.T, attr string, src uint64,
 	value string, facetKVs map[string]string) {
 	addEdgeToLangValue(t, attr, src, value, "", facetKVs)
-	addPredicateEdge(t, attr, src)
 }
 
 func addEdgeToLangValue(t *testing.T, attr string, src uint64,
@@ -124,7 +99,6 @@ func addEdgeToLangValue(t *testing.T, attr string, src uint64,
 		Facets: fs,
 	}
 	addEdge(t, attr, src, edge)
-	addPredicateEdge(t, attr, src)
 }
 
 func addEdgeToTypedValue(t *testing.T, attr string, src uint64,
@@ -141,7 +115,6 @@ func addEdgeToTypedValue(t *testing.T, attr string, src uint64,
 		Facets:    fs,
 	}
 	addEdge(t, attr, src, edge)
-	addPredicateEdge(t, attr, src)
 }
 
 func addEdgeToUID(t *testing.T, attr string, src uint64,
@@ -150,27 +123,22 @@ func addEdgeToUID(t *testing.T, attr string, src uint64,
 	require.NoError(t, err)
 	edge := &protos.DirectedEdge{
 		ValueId: dst,
-		// This is used to set uid schema type for pred for the purpose of tests. Actual mutation
-		// won't set ValueType to types.UidID.
-		ValueType: uint32(types.UidID),
-		Label:     "testing",
-		Attr:      attr,
-		Entity:    src,
-		Op:        protos.DirectedEdge_SET,
-		Facets:    fs,
+		Label:   "testing",
+		Attr:    attr,
+		Entity:  src,
+		Op:      protos.DirectedEdge_SET,
+		Facets:  fs,
 	}
 	addEdge(t, attr, src, edge)
-	addPredicateEdge(t, attr, src)
 }
 
 func delEdgeToUID(t *testing.T, attr string, src uint64, dst uint64) {
 	edge := &protos.DirectedEdge{
-		ValueType: uint32(types.UidID),
-		ValueId:   dst,
-		Label:     "testing",
-		Attr:      attr,
-		Entity:    src,
-		Op:        protos.DirectedEdge_DEL,
+		ValueId: dst,
+		Label:   "testing",
+		Attr:    attr,
+		Entity:  src,
+		Op:      protos.DirectedEdge_DEL,
 	}
 	addEdge(t, attr, src, edge)
 }
@@ -211,7 +179,7 @@ func processToFastJsonReqCtx(t *testing.T, query string, ctx context.Context) (s
 		return "", err
 	}
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = queryRequest.ProcessQuery(ctx)
+	err = queryRequest.ProcessQuery(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -248,29 +216,10 @@ func processToPB(t *testing.T, query string, variables map[string]string,
 	}
 
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = queryRequest.ProcessQuery(ctx)
+	err = queryRequest.ProcessQuery(ctx)
 	require.NoError(t, err)
 
 	pb, err := ToProtocolBuf(queryRequest.Latency, queryRequest.Subgraphs)
 	require.NoError(t, err)
 	return pb
-}
-
-func loadPolygon(name string) (geom.T, error) {
-	f, err := os.Open(name)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	var b bytes.Buffer
-	_, err = io.Copy(&b, f)
-	if err != nil {
-		return nil, err
-	}
-
-	var g geojson.Geometry
-	g.Type = "MultiPolygon"
-	m := json.RawMessage(b.Bytes())
-	g.Coordinates = &m
-	return g.Decode()
 }

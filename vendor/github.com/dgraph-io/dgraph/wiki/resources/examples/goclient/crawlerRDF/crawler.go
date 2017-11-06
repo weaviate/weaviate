@@ -58,7 +58,7 @@ output to a file.  For example:
 
 This crawler outputs gzipped rdf.  The output file can be loaded into a Dgraph instance with
 
-dgraph-live-loader --s <schemafile> --r crawl.rdf.gz
+dgraphloader --s <schemafile> --r crawl.rdf.gz
 
 The schema could be the same as 21million (https://github.com/dgraph-io/benchmarks/blob/master/data/21million.schema),
 or
@@ -94,6 +94,8 @@ import (
 
 	"github.com/dgraph-io/dgraph/client"
 	"github.com/dgraph-io/dgraph/protos"
+
+	"github.com/satori/go.uuid"
 )
 
 var (
@@ -113,8 +115,8 @@ var (
 // Dgraph will unpack queries into these structures with client.Unmarshal(), we just need to say
 // what goes where.
 type namedNode struct { // see also query directorByNameTemplate and readDirectors where the query is unmarshalled into this struct
-	ID   uint64 `json:"_uid_"`   // Use `json:"edgename"` to tell client.Unmarshal() where to put which edge in your struct.
-	Name string `json:"name@en"` // Struct fields must be exported (have an intial capital letter) to be accesible to client.Unmarshal().
+	ID   uint64 `dgraph:"_uid_"`   // Use `dgraph:"edgename"` to tell client.Unmarshal() where to put which edge in your struct.
+	Name string `dgraph:"name@en"` // Struct fields must be exported (have an intial capital letter) to be accesible to client.Unmarshal().
 }
 
 type director namedNode
@@ -123,19 +125,19 @@ type genre namedNode
 type character namedNode
 
 type movie struct { // see also query directorsMoviesTemplate and visitDirector where the query is unmarshalled into this struct
-	ReleaseDate time.Time      `json:"initial_release_date"` // Often just use the edge name and a reasonable type.
-	ID          uint64         `json:"_uid_"`                // _uid_ is extracted to uint64 just like any other edge.
-	Name        string         `json:"EnglishName"`          // If there is an alias on the edge, use the alias.
-	NameDE      string         `json:"GermanName"`
-	NameIT      string         `json:"ItalianName"`
-	Genre       []genre        `json:"genre"`          // The struct types can be nested.  As long as the tags match up, all is well.
-	Starring    []*performance `json:"starring"`       // Pointers to structures are fine too - that might save copying structures later.
-	Director    []*director    `json:"~director.film"` // reverse edges work just like forward edges.
+	ReleaseDate time.Time      `dgraph:"initial_release_date"` // Often just use the edge name and a reasonable type.
+	ID          uint64         `dgraph:"_uid_"`                // _uid_ is extracted to uint64 just like any other edge.
+	Name        string         `dgraph:"EnglishName"`          // If there is an alias on the edge, use the alias.
+	NameDE      string         `dgraph:"GermanName"`
+	NameIT      string         `dgraph:"ItalianName"`
+	Genre       []genre        `dgraph:"genre"`          // The struct types can be nested.  As long as the tags match up, all is well.
+	Starring    []*performance `dgraph:"starring"`       // Pointers to structures are fine too - that might save copying structures later.
+	Director    []*director    `dgraph:"~director.film"` // reverse edges work just like forward edges.
 }
 
 type performance struct {
-	Actor     *actor     `json:"performance.actor"`
-	Character *character `json:"performance.character"`
+	Actor     *actor     `dgraph:"performance.actor"`
+	Character *character `dgraph:"performance.character"`
 }
 
 // Types directQuery and movieQuery help unpack query results with client.Unmarshal().
@@ -144,11 +146,11 @@ type performance struct {
 // Unmarshal can unpack the whole director, or for movieQuery a slice of movie types
 // from a query that returns many results.
 type directQuery struct {
-	Root director `json:"director"`
+	Root director `dgraph:"director"`
 }
 
 type movieQuery struct {
-	Root []*movie `json:"movie"`
+	Root []*movie `dgraph:"movie"`
 }
 
 var (
@@ -184,9 +186,9 @@ var (
 
 	directorsMoviesTemplate = `{
 	movies(func: uid($a)) {
-		movie: director.film {
+		movie: director.film { 
 			_uid_
-			EnglishName: name@en
+			EnglishName: name@en 
 			GermanName: name@de
 			ItalianName: name@it
       		starring {
@@ -207,7 +209,7 @@ var (
 				_uid_
 				name@en
 			}
-			initial_release_date
+			initial_release_date 
 		}
 	}
 }`
@@ -549,7 +551,7 @@ func visitedDirector(dirID uint64) bool {
 func enqueueDirector(dir *director) {
 	if !visitedDirector(dir.ID) {
 		directors[dir.ID] = dir
-		edgeCount++ // For dir.ID --- name ---> dir.Name
+		edgeCount++ 		// For dir.ID --- name ---> dir.Name 
 		go func() { toVisit <- dir.ID }()
 	}
 }
@@ -657,7 +659,7 @@ func main() {
 		toFile.Write([]byte(fmt.Sprintf("\t\t_:BN%v <initial_release_date> \"%v\" .\n", movie.ID, movie.ReleaseDate.Format(time.RFC3339))))
 		totalEdges++
 
-		for _, p := range movie.Starring {
+		for _, p := range movie.Starring {	
 			if p.Character != nil && p.Actor != nil {
 				pBlankNode := uuid.NewV4()
 

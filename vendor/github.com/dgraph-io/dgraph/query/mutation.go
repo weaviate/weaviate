@@ -1,7 +1,6 @@
 package query
 
 import (
-	"bytes"
 	"context"
 	"strings"
 
@@ -9,7 +8,6 @@ import (
 
 	"github.com/dgraph-io/dgraph/gql"
 	"github.com/dgraph-io/dgraph/protos"
-	"github.com/dgraph-io/dgraph/types/facets"
 	"github.com/dgraph-io/dgraph/worker"
 	"github.com/dgraph-io/dgraph/x"
 )
@@ -25,19 +23,12 @@ func (mr *InternalMutation) AddEdge(edge *protos.DirectedEdge, op protos.Directe
 
 func ApplyMutations(ctx context.Context, m *protos.Mutations) error {
 	if worker.Config.ExpandEdge {
-		err := handleInternalEdge(ctx, m)
+		err := addInternalEdge(ctx, m)
 		if err != nil {
 			return x.Wrapf(err, "While adding internal edges")
 		}
 		if tr, ok := trace.FromContext(ctx); ok {
 			tr.LazyPrintf("Added Internal edges")
-		}
-	} else {
-		for _, mu := range m.Edges {
-			if mu.Attr == x.Star && !worker.Config.ExpandEdge {
-				return x.Errorf("Expand edge (--expand_edge) is set to false." +
-					" Cannot perform S * * deletion.")
-			}
 		}
 	}
 	if err := worker.MutateOverNetwork(ctx, m); err != nil {
@@ -49,7 +40,7 @@ func ApplyMutations(ctx context.Context, m *protos.Mutations) error {
 	return nil
 }
 
-func handleInternalEdge(ctx context.Context, m *protos.Mutations) error {
+func addInternalEdge(ctx context.Context, m *protos.Mutations) error {
 	newEdges := make([]*protos.DirectedEdge, 0, 2*len(m.Edges))
 	for _, mu := range m.Edges {
 		x.AssertTrue(mu.Op == protos.DirectedEdge_DEL || mu.Op == protos.DirectedEdge_SET)
@@ -66,23 +57,12 @@ func handleInternalEdge(ctx context.Context, m *protos.Mutations) error {
 			// S * * case
 			if mu.Attr == x.Star {
 				// Fetch all the predicates and replace them
-				valMatrix, err := getNodePredicates(ctx, &protos.List{[]uint64{mu.GetEntity()}})
+				preds, err := GetNodePredicates(ctx, &protos.List{[]uint64{mu.GetEntity()}})
 				if err != nil {
 					return err
 				}
-
-				// _predicate_ is of list type. So we will get all the predicates in the first list
-				// of the value matrix.
 				val := mu.GetValue()
-				if len(valMatrix) != 1 {
-					return x.Errorf("Expected only one list in value matrix while deleting: %v",
-						mu.GetEntity())
-				}
-				preds := valMatrix[0].Values
 				for _, pred := range preds {
-					if bytes.Equal(pred.Val, x.Nilbyte) {
-						continue
-					}
 					edge := &protos.DirectedEdge{
 						Op:     protos.DirectedEdge_DEL,
 						Entity: mu.GetEntity(),
@@ -139,6 +119,7 @@ func AssignUids(ctx context.Context, nquads gql.NQuads) (map[string]uint64, erro
 		if len(nq.Subject) > 0 {
 			if strings.HasPrefix(nq.Subject, "_:") {
 				newUids[nq.Subject] = 0
+				num.Val = num.Val + 1
 			} else if _, err := gql.ParseUid(nq.Subject); err != nil {
 				return newUids, err
 			}
@@ -147,13 +128,13 @@ func AssignUids(ctx context.Context, nquads gql.NQuads) (map[string]uint64, erro
 		if len(nq.ObjectId) > 0 {
 			if strings.HasPrefix(nq.ObjectId, "_:") {
 				newUids[nq.ObjectId] = 0
+				num.Val = num.Val + 1
 			} else if _, err := gql.ParseUid(nq.ObjectId); err != nil {
 				return newUids, err
 			}
 		}
 	}
 
-	num.Val = uint64(len(newUids))
 	if int(num.Val) > 0 {
 		var res *protos.AssignedIds
 		// TODO: Optimize later by prefetching
@@ -190,7 +171,6 @@ func expandVariables(nq *gql.NQuad,
 	}
 	return nq.ExpandVariables(newUids, subjectUids, objectUids)
 }
-
 func ToInternal(ctx context.Context,
 	nquads gql.NQuads,
 	vars map[string]varValue, newUids map[string]uint64) (InternalMutation, error) {
@@ -205,9 +185,6 @@ func ToInternal(ctx context.Context,
 	var wnq *gql.NQuad
 	var delPred []*protos.NQuad
 	for i, nq := range nquads.NQuads {
-		if err := facets.SortAndValidate(nq.Facets); err != nil {
-			return mr, err
-		}
 		if nq.Subject == x.Star && nq.ObjectValue.GetDefaultVal() == x.Star {
 			delPred = append(delPred, nq)
 			continue

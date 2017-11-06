@@ -28,7 +28,9 @@ import (
 	"github.com/dgraph-io/dgraph/x"
 )
 
-func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error {
+func (start *SubGraph) expandRecurse(ctx context.Context,
+	next chan bool, rch chan error) {
+
 	// Note: Key format is - "attr|fromUID|toUID"
 	reachMap := make(map[string]struct{})
 	var numEdges int
@@ -38,8 +40,7 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 	rrch := make(chan error, len(exec))
 	startChildren := make([]*SubGraph, len(start.Children))
 	copy(startChildren, start.Children)
-	// Empty children before giving to ProcessGraph as we are only concerned with DestUids.
-	start.Children = start.Children[:0]
+	start.Children = []*SubGraph{}
 
 	// Process the root first.
 	go ProcessGraph(ctx, start, nil, rrch)
@@ -49,45 +50,37 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 			if tr, ok := trace.FromContext(ctx); ok {
 				tr.LazyPrintf("Error while processing child task: %+v", err)
 			}
-			return err
+			rch <- err
+			return
 		}
 	case <-ctx.Done():
 		if tr, ok := trace.FromContext(ctx); ok {
 			tr.LazyPrintf("Context done before full execution: %+v", ctx.Err())
 		}
-		return ctx.Err()
+		rch <- ctx.Err()
+		return
 	}
 
-	// Add children back so that expandSubgraph can expand them if needed.
-	start.Children = append(start.Children, startChildren...)
-	if startChildren, err = expandSubgraph(ctx, start); err != nil {
-		return err
-	}
-
-	start.Children = start.Children[:0]
 	for _, child := range startChildren {
 		temp := new(SubGraph)
 		temp.copyFiltersRecurse(child)
 		temp.SrcUIDs = start.DestUIDs
-		temp.Params.Var = child.Params.Var
 		exec = append(exec, temp)
 		start.Children = append(start.Children, temp)
 	}
 
 	dummy := &SubGraph{}
-	var depth uint64
 	for {
-		if depth >= maxDepth {
-			return nil
+		isNext := <-next
+		if !isNext {
+			return
 		}
-		depth++
 
 		rrch := make(chan error, len(exec))
 		for _, sg := range exec {
 			go ProcessGraph(ctx, sg, dummy, rrch)
 		}
 
-		var recurseErr error
 		for range exec {
 			select {
 			case err = <-rrch:
@@ -95,22 +88,16 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 					if tr, ok := trace.FromContext(ctx); ok {
 						tr.LazyPrintf("Error while processing child task: %+v", err)
 					}
-					if recurseErr == nil {
-						recurseErr = err
-					}
+					rch <- err
+					return
 				}
 			case <-ctx.Done():
 				if tr, ok := trace.FromContext(ctx); ok {
 					tr.LazyPrintf("Context done before full execution: %+v", ctx.Err())
 				}
-				if recurseErr == nil {
-					recurseErr = ctx.Err()
-				}
+				rch <- ctx.Err()
+				return
 			}
-		}
-
-		if recurseErr != nil {
-			return recurseErr
 		}
 
 		for _, sg := range exec {
@@ -122,20 +109,13 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 				// This is for avoiding loops in graph.
 				algo.ApplyFilter(sg.uidMatrix[mIdx], func(uid uint64, i int) bool {
 					key := fmt.Sprintf("%s|%d|%d", sg.Attr, fromUID, uid)
-					_, seen := reachMap[key] // Combine fromUID here.
-					if seen {
-						return false
-					} else {
-						// Mark this edge as taken. We'd disallow this edge later.
-						reachMap[key] = struct{}{}
-						numEdges++
-						return true
-					}
+					_, ok := reachMap[key] // Combine fromUID here.
+					return !ok
 				})
 			}
-			if len(sg.Params.Order) > 0 {
+			if sg.Params.Order != "" {
 				// Can't use merge sort if the UIDs are not sorted.
-				sg.updateDestUids()
+				sg.updateDestUids(ctx)
 			} else {
 				sg.DestUIDs = algo.MergeSorted(sg.uidMatrix)
 			}
@@ -151,34 +131,77 @@ func (start *SubGraph) expandRecurse(ctx context.Context, maxDepth uint64) error
 				temp := new(SubGraph)
 				temp.copyFiltersRecurse(child)
 				temp.SrcUIDs = sg.DestUIDs
-				temp.Params.Var = child.Params.Var
 				sg.Children = append(sg.Children, temp)
 				out = append(out, temp)
+			}
+			// Mark the reached nodes
+			for mIdx, fromUID := range sg.SrcUIDs.Uids {
+				for _, toUID := range sg.uidMatrix[mIdx].Uids {
+					key := fmt.Sprintf("%s|%d|%d", sg.Attr, fromUID, toUID)
+					// Mark this edge as taken. We'd disallow this edge later.
+					reachMap[key] = struct{}{}
+					numEdges++
+				}
 			}
 		}
 
 		if numEdges > 1000000 {
 			// If we've seen too many nodes, stop the query.
-			return ErrTooBig
+			rch <- ErrTooBig
+			return
 		}
 
 		if len(out) == 0 {
-			return nil
+			rch <- ErrStop
+			return
 		}
+		// This marks the end of one level of exectution.
+		rch <- nil
 		exec = out
 	}
 }
 
 func Recurse(ctx context.Context, sg *SubGraph) error {
+	var err error
 	if sg.Params.Alias != "recurse" {
 		return x.Errorf("Invalid shortest path query")
 	}
-
+	expandErr := make(chan error, 2)
+	next := make(chan bool, 2)
+	go sg.expandRecurse(ctx, next, expandErr)
 	depth := sg.Params.ExploreDepth
 	if depth == 0 {
 		// If no depth is specified, expand till we reach all leaf nodes
 		// or we see reach too many nodes.
 		depth = math.MaxUint64
 	}
-	return sg.expandRecurse(ctx, depth)
+
+L:
+	// Recurse number of times specified by the user.
+	for i := uint64(0); i < depth; i++ {
+		next <- true
+		select {
+		case err = <-expandErr:
+			if err != nil {
+				if err == ErrTooBig {
+					return err
+				}
+				if err == ErrStop {
+					break L
+				}
+				if tr, ok := trace.FromContext(ctx); ok {
+					tr.LazyPrintf("Error while processing child task: %+v", err)
+				}
+				return err
+			}
+		case <-ctx.Done():
+			if tr, ok := trace.FromContext(ctx); ok {
+				tr.LazyPrintf("Context done before full execution: %+v", ctx.Err())
+			}
+			return ctx.Err()
+		}
+	}
+	// Done expanding.
+	next <- false
+	return nil
 }

@@ -26,7 +26,7 @@ import (
 	"golang.org/x/net/trace"
 
 	"github.com/dgraph-io/badger"
-	"github.com/dgraph-io/dgraph/conn"
+	"github.com/dgraph-io/dgraph/group"
 	"github.com/dgraph-io/dgraph/posting"
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/schema"
@@ -34,120 +34,124 @@ import (
 	"github.com/dgraph-io/dgraph/x"
 )
 
-var (
-	errUnservedTablet  = x.Errorf("Tablet isn't being served by this instance.")
-	errPredicateMoving = x.Errorf("Predicate is being moved, please retry later")
-	allocator          x.EmbeddedUidAllocator
+const (
+	set = "set"
+	del = "delete"
 )
 
-// runMutation goes through all the edges and applies them. It returns the
+// runMutations goes through all the edges and applies them. It returns the
 // mutations which were not applied in left.
-func runMutation(ctx context.Context, edge *protos.DirectedEdge) error {
+func runMutations(ctx context.Context, edges []*protos.DirectedEdge) error {
 	if tr, ok := trace.FromContext(ctx); ok {
 		tr.LazyPrintf("In run mutations")
 	}
-	if !groups().ServesTablet(edge.Attr) {
-		return errUnservedTablet
-	}
-
-	rv := ctx.Value("raft").(x.RaftValue)
-	typ, err := schema.State().TypeOf(edge.Attr)
-	x.Checkf(err, "Schema is not present for predicate %s", edge.Attr)
-
-	if edge.Entity == 0 && bytes.Equal(edge.Value, []byte(x.Star)) {
-		waitForSyncMark(ctx, 0, rv.Index-1)
-		if err = posting.DeletePredicate(ctx, edge.Attr); err != nil {
-			return err
+	for _, edge := range edges {
+		gid := group.BelongsTo(edge.Attr)
+		if !groups().ServesGroup(gid) {
+			return x.Errorf("Predicate fingerprint doesn't match this instance")
 		}
-		return nil
-	}
-	// Once mutation comes via raft we do best effort conversion
-	// Type check is done before proposing mutation, in case schema is not
-	// present, some invalid entries might be written initially
-	err = ValidateAndConvert(edge, typ)
 
-	key := x.DataKey(edge.Attr, edge.Entity)
+		rv := ctx.Value("raft").(x.RaftValue)
+		x.AssertTruef(rv.Group == gid, "fingerprint mismatch between raft and group conf")
 
-	t := time.Now()
-	plist := posting.Get(key)
-	if dur := time.Since(t); dur > time.Millisecond {
-		if tr, ok := trace.FromContext(ctx); ok {
-			tr.LazyPrintf("GetLru took %v", dur)
+		typ, err := schema.State().TypeOf(edge.Attr)
+		x.Checkf(err, "Schema is not present for predicate %s", edge.Attr)
+
+		if edge.Entity == 0 && bytes.Equal(edge.Value, []byte(x.Star)) {
+			waitForSyncMark(ctx, gid, rv.Index-1)
+			if err = posting.DeletePredicate(ctx, edge.Attr); err != nil {
+				return err
+			}
+			continue
 		}
-	}
+		// Once mutation comes via raft we do best effort conversion
+		// Type check is done before proposing mutation, in case schema is not
+		// present, some invalid entries might be written initially
+		err = validateAndConvert(edge, typ)
 
-	if err = plist.AddMutationWithIndex(ctx, edge); err != nil {
-		return err // abort applying the rest of them.
+		key := x.DataKey(edge.Attr, edge.Entity)
+
+		t := time.Now()
+		plist := posting.GetOrCreate(key, gid)
+		if dur := time.Since(t); dur > time.Millisecond {
+			if tr, ok := trace.FromContext(ctx); ok {
+				tr.LazyPrintf("GetOrCreate took %v", dur)
+			}
+		}
+
+		if err = plist.AddMutationWithIndex(ctx, edge); err != nil {
+			return err // abort applying the rest of them.
+		}
 	}
 	return nil
 }
 
 // This is serialized with mutations, called after applied watermarks catch up
 // and further mutations are blocked until this is done.
-func runSchemaMutation(ctx context.Context, update *protos.SchemaUpdate) error {
+func runSchemaMutations(ctx context.Context, updates []*protos.SchemaUpdate) error {
 	rv := ctx.Value("raft").(x.RaftValue)
-	n := groups().Node
-	// Wait for applied watermark to reach till previous index
-	// All mutations before this should use old schema and after this
-	// should use new schema
-	n.waitForSyncMark(n.ctx, rv.Index-1)
-	if !groups().ServesTablet(update.Predicate) {
-		return errUnservedTablet
-	}
-	if err := checkSchema(update); err != nil {
-		return err
-	}
-	old, ok := schema.State().Get(update.Predicate)
-	current := *update
-	updateSchema(update.Predicate, current, rv.Index, rv.Group)
-
-	// Once we remove index or reverse edges from schema, even though the values
-	// are present in db, they won't be used due to validation in work/task.go
-
-	// We don't want to use sync watermarks for background removal, because it would block
-	// linearizable read requests. Only downside would be on system crash, stale edges
-	// might remain, which is ok.
-
-	// Indexing can't be done in background as it can cause race conditons with new
-	// index mutations (old set and new del)
-	// We need watermark for index/reverse edge addition for linearizable reads.
-	// (both applied and synced watermarks).
-	defer x.Printf("Done schema update %+v\n", update)
-	if !ok {
-		if current.Directive == protos.SchemaUpdate_INDEX {
-			if err := n.rebuildOrDelIndex(ctx, update.Predicate, true); err != nil {
-				return err
-			}
-		} else if current.Directive == protos.SchemaUpdate_REVERSE {
-			if err := n.rebuildOrDelRevEdge(ctx, update.Predicate, true); err != nil {
-				return err
-			}
+	n := groups().Node(rv.Group)
+	for _, update := range updates {
+		if !groups().ServesGroup(group.BelongsTo(update.Predicate)) {
+			return x.Errorf("Predicate fingerprint doesn't match this instance")
 		}
-
-		if current.Count {
-			if err := n.rebuildOrDelCountIndex(ctx, update.Predicate, true); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	// schema was present already
-	if needReindexing(old, current) {
-		// Reindex if update.Index is true or remove index
-		if err := n.rebuildOrDelIndex(ctx, update.Predicate,
-			current.Directive == protos.SchemaUpdate_INDEX); err != nil {
+		if err := checkSchema(update); err != nil {
 			return err
 		}
-	} else if needsRebuildingReverses(old, current) {
-		// Add or remove reverse edge based on update.Reverse
-		if err := n.rebuildOrDelRevEdge(ctx, update.Predicate,
-			current.Directive == protos.SchemaUpdate_REVERSE); err != nil {
-			return err
-		}
-	}
+		old, ok := schema.State().Get(update.Predicate)
+		current := schema.From(update)
+		updateSchema(update.Predicate, current, rv.Index, rv.Group)
 
-	if current.Count != old.Count {
-		if err := n.rebuildOrDelCountIndex(ctx, update.Predicate, current.Count); err != nil {
+		// Once we remove index or reverse edges from schema, even though the values
+		// are present in db, they won't be used due to validation in work/task.go
+		// Removal can be done in background if we write a scheduler later which ensures
+		// that schema mutations are serialized, so that there won't be
+		// race conditions between deletion of edges and addition of edges.
+
+		// We don't want to use sync watermarks for background removal, because it would block
+		// linearizable read requests. Only downside would be on system crash, stale edges
+		// might remain, which is ok.
+
+		// Indexing can't be done in background as it can cause race conditons with new
+		// index mutations (old set and new del)
+		// We need watermark for index/reverse edge addition for linearizable reads.
+		// (both applied and synced watermarks).
+		if !ok {
+			if current.Directive == protos.SchemaUpdate_INDEX {
+				if err := n.rebuildOrDelIndex(ctx, update.Predicate, true); err != nil {
+					return err
+				}
+			} else if current.Directive == protos.SchemaUpdate_REVERSE {
+				if err := n.rebuildOrDelRevEdge(ctx, update.Predicate, true); err != nil {
+					return err
+				}
+			}
+
+			if current.Count {
+				if err := n.rebuildOrDelCountIndex(ctx, update.Predicate, true); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		// schema was present already
+		if needReindexing(old, current) {
+			// Reindex if update.Index is true or remove index
+			if err := n.rebuildOrDelIndex(ctx, update.Predicate,
+				current.Directive == protos.SchemaUpdate_INDEX); err != nil {
+				return err
+			}
+		} else if needsRebuildingReverses(old, current) {
+			// Add or remove reverse edge based on update.Reverse
+			if err := n.rebuildOrDelRevEdge(ctx, update.Predicate,
+				current.Directive == protos.SchemaUpdate_REVERSE); err != nil {
+				return err
+			}
+		}
+
+		if current.Count != old.Count {
+			if err := n.rebuildOrDelCountIndex(ctx, update.Predicate, current.Count); err != nil {
+			}
 		}
 	}
 	return nil
@@ -185,7 +189,7 @@ func updateSchema(attr string, s protos.SchemaUpdate, raftIndex uint64, group ui
 		Attr:   attr,
 		Schema: s,
 		Index:  raftIndex,
-		Water:  posting.SyncMarks(),
+		Water:  posting.SyncMarkFor(group),
 	}
 	schema.State().Update(ce)
 }
@@ -204,7 +208,7 @@ func updateSchemaType(attr string, typ types.TypeID, raftIndex uint64, group uin
 
 func numEdges(attr string) int {
 	iterOpt := badger.DefaultIteratorOptions
-	iterOpt.PrefetchValues = false
+	iterOpt.FetchValues = false
 	it := pstore.NewIterator(iterOpt)
 	defer it.Close()
 	pk := x.ParsedKey{
@@ -220,7 +224,7 @@ func numEdges(attr string) int {
 
 func hasEdges(attr string) bool {
 	iterOpt := badger.DefaultIteratorOptions
-	iterOpt.PrefetchValues = false
+	iterOpt.FetchValues = false
 	it := pstore.NewIterator(iterOpt)
 	defer it.Close()
 	pk := x.ParsedKey{
@@ -234,18 +238,6 @@ func hasEdges(attr string) bool {
 }
 
 func checkSchema(s *protos.SchemaUpdate) error {
-	if len(s.Predicate) == 0 {
-		return x.Errorf("No predicate specified in schema mutation")
-	}
-
-	if s.Directive == protos.SchemaUpdate_INDEX && len(s.Tokenizer) == 0 {
-		return x.Errorf("Tokenizer must be specified while indexing a predicate: %+v", s)
-	}
-
-	if len(s.Tokenizer) > 0 && s.Directive != protos.SchemaUpdate_INDEX {
-		return x.Errorf("Directive must be SchemaUpdate_INDEX when a tokenizer is specified")
-	}
-
 	typ := types.TypeID(s.ValueType)
 	if typ == types.UidID && s.Directive == protos.SchemaUpdate_INDEX {
 		// index on uid type
@@ -258,12 +250,6 @@ func checkSchema(s *protos.SchemaUpdate) error {
 	if t, err := schema.State().TypeOf(s.Predicate); err == nil {
 		// schema was defined already
 		if t.IsScalar() == typ.IsScalar() {
-			// If old type was list and new type is non-list, we don't allow it until user
-			// has data.
-			if schema.State().IsList(s.Predicate) && !s.List && hasEdges(s.Predicate) {
-				return x.Errorf("Schema change not allowed from [%s] => %s without"+
-					" deleting pred: %s", t.Name(), typ.Name(), s.Predicate)
-			}
 			// New and old type are both scalar or both are uid. Allow schema change.
 			return nil
 		}
@@ -278,7 +264,7 @@ func checkSchema(s *protos.SchemaUpdate) error {
 
 // If storage type is specified, then check compatibility or convert to schema type
 // if no storage type is specified then convert to schema type.
-func ValidateAndConvert(edge *protos.DirectedEdge, schemaType types.TypeID) error {
+func validateAndConvert(edge *protos.DirectedEdge, schemaType types.TypeID) error {
 	if types.TypeID(edge.ValueType) == types.DefaultID && string(edge.Value) == x.Star {
 		if edge.Op != protos.DirectedEdge_DEL {
 			return x.Errorf("* allowed only with delete operation")
@@ -326,60 +312,46 @@ func ValidateAndConvert(edge *protos.DirectedEdge, schemaType types.TypeID) erro
 	return nil
 }
 
-func AssignUidsOverNetwork(ctx context.Context, num *protos.Num) (*protos.AssignedIds, error) {
-	if Config.InMemoryComm {
-		return allocator.AssignUids(ctx, num)
-	}
-	pl := groups().Leader(0)
-	if pl == nil {
-		return nil, conn.ErrNoConnection
-	}
-
-	conn := pl.Get()
-	c := protos.NewZeroClient(conn)
-	return c.AssignUids(ctx, num)
-}
-
-// proposeOrSend either proposes the mutation if the node serves the group gid or sends it to
-// the leader of the group gid for proposing.
+// runMutate is used to run the mutations on an instance.
 func proposeOrSend(ctx context.Context, gid uint32, m *protos.Mutations, che chan error) {
 	if groups().ServesGroup(gid) {
-		node := groups().Node
+		node := groups().Node(gid)
 		// we don't timeout after proposing
 		che <- node.ProposeAndWait(ctx, &protos.Proposal{Mutations: m})
 		return
 	}
 
-	pl := groups().Leader(gid)
-	if pl == nil {
-		err := conn.ErrNoConnection
+	_, addr := groups().Leader(gid)
+	pl, err := pools().get(addr)
+	if err != nil {
 		if tr, ok := trace.FromContext(ctx); ok {
 			tr.LazyPrintf(err.Error())
 		}
 		che <- err
 		return
 	}
+	defer pools().release(pl)
 	conn := pl.Get()
 
 	c := protos.NewWorkerClient(conn)
 	ch := make(chan error, 1)
 	go func() {
-		_, err := c.Mutate(ctx, m)
+		_, err = c.Mutate(ctx, m)
 		ch <- err
 	}()
 	select {
 	case <-ctx.Done():
 		che <- ctx.Err()
-	case err := <-ch:
+	case err = <-ch:
 		che <- err
 	}
 }
 
 // addToMutationArray adds the edges to the appropriate index in the mutationArray,
 // taking into account the op(operation) and the attribute.
-func addToMutationMap(mutationMap map[uint32]*protos.Mutations, m *protos.Mutations) error {
+func addToMutationMap(mutationMap map[uint32]*protos.Mutations, m *protos.Mutations) {
 	for _, edge := range m.Edges {
-		gid := groups().BelongsTo(edge.Attr)
+		gid := group.BelongsTo(edge.Attr)
 		mu := mutationMap[gid]
 		if mu == nil {
 			mu = &protos.Mutations{GroupId: gid}
@@ -388,7 +360,7 @@ func addToMutationMap(mutationMap map[uint32]*protos.Mutations, m *protos.Mutati
 		mu.Edges = append(mu.Edges, edge)
 	}
 	for _, schema := range m.Schema {
-		gid := groups().BelongsTo(schema.Predicate)
+		gid := group.BelongsTo(schema.Predicate)
 		mu := mutationMap[gid]
 		if mu == nil {
 			mu = &protos.Mutations{GroupId: gid}
@@ -396,42 +368,16 @@ func addToMutationMap(mutationMap map[uint32]*protos.Mutations, m *protos.Mutati
 		}
 		mu.Schema = append(mu.Schema, schema)
 	}
-
-	if m.Upsert != nil {
-		gid := groups().BelongsTo(m.Upsert.Attr)
-		mu := mutationMap[gid]
-		// There should also be a corresponding mutation for this attribute when doing upsert.
-		x.AssertTrue(mu != nil)
-		mu.Upsert = m.Upsert
-	}
-
-	if m.DropAll {
-		for _, gid := range groups().KnownGroups() {
-			mu := mutationMap[gid]
-			if mu == nil {
-				mu = &protos.Mutations{GroupId: gid}
-				mutationMap[gid] = mu
-			}
-			mu.DropAll = true
-		}
-	}
-
-	return nil
 }
 
 // MutateOverNetwork checks which group should be running the mutations
-// according to the group config and sends it to that instance.
+// according to fingerprint of the predicate and sends it to that instance.
 func MutateOverNetwork(ctx context.Context, m *protos.Mutations) error {
 	mutationMap := make(map[uint32]*protos.Mutations)
-	if err := addToMutationMap(mutationMap, m); err != nil {
-		return err
-	}
+	addToMutationMap(mutationMap, m)
 
 	errorCh := make(chan error, len(mutationMap))
 	for gid, mu := range mutationMap {
-		if gid == 0 {
-			return errUnservedTablet
-		}
 		go proposeOrSend(ctx, gid, mu, errorCh)
 	}
 
@@ -456,15 +402,16 @@ func (w *grpcWorker) Mutate(ctx context.Context, m *protos.Mutations) (*protos.P
 		return &protos.Payload{}, ctx.Err()
 	}
 
-	// TODO: Use ServesTablet instead.
 	if !groups().ServesGroup(m.GroupId) {
 		return &protos.Payload{}, x.Errorf("This server doesn't serve group id: %v", m.GroupId)
 	}
-	node := groups().Node
+	node := groups().Node(m.GroupId)
+	var tr trace.Trace
 	if rand.Float64() < Config.Tracing {
-		var tr trace.Trace
-		tr, ctx = x.NewTrace("GrpcMutate", ctx)
+		tr = trace.New("Dgraph", "GrpcMutate")
 		defer tr.Finish()
+		tr.SetMaxEvents(1000)
+		ctx = trace.NewContext(ctx, tr)
 	}
 	err := node.ProposeAndWait(ctx, &protos.Proposal{Mutations: m})
 	return &protos.Payload{}, err

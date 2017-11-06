@@ -43,20 +43,11 @@ docker pull dgraph/dgraph
 {{% notice "note" %}}You need to set the estimated memory dgraph can take through memory_mb flag. This is just a hint to the dgraph and actual usage would be higher than this. It's recommended to set memory_mb to half the size of RAM.{{% /notice %}}
 
 ### From Installed Binary
-Run `dgraphzero` binary which controls the Dgraph cluster. It moves data between different
-dgraph instances based on the size of the data served by each instance.
-
-```sh
-dgraphzero -w zw
-```
-
 If Dgraph was installed with the install script, run Dgraph with:
 
 ```sh
-dgraph --memory_mb 2048 --peer 127.0.0.1:8888
+dgraph --memory_mb 2048
 ```
-
-`-peer` flag contains the address of a `dgraphzero` node which by default starts on port `8888`.
 
 ### Using Docker
 
@@ -64,41 +55,19 @@ The `-v` flag lets Docker mount a directory so that dgraph can persist data to d
 
 #### Map to default ports (8080 and 9080)
 
-Run `dgraphzero`
 ```sh
 mkdir -p ~/dgraph
-docker run -it -p 8080:8080 -p 9080:9080 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraphzero -w zw
-```
-
-Run `dgraph`
-```sh
-docker exec -it dgraph dgraph --bindall=true --memory_mb 2048 -peer 127.0.0.1:8888
+docker run -it -p 8080:8080 -p 9080:9080 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraph --bindall=true --memory_mb 2048
 ```
 
 #### Map to custom port
 ```sh
 mkdir -p ~/dgraph
-# Mapping port 8080 from within the container to 18080 of the instance, likewise with the gRPC port 9080.
-docker run -it -p 18080:8080 -p 19090:9080 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraphzero -w zw
-docker exec -it dgraph dgraph --bindall=true --memory_mb 2048 -peer 127.0.0.1:8888
+# Mapping port 8080 from within the container to 18080 of the instance, likewise with the gRPC port 9090.
+docker run -it -p 18080:8080 -p 19090:9090 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraph --bindall=true --memory_mb 2048
 ```
 
-{{% notice "note" %}}The dgraph server listens on ports 8080 and 9080 (unless mapped to another port above) with log output to the terminal.{{% /notice %}}
-
-{{% notice "note" %}}If you are using docker on non-linux distribution, please use docker data volumes.{{% /notice %}}
-### On Non Linux Distributions.
-File access in mounted filesystems is slower when using docker. Try running the command `time dd if=/dev/zero of=test.dat bs=1024 count=100000` on mounted volume and you will notice that it's horribly slow when using mounted volumes. We recommend users to use docker data volumes. The only downside of using data volumes is that you can't access the files from the host, you have to launch a container for accessing it.
-
-Create a docker data container named datacontainer with dgraph/dgraph image.
-```sh
-docker create -v /dgraph --name datacontainer dgraph/dgraph
-```
-
-Now if we run dgraph container with `--volumes-from` flag and run dgraph with the following command, then anything we write to /dgraph in dgraph container will get written to /dgraph volume of datacontainer.
-```sh
-docker run -it -p 18080:8080 -p 19090:9080 --volumes-from datacontainer --name dgraph dgraph/dgraph dgraphzero -w zw
-docker exec -it dgraph dgraph --bindall=true --memory_mb 2048 --p /dgraph/p --w /dgraph/w -peer 127.0.0.1:8888
-```
+{{% notice "note" %}}The dgraph server listens on ports 8080 and 9090 (unless mapped to another port above) with log output to the terminal.{{% /notice %}}
 
 ## Step 3: Run Queries
 {{% notice "tip" %}}Once Dgraph is running, a user interface is available at [`http://localhost:8080`](http://localhost:8080).  It allows browser-based queries, mutations and visualizations.
@@ -177,7 +146,7 @@ Run this query to get "Star Wars" movies released after "1980".  Try it in the u
 ```sh
 curl localhost:8080/query -XPOST -d $'
 {
-  me(func:allofterms(name, "Star Wars")) @filter(ge(release_date, "1980")) {
+  me(func:allofterms(name@en, "Star Wars")) @filter(ge(release_date, "1980")) {
     name
     release_date
     revenue
@@ -253,13 +222,7 @@ Output
 
 ## (Optional) Step 4: Load a bigger dataset
 
-Step 3 showed how to add data with a small mutation.  Bigger datasets can be loaded with
-
-* dgraph-live-loader if you already have some data or
-* using the [dgraph-bulk-loader]({{< ref "deploy/index.md#dgraph-bulk-loader" >}}) which is significantly faster than
-  dgraph-live-loader but can only be used for initial seeding of data into Dgraph.
-
-We will use `dgraph-live-loader` below.
+Step 3 showed how to add data with a small mutation.  Bigger datasets can be loaded with dgraphloader.
 
 ### Download dataset
 Download the goldendata.rdf.gz dataset from [here](https://github.com/dgraph-io/benchmarks/blob/master/data/goldendata.rdf.gz) ([download](https://github.com/dgraph-io/benchmarks/raw/master/data/goldendata.rdf.gz)). Put it directory`~/dgraph`, creating the directory if necessary using `mkdir ~/dgraph`.
@@ -284,13 +247,13 @@ mutation {
 '| python -m json.tool | less
 ```
 
-### Load data with dgraph-live-loader
+### Load data with dgraphloader
 
 Load the downloaded dataset by running the following in a terminal.
 
 ```sh
 cd ~/dgraph # The directory where you downloaded the rdf.gz file.
-dgraph-live-loader -r goldendata.rdf.gz
+dgraphloader -r goldendata.rdf.gz
 ```
 
 ### Load data with Docker
@@ -298,7 +261,7 @@ dgraph-live-loader -r goldendata.rdf.gz
 If Dgraph was started in Docker, then load the dataset with the following.
 
 ```sh
-docker exec -it dgraph dgraph-live-loader -r goldendata.rdf.gz
+docker exec -it dgraph dgraphloader -r goldendata.rdf.gz
 ```
 
 ### Result
@@ -408,7 +371,7 @@ wget "https://github.com/dgraph-io/benchmarks/blob/master/data/21million.rdf.gz?
 wget "https://github.com/dgraph-io/benchmarks/blob/master/data/sf.tourism.gz?raw=true" -O sf.tourism.gz -q
 ```
 
-Then, using the same process as [schema updating]({{< relref "#update-schema" >}}) and [data loading]({{< relref "#load-data-with-dgraph-live-loader" >}}) (or [with Docker]({{< relref "#load-data-with-docker" >}})) from Step 4 above, mutate the schema and load the data files.  The required schema is as follows.
+Then, using the same process as [schema updating]({{< relref "#update-schema" >}}) and [data loading]({{< relref "#load-data-with-dgraphloader" >}}) (or [with Docker]({{< relref "#load-data-with-docker" >}})) from Step 4 above, mutate the schema and load the data files.  The required schema is as follows.
 
 ```
 mutation {
@@ -446,10 +409,3 @@ dgraph --memory_mb 2048
 ```
 
 If Dgraph runs for you that indicates there could be something wrong with mounting volumes.
-
-### 2. Docker: Error response from daemon; Conflict. Container name already exists.
-
-Remove the dgraph container and try the docker run command again.
-```
-docker rm dgraph
-```

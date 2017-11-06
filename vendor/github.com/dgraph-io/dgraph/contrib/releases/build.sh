@@ -46,28 +46,21 @@ commitTime="github.com/dgraph-io/dgraph/x.lastCommitTime"
 uiDir="main.uiDir"
 
 echo -e "\033[1;33mBuilding binaries\033[0m"
-for d in $dgraph_cmd/*; do
-  n=$(basename "${d}")
-  echo $n
-  cd $d
-  if [ "$n" = "dgraph" ];then
-    go build -ldflags \
-      "-X $release=$release_version -X $branch=$gitBranch -X $commitSHA1=$lastCommitSHA1 -X '$commitTime=$lastCommitTime' -X $uiDir=$ui" .;
-  else
-    go build -ldflags \
-    "-X $release=$release_version -X $branch=$gitBranch -X $commitSHA1=$lastCommitSHA1 -X '$commitTime=$lastCommitTime'" .;
-  fi
-done
+echo "dgraph"
+cd $dgraph_cmd/dgraph && \
+   go build -v -ldflags \
+   "-X $release=$release_version -X $branch=$gitBranch -X $commitSHA1=$lastCommitSHA1 -X '$commitTime=$lastCommitTime' -X $uiDir=$ui" .;
+echo "dgraphloader"
+cd $dgraph_cmd/dgraphloader && \
+   go build -v -ldflags \
+   "-X $release=$release_version -X $branch=$gitBranch -X $commitSHA1=$lastCommitSHA1 -X '$commitTime=$lastCommitTime'" .;
 
 echo -e "\n\033[1;33mCopying binaries to tmp folder\033[0m"
 cd $tmp_dir;
 mkdir dgraph && pushd &> /dev/null dgraph;
 # Stripping the binaries.
-for d in $dgraph_cmd/*; do
-  n=$(basename "${d}")
-  strip $d/$n || true
-  cp $d/$n .
-done
+strip $dgraph_cmd/dgraph/dgraph $dgraph_cmd/dgraphloader/dgraphloader;
+cp $dgraph_cmd/dgraph/dgraph $dgraph_cmd/dgraphloader/dgraphloader .;
 
 echo -e "\n\033[1;34mSize of files after strip: $(du -sh)\033[0m"
 
@@ -79,11 +72,10 @@ else
   exit 1
 fi
 
-for d in $dgraph_cmd/*; do
-  n=$(basename "${d}")
-  checksum=$($digest_cmd $n | awk '{print $1}')
-  echo "$checksum /usr/local/bin/$n" >> $checksum_file
-done
+checksum=$($digest_cmd dgraph | awk '{print $1}')
+echo "$checksum /usr/local/bin/dgraph" >> $checksum_file
+checksum=$($digest_cmd dgraphloader | awk '{print $1}')
+echo "$checksum /usr/local/bin/dgraphloader" >> $checksum_file
 
 echo -e "\n\033[1;33mCreating tar file\033[0m"
 tar_file=dgraph-"$platform"-amd64-$release_version

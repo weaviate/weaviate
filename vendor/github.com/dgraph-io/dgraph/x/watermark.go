@@ -18,7 +18,6 @@ package x
 
 import (
 	"container/heap"
-	"context"
 	"sync/atomic"
 
 	"golang.org/x/net/trace"
@@ -46,49 +45,35 @@ type RaftValue struct {
 	Index uint64
 }
 
-// mark contains raft proposal id and a done boolean. It is used to
+// Mark contains raft proposal id and a done boolean. It is used to
 // update the WaterMark struct about the status of a proposal.
-type mark struct {
-	// Either this is an (index, waiter) pair or (index, done) or (indices, done).
-	index   uint64
-	waiter  chan struct{}
-	indices []uint64
-	done    bool // Set to true if the pending mutation is done.
+type Mark struct {
+	Index   uint64
+	Indices []uint64
+	Done    bool // Set to true if the pending mutation is done.
 }
 
-// WaterMark is used to keep track of the minimum un-finished index.  Typically, an index k becomes
-// finished or "done" according to a WaterMark once Done(k) has been called
-//   1. as many times as Begin(k) has, AND
-//   2. a positive number of times.
+// WaterMark is used to keep track of the maximum done index. The right way to use
+// this is to send a Mark with Done set to false, as soon as an index is known.
+// WaterMark will store the index in a min-heap. It would only advance, if the minimum
+// entry in the heap has been successfully done.
 //
-// An index may also become "done" by calling SetDoneUntil at a time such that it is not
-// inter-mingled with Begin/Done calls.
+// Some time later, when this index task is completed, send another Mark, this time
+// with Done set to true. It would mark the index as done, and so the min-heap can
+// now advance and update the maximum done water mark.
 type WaterMark struct {
-	Name      string
-	markCh    chan mark
-	doneUntil uint64
-	elog      trace.EventLog
+	Name       string
+	Ch         chan Mark
+	doneUntil  uint64
+	elog       trace.EventLog
+	waitingFor uint32 // Are we waiting for some index?
 }
 
 // Init initializes a WaterMark struct. MUST be called before using it.
 func (w *WaterMark) Init() {
-	w.markCh = make(chan mark, 10000)
+	w.Ch = make(chan Mark, 10000)
 	w.elog = trace.NewEventLog("Watermark", w.Name)
 	go w.process()
-}
-
-func (w *WaterMark) Begin(index uint64) {
-	w.markCh <- mark{index: index, done: false}
-}
-func (w *WaterMark) BeginMany(indices []uint64) {
-	w.markCh <- mark{index: 0, indices: indices, done: false}
-}
-
-func (w *WaterMark) Done(index uint64) {
-	w.markCh <- mark{index: index, done: true}
-}
-func (w *WaterMark) DoneMany(indices []uint64) {
-	w.markCh <- mark{index: 0, indices: indices, done: true}
 }
 
 // DoneUntil returns the maximum index until which all tasks are done.
@@ -100,33 +85,18 @@ func (w *WaterMark) SetDoneUntil(val uint64) {
 	atomic.StoreUint64(&w.doneUntil, val)
 }
 
-func (w *WaterMark) WaitForMark(ctx context.Context, index uint64) error {
-	if w.DoneUntil() >= index {
-		return nil
-	}
-	waitCh := make(chan struct{})
-	w.markCh <- mark{index: index, waiter: waitCh}
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-waitCh:
-		return nil
-	}
+// WaitingFor returns whether we are waiting for a task to be done.
+func (w *WaterMark) WaitingFor() bool {
+	return atomic.LoadUint32(&w.waitingFor) != 0
 }
 
 // process is used to process the Mark channel. This is not thread-safe,
 // so only run one goroutine for process. One is sufficient, because
 // all goroutine ops use purely memory and cpu.
-// Each index has to emit atleast one begin watermak in serial order otherwise waiters
-// can get blocked idefinitely. Example: We had an watermark at 100 and a waiter at 101,
-// if no watermark is emitted at index 101 then waiter would get stuck idefinitely as it
-// can't decide whether the task at 101 has decided not to emit watermak or it didn't get
-// scheduled yet.
 func (w *WaterMark) process() {
 	var indices uint64Heap
 	// pending maps raft proposal index to the number of pending mutations for this proposal.
 	pending := make(map[uint64]int)
-	waiters := make(map[uint64][]chan struct{})
 
 	heap.Init(&indices)
 	var loop uint64
@@ -136,6 +106,8 @@ func (w *WaterMark) process() {
 		prev, present := pending[index]
 		if !present {
 			heap.Push(&indices, index)
+			// indices now nonempty, update waitingFor.
+			atomic.StoreUint32(&w.waitingFor, 1)
 		}
 
 		delta := 1
@@ -158,10 +130,12 @@ func (w *WaterMark) process() {
 
 		until := doneUntil
 		loops := 0
+		var doWait bool
 
 		for len(indices) > 0 {
 			min := indices[0]
 			if done := pending[min]; done != 0 {
+				doWait = true
 				break // len(indices) will be > 0.
 			}
 			heap.Pop(&indices)
@@ -169,38 +143,26 @@ func (w *WaterMark) process() {
 			until = min
 			loops++
 		}
-		for i := doneUntil + 1; i <= until; i++ {
-			toNotify := waiters[i]
-			for _, ch := range toNotify {
-				close(ch)
-			}
+		if !doWait {
+			atomic.StoreUint32(&w.waitingFor, 0)
 		}
+
 		if until != doneUntil {
 			AssertTrue(atomic.CompareAndSwapUint64(&w.doneUntil, doneUntil, until))
 			w.elog.Printf("%s: Done until %d. Loops: %d\n", w.Name, until, loops)
 		}
 	}
 
-	for mark := range w.markCh {
-		if mark.waiter != nil {
-			doneUntil := atomic.LoadUint64(&w.doneUntil)
-			if doneUntil >= mark.index {
-				close(mark.waiter)
-			} else {
-				ws, ok := waiters[mark.index]
-				if !ok {
-					waiters[mark.index] = []chan struct{}{mark.waiter}
-				} else {
-					waiters[mark.index] = append(ws, mark.waiter)
-				}
-			}
-		} else {
-			if mark.index > 0 {
-				processOne(mark.index, mark.done)
-			}
-			for _, index := range mark.indices {
-				processOne(index, mark.done)
-			}
+	for mark := range w.Ch {
+		if IsTestRun() {
+			// Don't run this during testing.
+			continue
+		}
+		if mark.Index > 0 {
+			processOne(mark.Index, mark.Done)
+		}
+		for _, index := range mark.Indices {
+			processOne(index, mark.Done)
 		}
 	}
 }

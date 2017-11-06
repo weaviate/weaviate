@@ -53,8 +53,8 @@ func (grp *groupResult) aggregateChild(child *SubGraph) error {
 		})
 		return nil
 	}
-	if child.SrcFunc != nil && isAggregatorFn(child.SrcFunc.Name) {
-		fieldName := fmt.Sprintf("%s(%s)", child.SrcFunc.Name, child.Attr)
+	if len(child.SrcFunc) > 0 && isAggregatorFn(child.SrcFunc[0]) {
+		fieldName := fmt.Sprintf("%s(%s)", child.SrcFunc[0], child.Attr)
 		finalVal, err := aggregateGroup(grp, child)
 		if err != nil {
 			return err
@@ -134,7 +134,7 @@ func (d *dedup) addValue(attr string, value types.Val, uid uint64) {
 
 func aggregateGroup(grp *groupResult, child *SubGraph) (types.Val, error) {
 	ag := aggregator{
-		name: child.SrcFunc.Name,
+		name: child.SrcFunc[0],
 	}
 	for _, uid := range grp.uids {
 		idx := sort.Search(len(child.SrcUIDs.Uids), func(i int) bool {
@@ -143,7 +143,7 @@ func aggregateGroup(grp *groupResult, child *SubGraph) (types.Val, error) {
 		if idx == len(child.SrcUIDs.Uids) || child.SrcUIDs.Uids[idx] != uid {
 			continue
 		}
-		v := child.valueMatrix[idx].Values[0]
+		v := child.values[idx]
 		val, err := convertWithBestEffort(v, child.Attr)
 		if err != nil {
 			continue
@@ -192,6 +192,8 @@ func (res *groupResults) formGroups(dedupMap dedup, cur *protos.List, groupVal [
 }
 
 func (sg *SubGraph) processGroupBy(doneVars map[string]varValue, path []*SubGraph) error {
+	mp := make(map[string]groupResult)
+	_ = mp
 	var dedupMap dedup
 	var pathNode *SubGraph
 	for _, child := range sg.Children {
@@ -210,9 +212,9 @@ func (sg *SubGraph) processGroupBy(doneVars map[string]varValue, path []*SubGrap
 			pathNode = child
 		} else {
 			// It's a value node.
-			for i, v := range child.valueMatrix {
+			for i, v := range child.values {
 				srcUid := child.SrcUIDs.Uids[i]
-				val, err := convertTo(v.Values[0])
+				val, err := convertTo(v)
 				if err != nil {
 					continue
 				}
@@ -252,10 +254,7 @@ func (sg *SubGraph) processGroupBy(doneVars map[string]varValue, path []*SubGrap
 				if !ok {
 					return x.Errorf("Vars can be assigned only when grouped by UID attribute")
 				}
-				// grp.aggregates could be empty if schema conversion failed during aggregation
-				if len(grp.aggregates) > 0 {
-					tempMap[uid] = grp.aggregates[len(grp.aggregates)-1].key
-				}
+				tempMap[uid] = grp.aggregates[len(grp.aggregates)-1].key
 			}
 			doneVars[chVar] = varValue{
 				Vals: tempMap,
@@ -313,5 +312,6 @@ func groupLess(a, b *groupResult) bool {
 			}
 		}
 	}
+	x.Fatalf("wrong groups")
 	return false
 }

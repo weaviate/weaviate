@@ -19,23 +19,19 @@ package query
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"net"
 	"os"
 	"reflect"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
-	context "golang.org/x/net/context"
-	"google.golang.org/grpc"
-
 	"github.com/dgraph-io/badger"
-	"github.com/dgraph-io/badger/options"
+	"github.com/dgraph-io/badger/table"
 	"github.com/gogo/protobuf/proto"
 	"github.com/stretchr/testify/require"
 	geom "github.com/twpayne/go-geom"
@@ -43,6 +39,7 @@ import (
 	"github.com/dgraph-io/dgraph/algo"
 	"github.com/dgraph-io/dgraph/client"
 	"github.com/dgraph-io/dgraph/gql"
+	"github.com/dgraph-io/dgraph/group"
 	"github.com/dgraph-io/dgraph/posting"
 	"github.com/dgraph-io/dgraph/protos"
 
@@ -136,7 +133,6 @@ func populateGraph(t *testing.T) {
 	err = types.Marshal(coord, &gData)
 	require.NoError(t, err)
 	addEdgeToTypedValue(t, "loc", 1, types.GeoID, gData.Value.([]byte), nil)
-	addEdgeToTypedValue(t, "loc", 25, types.GeoID, gData.Value.([]byte), nil)
 
 	// IntID
 	data := types.ValueForType(types.BinaryID)
@@ -185,7 +181,7 @@ func populateGraph(t *testing.T) {
 
 	addEdgeToValue(t, "address", 23, "21, mark street, Mars", nil)
 	addEdgeToValue(t, "name", 24, "Glenn Rhee", nil)
-	addEdgeToValue(t, "_xid_", 24, `g"lenn`, nil)
+	addEdgeToValue(t, "_xid_", 24, `g\"lenn`, nil)
 	src.Value = []byte(`{"Type":"Point", "Coordinates":[1.10001,2.000001]}`)
 	coord, err = types.Convert(src, types.GeoID)
 	require.NoError(t, err)
@@ -209,17 +205,10 @@ func populateGraph(t *testing.T) {
 	addEdgeToTypedValue(t, "loc", 31, types.GeoID, gData.Value.([]byte), nil)
 
 	addEdgeToValue(t, "dob_day", 1, "1910-01-01", nil)
-
-	// Note - Though graduation is of [dateTime] type. Don't add another graduation for Michonne.
-	// There is a test to check that JSON should return an array even if there is only one value
-	// for attribute whose type is a list type.
-	addEdgeToValue(t, "graduation", 1, "1932-01-01", nil)
 	addEdgeToValue(t, "dob_day", 23, "1910-01-02", nil)
 	addEdgeToValue(t, "dob_day", 24, "1909-05-05", nil)
 	addEdgeToValue(t, "dob_day", 25, "1909-01-10", nil)
 	addEdgeToValue(t, "dob_day", 31, "1901-01-15", nil)
-	addEdgeToValue(t, "graduation", 31, "1933-01-01", nil)
-	addEdgeToValue(t, "graduation", 31, "1935-01-01", nil)
 
 	addEdgeToValue(t, "dob", 1, "1910-01-01", nil)
 	addEdgeToValue(t, "dob", 23, "1910-01-02", nil)
@@ -262,13 +251,9 @@ func populateGraph(t *testing.T) {
 	addGeoData(t, ps, 5105, poly, "Mountain View")
 	poly = geom.NewPolygon(geom.XY).MustSetCoords([][]geom.Coord{
 		{{-122.25, 37.49}, {-122.28, 37.49}, {-122.27, 37.51}, {-122.25, 37.52},
-			{-122.25, 37.49}},
+			{-122.24, 37.51}},
 	})
 	addGeoData(t, ps, 5106, poly, "San Carlos")
-
-	multipoly, err := loadPolygon("testdata/nyc-coordinates.txt")
-	require.NoError(t, err)
-	addGeoData(t, ps, 5107, multipoly, "New York")
 
 	addEdgeToValue(t, "film.film.initial_release_date", 23, "1900-01-02", nil)
 	addEdgeToValue(t, "film.film.initial_release_date", 24, "1909-05-05", nil)
@@ -341,30 +326,10 @@ func populateGraph(t *testing.T) {
 	addEdgeToUID(t, "son", 1, 2300, nil)
 	addEdgeToUID(t, "son", 1, 2333, nil)
 
-	addEdgeToValue(t, "name", 2301, `Alice"`, nil)
+	addEdgeToValue(t, "name", 2301, `Alice\"`, nil)
 
 	// Add some base64 encoded data
 	addEdgeToTypedValue(t, "bin_data", 0x1, types.BinaryID, []byte("YmluLWRhdGE="), nil)
-
-	// Data to check multi-sort.
-	addEdgeToValue(t, "name", 10000, "Alice", nil)
-	addEdgeToValue(t, "age", 10000, "25", nil)
-	addEdgeToValue(t, "salary", 10000, "10000", nil)
-	addEdgeToValue(t, "name", 10001, "Elizabeth", nil)
-	addEdgeToValue(t, "age", 10001, "75", nil)
-	addEdgeToValue(t, "name", 10002, "Alice", nil)
-	addEdgeToValue(t, "age", 10002, "75", nil)
-	addEdgeToValue(t, "salary", 10002, "10002", nil)
-	addEdgeToValue(t, "name", 10003, "Bob", nil)
-	addEdgeToValue(t, "age", 10003, "75", nil)
-	addEdgeToValue(t, "name", 10004, "Alice", nil)
-	addEdgeToValue(t, "age", 10004, "75", nil)
-	addEdgeToValue(t, "name", 10005, "Bob", nil)
-	addEdgeToValue(t, "age", 10005, "25", nil)
-	addEdgeToValue(t, "name", 10006, "Colin", nil)
-	addEdgeToValue(t, "age", 10006, "25", nil)
-	addEdgeToValue(t, "name", 10007, "Elizabeth", nil)
-	addEdgeToValue(t, "age", 10007, "25", nil)
 }
 
 func TestGetUID(t *testing.T) {
@@ -436,7 +401,7 @@ func TestReturnUids(t *testing.T) {
 
 	ctx := defaultContext()
 	qr := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = qr.ProcessQuery(ctx)
+	err = qr.ProcessQuery(ctx)
 	require.NoError(t, err)
 
 	var buf bytes.Buffer
@@ -499,7 +464,7 @@ func TestLevelBasedFacetVarAggSum(t *testing.T) {
 	populateGraph(t)
 	query := `
 		{
-			friend(func: uid(1000)) {
+			friend(func: uid( 1000)) {
 				path @facets(L1 as weight)
 				sumw: sum(val(L1))
 			}
@@ -1078,7 +1043,7 @@ func TestQueryVarValOrderError(t *testing.T) {
 
 	ctx := defaultContext()
 	qr := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = qr.ProcessQuery(ctx)
+	err = qr.ProcessQuery(ctx)
 	require.Contains(t, err.Error(), "Cannot sort attribute n of type object.")
 }
 
@@ -1119,7 +1084,7 @@ func TestQueryVarValOrderDescMissing(t *testing.T) {
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t, `{"data": {}}`, js)
 }
 
 func TestGroupByRootProto(t *testing.T) {
@@ -1334,7 +1299,7 @@ func TestGroupByMulti(t *testing.T) {
 	populateGraph(t)
 	query := `
 		{
-			me(func: uid(1)) {
+			me(func: uid( 1)) {
 				friend @groupby(friend,name) {
 					count(_uid_)
 				}
@@ -1354,12 +1319,14 @@ func TestMultiEmptyBlocks(t *testing.T) {
 			you(func: uid(0x01)) {
 			}
 
-			me(func: uid(0x02)) {
+			me(func: uid( 0x02)) {
 			}
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"you": [], "me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestUseVarsMultiCascade1(t *testing.T) {
@@ -1502,9 +1469,8 @@ func TestUseVarsFilterVarReuse2(t *testing.T) {
 			friend(func:anyofterms(name, "Michonne Andrea Glenn")) {
 				friend {
 				 L as friend {
-					nonexistent_pred
-					name
-					friend @filter(uid(L)) {
+					 name
+					 friend @filter(uid(L)) {
 						name
 					}
 				}
@@ -1523,7 +1489,7 @@ func TestDoubleOrder(t *testing.T) {
 	query := `
     {
 		me(func: uid(1)) {
-			friend(orderdesc: dob) @facets(orderasc: weight)
+			friend(orderdesc: dob) @facets(orderasc: weight) 
 		}
 	}
   `
@@ -1532,7 +1498,7 @@ func TestDoubleOrder(t *testing.T) {
 
 	ctx := defaultContext()
 	qr := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = qr.ProcessQuery(ctx)
+	err = qr.ProcessQuery(ctx)
 	require.Error(t, err)
 }
 
@@ -1577,7 +1543,7 @@ func TestVarInIneqError(t *testing.T) {
 
 	ctx := defaultContext()
 	qr := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = qr.ProcessQuery(ctx)
+	err = qr.ProcessQuery(ctx)
 
 	require.Error(t, err)
 }
@@ -1645,73 +1611,6 @@ func TestVarInIneq2(t *testing.T) {
 	require.JSONEq(t, `{"data": {"me":[{"name":"Andrea"}]}}`, js)
 }
 
-func TestVarInIneq3(t *testing.T) {
-	populateGraph(t)
-	query := `
-    {
-			var(func: uid(0x1f)) {
-				a as name
-			}
-
-			me(func: eq(name, val(a))) {
-				name
-			}
-		}
-  `
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"name":"Andrea"}]}}`, js)
-}
-
-func TestVarInIneq4(t *testing.T) {
-	populateGraph(t)
-	query := `
-    {
-			var(func: uid(0x1f)) {
-				a as name
-			}
-
-			me(func: uid(0x1f)) @filter(eq(name, val(a))) {
-				name
-			}
-		}
-  `
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"name":"Andrea"}]}}`, js)
-}
-
-func TestVarInIneq5(t *testing.T) {
-	populateGraph(t)
-	query1 := `
-    {
-			var(func: uid(1)) {
-				friend {
-				  a as name
-			  }
-			}
-
-			me(func: eq(name, val(a))) {
-				name
-			}
-		}
-  `
-	query2 := `
-    {
-			var(func: uid(1)) {
-				friend {
-				  a as name
-			  }
-			}
-
-			me(func: uid(a)) {
-				name: val(a)
-			}
-		}
-  `
-	js1 := processToFastJSON(t, query1)
-	js2 := processToFastJSON(t, query2)
-	require.JSONEq(t, js2, js1)
-}
-
 func TestNestedFuncRoot(t *testing.T) {
 	populateGraph(t)
 	query := `
@@ -1738,6 +1637,19 @@ func TestNestedFuncRoot2(t *testing.T) {
 	require.JSONEq(t, `{"data": {"me":[{"name":"Michonne"},{"name":"Rick Grimes"},{"name":"Andrea"}]}}`, js)
 }
 
+func TestNestedFuncRoot3(t *testing.T) {
+	populateGraph(t)
+	query := `
+		{
+			me(func: le(count(friend), -1)) {
+				name
+			}
+		}
+  `
+	js := processToFastJSON(t, query)
+	require.JSONEq(t, `{"data": {}}`, js)
+}
+
 func TestNestedFuncRoot4(t *testing.T) {
 	populateGraph(t)
 	query := `
@@ -1756,7 +1668,6 @@ func TestRecurseQuery(t *testing.T) {
 	query := `
 		{
 			recurse(func: uid(0x01)) {
-				nonexistent_pred
 				friend
 				name
 			}
@@ -1782,7 +1693,7 @@ func TestRecurseQueryOrder(t *testing.T) {
 		js)
 }
 
-func TestRecurseQueryLimitDepth1(t *testing.T) {
+func TestRecurseQueryLimitDepth(t *testing.T) {
 	populateGraph(t)
 	query := `
 		{
@@ -1794,64 +1705,6 @@ func TestRecurseQueryLimitDepth1(t *testing.T) {
 	js := processToFastJSON(t, query)
 	require.JSONEq(t,
 		`{"data": {"recurse":[{"name":"Michonne", "friend":[{"name":"Rick Grimes"},{"name":"Glenn Rhee"},{"name":"Daryl Dixon"},{"name":"Andrea"}]}]}}`, js)
-}
-
-func TestRecurseQueryLimitDepth2(t *testing.T) {
-	populateGraph(t)
-	query := `
-		{
-			recurse(func: uid(0x01), depth: 2) {
-				_uid_
-				non_existent
-				friend
-				name
-			}
-		}`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t,
-		`{"data": {"recurse":[{"_uid_":"0x1","friend":[{"_uid_":"0x17","name":"Rick Grimes"},{"_uid_":"0x18","name":"Glenn Rhee"},{"_uid_":"0x19","name":"Daryl Dixon"},{"_uid_":"0x1f","name":"Andrea"},{"_uid_":"0x65"}],"name":"Michonne"}]}}`, js)
-}
-
-func TestRecurseVariable(t *testing.T) {
-	populateGraph(t)
-	query := `
-			{
-				recurse(func: uid(0x01)) {
-					a as friend
-				}
-
-				me(func: uid(a)) {
-					name
-				}
-			}
-		`
-
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"recurse":[],"me":[{"name":"Michonne"},{"name":"Rick Grimes"},{"name":"Glenn Rhee"},{"name":"Daryl Dixon"},{"name":"Andrea"}]}}`, js)
-}
-
-func TestRecurseVariable2(t *testing.T) {
-	populateGraph(t)
-
-	query := `
-			{
-
-				recurse(func: uid(0x1)) {
-					f2 as friend
-					f as follow
-				}
-
-				me(func: uid(f)) {
-					name
-				}
-
-				me2(func: uid(f2)) {
-					name
-				}
-			}
-	`
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"recurse":[],"me":[{"name":"Glenn Rhee"},{"name":"Andrea"},{"name":"Alice"},{"name":"Bob"},{"name":"Matt"},{"name":"John"}],"me2":[{"name":"Michonne"},{"name":"Rick Grimes"},{"name":"Glenn Rhee"},{"name":"Daryl Dixon"},{"name":"Andrea"}]}}`, js)
 }
 
 func TestShortestPath_ExpandError(t *testing.T) {
@@ -1871,7 +1724,7 @@ func TestShortestPath_ExpandError(t *testing.T) {
 
 	ctx := defaultContext()
 	qr := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = qr.ProcessQuery(ctx)
+	err = qr.ProcessQuery(ctx)
 	require.Error(t, err)
 }
 
@@ -1889,7 +1742,9 @@ func TestShortestPath_NoPath(t *testing.T) {
 			}
 		}`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestKShortestPath_NoPath(t *testing.T) {
@@ -1898,7 +1753,6 @@ func TestKShortestPath_NoPath(t *testing.T) {
 		{
 			A as shortest(from:0x01, to:101, numpaths: 2) {
 				path
-				nonexistent_pred
 				follow
 			}
 
@@ -1907,7 +1761,9 @@ func TestKShortestPath_NoPath(t *testing.T) {
 			}
 		}`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestKShortestPathWeighted(t *testing.T) {
@@ -2036,7 +1892,6 @@ func TestFacetVarRetrieveOrder(t *testing.T) {
 
 			me(func: uid(f), orderasc: val(f)) {
 				name
-				nonexistent_pred
 				val(f)
 			}
 		}`
@@ -2063,7 +1918,7 @@ func TestShortestPathWeightsMultiFacet_Error(t *testing.T) {
 
 	ctx := defaultContext()
 	qr := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = qr.ProcessQuery(ctx)
+	err = qr.ProcessQuery(ctx)
 	require.Error(t, err)
 }
 
@@ -2132,7 +1987,7 @@ func TestShortestPath_filter(t *testing.T) {
 				follow
 			}
 
-			me(func: uid(A)) {
+			me(func: uid( A)) {
 				name
 			}
 		}`
@@ -2156,7 +2011,9 @@ func TestShortestPath_filter2(t *testing.T) {
 			}
 		}`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": { "me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestUseVarsFilterMultiId(t *testing.T) {
@@ -2285,7 +2142,7 @@ func TestDebug1(t *testing.T) {
 
 	ctx := context.WithValue(defaultContext(), "debug", "true")
 	qr := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = qr.ProcessQuery(ctx)
+	err = qr.ProcessQuery(ctx)
 
 	require.NoError(t, err)
 
@@ -2300,15 +2157,10 @@ func TestDebug1(t *testing.T) {
 	uid := resp.([]interface{})[0].(map[string]interface{})["_uid_"].(string)
 	require.EqualValues(t, "0x1", uid)
 
-	extensions := mp["extensions"]
-	require.NotNil(t, extensions)
-	ext, ok := extensions.(map[string]interface{})
-	require.True(t, ok)
-	latency := ext["server_latency"]
+	latency := data["server_latency"]
 	require.NotNil(t, latency)
-	lat, ok := latency.(map[string]interface{})
+	_, ok := latency.(map[string]interface{})
 	require.True(t, ok)
-	require.Equal(t, 4, len(lat))
 }
 
 func TestDebug2(t *testing.T) {
@@ -2351,7 +2203,7 @@ func TestDebug3(t *testing.T) {
 	ctx := context.WithValue(defaultContext(), "debug", "true")
 
 	qr := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = qr.ProcessQuery(ctx)
+	err = qr.ProcessQuery(ctx)
 	require.NoError(t, err)
 
 	var buf bytes.Buffer
@@ -2462,30 +2314,6 @@ func TestCountError3(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestCountDoNotTrackZeroCount(t *testing.T) {
-	populateGraph(t)
-	query := `
-	mutation{
-		schema{
-			aoeu: uid @count .
-		}
-		set{
-			_:a <aoeu> _:b .
-		}
-		delete{
-			* <aoeu> * .
-		}
-	}
-	{
-		q(func: lt(count(aoeu), 5)) {
-			count
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"q":[]}}`, js)
-}
-
 func TestMultiCountSort(t *testing.T) {
 	populateGraph(t)
 	// Alright. Now we have everything set up. Let's create the query.
@@ -2574,7 +2402,7 @@ func TestMultiLevelAgg1Error(t *testing.T) {
 
 	ctx := defaultContext()
 	qr := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = qr.ProcessQuery(ctx)
+	err = qr.ProcessQuery(ctx)
 	require.Error(t, err)
 }
 
@@ -2874,63 +2702,18 @@ func TestQueryPassword(t *testing.T) {
                         }
                 }
 	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"name":"Michonne"}]}}`, js)
-}
-
-func TestPasswordExpandAll1(t *testing.T) {
-	err := schema.ParseBytes([]byte(schemaStr), 1)
-	x.Check(err)
-	populateGraph(t)
-	addPassword(t, 1, "password", "123456")
-	// We ignore password in expand(_all_)
-	query := `
-    {
-        me(func: uid(0x01)) {
-			expand(_all_)
-		}
-    }
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"alive":true,"loc":{"type":"Point","coordinates":[1.1,2]},"sword_present":"true","gender":"female","power":13.250000,"graduation":"1932-01-01T00:00:00Z","_xid_":"mich","dob_day":"1910-01-01T00:00:00Z","dob":"1910-01-01T00:00:00Z","noindex_name":"Michonne's name not indexed","name":"Michonne","age":38,"full_name":"Michonne's large name for hashing","bin_data":"YmluLWRhdGE=","survival_rate":98.990000,"address":"31, 32 street, Jupiter"}]}}`, js)
-}
-
-func TestPasswordExpandAll2(t *testing.T) {
-	populateGraph(t)
-	addPassword(t, 1, "password", "123456")
-	query := `
-    {
-        me(func: uid(0x01)) {
-			expand(_all_)
-			checkpwd(password, "12345")
-		}
-    }
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"sword_present":"true","bin_data":"YmluLWRhdGE=","power":13.250000,"_xid_":"mich","name":"Michonne","age":38,"dob_day":"1910-01-01T00:00:00Z","loc":{"type":"Point","coordinates":[1.1,2]},"address":"31, 32 street, Jupiter","gender":"female","noindex_name":"Michonne's name not indexed","dob":"1910-01-01T00:00:00Z","survival_rate":98.990000,"graduation":"1932-01-01T00:00:00Z","full_name":"Michonne's large name for hashing","alive":true,"password":[{"checkpwd":false}]}]}}`, js)
-}
-
-func TestPasswordExpandError(t *testing.T) {
-	populateGraph(t)
-	addPassword(t, 1, "password", "123456")
-	query := `
-    {
-        me(func: uid(0x01)) {
-			expand(_all_)
-			password
-		}
-    }
-	`
 	res, err := gql.Parse(gql.Request{Str: query})
 	require.NoError(t, err)
+
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = queryRequest.ProcessQuery(defaultContext())
+	err = queryRequest.ProcessQuery(defaultContext())
+
 	require.NotNil(t, err)
-	require.Contains(t, err.Error(), "Repeated subgraph: [password]")
 }
 
 func TestCheckPassword(t *testing.T) {
 	populateGraph(t)
+	addPassword(t, 23, "pass", "654321")
 	addPassword(t, 1, "password", "123456")
 	query := `
                 {
@@ -3044,7 +2827,8 @@ func TestCheckPasswordQuery1(t *testing.T) {
                 }
 	`
 	_, err := processToFastJsonReq(t, query)
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.EqualValues(t, "Attribute `password` of type password cannot be fetched", err.Error())
 }
 
 // test for improved version of checkpwd with custom attribute name
@@ -3061,7 +2845,8 @@ func TestCheckPasswordQuery2(t *testing.T) {
                 }
 	`
 	_, err := processToFastJsonReq(t, query)
-	require.NoError(t, err)
+	require.Error(t, err)
+	require.EqualValues(t, "Attribute `pass` of type password cannot be fetched", err.Error())
 }
 
 func TestToSubgraphInvalidFnName(t *testing.T) {
@@ -3211,12 +2996,12 @@ func TestProcessGraph(t *testing.T) {
 	child = child.Children[0]
 	require.EqualValues(t,
 		[]string{"Rick Grimes", "Glenn Rhee", "Daryl Dixon", "Andrea", ""},
-		taskValues(t, child.valueMatrix))
+		taskValues(t, child.values))
 
 	require.EqualValues(t, []string{"Michonne"},
-		taskValues(t, sg.Children[1].valueMatrix))
+		taskValues(t, sg.Children[1].values))
 	require.EqualValues(t, []string{"female"},
-		taskValues(t, sg.Children[2].valueMatrix))
+		taskValues(t, sg.Children[2].values))
 }
 
 func TestToFastJSON(t *testing.T) {
@@ -3691,7 +3476,8 @@ func TestFilterRegex13(t *testing.T) {
 
 	// no results are returned, becaues case insensive mode is turned off before 'ISSION'
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`, js)
 }
 
 // invalid regexp modifier
@@ -3863,7 +3649,7 @@ func TestToFastJSONFiltergeName(t *testing.T) {
 		js)
 }
 
-func TestToFastJSONFilterLtAlias(t *testing.T) {
+func TestToFastJSONFilteLtAlias(t *testing.T) {
 	populateGraph(t)
 	// We shouldn't get Zambo Alice.
 	query := `
@@ -4958,36 +4744,32 @@ func TestToFastJSONOrderOffsetCount(t *testing.T) {
 
 // Mocking Subgraph and Testing fast-json with it.
 func ageSg(uidMatrix []*protos.List, srcUids *protos.List, ages []uint64) *SubGraph {
-	var as []*protos.ValueList
+	var as []*protos.TaskValue
 	for _, a := range ages {
 		bs := make([]byte, 4)
 		binary.LittleEndian.PutUint64(bs, a)
-		as = append(as, &protos.ValueList{
-			Values: []*protos.TaskValue{
-				&protos.TaskValue{[]byte(bs), 2},
-			},
-		})
+		as = append(as, &protos.TaskValue{[]byte(bs), 2})
 	}
 
 	return &SubGraph{
-		Attr:        "age",
-		uidMatrix:   uidMatrix,
-		SrcUIDs:     srcUids,
-		valueMatrix: as,
-		Params:      params{GetUid: true},
+		Attr:      "age",
+		uidMatrix: uidMatrix,
+		SrcUIDs:   srcUids,
+		values:    as,
+		Params:    params{GetUid: true},
 	}
 }
 func nameSg(uidMatrix []*protos.List, srcUids *protos.List, names []string) *SubGraph {
-	var ns []*protos.ValueList
+	var ns []*protos.TaskValue
 	for _, n := range names {
-		ns = append(ns, &protos.ValueList{Values: []*protos.TaskValue{{[]byte(n), 0}}})
+		ns = append(ns, &protos.TaskValue{[]byte(n), 0})
 	}
 	return &SubGraph{
-		Attr:        "name",
-		uidMatrix:   uidMatrix,
-		SrcUIDs:     srcUids,
-		valueMatrix: ns,
-		Params:      params{GetUid: true},
+		Attr:      "name",
+		uidMatrix: uidMatrix,
+		SrcUIDs:   srcUids,
+		values:    ns,
+		Params:    params{GetUid: true},
 	}
 
 }
@@ -5607,7 +5389,7 @@ func TestGeneratorRootFilterOnCountError1(t *testing.T) {
 	require.NoError(t, err)
 
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = queryRequest.ProcessQuery(defaultContext())
+	err = queryRequest.ProcessQuery(defaultContext())
 
 	require.NotNil(t, err)
 }
@@ -5626,7 +5408,7 @@ func TestGeneratorRootFilterOnCountError2(t *testing.T) {
 	require.NoError(t, err)
 
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = queryRequest.ProcessQuery(defaultContext())
+	err = queryRequest.ProcessQuery(defaultContext())
 
 	require.NotNil(t, err)
 }
@@ -5645,7 +5427,7 @@ func TestGeneratorRootFilterOnCountError3(t *testing.T) {
 	require.NoError(t, err)
 
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = queryRequest.ProcessQuery(defaultContext())
+	err = queryRequest.ProcessQuery(defaultContext())
 	require.Error(t, err)
 }
 
@@ -5694,16 +5476,15 @@ children: <
 
 func TestNearGenerator(t *testing.T) {
 	populateGraph(t)
-	time.Sleep(10 * time.Millisecond)
 	query := `{
-		me(func:near(loc, [1.1,2.0], 5.001)) @filter(not uid(25)) {
+		me(func:near(loc, [1.1,2.0], 5.001)) {
 			name
 			gender
 		}
 	}`
 
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"name":"Michonne","gender":"female"},{"name":"Rick Grimes","gender": "male"},{"name":"Glenn Rhee"}]}}`, js)
+	require.JSONEq(t, `{"data": {"me":[{"gender":"female","name":"Michonne"},{"name":"Glenn Rhee"}]}}`, js)
 }
 
 func TestNearGeneratorFilter(t *testing.T) {
@@ -5766,7 +5547,7 @@ func TestNearGeneratorErrorMissDist(t *testing.T) {
 func TestWithinGeneratorError(t *testing.T) {
 	populateGraph(t)
 	query := `{
-		me(func:within(loc, [[[0.0,0.0], [2.0,0.0], [1.5, 3.0], [0.0, 2.0], [0.0, 0.0]]], 12.2)) {
+		me(func:within(loc, [[0.0,0.0], [2.0,0.0], [1.5, 3.0], [0.0, 2.0], [0.0, 0.0]], 12.2)) {
 			name
 			gender
 		}
@@ -5788,7 +5569,7 @@ func TestWithinGeneratorError(t *testing.T) {
 func TestWithinGenerator(t *testing.T) {
 	populateGraph(t)
 	query := `{
-		me(func:within(loc,  [[[0.0,0.0], [2.0,0.0], [1.5, 3.0], [0.0, 2.0], [0.0, 0.0]]])) @filter(not uid(25)) {
+		me(func:within(loc,  [[0.0,0.0], [2.0,0.0], [1.5, 3.0], [0.0, 2.0], [0.0, 0.0]])) {
 			name
 		}
 	}`
@@ -5812,7 +5593,7 @@ func TestContainsGenerator(t *testing.T) {
 func TestContainsGenerator2(t *testing.T) {
 	populateGraph(t)
 	query := `{
-		me(func:contains(loc,  [[[1.0,1.0], [1.9,1.0], [1.9, 1.9], [1.0, 1.9], [1.0, 1.0]]])) {
+		me(func:contains(loc,  [[1.0,1.0], [1.9,1.0], [1.9, 1.9], [1.0, 1.9], [1.0, 1.0]])) {
 			name
 		}
 	}`
@@ -5845,7 +5626,7 @@ func TestIntersectsGeneratorError(t *testing.T) {
 func TestIntersectsGenerator(t *testing.T) {
 	populateGraph(t)
 	query := `{
-		me(func:intersects(loc, [[[0.0,0.0], [2.0,0.0], [1.5, 3.0], [0.0, 2.0], [0.0, 0.0]]])) @filter(not uid(25)) {
+		me(func:intersects(loc, [[0.0,0.0], [2.0,0.0], [1.5, 3.0], [0.0, 2.0], [0.0, 0.0]])) {
 			name
 		}
 	}`
@@ -6308,14 +6089,14 @@ func TestNearPoint(t *testing.T) {
 	}`
 
 	js := processToFastJSON(t, query)
-	expected := `{"data": {"me":[{"name":"Googleplex"},{"name":"SF Bay area"},{"name":"Mountain View"}]}}`
+	expected := `{"data": {"me":[{"name":"Googleplex"}]}}`
 	require.JSONEq(t, expected, js)
 }
 
 func TestWithinPolygon(t *testing.T) {
 	populateGraph(t)
 	query := `{
-		me(func: within(geometry, [[[-122.06, 37.37], [-122.1, 37.36], [-122.12, 37.4], [-122.11, 37.43], [-122.04, 37.43], [-122.06, 37.37]]])) {
+		me(func: within(geometry, [[-122.06, 37.37], [-122.1, 37.36], [-122.12, 37.4], [-122.11, 37.43], [-122.04, 37.43], [-122.06, 37.37]])) {
 			name
 		}
 	}`
@@ -6346,14 +6127,14 @@ func TestNearPoint2(t *testing.T) {
 	}`
 
 	js := processToFastJSON(t, query)
-	expected := `{"data": {"me":[{"name":"Googleplex"},{"name":"Shoreline Amphitheater"}, {"name": "SF Bay area"}, {"name": "Mountain View"}]}}`
+	expected := `{"data": {"me":[{"name":"Googleplex"},{"name":"Shoreline Amphitheater"}]}}`
 	require.JSONEq(t, expected, js)
 }
 
 func TestIntersectsPolygon1(t *testing.T) {
 	populateGraph(t)
 	query := `{
-		me(func: intersects(geometry, [[[-122.06, 37.37], [-122.1, 37.36], [-122.12, 37.4], [-122.11, 37.43], [-122.04, 37.43], [-122.06, 37.37]]])) {
+		me(func: intersects(geometry, [[-122.06, 37.37], [-122.1, 37.36], [-122.12, 37.4], [-122.11, 37.43], [-122.04, 37.43], [-122.06, 37.37]])) {
 			name
 		}
 	}`
@@ -6367,7 +6148,7 @@ func TestIntersectsPolygon1(t *testing.T) {
 func TestIntersectsPolygon2(t *testing.T) {
 	populateGraph(t)
 	query := `{
-		me(func: intersects(geometry,[[[-121.6, 37.1], [-122.4, 37.3], [-122.6, 37.8], [-122.5, 38.3], [-121.9, 38], [-121.6, 37.1]]])) {
+		me(func: intersects(geometry,[[-121.6, 37.1], [-122.4, 37.3], [-122.6, 37.8], [-122.5, 38.3], [-121.9, 38], [-121.6, 37.1]])) {
 			name
 		}
 	}`
@@ -6471,7 +6252,9 @@ func TestLangSingleFallback(t *testing.T) {
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestLangMany1(t *testing.T) {
@@ -6529,7 +6312,9 @@ func TestLangManyFallback(t *testing.T) {
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestLangNoFallbackNoDefault(t *testing.T) {
@@ -6542,7 +6327,9 @@ func TestLangNoFallbackNoDefault(t *testing.T) {
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestLangSingleNoFallbackNoDefault(t *testing.T) {
@@ -6555,7 +6342,9 @@ func TestLangSingleNoFallbackNoDefault(t *testing.T) {
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestLangMultipleNoFallbackNoDefault(t *testing.T) {
@@ -6568,7 +6357,9 @@ func TestLangMultipleNoFallbackNoDefault(t *testing.T) {
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestLangOnlyForcedFallbackNoDefault(t *testing.T) {
@@ -6644,7 +6435,9 @@ func TestLangFilterMismatch1(t *testing.T) {
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestLangFilterMismatch2(t *testing.T) {
@@ -6657,7 +6450,9 @@ func TestLangFilterMismatch2(t *testing.T) {
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestLangFilterMismatch3(t *testing.T) {
@@ -6670,7 +6465,9 @@ func TestLangFilterMismatch3(t *testing.T) {
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestLangFilterMismatch5(t *testing.T) {
@@ -6698,7 +6495,9 @@ func TestLangFilterMismatch6(t *testing.T) {
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestLangLossyIndex1(t *testing.T) {
@@ -6744,7 +6543,9 @@ func TestLangLossyIndex3(t *testing.T) {
 		}
 	`
 	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
+	require.JSONEq(t,
+		`{"data": {}}`,
+		js)
 }
 
 func TestLangLossyIndex4(t *testing.T) {
@@ -6778,14 +6579,16 @@ func TestLangBug1295(t *testing.T) {
 				query := `
 			{
 				q(func:` + f + "(royal_title" + l + `, "Sa Majesté Elizabeth Deux, par la grâce de Dieu Reine du Royaume-Uni, du Canada et de ses autres royaumes et territoires, Chef du Commonwealth, Défenseur de la Foi")) {
-					royal_title@en
+					royal_title@en 
 				}
 			}`
 
 				json, err := processToFastJsonReq(t, query)
 				require.NoError(t, err)
 				if l == "" {
-					require.JSONEq(t, `{"data": {"q": []}}`, json)
+					require.JSONEq(t,
+						`{"data": {}}`,
+						json)
 				} else {
 					require.JSONEq(t,
 						`{"data": {"q":[{"royal_title@en":"Her Majesty Elizabeth the Second, by the Grace of God of the United Kingdom of Great Britain and Northern Ireland and of Her other Realms and Territories Queen, Head of the Commonwealth, Defender of the Faith"}]}}`,
@@ -6795,22 +6598,6 @@ func TestLangBug1295(t *testing.T) {
 		}
 	}
 
-}
-
-func TestLangDotInFunction(t *testing.T) {
-	populateGraph(t)
-	query := `
-		{
-			me(func:anyofterms(name@., "europejski honey")) {
-				name@pl
-				name@en
-			}
-		}
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t,
-		`{"data": {"me":[{"name@pl":"Borsuk europejski","name@en":"European badger"},{"name@en":"Honey badger"},{"name@en":"Honey bee"}]}}`,
-		js)
 }
 
 func checkSchemaNodes(t *testing.T, expected []*protos.SchemaNode, actual []*protos.SchemaNode) {
@@ -6848,11 +6635,6 @@ func TestSchemaBlock1(t *testing.T) {
 		{Predicate: "lossy", Type: "string"},
 		{Predicate: "school", Type: "uid"},
 		{Predicate: "dob_day", Type: "datetime"},
-		{Predicate: "graduation", Type: "datetime"},
-		{Predicate: "occupations", Type: "string"},
-		{Predicate: "_predicate_", Type: "string"},
-		{Predicate: "salary", Type: "float"},
-		{Predicate: "password", Type: "password"},
 	}
 	checkSchemaNodes(t, expected, actual)
 }
@@ -6949,90 +6731,13 @@ value                          : string @index(trigram) .
 full_name                      : string @index(hash) .
 royal_title                    : string @index(hash, term, fulltext) .
 noindex_name                   : string .
-school                         : uid @count .
+school		                   : uid @count .
 lossy                          : string @index(term) .
-occupations                    : [string] @index(term) .
-graduation                     : [dateTime] @index(year) @count .
-salary                         : float @index(float) .
-password                       : password .
 `
 
-// Duplicate implemention as in cmd/dgraph/main_test.go
-// TODO: Change the implementation in cmd/dgraph to test for network failure
-type raftServer struct {
-}
-
-func (c *raftServer) Echo(ctx context.Context, in *protos.Payload) (*protos.Payload, error) {
-	return in, nil
-}
-
-func (c *raftServer) RaftMessage(ctx context.Context, in *protos.Payload) (*protos.Payload, error) {
-	return &protos.Payload{}, nil
-}
-
-func (c *raftServer) JoinCluster(ctx context.Context, in *protos.RaftContext) (*protos.Payload, error) {
-	return &protos.Payload{}, nil
-}
-
-type zeroServer struct {
-}
-
-func (z *zeroServer) AssignUids(ctx context.Context, n *protos.Num) (*protos.AssignedIds, error) {
-	return &protos.AssignedIds{}, nil
-}
-
-func (z *zeroServer) Connect(ctx context.Context, in *protos.Member) (*protos.MembershipState, error) {
-	m := &protos.MembershipState{}
-	m.Zeros = make(map[uint64]*protos.Member)
-	m.Zeros[2] = &protos.Member{Id: 2, Leader: true, Addr: "localhost:12340"}
-	m.Groups = make(map[uint32]*protos.Group)
-	g := &protos.Group{}
-	g.Members = make(map[uint64]*protos.Member)
-	g.Members[1] = &protos.Member{Id: 1, Addr: "localhost:12345"}
-	m.Groups[1] = g
-	return m, nil
-}
-
-// Used by sync membership
-func (z *zeroServer) Update(stream protos.Zero_UpdateServer) error {
-	for {
-		_, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-		m := &protos.MembershipState{}
-		m.Zeros = make(map[uint64]*protos.Member)
-		m.Zeros[2] = &protos.Member{Id: 2, Leader: true, Addr: "localhost:12340"}
-		m.Groups = make(map[uint32]*protos.Group)
-		g := &protos.Group{}
-		g.Members = make(map[uint64]*protos.Member)
-		g.Members[1] = &protos.Member{Id: 1, Addr: "localhost:12345"}
-		m.Groups[1] = g
-		stream.Send(m)
-	}
-}
-
-func (z *zeroServer) ShouldServe(ctx context.Context, in *protos.Tablet) (*protos.Tablet, error) {
-	in.GroupId = 1
-	return in, nil
-}
-
-func StartDummyZero() *grpc.Server {
-	ln, err := net.Listen("tcp", "localhost:12340")
-	x.Check(err)
-	x.Printf("zero listening at address: %v", ln.Addr())
-
-	s := grpc.NewServer()
-	protos.RegisterZeroServer(s, &zeroServer{})
-	protos.RegisterRaftServer(s, &raftServer{})
-	go s.Serve(ln)
-	return s
-}
-
 func TestMain(m *testing.M) {
+	x.SetTestRun()
 	x.Init()
-
-	StartDummyZero()
 
 	dir, err := ioutil.TempDir("", "storetest_")
 	x.Check(err)
@@ -7048,10 +6753,7 @@ func TestMain(m *testing.M) {
 	worker.Config.RaftId = 1
 	posting.Config.AllottedMemory = 1024.0
 	posting.Config.CommitFraction = 0.10
-	worker.Config.PeerAddr = "localhost:12340"
-	worker.Config.RaftId = 1
-	worker.Config.MyAddr = "localhost:12345"
-	worker.Config.ExpandEdge = true
+	group.ParseGroupConfig("")
 	schema.Init(ps)
 	posting.Init(ps)
 	worker.Init(ps)
@@ -7063,7 +6765,7 @@ func TestMain(m *testing.M) {
 	kvOpt.SyncWrites = true
 	kvOpt.Dir = dir2
 	kvOpt.ValueDir = dir2
-	kvOpt.TableLoadingMode = options.LoadToRAM
+	kvOpt.MapTablesTo = table.Nothing
 	walStore, err := badger.NewKV(&kvOpt)
 	x.Check(err)
 
@@ -7238,7 +6940,7 @@ children: <
     properties: <
       prop: "_xid_"
       value: <
-        default_val: "g\"lenn"
+        default_val: "g\\\"lenn"
       >
     >
     properties: <
@@ -7355,7 +7057,7 @@ func TestBoolIndexgeRoot(t *testing.T) {
 		}`
 	res, _ := gql.Parse(gql.Request{Str: q})
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err := queryRequest.ProcessQuery(defaultContext())
+	err := queryRequest.ProcessQuery(defaultContext())
 	require.NotNil(t, err)
 }
 
@@ -7391,7 +7093,7 @@ func TestBoolSort(t *testing.T) {
 	`
 	res, _ := gql.Parse(gql.Request{Str: q, Http: true})
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err := queryRequest.ProcessQuery(defaultContext())
+	err := queryRequest.ProcessQuery(defaultContext())
 	require.NotNil(t, err)
 }
 
@@ -7523,7 +7225,7 @@ func TestHashTokGeqErr(t *testing.T) {
 	`
 	res, _ := gql.Parse(gql.Request{Str: query})
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err := queryRequest.ProcessQuery(defaultContext())
+	err := queryRequest.ProcessQuery(defaultContext())
 	require.Error(t, err)
 }
 
@@ -7542,7 +7244,7 @@ func TestNameNotIndexed(t *testing.T) {
 	`
 	res, _ := gql.Parse(gql.Request{Str: query})
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err := queryRequest.ProcessQuery(defaultContext())
+	err := queryRequest.ProcessQuery(defaultContext())
 	require.Error(t, err)
 }
 
@@ -7581,7 +7283,7 @@ func TestDuplicateAlias(t *testing.T) {
 		}`
 	res, _ := gql.Parse(gql.Request{Str: query})
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err := queryRequest.ProcessQuery(defaultContext())
+	err := queryRequest.ProcessQuery(defaultContext())
 	require.Error(t, err)
 }
 
@@ -7667,7 +7369,7 @@ func TestDebugUid(t *testing.T) {
 	ctx := context.WithValue(defaultContext(), "debug", "true")
 
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = queryRequest.ProcessQuery(ctx)
+	err = queryRequest.ProcessQuery(ctx)
 	require.NoError(t, err)
 	var buf bytes.Buffer
 	err = ToJson(queryRequest.Latency, queryRequest.Subgraphs, &buf, nil, false)
@@ -7807,7 +7509,7 @@ func TestCountAtRoot(t *testing.T) {
 	populateGraph(t)
 	query := `
         {
-            me(func: gt(count(friend), 0)) {
+        	me(func: ge(count(friend), 0)) {
 				count()
 			}
         }
@@ -8220,7 +7922,7 @@ func TestMathVarCrash(t *testing.T) {
 	require.NoError(t, err)
 
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = queryRequest.ProcessQuery(defaultContext())
+	err = queryRequest.ProcessQuery(defaultContext())
 	require.Error(t, err)
 }
 
@@ -8374,7 +8076,7 @@ func TestMultipleGtError(t *testing.T) {
 	require.NoError(t, err)
 
 	queryRequest := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = queryRequest.ProcessQuery(defaultContext())
+	err = queryRequest.ProcessQuery(defaultContext())
 	require.Error(t, err)
 }
 
@@ -8412,15 +8114,15 @@ func TestMultipleEqInt(t *testing.T) {
 
 func TestPBUnmarshalToStruct1(t *testing.T) {
 	type Person struct {
-		Name       string `json:"name"`
-		Age        int    `json:"age"`
+		Name       string `dgraph:"name"`
+		Age        int    `dgraph:"age"`
 		Birth      string
-		BinaryData []byte   `json:"bin_data"`
-		Friends    []Person `json:"friend"`
+		BinaryData []byte   `dgraph:"bin_data"`
+		Friends    []Person `dgraph:"friend"`
 	}
 
 	type res struct {
-		Root Person `json:"me"`
+		Root Person `dgraph:"me"`
 	}
 
 	populateGraph(t)
@@ -8455,18 +8157,18 @@ func TestPBUnmarshalToStruct1(t *testing.T) {
 
 func TestPBUnmarshalToStruct2(t *testing.T) {
 	type Person struct {
-		Id       uint64    `json:"_uid_"`
-		Name     string    `json:"name"`
-		Age      int       `json:"age"`
-		Birth    time.Time `json:"dob"`
-		Alive    bool      `json:"alive"`
-		Survival float64   `json:"survival_rate"`
-		Location geom.T    `json:"location"`
-		Friends  []Person  `json:"friend"`
+		Id       uint64    `dgraph:"_uid_"`
+		Name     string    `dgraph:"name"`
+		Age      int       `dgraph:"age"`
+		Birth    time.Time `dgraph:"dob"`
+		Alive    bool      `dgraph:"alive"`
+		Survival float64   `dgraph:"survival_rate"`
+		Location geom.T    `dgraph:"location"`
+		Friends  []Person  `dgraph:"friend"`
 	}
 
 	type res struct {
-		Root []Person `json:"me"`
+		Root []Person `dgraph:"me"`
 	}
 
 	populateGraph(t)
@@ -8496,23 +8198,23 @@ func TestPBUnmarshalToStruct2(t *testing.T) {
 	require.Equal(t, 4, len(r.Root))
 	js, err := json.Marshal(r.Root[0])
 	require.NoError(t, err)
-	require.JSONEq(t, `{"_uid_":1,"name":"Michonne","age":38,"dob":"1910-01-01T00:00:00Z","alive":true,"survival_rate":98.99,"location":null,"friend":[{"_uid_":23,"name":"Rick Grimes","age":15,"dob":"1910-01-02T00:00:00Z","alive":false,"survival_rate":0,"location":null,"friend":null}]}`, string(js))
+	require.Equal(t, `{"Id":1,"Name":"Michonne","Age":38,"Birth":"1910-01-01T00:00:00Z","Alive":true,"Survival":98.99,"Location":null,"Friends":[{"Id":23,"Name":"Rick Grimes","Age":15,"Birth":"1910-01-02T00:00:00Z","Alive":false,"Survival":0,"Location":null,"Friends":null}]}`, string(js))
 }
 
 func TestPBUnmarshalToStruct3(t *testing.T) {
 	type Person struct {
-		Id       uint64    `json:"_uid_"`
-		Name     string    `json:"name"`
-		Age      int       `json:"age"`
-		Birth    time.Time `json:"dob"`
-		Alive    bool      `json:"alive"`
-		Survival float64   `json:"survival_rate"`
-		Location []byte    `json:"loc"`
-		Friends  []*Person `json:"friend"`
+		Id       uint64    `dgraph:"_uid_"`
+		Name     string    `dgraph:"name"`
+		Age      int       `dgraph:"age"`
+		Birth    time.Time `dgraph:"dob"`
+		Alive    bool      `dgraph:"alive"`
+		Survival float64   `dgraph:"survival_rate"`
+		Location []byte    `dgraph:"loc"`
+		Friends  []*Person `dgraph:"friend"`
 	}
 
 	type res struct {
-		Root []*Person `json:"me"`
+		Root []*Person `dgraph:"me"`
 	}
 
 	populateGraph(t)
@@ -8545,19 +8247,19 @@ func TestPBUnmarshalToStruct3(t *testing.T) {
 	require.Equal(t, 4, len(r.Root))
 	js, err := json.Marshal(r.Root[0])
 	require.NoError(t, err)
-	require.JSONEq(t, `{"_uid_":1,"name":"Michonne","age":38,"dob":"1910-01-01T00:00:00Z","alive":true,"survival_rate":98.99,"loc":"AQEAAACamZmZmZnxPwAAAAAAAABA","friend":[{"_uid_":23,"name":"Rick Grimes","age":15,"dob":"1910-01-02T00:00:00Z","alive":false,"survival_rate":0,"loc":null,"friend":null}]}`, string(js))
+	require.Equal(t, `{"Id":1,"Name":"Michonne","Age":38,"Birth":"1910-01-01T00:00:00Z","Alive":true,"Survival":98.99,"Location":"AQEAAACamZmZmZnxPwAAAAAAAABA","Friends":[{"Id":23,"Name":"Rick Grimes","Age":15,"Birth":"1910-01-02T00:00:00Z","Alive":false,"Survival":0,"Location":null,"Friends":null}]}`, string(js))
 }
 
 func TestPBUnmarshalToStruct4(t *testing.T) {
 	type Person struct {
-		Name    string `json:"name"`
-		Age     int    `json:"age"`
+		Name    string `dgraph:"name"`
+		Age     int    `dgraph:"age"`
 		Birth   string
-		Friends []Person `json:"friend"`
+		Friends []Person `dgraph:"friend"`
 	}
 
 	type res struct {
-		Root *Person `json:"me"`
+		Root *Person `dgraph:"me"`
 	}
 
 	populateGraph(t)
@@ -8590,11 +8292,11 @@ func TestPBUnmarshalToStruct4(t *testing.T) {
 
 func TestPBUnmarshalToStruct5(t *testing.T) {
 	type Person struct {
-		Name string `json:"name@hi:ru"`
+		Name string `dgraph:"name@hi:ru"`
 	}
 
 	type res struct {
-		Root Person `json:"me"`
+		Root Person `dgraph:"me"`
 	}
 
 	populateGraph(t)
@@ -8685,13 +8387,13 @@ func TestPBUnmarshalToStruct7(t *testing.T) {
 
 func TestPBUnmarshalToStruct8(t *testing.T) {
 	type Person struct {
-		Name  string `json:"name"`
-		Age   int    `json:"age"`
+		Name  string `dgraph:"name"`
+		Age   int    `dgraph:"age"`
 		Birth string
 	}
 
 	type res struct {
-		Root [2]Person `json:"me"`
+		Root [2]Person `dgraph:"me"`
 	}
 
 	populateGraph(t)
@@ -8824,7 +8526,7 @@ func TestUidInFunction2(t *testing.T) {
 		js)
 }
 
-func TestUidInFunctionAtRoot(t *testing.T) {
+func TestUidInFunctioniAtRoot(t *testing.T) {
 	populateGraph(t)
 	query := `
 	{
@@ -8838,7 +8540,7 @@ func TestUidInFunctionAtRoot(t *testing.T) {
 
 	ctx := defaultContext()
 	qr := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = qr.ProcessQuery(ctx)
+	err = qr.ProcessQuery(ctx)
 	require.Error(t, err)
 }
 
@@ -8950,7 +8652,7 @@ func TestUseVariableBeforeDefinitionError(t *testing.T) {
 
 	ctx := defaultContext()
 	qr := QueryRequest{Latency: &Latency{}, GqlQuery: &res}
-	_, err = qr.ProcessQuery(ctx)
+	err = qr.ProcessQuery(ctx)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Variable: [avgAge] used before definition.")
 }
@@ -9135,497 +8837,4 @@ func TestFilterLang(t *testing.T) {
 	js := processToFastJSON(t, query)
 	require.JSONEq(t,
 		`{"data": {"me":[{"name@en":"European badger"},{"name@en":"Honey badger"},{"name@en":"Honey bee"}]}}`, js)
-}
-
-func TestMathCeil1(t *testing.T) {
-	populateGraph(t)
-	query := `
-	{
-		me as var(func: eq(name, "Xyz"))
-		var(func: uid(me)) {
-			friend {
-				x as age
-			}
-			x2 as sum(val(x))
-			c as count(friend)
-		}
-
-		me(func: uid(me)) {
-			ceilAge: math(ceil(x2/c))
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
-}
-
-func TestMathCeil2(t *testing.T) {
-	populateGraph(t)
-	query := `
-	{
-		me as var(func: eq(name, "Michonne"))
-		var(func: uid(me)) {
-			friend {
-				x as age
-			}
-			x2 as sum(val(x))
-			c as count(friend)
-		}
-
-		me(func: uid(me)) {
-			ceilAge: math(ceil(x2/c))
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"ceilAge":14.000000}]}}`, js)
-}
-
-func TestAppendDummyValuesPanic(t *testing.T) {
-	// This is a fix for #1359. We should check that SrcUIDs is not nil before accessing Uids.
-	populateGraph(t)
-	query := `
-	{
-		n(func:ge(_uid_, 0)) {
-			count()
-		}
-	}`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"n": []}}`, js)
-}
-
-func TestMultipleValueFilter(t *testing.T) {
-	populateGraph(t)
-	query := `
-	{
-		me(func: ge(graduation, "1930")) {
-			name
-			graduation
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"name":"Michonne","graduation":"1932-01-01T00:00:00Z"},{"name":"Andrea","graduation":["1935-01-01T00:00:00Z","1933-01-01T00:00:00Z"]}]}}`, js)
-}
-
-func TestMultipleValueFilter2(t *testing.T) {
-	populateGraph(t)
-	query := `
-	{
-		me(func: le(graduation, "1933")) {
-			name
-			graduation
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"me":[{"name":"Michonne","graduation":"1932-01-01T00:00:00Z"}]}}`, js)
-}
-
-func TestMultipleValueArray(t *testing.T) {
-	// Skip for now, fix later.
-	t.Skip()
-	populateGraph(t)
-	query := `
-	{
-		me(func: uid(1)) {
-			name
-			graduation
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"name":"Michonne","graduation":["1932-01-01T00:00:00Z"]}]}}`, js)
-}
-
-func TestMultipleValueHasAndCount(t *testing.T) {
-	populateGraph(t)
-	query := `
-	{
-		me(func: has(graduation)) {
-			name
-			count(graduation)
-			graduation
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"name":"Michonne","count(graduation)":1,"graduation":"1932-01-01T00:00:00Z"},{"name":"Andrea","count(graduation)":2,"graduation":["1935-01-01T00:00:00Z","1933-01-01T00:00:00Z"]}]}}`, js)
-}
-
-func TestMultipleValueSortError(t *testing.T) {
-	populateGraph(t)
-	query := `
-	{
-		me(func: anyofterms(name, "Michonne Rick"), orderdesc: graduation) {
-			name
-			graduation
-		}
-	}
-	`
-	ctx := defaultContext()
-	_, err := processToFastJsonReqCtx(t, query, ctx)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "Sorting not supported on attr: graduation of type: [scalar]")
-}
-
-func TestMultipleValueGroupByError(t *testing.T) {
-	t.Skip()
-	populateGraph(t)
-	query := `
-	{
-		me(func: uid(1)) {
-			friend @groupby(name, graduation) {
-				count(_uid_)
-			}
-		}
-	}
-	`
-	ctx := defaultContext()
-	_, err := processToFastJsonReqCtx(t, query, ctx)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "Groupby not allowed for attr: graduation of type list")
-}
-
-func TestMultipleValueProto(t *testing.T) {
-	populateGraph(t)
-	query := `
-	{
-		me(func: ge(graduation, "1930")) {
-			name
-			graduation
-		}
-	}
-	`
-	type Person struct {
-		Name       string      `json:"name"`
-		Graduation []time.Time `json:"graduation"`
-	}
-
-	type res struct {
-		Root []Person `json:"me"`
-	}
-
-	pb := processToPB(t, query, map[string]string{}, false)
-	var r res
-	err := client.Unmarshal(pb, &r)
-	require.NoError(t, err)
-	require.Equal(t, 2, len(r.Root))
-	require.Equal(t, "Michonne", r.Root[0].Name)
-	require.Equal(t, 1, len(r.Root[0].Graduation))
-	require.Equal(t, "Andrea", r.Root[1].Name)
-	require.Equal(t, 2, len(r.Root[1].Graduation))
-}
-
-func TestMultiPolygonIntersects(t *testing.T) {
-	populateGraph(t)
-
-	usc, err := ioutil.ReadFile("testdata/us-coordinates.txt")
-	require.NoError(t, err)
-	query := `{
-		me(func: intersects(geometry, "` + strings.TrimSpace(string(usc)) + `" )) {
-			name
-		}
-	}
-	`
-
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"name":"Googleplex"},{"name":"Shoreline Amphitheater"},{"name":"San Carlos Airport"},{"name":"SF Bay area"},{"name":"Mountain View"},{"name":"San Carlos"}, {"name": "New York"}]}}`, js)
-}
-
-func TestMultiPolygonWithin(t *testing.T) {
-	populateGraph(t)
-
-	usc, err := ioutil.ReadFile("testdata/us-coordinates.txt")
-	require.NoError(t, err)
-	query := `{
-		me(func: within(geometry, "` + strings.TrimSpace(string(usc)) + `" )) {
-			name
-		}
-	}
-	`
-
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"name":"Googleplex"},{"name":"Shoreline Amphitheater"},{"name":"San Carlos Airport"},{"name":"Mountain View"},{"name":"San Carlos"}]}}`, js)
-}
-
-func TestMultiPolygonContains(t *testing.T) {
-	populateGraph(t)
-
-	// We should get this back as a result as it should contain our Denver polygon.
-	multipoly, err := loadPolygon("testdata/us-coordinates.txt")
-	require.NoError(t, err)
-	addGeoData(t, ps, 5108, multipoly, "USA")
-
-	query := `{
-		me(func: contains(geometry, "[[[ -1185.8203125, 41.27780646738183 ], [ -1189.1162109375, 37.64903402157866 ], [ -1182.1728515625, 36.84446074079564 ], [ -1185.8203125, 41.27780646738183 ]]]")) {
-			name
-		}
-	}`
-
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"me":[{"name":"USA"}]}}`, js)
-}
-
-func TestNearPointMultiPolygon(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		me(func: near(loc, [1.0, 1.0], 1)) {
-			name
-		}
-	}`
-
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"me":[{"name":"Rick Grimes"}]}}`, js)
-}
-
-func TestMultiSort1(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		me(func: uid(10005, 10006, 10001, 10002, 10003, 10004, 10007, 10000), orderasc: name, orderasc: age) {
-			name
-			age
-		}
-	}`
-
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"me":[{"name":"Alice","age":25},{"name":"Alice","age":75},{"name":"Alice","age":75},{"name":"Bob","age":25},{"name":"Bob","age":75},{"name":"Colin","age":25},{"name":"Elizabeth","age":25},{"name":"Elizabeth","age":75}]}}`, js)
-}
-
-func TestMultiSort2(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		me(func: uid(10005, 10006, 10001, 10002, 10003, 10004, 10007, 10000), orderasc: name, orderdesc: age) {
-			name
-			age
-		}
-	}`
-
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"me":[{"name":"Alice","age":75},{"name":"Alice","age":75},{"name":"Alice","age":25},{"name":"Bob","age":75},{"name":"Bob","age":25},{"name":"Colin","age":25},{"name":"Elizabeth","age":75},{"name":"Elizabeth","age":25}]}}`, js)
-}
-
-func TestMultiSort3(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		me(func: uid(10005, 10006, 10001, 10002, 10003, 10004, 10007, 10000), orderasc: age, orderdesc: name) {
-			name
-			age
-		}
-	}`
-
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"me":[{"name":"Elizabeth","age":25},{"name":"Colin","age":25},{"name":"Bob","age":25},{"name":"Alice","age":25},{"name":"Elizabeth","age":75},{"name":"Bob","age":75},{"name":"Alice","age":75},{"name":"Alice","age":75}]}}`, js)
-}
-
-func TestMultiSort4(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		me(func: uid(10005, 10006, 10001, 10002, 10003, 10004, 10007, 10000), orderasc: name, orderasc: salary) {
-			name
-			age
-			salary
-		}
-	}`
-	js := processToFastJSON(t, query)
-	// Null value for third Alice comes at last.
-	require.Equal(t, `{"data": {"me":[{"name":"Alice","age":25,"salary":10000.000000},{"name":"Alice","age":75,"salary":10002.000000},{"name":"Alice","age":75},{"name":"Bob","age":75},{"name":"Bob","age":25},{"name":"Colin","age":25},{"name":"Elizabeth","age":75},{"name":"Elizabeth","age":25}]}}`, js)
-}
-
-func TestMultiSort5(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		me(func: uid(10005, 10006, 10001, 10002, 10003, 10004, 10007, 10000), orderasc: name, orderdesc: salary) {
-			name
-			age
-			salary
-		}
-	}`
-	js := processToFastJSON(t, query)
-	// Null value for third Alice comes at first.
-	require.Equal(t, `{"data": {"me":[{"name":"Alice","age":75},{"name":"Alice","age":75,"salary":10002.000000},{"name":"Alice","age":25,"salary":10000.000000},{"name":"Bob","age":25},{"name":"Bob","age":75},{"name":"Colin","age":25},{"name":"Elizabeth","age":25},{"name":"Elizabeth","age":75}]}}`, js)
-}
-
-func TestMultiSort6Paginate(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		me(func: uid(10005, 10006, 10001, 10002, 10003, 10004, 10007, 10000), orderasc: name, orderdesc: age, first: 7) {
-			name
-			age
-		}
-	}`
-
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"me":[{"name":"Alice","age":75},{"name":"Alice","age":75},{"name":"Alice","age":25},{"name":"Bob","age":75},{"name":"Bob","age":25},{"name":"Colin","age":25},{"name":"Elizabeth","age":75}]}}`, js)
-}
-
-func TestMultiSort7Paginate(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		me(func: uid(10005, 10006, 10001, 10002, 10003, 10004, 10007, 10000), orderasc: name, orderasc: age, first: 7) {
-			name
-			age
-		}
-	}`
-
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"me":[{"name":"Alice","age":25},{"name":"Alice","age":75},{"name":"Alice","age":75},{"name":"Bob","age":25},{"name":"Bob","age":75},{"name":"Colin","age":25},{"name":"Elizabeth","age":25}]}}`, js)
-}
-
-func TestFilterRootOverride(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		a as var(func: eq(name, "Michonne")) @filter(eq(name, "Rick Grimes"))
-
-		me(func: uid(a)) {
-			_uid_
-			name
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
-}
-
-func TestFilterRoot(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		me(func: eq(name, "Michonne")) @filter(eq(name, "Rick Grimes")) {
-			_uid_
-			name
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me": []}}`, js)
-}
-
-func TestMathAlias(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		me(func:allofterms(name, "Michonne")) {
-			p as count(friend)
-			score: math(p + 1)
-			name
-		}
-	}`
-
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"count(friend)":5,"score":6.000000,"name":"Michonne"}]}}`, js)
-}
-
-func TestUidVariable(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		var(func:allofterms(name, "Michonne")) {
-			friend {
-				f as _uid_
-			}
-		}
-
-		me(func: uid(f)) {
-			name
-		}
-	}`
-
-	js := processToFastJSON(t, query)
-	require.Equal(t, `{"data": {"me":[{"name":"Rick Grimes"},{"name":"Glenn Rhee"},{"name":"Daryl Dixon"},{"name":"Andrea"}]}}`, js)
-}
-
-func TestMultipleValueVarError(t *testing.T) {
-	populateGraph(t)
-
-	query := `{
-		var(func:ge(graduation, "1930")) {
-			o as graduation
-		}
-
-		me(func: uid(o)) {
-			graduation
-		}
-	}`
-
-	ctx := defaultContext()
-	_, err := processToFastJsonReqCtx(t, query, ctx)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "Value variables not supported for predicate with list type.")
-}
-
-func TestReturnEmptyBlock(t *testing.T) {
-	populateGraph(t)
-	query := `{
-		me(func:allofterms(name, "Michonne")) @filter(eq(name, "Rick Grimes")) {
-		}
-
-		me2(func: eq(name, "XYZ"))
-
-		me3(func: eq(name, "Michonne")) {
-			name
-		}
-	}`
-
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[],"me2":[],"me3":[{"name":"Michonne"}]}}`, js)
-}
-
-func TestExpandVal(t *testing.T) {
-	err := schema.ParseBytes([]byte(schemaStr), 1)
-	x.Check(err)
-	addPassword(t, 1, "password", "123456")
-	// We ignore password in expand(_all_)
-	populateGraph(t)
-	query := `
-	{
-		var(func: uid(1)) {
-			pred as _predicate_
-		}
-
-		me(func: uid(1)) {
-			expand(val(pred))
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"survival_rate":98.990000,"address":"31, 32 street, Jupiter","bin_data":"YmluLWRhdGE=","power":13.250000,"gender":"female","_xid_":"mich","alive":true,"full_name":"Michonne's large name for hashing","dob_day":"1910-01-01T00:00:00Z","graduation":"1932-01-01T00:00:00Z","age":38,"noindex_name":"Michonne's name not indexed","loc":{"type":"Point","coordinates":[1.1,2]},"name":"Michonne","sword_present":"true","dob":"1910-01-01T00:00:00Z"}]}}`, js)
-}
-
-func TestGroupByGeoCrash(t *testing.T) {
-	populateGraph(t)
-	query := `
-	{
-	  q(func: uid(1, 23, 24, 25, 31)) @groupby(loc) {
-	    count(_uid_)
-	  }
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.Contains(t, js, `{"loc":{"type":"Point","coordinates":[1.1,2]},"count":2}`)
-}
-
-func TestPasswordError(t *testing.T) {
-	populateGraph(t)
-	query := `
-	{
-		q(func: uid(1)) {
-			checkpwd(name, "Michonne")
-		}
-	}
-	`
-	ctx := defaultContext()
-	_, err := processToFastJsonReqCtx(t, query, ctx)
-	require.Error(t, err)
-	require.Contains(t,
-		err.Error(), "checkpwd fn can only be used on attr: [name] with schema type password. Got type: string")
 }

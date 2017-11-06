@@ -18,8 +18,6 @@ package facets
 
 import (
 	"bytes"
-	"fmt"
-	"math"
 	"sort"
 	"strconv"
 	"unicode"
@@ -30,21 +28,11 @@ import (
 	"github.com/dgraph-io/dgraph/x"
 )
 
-// Sorts And validates the facets.
-func SortAndValidate(fs []*protos.Facet) error {
-	if len(fs) == 0 {
-		return nil
-	}
+// Sorts the facets.
+func SortFacets(fs []*protos.Facet) {
 	sort.Slice(fs, func(i, j int) bool {
 		return fs[i].Key < fs[j].Key
 	})
-	for i := 1; i < len(fs); i++ {
-		if fs[i-1].Key == fs[i].Key {
-			return x.Errorf("Repeated keys are not allowed in facets. But got %s",
-				fs[i].Key)
-		}
-	}
-	return nil
 }
 
 // CopyFacets makes a copy of facets of the posting which are requested in param.Keys.
@@ -81,8 +69,7 @@ func valAndValType(val string) (interface{}, protos.Facet_ValType, error) {
 	}
 	// strings should be in quotes.
 	if len(val) >= 2 && val[0] == '"' && val[len(val)-1] == '"' {
-		uq, err := strconv.Unquote(val)
-		return uq, protos.Facet_STRING, x.Wrapf(err, "could not unquote %q:", val)
+		return val[1 : len(val)-1], protos.Facet_STRING, nil
 	}
 	if intVal, err := strconv.ParseInt(val, 0, 64); err == nil {
 		return int64(intVal), protos.Facet_INT, nil
@@ -101,11 +88,6 @@ func valAndValType(val string) (interface{}, protos.Facet_ValType, error) {
 		}
 	}
 	if floatVal, err := strconv.ParseFloat(val, 64); err == nil {
-		// We can't store NaN as it is because it serializes into invalid JSON.
-		if math.IsNaN(floatVal) {
-			return nil, protos.Facet_FLOAT, fmt.Errorf("Got invalid value: NaN.")
-		}
-
 		return floatVal, protos.Facet_FLOAT, nil
 	} else if numErr := err.(*strconv.NumError); numErr.Err == strconv.ErrRange {
 		return nil, protos.Facet_FLOAT, err
@@ -140,7 +122,7 @@ func FacetFor(key, val string) (*protos.Facet, error) {
 	res := &protos.Facet{Key: key, Value: fval, ValType: vt}
 	if vt == protos.Facet_STRING {
 		// tokenize val.
-		res.Tokens, err = tok.GetTokens([]string{v.(string)})
+		res.Tokens, err = tok.GetTokens([]string{val})
 		if err == nil {
 			sort.Strings(res.Tokens)
 		}

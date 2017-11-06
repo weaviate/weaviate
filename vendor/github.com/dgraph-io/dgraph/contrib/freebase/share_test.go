@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"strings"
 	"testing"
@@ -52,11 +53,11 @@ func TestShare(t *testing.T) {
 	client := new(http.Client)
 	q := `%7B%0A%20%20me(func:%20eq(name,%20%22Steven%20Spielberg%22))%20%7B%0A%09%09name%0A%09%09director.film%20%7B%0A%09%09%09name%0A%09%09%7D%0A%20%20%7D%0A%7D`
 	req, err := http.NewRequest("POST", dgraphServer, strings.NewReader(q))
-	require.NoError(t, err)
 	resp, err := client.Do(req)
-	require.NoError(t, err)
 	b, err := ioutil.ReadAll(resp.Body)
-	require.NoError(t, err)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	var r Res
 	json.Unmarshal(b, &r)
@@ -73,11 +74,11 @@ func TestShare(t *testing.T) {
 
 	dgraphServer = "http://localhost:8080/query"
 	req, err = http.NewRequest("POST", dgraphServer, strings.NewReader(q2))
-	require.NoError(t, err)
 	resp, err = client.Do(req)
-	require.NoError(t, err)
 	b, err = ioutil.ReadAll(resp.Body)
-	require.NoError(t, err)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	var r3 Res3
 	json.Unmarshal(b, &r3)

@@ -7,6 +7,15 @@ import _ from "lodash";
 import uuid from "uuid";
 import randomColor from "randomcolor";
 
+function hasChildren(node: Object): boolean {
+  for (var prop in node) {
+    if (Array.isArray(node[prop])) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function extractFacets(val, edgeAttributes, properties) {
   // lets handle @facets between uids here.
   for (let pred in val) {
@@ -115,11 +124,7 @@ export function getNodeLabel(properties: Object, regex: string): string {
   }
 
   let nameKey = getNameKey(properties, regex);
-  let val = properties[nameKey];
-  if (Array.isArray(val) && val.length > 0) {
-    return val[0];
-  }
-  return val || "";
+  return properties[nameKey] || "";
 }
 
 function getNameKey(properties, regex) {
@@ -338,6 +343,8 @@ export function processGraph(
         pred: "empty"
       }
     },
+    someNodeHasChildren: boolean = false,
+    ignoredChildren: Array<ResponseNode> = [],
     // We store the indexes corresponding to what we show at first render here.
     // That we can only do one traversal.
     nodesIndex,
@@ -372,7 +379,10 @@ export function processGraph(
       return;
     }
 
-    if (k === "extensions" || k === "uids") {
+    someNodeHasChildren = false;
+    ignoredChildren = [];
+
+    if (k === "server_latency" || k === "uids") {
       continue;
     }
     // For schema, we should should display all predicates, irrespective of
@@ -380,6 +390,7 @@ export function processGraph(
     // are considered as children because it is an array of values.
     let block = response[k];
 
+    isSchema = k === "schema";
     for (let i = 0; i < block.length; i++) {
       let rn: ResponseNode = {
         node: block[i],
@@ -389,7 +400,23 @@ export function processGraph(
         }
       };
 
-      nodesQueue.push(rn);
+      if (isSchema || hasChildren(block[i])) {
+        someNodeHasChildren = true;
+        nodesQueue.push(rn);
+      } else {
+        ignoredChildren.push(rn);
+      }
+    }
+
+    // If no root node has children , then we add all root level nodes to the view.
+    // Or if the count of children at root which don't have children is > than those
+    // which have children we show them.
+    if (!someNodeHasChildren || ignoredChildren.length > nodesQueue.length) {
+      // Push one by one else we get Maximum call stack size exceeded error.
+      // https://stackoverflow.com/questions/22123769/rangeerror-maximum-call-stack-size-exceeded-why
+      for (var i = 0; i < ignoredChildren.length; i++) {
+        nodesQueue.push(ignoredChildren[i]);
+      }
     }
   }
 
@@ -450,13 +477,7 @@ export function processGraph(
       // it in a special manner.
       if (isSchema && prop === "tokenizer") {
         properties["attrs"][prop] = JSON.stringify(val);
-        // Important to check for typeof below, since we now allow multiple scalar values which
-        // would also be returned in an array.
-      } else if (
-        Array.isArray(val) &&
-        val.length > 0 &&
-        typeof val[0] === "object"
-      ) {
+      } else if (Array.isArray(val)) {
         // These are child nodes, lets add them to the queue.
         let arr = val,
           xposition = 1;
@@ -472,7 +493,7 @@ export function processGraph(
             }
           });
         }
-      } else if (typeof val === "object" && !Array.isArray(val)) {
+      } else if (typeof val === "object") {
         if (prop === "@facets") {
           extractFacets(val, edgeAttributes, properties);
         }

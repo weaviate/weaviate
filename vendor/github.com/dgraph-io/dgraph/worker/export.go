@@ -32,10 +32,11 @@ import (
 
 	"github.com/dgraph-io/badger"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc"
 
+	"github.com/dgraph-io/dgraph/group"
 	"github.com/dgraph-io/dgraph/posting"
 	"github.com/dgraph-io/dgraph/protos"
-	"github.com/dgraph-io/dgraph/schema"
 	"github.com/dgraph-io/dgraph/types"
 	"github.com/dgraph-io/dgraph/types/facets"
 	"github.com/dgraph-io/dgraph/x"
@@ -64,8 +65,8 @@ var rdfTypeMap = map[types.TypeID]string{
 	types.FloatID:    "xs:float",
 	types.BoolID:     "xs:boolean",
 	types.GeoID:      "geo:geojson",
+	types.PasswordID: "pwd:password",
 	types.BinaryID:   "xs:base64Binary",
-	types.PasswordID: "xs:string",
 }
 
 func toRDF(buf *bytes.Buffer, item kv) {
@@ -83,7 +84,9 @@ func toRDF(buf *bytes.Buffer, item kv) {
 			src.Value = p.Value
 			str, err := types.Convert(src, types.StringID)
 			x.Check(err)
-			buf.WriteString(strconv.Quote(str.Value.(string)))
+			buf.WriteByte('"')
+			buf.WriteString(str.Value.(string))
+			buf.WriteByte('"')
 			if p.PostingType == protos.Posting_VALUE_LANG {
 				buf.WriteByte('@')
 				buf.WriteString(string(p.Metadata))
@@ -118,7 +121,9 @@ func toRDF(buf *bytes.Buffer, item kv) {
 				fVal := &types.Val{Tid: types.StringID}
 				x.Check(types.Marshal(facets.ValFor(f), fVal))
 				if facets.TypeIDFor(f) == types.StringID {
-					buf.WriteString(strconv.Quote(fVal.Value.(string)))
+					buf.WriteByte('"')
+					buf.WriteString(fVal.Value.(string))
+					buf.WriteByte('"')
 				} else {
 					buf.WriteString(fVal.Value.(string))
 				}
@@ -139,14 +144,7 @@ func toSchema(buf *bytes.Buffer, s *skv) {
 		buf.WriteString(s.attr)
 	}
 	buf.WriteByte(':')
-	isList := schema.State().IsList(s.attr)
-	if isList {
-		buf.WriteRune('[')
-	}
 	buf.WriteString(types.TypeID(s.schema.ValueType).Name())
-	if isList {
-		buf.WriteRune(']')
-	}
 	if s.schema.Directive == protos.SchemaUpdate_REVERSE {
 		buf.WriteString(" @reverse")
 	} else if s.schema.Directive == protos.SchemaUpdate_INDEX && len(s.schema.Tokenizer) > 0 {
@@ -189,16 +187,15 @@ func writeToFile(fpath string, ch chan []byte) error {
 }
 
 // Export creates a export of data by exporting it as an RDF gzip.
-func export(bdir string) error {
+func export(gid uint32, bdir string) error {
 	// Use a goroutine to write to file.
 	err := os.MkdirAll(bdir, 0700)
 	if err != nil {
 		return err
 	}
-	gid := groups().groupId()
 	fpath := path.Join(bdir, fmt.Sprintf("dgraph-%d-%s.rdf.gz", gid,
 		time.Now().Format("2006-01-02-15-04")))
-	fspath := path.Join(bdir, fmt.Sprintf("dgraph-%d-%s.schema.gz", gid,
+	fspath := path.Join(bdir, fmt.Sprintf("dgraph-schema-%d-%s.rdf.gz", gid,
 		time.Now().Format("2006-01-02-15-04")))
 	x.Printf("Exporting to: %v, schema at %v\n", fpath, fspath)
 	chb := make(chan []byte, 1000)
@@ -260,9 +257,10 @@ func export(bdir string) error {
 		wg.Done()
 	}()
 
-	// Iterate over key-value store
+	// Iterate over rocksdb.
 	it := pstore.NewIterator(badger.DefaultIteratorOptions)
 	defer it.Close()
+	var lastPred string
 	prefix := new(bytes.Buffer)
 	prefix.Grow(100)
 	var debugCount int
@@ -276,35 +274,20 @@ func export(bdir string) error {
 			it.Seek(pk.SkipRangeOfSameType())
 			continue
 		}
-
-		// Skip if we don't serve the tablet.
-		if !groups().ServesTablet(pk.Attr) {
-			if pk.IsData() {
-				it.Seek(pk.SkipPredicate())
-			} else if pk.IsSchema() {
-				it.Seek(pk.SkipSchema())
-			}
-			continue
-		}
-
-		if pk.Attr == "_predicate_" {
+		if pk.Attr == "_uid_" || pk.Attr == "_predicate_" ||
+			pk.Attr == "_lease_" {
 			// Skip the UID mappings.
 			it.Seek(pk.SkipPredicate())
 			continue
 		}
-
 		if pk.IsSchema() {
-			s := &protos.SchemaUpdate{}
-			err := item.Value(func(val []byte) error {
-				x.Check(s.Unmarshal(val))
-				return nil
-			})
-			if err != nil {
-				return err
-			}
-			chs <- &skv{
-				attr:   pk.Attr,
-				schema: s,
+			if group.BelongsTo(pk.Attr) == gid {
+				s := &protos.SchemaUpdate{}
+				x.Check(s.Unmarshal(item.Value()))
+				chs <- &skv{
+					attr:   pk.Attr,
+					schema: s,
+				}
 			}
 			// skip predicate
 			it.Next()
@@ -312,24 +295,24 @@ func export(bdir string) error {
 		}
 		x.AssertTrue(pk.IsData())
 		pred, uid := pk.Attr, pk.Uid
+		if pred != lastPred && group.BelongsTo(pred) != gid {
+			it.Seek(pk.SkipPredicate())
+			continue
+		}
+
 		prefix.WriteString("<_:uid")
 		prefix.WriteString(strconv.FormatUint(uid, 16))
 		prefix.WriteString("> <")
 		prefix.WriteString(pred)
 		prefix.WriteString("> ")
 		pl := &protos.PostingList{}
-		err := item.Value(func(val []byte) error {
-			posting.UnmarshalOrCopy(val, item.UserMeta(), pl)
-			return nil
-		})
-		if err != nil {
-			return err
-		}
+		posting.UnmarshalWithCopy(item.Value(), item.UserMeta(), pl)
 		chkv <- kv{
 			prefix: prefix.String(),
 			list:   pl,
 		}
 		prefix.Reset()
+		lastPred = pred
 		it.Next()
 	}
 
@@ -344,17 +327,13 @@ func export(bdir string) error {
 	return err
 }
 
-// TODO: How do we want to handle export for group, do we pause mutations, sync all and then export ?
-// TODO: Should we move export logic to dgraphzero?
 func handleExportForGroup(ctx context.Context, reqId uint64, gid uint32) *protos.ExportPayload {
-	n := groups().Node
-	if gid == groups().groupId() && n != nil && n.AmLeader() {
-		lastIndex, _ := n.Store.LastIndex()
-		n.syncAllMarks(n.ctx, lastIndex)
+	n := groups().Node(gid)
+	if n.AmLeader() {
 		if tr, ok := trace.FromContext(ctx); ok {
 			tr.LazyPrintf("Leader of group: %d. Running export.", gid)
 		}
-		if err := export(Config.ExportPath); err != nil {
+		if err := export(gid, Config.ExportPath); err != nil {
 			if tr, ok := trace.FromContext(ctx); ok {
 				tr.LazyPrintf(err.Error())
 			}
@@ -373,10 +352,38 @@ func handleExportForGroup(ctx context.Context, reqId uint64, gid uint32) *protos
 		}
 	}
 
-	pl := groups().Leader(gid)
-	if pl == nil {
-		// Unable to find any connection to any of these servers. This should be exceedingly rare.
-		// But probably not worthy of crashing the server. We can just skip the export.
+	// I'm not the leader. Relay to someone who I think is.
+	var addrs []string
+	{
+		// Try in order: leader of given group, any server from given group, leader of group zero.
+		_, addr := groups().Leader(gid)
+		addrs = append(addrs, addr)
+		addrs = append(addrs, groups().AnyServer(gid))
+		_, addr = groups().Leader(0)
+		addrs = append(addrs, addr)
+	}
+
+	var pl *pool
+	var conn *grpc.ClientConn
+	for _, addr := range addrs {
+		pl, err := pools().get(addr)
+		if err != nil {
+			if tr, ok := trace.FromContext(ctx); ok {
+				tr.LazyPrintf(err.Error())
+			}
+			continue
+		}
+		conn = pl.Get()
+
+		if tr, ok := trace.FromContext(ctx); ok {
+			tr.LazyPrintf("Relaying export request for group %d to %q", gid, pl.Addr)
+		}
+		break
+	}
+
+	// Unable to find any connection to any of these servers. This should be exceedingly rare.
+	// But probably not worthy of crashing the server. We can just skip the export.
+	if conn == nil {
 		if tr, ok := trace.FromContext(ctx); ok {
 			tr.LazyPrintf("Unable to find a server to export group: %d", gid)
 		}
@@ -386,8 +393,9 @@ func handleExportForGroup(ctx context.Context, reqId uint64, gid uint32) *protos
 			GroupId: gid,
 		}
 	}
+	defer pools().release(pl)
 
-	c := protos.NewWorkerClient(pl.Get())
+	c := protos.NewWorkerClient(conn)
 	nr := &protos.ExportPayload{
 		ReqId:   reqId,
 		GroupId: gid,

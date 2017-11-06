@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"math"
 	"strconv"
 	"time"
@@ -107,9 +106,6 @@ func Convert(from Val, toID TypeID) (Val, error) {
 				val, err := strconv.ParseFloat(string(vc), 64)
 				if err != nil {
 					return to, err
-				}
-				if math.IsNaN(val) {
-					return to, fmt.Errorf("Got invalid value: NaN.")
 				}
 				*res = float64(val)
 			case StringID, DefaultID:

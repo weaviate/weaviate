@@ -18,6 +18,7 @@ package dgraph
 
 import (
 	"github.com/dgraph-io/dgraph/client"
+	"github.com/dgraph-io/dgraph/group"
 	"github.com/dgraph-io/dgraph/posting"
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/schema"
@@ -42,6 +43,7 @@ func NewEmbeddedDgraphClient(config Options, opts client.BatchMutationOptions,
 
 	x.Init()
 	State = NewServerState()
+	group.ParseGroupConfig("") // this ensures that only one group is used
 	schema.Init(State.Pstore)
 	posting.Init(State.Pstore)
 	worker.Init(State.Pstore)

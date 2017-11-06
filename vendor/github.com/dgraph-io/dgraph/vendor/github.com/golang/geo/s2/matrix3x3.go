@@ -18,8 +18,6 @@ package s2
 
 import (
 	"fmt"
-
-	"github.com/golang/geo/r3"
 )
 
 // matrix3x3 represents a traditional 3x3 matrix of floating point values.
@@ -29,12 +27,12 @@ type matrix3x3 [3][3]float64
 
 // col returns the given column as a Point.
 func (m *matrix3x3) col(col int) Point {
-	return Point{r3.Vector{m[0][col], m[1][col], m[2][col]}}
+	return PointFromCoords(m[0][col], m[1][col], m[2][col])
 }
 
 // row returns the given row as a Point.
 func (m *matrix3x3) row(row int) Point {
-	return Point{r3.Vector{m[row][0], m[row][1], m[row][2]}}
+	return PointFromCoords(m[row][0], m[row][1], m[row][2])
 }
 
 // setCol sets the specified column to the value in the given Point.
@@ -67,11 +65,11 @@ func (m *matrix3x3) scale(f float64) *matrix3x3 {
 // mul returns the multiplication of m by the Point p and converts the
 // resulting 1x3 matrix into a Point.
 func (m *matrix3x3) mul(p Point) Point {
-	return Point{r3.Vector{
-		m[0][0]*p.X + m[0][1]*p.Y + m[0][2]*p.Z,
-		m[1][0]*p.X + m[1][1]*p.Y + m[1][2]*p.Z,
-		m[2][0]*p.X + m[2][1]*p.Y + m[2][2]*p.Z,
-	}}
+	return PointFromCoords(
+		m[0][0]*p.X+m[0][1]*p.Y+m[0][2]*p.Z,
+		m[1][0]*p.X+m[1][1]*p.Y+m[1][2]*p.Z,
+		m[2][0]*p.X+m[2][1]*p.Y+m[2][2]*p.Z,
+	)
 }
 
 // det returns the determinant of this matrix.

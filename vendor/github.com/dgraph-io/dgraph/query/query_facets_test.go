@@ -73,8 +73,7 @@ func populateGraphWithFacets(t *testing.T) {
 	addEdgeToValue(t, "name", 33, "Michale", nil)
 	// missing name for 101 -- no name edge and no facets.
 
-	addEdgeToLangValue(t, "name", 320, "Test facet", "en",
-		map[string]string{"type": `"Test facet with lang"`})
+	addEdgeToLangValue(t, "name", 320, "Test facet", "en", map[string]string{"type": `"Test facet with lang"`})
 
 	time.Sleep(5 * time.Millisecond)
 }
@@ -120,8 +119,8 @@ func TestOrderFacets(t *testing.T) {
 	query := `
 		{
 			me(func: uid(1)) {
-				friend @facets(orderasc:since) {
-					name
+				friend @facets(orderasc:since) { 
+					name 
 				}
 			}
 		}
@@ -140,8 +139,8 @@ func TestOrderdescFacets(t *testing.T) {
 	query := `
 		{
 			me(func: uid(1)) {
-				friend @facets(orderdesc:since) {
-					name
+				friend @facets(orderdesc:since) { 
+					name 
 				}
 			}
 		}
@@ -201,26 +200,26 @@ func TestRetrieveFacetsProtoUnmarshal(t *testing.T) {
 	defer teardownGraphWithFacets(t)
 
 	type friendFacet struct {
-		Since  time.Time `json:"since"`
-		Family bool      `json:"family"`
-		Tag    string    `json:"tag"`
-		Age    int       `json:"age"`
-		Close  bool      `json:"close"`
+		Since  time.Time `dgraph:"since"`
+		Family bool      `dgraph:"family"`
+		Tag    string    `dgraph:"tag"`
+		Age    int       `dgraph:"age"`
+		Close  bool      `dgraph:"close"`
 	}
 
 	type nameFacets struct {
-		Origin string `json:"origin"`
+		Origin string `dgraph:"origin"`
 	}
 
 	type Person struct {
-		Name       string      `json:"name"`
-		NameFacets nameFacets  `json:"name@facets"`
-		Facets     friendFacet `json:"@facets"`
-		Friends    []Person    `json:"friend"`
+		Name       string      `dgraph:"name"`
+		NameFacets nameFacets  `dgraph:"name@facets"`
+		Facets     friendFacet `dgraph:"@facets"`
+		Friends    []Person    `dgraph:"friend"`
 	}
 
 	type res struct {
-		Root Person `json:"me"`
+		Root Person `dgraph:"me"`
 	}
 
 	// to see how friend @facets are positioned in output.
@@ -253,26 +252,26 @@ func TestRetrieveFacetsProtoUnmarshalPointer(t *testing.T) {
 	defer teardownGraphWithFacets(t)
 
 	type friendFacets struct {
-		Since  time.Time `json:"since"`
-		Family bool      `json:"family"`
-		Tag    string    `json:"tag"`
-		Age    int       `json:"age"`
-		Close  bool      `json:"close"`
+		Since  time.Time `dgraph:"since"`
+		Family bool      `dgraph:"family"`
+		Tag    string    `dgraph:"tag"`
+		Age    int       `dgraph:"age"`
+		Close  bool      `dgraph:"close"`
 	}
 
 	type nameFacets struct {
-		Origin string `json:"origin"`
+		Origin string `dgraph:"origin"`
 	}
 
 	type Person struct {
-		Name       string        `json:"name"`
-		NameFacets *nameFacets   `json:"name@facets"`
-		Facets     *friendFacets `json:"@facets"`
-		Friends    []Person      `json:"friend"`
+		Name       string        `dgraph:"name"`
+		NameFacets *nameFacets   `dgraph:"name@facets"`
+		Facets     *friendFacets `dgraph:"@facets"`
+		Friends    []Person      `dgraph:"friend"`
 	}
 
 	type res struct {
-		Root Person `json:"me"`
+		Root Person `dgraph:"me"`
 	}
 
 	// to see how friend @facets are positioned in output.
@@ -1203,20 +1202,4 @@ func TestFacetWithLang(t *testing.T) {
 
 	js := processToFastJSON(t, query)
 	require.JSONEq(t, `{"data": {"me":[{"@facets":{"name@en":{"type":"Test facet with lang"}},"name@en":"Test facet"}]}}`, js)
-}
-
-func TestFilterUidFacetMismatch(t *testing.T) {
-	populateGraphWithFacets(t)
-	defer teardownGraphWithFacets(t)
-	query := `
-	{
-		me(func: uid(0x1)) {
-			friend @filter(uid(24, 101)) @facets {
-				name
-			}
-		}
-	}
-	`
-	js := processToFastJSON(t, query)
-	require.JSONEq(t, `{"data": {"me":[{"friend":[{"name":"Glenn Rhee","@facets":{"_":{"close":true,"family":true,"since":"2004-05-02T15:04:05Z","tag":"Domain3"}}},{"@facets":{"_":{"age":33,"close":true,"family":false,"since":"2005-05-02T15:04:05Z"}}}]}]}}`, js)
 }

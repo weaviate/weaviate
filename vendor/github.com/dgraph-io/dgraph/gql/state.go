@@ -150,7 +150,9 @@ func lexFuncOrArg(l *lex.Lexer) lex.StateFn {
 			// if argument starts with '/' it's a regex, otherwise it's a division
 			if empty {
 				empty = false
-				return lexRegex(l)
+				lexRegex(l)
+				l.Emit(itemRegex)
+				continue
 			}
 			fallthrough
 		case isMathOp(r):
@@ -338,25 +340,14 @@ func lexFilterFuncName(l *lex.Lexer) lex.StateFn {
 // lexDirectiveOrLangList is called right after we see a @.
 func lexDirectiveOrLangList(l *lex.Lexer) lex.StateFn {
 	r := l.Next()
-	// Check first character.
-	if !isNameBegin(r) && r != period {
+	if r == period {
+		l.Emit(itemName)
+		return l.Mode
+	} else if !isNameBegin(r) {
 		return l.Errorf("Unrecognized character in lexDirective: %#U", r)
 	}
-	l.Backup()
 
-	for {
-		r := l.Next()
-		if r == period {
-			l.Emit(itemName)
-			return l.Mode
-		}
-		if isLangOrDirective(r) {
-			continue
-		}
-		l.Backup()
-		l.Emit(itemName)
-		break
-	}
+	l.Backup()
 	return l.Mode
 }
 
@@ -388,7 +379,7 @@ func lexComment(l *lex.Lexer) lex.StateFn {
 	}
 	l.Ignore()
 	l.Emit(lex.ItemEOF)
-	return l.Mode
+	return nil // Stop the run loop.
 }
 
 // lexNameMutation lexes the itemMutationOp, which could be set or delete.
@@ -447,13 +438,13 @@ LOOP:
 	return lexTextMutation
 }
 
-func lexRegex(l *lex.Lexer) lex.StateFn {
+func lexRegex(l *lex.Lexer) {
 LOOP:
 	for {
 		r := l.Next()
 		switch r {
 		case lex.EOF:
-			return l.Errorf("Unclosed regexp")
+			return
 		case '\\':
 			l.Next()
 		case '/':
@@ -461,8 +452,6 @@ LOOP:
 		}
 	}
 	l.AcceptRun(isRegexFlag)
-	l.Emit(itemRegex)
-	return l.Mode
 }
 
 // lexOperationType lexes a query or mutation or schema operation type.
@@ -532,16 +521,6 @@ func isEndLiteral(r rune) bool {
 // isEndArg returns true if rune is a comma or right round bracket.
 func isEndArg(r rune) bool {
 	return r == comma || r == ')'
-}
-
-func isLangOrDirective(r rune) bool {
-	if isNameBegin(r) {
-		return true
-	}
-	if r == '-' {
-		return true
-	}
-	return false
 }
 
 // isNameBegin returns true if the rune is an alphabet or an '_' or '~'.

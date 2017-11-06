@@ -16,12 +16,8 @@
  */
 package posting
 
-import "sync"
-
 type Options struct {
-	Mu             sync.Mutex
 	AllottedMemory float64
-
 	CommitFraction float64
 }
 

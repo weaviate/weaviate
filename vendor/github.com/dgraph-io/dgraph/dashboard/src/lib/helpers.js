@@ -12,6 +12,15 @@ export function checkStatus(response) {
   }
 }
 
+export function timeout(ms, promise) {
+  return new Promise(function(resolve, reject) {
+    setTimeout(function() {
+      reject(new Error("timeout"));
+    }, ms);
+    promise.then(resolve, reject);
+  });
+}
+
 // outgoingEdges gets edges coming out from the node with the given nodeId in
 // given set of edges
 export function outgoingEdges(nodeId, edgeSet) {
@@ -44,7 +53,7 @@ export function isNotEmpty(response) {
   }
 
   for (let i = 0; i < keys.length; i++) {
-    if (keys[i] !== "extensions" && keys[i] !== "uids") {
+    if (keys[i] !== "server_latency" && keys[i] !== "uids") {
       return keys[i].length > 0 && response[keys[i]];
     }
   }
@@ -52,8 +61,7 @@ export function isNotEmpty(response) {
 }
 
 export function sortStrings(a, b) {
-  var nameA = a.toLowerCase(),
-    nameB = b.toLowerCase();
+  var nameA = a.toLowerCase(), nameB = b.toLowerCase();
   if (
     nameA < nameB //sort string ascending
   )
@@ -113,7 +121,8 @@ export function readCookie(name) {
   let ca = document.cookie.split(";");
   for (let i = 0; i < ca.length; i++) {
     var c = ca[i];
-    while (c.charAt(0) === " ") c = c.substring(1, c.length);
+    while (c.charAt(0) === " ")
+      c = c.substring(1, c.length);
     if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
   }
 
@@ -186,8 +195,8 @@ export function collapseQuery(query) {
   return ret;
 }
 
-export function executeQuery(query, debug) {
-  const endpoint = getEndpoint("query", { debug: debug });
+export function executeQuery(query) {
+  const endpoint = getEndpoint("query", { debug: true });
 
   return fetch(endpoint, {
     method: "POST",
@@ -212,18 +221,21 @@ export function executeQuery(query, debug) {
  *
  */
 export const getSharedQuery = shareId => {
-  fetch(getEndpoint("query"), {
-    method: "POST",
-    mode: "cors",
-    headers: {
-      Accept: "application/json"
-    },
-    body: `{
+  return timeout(
+    6000,
+    fetch(getEndpoint("query"), {
+      method: "POST",
+      mode: "cors",
+      headers: {
+        Accept: "application/json"
+      },
+      body: `{
           query(func: uid(${shareId})) {
               _share_
           }
       }`
-  })
+    })
+  )
     .then(checkStatus)
     .then(response => response.json())
     .then(function(result) {
