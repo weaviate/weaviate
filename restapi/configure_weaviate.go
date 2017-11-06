@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/config"
 	"github.com/weaviate/weaviate/connectors"
 	"github.com/weaviate/weaviate/connectors/dgraph"
+	"github.com/weaviate/weaviate/connectors/gremlin"
 	"github.com/weaviate/weaviate/connectors/kvcache"
 	"github.com/weaviate/weaviate/connectors/utils"
 	"github.com/weaviate/weaviate/graphqlapi"
@@ -198,6 +199,7 @@ func GetAllConnectors() []dbconnector.DatabaseConnector {
 	// Set all existing connectors
 	connectors := []dbconnector.DatabaseConnector{
 		&dgraph.Dgraph{},
+		&gremlin.Gremlin{},
 	}
 
 	return connectors
