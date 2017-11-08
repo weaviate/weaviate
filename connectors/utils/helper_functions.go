@@ -16,14 +16,16 @@ package connutils
 import (
 	"errors"
 	"fmt"
-	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/models"
 	"regexp"
 	"time"
 
-	gouuid "github.com/satori/go.uuid"
+	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/models"
+
 	"log"
 	"net"
+
+	gouuid "github.com/satori/go.uuid"
 )
 
 // NewDatabaseObjectFromPrincipal creates a new object with default values, out of principle object
@@ -37,8 +39,8 @@ import (
 // 	return key
 // }
 
-// CreateFirstUserObject creates a new user with new API key when none exists when starting server
-func CreateFirstUserObject(key *models.Key) strfmt.UUID {
+// CreateRootKeyObject creates a new user with new API key when none exists when starting server
+func CreateRootKeyObject(key *models.Key) strfmt.UUID {
 	// Create key token
 	token := GenerateUUID()
 
