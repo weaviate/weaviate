@@ -1,0 +1,12 @@
+{
+ me(func:eq(xid,"m.07mv_h")) {
+  director.film {
+   directed_by {
+    director.film(orderasc: initial_release_date, first: 5, offset: 10) {
+     _uid_
+     initial_release_date
+    }
+   }
+  }
+ }
+}

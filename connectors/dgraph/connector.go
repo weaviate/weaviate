@@ -357,7 +357,7 @@ func (f *Dgraph) Init() error {
 
 		// Create new object and fill it
 		keyObject := models.Key{}
-		token := connutils.CreateFirstUserObject(&keyObject)
+		token := connutils.CreateRootKeyObject(&keyObject)
 
 		err = f.AddKey(&keyObject, connutils.GenerateUUID(), token)
 

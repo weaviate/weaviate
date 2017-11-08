@@ -1,0 +1,12 @@
+{
+ me(func:eq(xid,"m.07mv_h")) {
+  director.film {
+   directed_by {
+    director.film {
+     _uid_
+     name@en
+    }
+   }
+  }
+ }
+}
