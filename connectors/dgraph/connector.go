@@ -482,7 +482,7 @@ func (f *Dgraph) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	}
 
 	// Add all given schema-information to the new node
-	err = f.updateNodeSchemaProperties(newNode, thing.Schema, thing.AtClass, connutils.RefTypeThing)
+	err = f.updateNodeSchemaProperties(newNode, thing.Schema, thing.AtClass, connutils.RefTypeThing, false)
 
 	return err
 }
@@ -609,7 +609,7 @@ func (f *Dgraph) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 	}
 
 	// Update in DB
-	err = f.updateNodeSchemaProperties(updateNode, thing.Schema, thing.AtClass, connutils.RefTypeThing)
+	err = f.updateNodeSchemaProperties(updateNode, thing.Schema, thing.AtClass, connutils.RefTypeThing, true)
 
 	return err
 }
@@ -655,7 +655,7 @@ func (f *Dgraph) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	}
 
 	// Add all given schema-information to the new node
-	err = f.updateNodeSchemaProperties(newNode, action.Schema, action.AtClass, connutils.RefTypeAction)
+	err = f.updateNodeSchemaProperties(newNode, action.Schema, action.AtClass, connutils.RefTypeAction, false)
 
 	if err != nil {
 		return err
@@ -791,7 +791,7 @@ func (f *Dgraph) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 	}
 
 	// Update in DB
-	err = f.updateNodeSchemaProperties(updateNode, action.Schema, action.AtClass, connutils.RefTypeAction)
+	err = f.updateNodeSchemaProperties(updateNode, action.Schema, action.AtClass, connutils.RefTypeAction, true)
 
 	return err
 }
@@ -1103,7 +1103,7 @@ func (f *Dgraph) addNodeFirstLevelProperties(nodeContext string, nodeClass strin
 }
 
 // updateNodeSchemaProperties updates all the edges of the node in 'schema', used with a new node or to update/patch a node. This function is used for Dgraph only.
-func (f *Dgraph) updateNodeSchemaProperties(node dgraphClient.Node, nodeSchema models.Schema, class string, schemaType string) error {
+func (f *Dgraph) updateNodeSchemaProperties(node dgraphClient.Node, nodeSchema models.Schema, class string, schemaType string, removeExistingCref bool) error {
 	// Create update request
 	req := dgraphClient.Req{}
 
@@ -1127,7 +1127,7 @@ func (f *Dgraph) updateNodeSchemaProperties(node dgraphClient.Node, nodeSchema m
 			return errors_.New("invalid schemaType given")
 		}
 
-		err = f.addPropertyEdge(&req, node, propKey, propValue, c)
+		err = f.addPropertyEdge(&req, node, propKey, propValue, c, removeExistingCref)
 
 		// If adding a property gives an error, return it
 		if err != nil {
@@ -1189,7 +1189,7 @@ func (f *Dgraph) updateActionRelatedThings(node dgraphClient.Node, action *model
 }
 
 // addPropertyEdge adds properties to an certain edge. This function is used for Dgraph only.
-func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, propKey string, propValue interface{}, schemaClass *models.SemanticSchemaClass) error {
+func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, propKey string, propValue interface{}, schemaClass *models.SemanticSchemaClass, removeExistingCref bool) error {
 	// Add prefix to the schema properties
 	edgeName := schemaPrefix + propKey
 
@@ -1208,6 +1208,25 @@ func (f *Dgraph) addPropertyEdge(req *dgraphClient.Req, node dgraphClient.Node, 
 		if err != nil {
 			return err
 		}
+
+		// Delete existing edges when updating
+		if removeExistingCref {
+			reqRemove := dgraphClient.Req{}
+			query := fmt.Sprintf(`
+			mutation {
+				delete {
+					<%s> <%s> * .
+				}
+			}`, node.String(), edgeName)
+			reqRemove.SetQuery(query)
+
+			_, err = f.client.Run(f.getContext(), &reqRemove)
+
+			if err != nil {
+				return err
+			}
+		}
+
 		err = f.connectRef(req, node, edgeName, refThingNode)
 	} else {
 		// Otherwise, the data should be added by type.
