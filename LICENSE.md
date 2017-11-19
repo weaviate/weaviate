@@ -1,4 +1,4 @@
-Copyright (c) 2016-2017, Weaviate (registered @ Dutch Chamber of Commerce no 61020842)
+Copyright (c) 2016-2017, Creative Software Foundation (registered @ Dutch Chamber of Commerce no 50805010)
 
 All rights reserved.
 
