@@ -61,12 +61,7 @@ sudo docker rm weaviate &>/dev/null || true
 
 # build and start dgraph docker
 mkdir -p ~/dgraph
-DGRAPHID=$(sudo docker run -itd -p 8080:8080 -p 9080:9080 -v ~/dgraph:/dgraph --name dgraph dgraph/dgraph dgraphzero -w zw)
-echo "starting dgraph cluster"
-sleep 10 # give it some time to run
-sudo docker exec -itd dgraph dgraph --bindall=true --memory_mb 2048 -peer 127.0.0.1:8888
-echo "starting dgraph"
-sleep 10 # give it some time to run
+DGRAPHID=$(sudo docker run -itd -p 8080:8080 -p 9080:9080 -v ~/dgraph:/dgraph dgraph/dgraph:v0.8.1 dgraph --bindall=true --memory_mb=2048)
 DGRAPHIP=$(sudo docker inspect $DGRAPHID | jq -r '.[0].NetworkSettings.IPAddress')
 
 # build and start weaviate docker
