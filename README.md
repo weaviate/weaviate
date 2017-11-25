@@ -59,7 +59,7 @@ You can create an array of `environments` that should include:
 - **database -> database_config -> port** port of the database.
 - **schemas -> Thing** file or URL of a semantic schema of Things
 - **schemas -> Thing** file or URL of a semantic schema of Actions
-- **mqttEnabled** boolean, do you want to publish information on the MQTT busses?
+- **websocketsEnabled** boolean, do you want to publish information on the websockets?
 
 Example of config file:
 
@@ -82,7 +82,7 @@ Example of config file:
                 "Thing": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
                 "Action": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
             },
-            "mqttEnabled": false
+            "websocketsEnabled": false
         }
     ]
 }
@@ -106,16 +106,18 @@ To get started without https: `$ weaviate --scheme=http --config=YOUR_CONFIG_NAM
 
 ## Databases we support
 
-For now, we only support [Dgraph](https://dgraph.io) in case you want to use another Graph DB. Let us know in the [issues](https://github.com/creativesoftwarefdn/weaviate/issues)
+For now, we only support [Dgraph](https://dgraph.io) in case you want to use another Graph DB. Let us know in the [issues](https://github.com/creativesoftwarefdn/weaviate/issues) but we are adding Gremlin support!
 
 ## Roadmap
 
-| Feature | Progress
-| ------- | --------
-| Things  | Done 
-| Actions | Done 
-| Keys    | In Progress
-| MQTT    | In Progress
+| Feature    | Progress
+| ---------  | --------
+| Things     | Done 
+| Actions    | Done 
+| xPlatform  | In Progress
+| Gremlin    | In Progress
+| Keys       | In Progress
+| Websockets | In Progress
 
 ## Contact us!
 
