@@ -43,8 +43,8 @@
                 }
             },
             "schemas": {
-                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.min.json",
-                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.min.json"
+                "Thing": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.min.json",
+                "Action": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.min.json"
             },
             "mqttEnabled": false
         },
@@ -58,8 +58,8 @@
                 }
             },
             "schemas": {
-                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.min.json",
-                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.min.json"
+                "Thing": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.min.json",
+                "Action": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.min.json"
             },
             "mqttEnabled": false
         }
