@@ -1,4 +1,4 @@
-# Weaviate [![Build Status](https://travis-ci.org/weaviate/weaviate.svg?branch=develop)](https://travis-ci.org/weaviate/weaviate/branches)
+# Weaviate [![Build Status](https://travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=develop)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
 
 **A decentralised semantic, graph based Internet of Things platform based on web-semantics, GraphQL and RESTful API's.**
 
@@ -15,11 +15,11 @@ Want to know more about what happens under the hood or do you want to contribute
 
 Weaviate is based on the concepts of Semantic Internet of Things, Web 3.0 and RDF. If you want to learn more about the concept [you can do so by going to this blogpost](https://bob.wtf/semantic-internet-of-things-42811e1ca7a7).
 
-Your platforms or devices can interact with the service via the RESTful API or the MQTT buses. To see the Swagger documentation click [here](https://github.com/weaviate/weaviate-swagger).
+Your platforms or devices can interact with the service via the RESTful API or the MQTT buses. To see the Swagger documentation click [here](https://github.com/creativesoftwarefdn/weaviate/tree/develop/swagger).
 
 ## Getting started
 
-1. Choose a semantic schema that you want to adopt. Out of the box, Weaviate has the [Resource Description Framework](https://en.wikipedia.org/wiki/Resource_Description_Framework) available to use. But you can also create your own schema. If you want to do this, follow this [link](https://github.com/weaviate/weaviate-semantic-schemas).
+1. Choose a semantic schema that you want to adopt. Out of the box, Weaviate has the [Resource Description Framework](https://en.wikipedia.org/wiki/Resource_Description_Framework) available to use. But you can also create your own schema. If you want to do this, follow this [link](https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).
 2. Create your configuration file.
 3. Install Weaviate. See the list of [nightly builds](#nightly-builds) 
 
@@ -31,21 +31,21 @@ You can download one of our nightly builds here:
 
 | OS and Architecture
 | -------------------
-| [weaviate_nightly_darwin_386.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_darwin_386.zip?raw=true)
-| [weaviate_nightly_darwin_amd64.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_darwin_amd64.zip?raw=true)
-| [weaviate_nightly_linux_386.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_386.zip?raw=true)
-| [weaviate_nightly_linux_amd64.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_amd64.zip?raw=true)
-| [weaviate_nightly_linux_arm.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_arm.zip?raw=true)
-| [weaviate_nightly_linux_mips.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mips.zip?raw=true)
-| [weaviate_nightly_linux_mips64.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mips64.zip?raw=true)
-| [weaviate_nightly_linux_mips64le.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mips64le.zip?raw=true)
-| [weaviate_nightly_linux_mipsle.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_mipsle.zip?raw=true)
-| [weaviate_nightly_linux_ppc64.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_ppc64.zip?raw=true)
-| [weaviate_nightly_linux_ppc64le.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_linux_ppc64le.zip?raw=true)
-| [weaviate_nightly_windows_386.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_windows_386.zip?raw=true)
-| [weaviate_nightly_windows_amd64.zip](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_windows_amd64.zip?raw=true)
+| [weaviate_nightly_darwin_386.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_darwin_386.zip?raw=true)
+| [weaviate_nightly_darwin_amd64.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_darwin_amd64.zip?raw=true)
+| [weaviate_nightly_linux_386.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_386.zip?raw=true)
+| [weaviate_nightly_linux_amd64.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_amd64.zip?raw=true)
+| [weaviate_nightly_linux_arm.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_arm.zip?raw=true)
+| [weaviate_nightly_linux_mips.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_mips.zip?raw=true)
+| [weaviate_nightly_linux_mips64.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_mips64.zip?raw=true)
+| [weaviate_nightly_linux_mips64le.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_mips64le.zip?raw=true)
+| [weaviate_nightly_linux_mipsle.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_mipsle.zip?raw=true)
+| [weaviate_nightly_linux_ppc64.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_ppc64.zip?raw=true)
+| [weaviate_nightly_linux_ppc64le.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_ppc64le.zip?raw=true)
+| [weaviate_nightly_windows_386.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_windows_386.zip?raw=true)
+| [weaviate_nightly_windows_amd64.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_windows_amd64.zip?raw=true)
 
-[Checksum file](https://github.com/weaviate/weaviate/blob/develop/dist/weaviate_nightly_checksums.txt).
+[Checksum file](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_checksums.txt).
 
 ## Creating a config file
 
@@ -79,8 +79,8 @@ Example of config file:
                 }
             },
             "schemas": {
-                "Thing": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
-                "Action": "https://raw.githubusercontent.com/weaviate/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
+                "Thing": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
+                "Action": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
             },
             "mqttEnabled": false
         }
@@ -106,7 +106,7 @@ To get started without https: `$ weaviate --scheme=http --config=YOUR_CONFIG_NAM
 
 ## Databases we support
 
-For now, we only support [Dgraph](https://dgraph.io) in case you want to use another Graph DB. Let us know in the [issues](https://github.com/weaviate/weaviate/issues)
+For now, we only support [Dgraph](https://dgraph.io) in case you want to use another Graph DB. Let us know in the [issues](https://github.com/creativesoftwarefdn/weaviate/issues)
 
 ## Roadmap
 
