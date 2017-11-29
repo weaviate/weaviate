@@ -5,7 +5,7 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -31,11 +31,11 @@ import (
 	"github.com/dgraph-io/dgraph/types"
 	gouuid "github.com/satori/go.uuid"
 
-	"github.com/weaviate/weaviate/config"
-	"github.com/weaviate/weaviate/connectors/utils"
-	"github.com/weaviate/weaviate/messages"
-	"github.com/weaviate/weaviate/models"
-	"github.com/weaviate/weaviate/schema"
+	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/schema"
 )
 
 // Dgraph has some basic variables.
@@ -1622,7 +1622,7 @@ func (f *Dgraph) parseWhereFilters(wheres []*connutils.WhereQuery) string {
 		// Set the operator
 		if vWhere.Value.Operator == connutils.Equal || vWhere.Value.Operator == connutils.NotEqual {
 			// Set the value from the object (now only string)
-			// TODO: https://github.com/weaviate/weaviate/issues/202
+			// TODO: https://github.com/creativesoftwarefdn/weaviate/issues/202
 			value = vWhere.Value.Value.(string)
 
 			if vWhere.Value.Contains {

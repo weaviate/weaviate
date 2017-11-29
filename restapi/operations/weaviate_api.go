@@ -5,7 +5,7 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -28,11 +28,11 @@ import (
 	strfmt "github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
-	"github.com/weaviate/weaviate/restapi/operations/actions"
-	"github.com/weaviate/weaviate/restapi/operations/graphql"
-	"github.com/weaviate/weaviate/restapi/operations/keys"
-	"github.com/weaviate/weaviate/restapi/operations/meta"
-	"github.com/weaviate/weaviate/restapi/operations/things"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/keys"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
 )
 
 // NewWeaviateAPI creates a new Weaviate instance

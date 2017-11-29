@@ -5,7 +5,7 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/models"
 
 	"log"
 	"net"
@@ -80,7 +80,7 @@ func CreateRootKeyObject(key *models.Key) strfmt.UUID {
 	key.Email = "weaviate@weaviate.nl"
 
 	// Print the key
-	log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/weaviate/weaviate/blob/develop/README.md#authentication")
+	log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/creativesoftwarefdn/weaviate/blob/develop/README.md#authentication")
 	log.Println("INFO: Auto set allowed IPs to: ", key.IPOrigin)
 	log.Println("ROOTKEY=" + token)
 
@@ -118,7 +118,7 @@ func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
 		whereQuery.Value.Operator = Equal
 	case "!:", "!=":
 		whereQuery.Value.Operator = NotEqual
-	// TODO: https://github.com/weaviate/weaviate/issues/202
+	// TODO: https://github.com/creativesoftwarefdn/weaviate/issues/202
 	// case ">":
 	// 	whereQuery.Value.Operator = GreaterThan
 	// case ">:", ">=":
