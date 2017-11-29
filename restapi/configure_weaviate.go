@@ -5,7 +5,7 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -26,8 +26,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/weaviate/weaviate/restapi/operations/graphql"
-	"github.com/weaviate/weaviate/restapi/operations/meta"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
 
 	jsonpatch "github.com/evanphx/json-patch"
 	errors "github.com/go-openapi/errors"
@@ -40,23 +40,23 @@ import (
 	graceful "github.com/tylerb/graceful"
 	"google.golang.org/grpc/grpclog"
 
-	"github.com/weaviate/weaviate/config"
-	"github.com/weaviate/weaviate/connectors"
-	"github.com/weaviate/weaviate/connectors/dgraph"
-	"github.com/weaviate/weaviate/connectors/foobar"
-	"github.com/weaviate/weaviate/connectors/gremlin"
-	"github.com/weaviate/weaviate/connectors/kvcache"
-	"github.com/weaviate/weaviate/connectors/utils"
-	"github.com/weaviate/weaviate/graphqlapi"
-	"github.com/weaviate/weaviate/messages"
-	"github.com/weaviate/weaviate/models"
-	"github.com/weaviate/weaviate/mqtt"
-	"github.com/weaviate/weaviate/restapi/operations"
-	"github.com/weaviate/weaviate/restapi/operations/actions"
-	"github.com/weaviate/weaviate/restapi/operations/keys"
-	"github.com/weaviate/weaviate/restapi/operations/things"
-	"github.com/weaviate/weaviate/schema"
-	"github.com/weaviate/weaviate/validation"
+	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/connectors"
+	"github.com/creativesoftwarefdn/weaviate/connectors/dgraph"
+	"github.com/creativesoftwarefdn/weaviate/connectors/foobar"
+	"github.com/creativesoftwarefdn/weaviate/connectors/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/connectors/kvcache"
+	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
+	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/mqtt"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/keys"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
+	"github.com/creativesoftwarefdn/weaviate/schema"
+	"github.com/creativesoftwarefdn/weaviate/validation"
 )
 
 const pageOverride int = 1

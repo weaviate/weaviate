@@ -5,7 +5,7 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -19,10 +19,10 @@ import (
 	"github.com/go-openapi/strfmt"
 	"time"
 
-	"github.com/weaviate/weaviate/connectors"
-	"github.com/weaviate/weaviate/connectors/utils"
-	"github.com/weaviate/weaviate/models"
-	"github.com/weaviate/weaviate/schema"
+	"github.com/creativesoftwarefdn/weaviate/connectors"
+	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/schema"
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
@@ -99,7 +99,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 				)
 			}
 
-			// TODO: https://github.com/weaviate/weaviate/issues/237 Validate using / existing locationURL?
+			// TODO: https://github.com/creativesoftwarefdn/weaviate/issues/237 Validate using / existing locationURL?
 			// Validate whether reference exists based on given Type
 			crefu := strfmt.UUID(pvcr["$cref"].(string))
 			if refType == connutils.RefTypeAction {

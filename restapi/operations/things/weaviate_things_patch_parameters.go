@@ -5,7 +5,7 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -23,7 +23,7 @@ import (
 
 	strfmt "github.com/go-openapi/strfmt"
 
-	"github.com/weaviate/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // NewWeaviateThingsPatchParams creates a new WeaviateThingsPatchParams object

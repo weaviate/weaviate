@@ -5,7 +5,7 @@
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
  * Copyright © 2016 Weaviate. All rights reserved.
- * LICENSE: https://github.com/weaviate/weaviate/blob/develop/LICENSE.md
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
  * Contact: @weaviate_iot / yourfriends@weaviate.com
@@ -16,10 +16,10 @@ package validation
 import (
 	"fmt"
 
-	"github.com/weaviate/weaviate/connectors"
-	"github.com/weaviate/weaviate/connectors/utils"
-	"github.com/weaviate/weaviate/models"
-	"github.com/weaviate/weaviate/schema"
+	"github.com/creativesoftwarefdn/weaviate/connectors"
+	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/schema"
 )
 
 // ValidateThingBody Validates a thing body using the 'ThingCreate' object.
