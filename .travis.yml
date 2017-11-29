@@ -19,7 +19,8 @@ script:
   # remove all that is not the zip
   - mkdir -p dist_tmp
   - mv dist/*.zip dist_tmp
-  - rm -r dist
+  - mv dist/*.txt dist_tmp
+  - rm -rf dist
   - mv dist_tmp dist
   # commit back to GH
   - git config credential.helper "store --file=.git/credentials"
