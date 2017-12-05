@@ -8,7 +8,7 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * Contact: @weaviate_iot / yourfriends@weaviate.com
+ * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
  */
 
 package actions
@@ -41,7 +41,7 @@ func NewWeaviateActionsGet(ctx *middleware.Context, handler WeaviateActionsGetHa
 
 /*WeaviateActionsGet swagger:route GET /actions/{actionId} actions weaviateActionsGet
 
-Get a specific action based on its uuid and a thing uuid related to this key. Also available as MQTT bus.
+Get a specific action based on its uuid and a thing uuid related to this key. Also available as Websocket bus.
 
 Lists actions.
 

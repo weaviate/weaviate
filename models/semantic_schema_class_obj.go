@@ -22,10 +22,10 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// SemanticSchemaClass semantic schema class
-// swagger:model SemanticSchemaClass
+// SemanticSchemaClassObj semantic schema class obj
+// swagger:model SemanticSchemaClassObj
 
-type SemanticSchemaClass struct {
+type SemanticSchemaClassObj struct {
 
 	// Name of the class as URI relative to the schema URL.
 	Class string `json:"class,omitempty"`
@@ -37,14 +37,14 @@ type SemanticSchemaClass struct {
 	Properties []*SemanticSchemaClassProperty `json:"properties"`
 }
 
-/* polymorph SemanticSchemaClass class false */
+/* polymorph SemanticSchemaClassObj class false */
 
-/* polymorph SemanticSchemaClass description false */
+/* polymorph SemanticSchemaClassObj description false */
 
-/* polymorph SemanticSchemaClass properties false */
+/* polymorph SemanticSchemaClassObj properties false */
 
-// Validate validates this semantic schema class
-func (m *SemanticSchemaClass) Validate(formats strfmt.Registry) error {
+// Validate validates this semantic schema class obj
+func (m *SemanticSchemaClassObj) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateProperties(formats); err != nil {
@@ -58,7 +58,7 @@ func (m *SemanticSchemaClass) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *SemanticSchemaClass) validateProperties(formats strfmt.Registry) error {
+func (m *SemanticSchemaClassObj) validateProperties(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Properties) { // not required
 		return nil
@@ -86,7 +86,7 @@ func (m *SemanticSchemaClass) validateProperties(formats strfmt.Registry) error 
 }
 
 // MarshalBinary interface implementation
-func (m *SemanticSchemaClass) MarshalBinary() ([]byte, error) {
+func (m *SemanticSchemaClassObj) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -94,8 +94,8 @@ func (m *SemanticSchemaClass) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *SemanticSchemaClass) UnmarshalBinary(b []byte) error {
-	var res SemanticSchemaClass
+func (m *SemanticSchemaClassObj) UnmarshalBinary(b []byte) error {
+	var res SemanticSchemaClassObj
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

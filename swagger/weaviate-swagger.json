@@ -544,9 +544,9 @@
       "url": "https://weaviate.com",
       "email": "yourfriends@weaviate.com"
     },
-    "description": "Semantic Graphql, RESTful and MQTT Web of Things platform.",
-    "title": "Weaviate - Semantic Graphql, RESTful and MQTT Web of Things platform.",
-    "version": "v0.6.1"
+    "description": "Semantic Graphql, RESTful and Websocket Web of Things platform.",
+    "title": "Weaviate - Semantic Graphql, RESTful and Websocket Web of Things platform.",
+    "version": "v0.7.0"
   },
   "parameters": {
     "CommonPageParameterQuery": {
@@ -608,7 +608,7 @@
         "tags": [
           "actions"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/actions/{actionId}": {
@@ -646,7 +646,7 @@
         "tags": [
           "actions"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "get": {
         "description": "Lists actions.",
@@ -681,11 +681,11 @@
             "description": "Not (yet) implemented."
           }
         },
-        "summary": "Get a specific action based on its uuid and a thing uuid related to this key. Also available as MQTT bus.",
+        "summary": "Get a specific action based on its uuid and a thing uuid related to this key. Also available as Websocket bus.",
         "tags": [
           "actions"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "patch": {
         "description": "Updates an action. This method supports patch semantics.",
@@ -745,7 +745,7 @@
         "tags": [
           "actions"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/actions/validate": {
@@ -786,7 +786,7 @@
         "tags": [
           "actions"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/graphql": {
@@ -831,7 +831,7 @@
         "tags": [
           "graphql"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/keys": {
@@ -872,7 +872,7 @@
         "tags": [
           "keys"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/keys/{keyId}": {
@@ -910,7 +910,7 @@
         "tags": [
           "keys"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "get": {
         "description": "Get a key.",
@@ -949,7 +949,7 @@
         "tags": [
           "keys"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/keys/{keyId}/children": {
@@ -990,7 +990,7 @@
         "tags": [
           "keys"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/keys/me": {
@@ -1018,7 +1018,7 @@
         "tags": [
           "keys"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/keys/me/children": {
@@ -1046,7 +1046,7 @@
         "tags": [
           "keys"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/meta": {
@@ -1074,7 +1074,7 @@
         "tags": [
           "meta"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/things": {
@@ -1113,7 +1113,7 @@
         "tags": [
           "things"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "post": {
         "description": "Registers a new thing. This method may be used only by aggregator things or adapters.",
@@ -1155,7 +1155,7 @@
         "tags": [
           "things"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/things/validate": {
@@ -1196,7 +1196,7 @@
         "tags": [
           "things"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/things/{thingId}": {
@@ -1234,7 +1234,7 @@
         "tags": [
           "things"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "get": {
         "description": "Returns a particular thing data.",
@@ -1273,7 +1273,7 @@
         "tags": [
           "things"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "patch": {
         "description": "Updates a thing data. This method supports patch semantics.",
@@ -1333,7 +1333,7 @@
         "tags": [
           "things"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "put": {
         "description": "Updates a thing data.",
@@ -1386,7 +1386,7 @@
         "tags": [
           "things"
         ],
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/things/{thingId}/actions": {
@@ -1429,11 +1429,11 @@
             "description": "Not (yet) implemented."
           }
         },
-        "summary": "Get a thing based on its uuid related to this thing. Also available as MQTT.",
+        "summary": "Get a thing based on its uuid related to this thing. Also available as Websocket.",
         "tags": [
           "things"
         ],
-        "x-available-in-mqtt": true
+        "x-available-in-websocket": true
       }
     }
   },
