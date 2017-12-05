@@ -98,6 +98,8 @@ $ curl https://git.io/vdwgr -sL | sudo bash
 
 _Note:<br>Make sure [jq](https://stedolan.github.io/jq/) is installed and Docker is running_
 
+_Note:<br>In case of a linux-gnu OS, the above dependencies will be installed automatically_
+
 ## Run Weaviate
 
 To get an overview of available flag, run `$ weaviate --help`
