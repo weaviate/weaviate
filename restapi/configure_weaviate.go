@@ -8,7 +8,7 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * Contact: @weaviate_iot / yourfriends@weaviate.com
+ * Contact: @ CreativeSofwFdn / yourfriends@weaviate.com
  */
 
 // Package restapi with all rest API functions.
@@ -50,7 +50,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/mqtt"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/keys"
@@ -989,7 +988,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		return things.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
 	})
-	api.GraphqlWeavaiteGraphqlPostHandler = graphql.WeavaiteGraphqlPostHandlerFunc(func(params graphql.WeavaiteGraphqlPostParams, principal interface{}) middleware.Responder {
+	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal interface{}) middleware.Responder {
 		messaging.DebugMessage("Starting GraphQL resolving")
 
 		// Get all input from the body of the request, as it is a POST.
@@ -998,7 +997,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// If query is empty, the request is unprocessable
 		if query == "" {
-			return graphql.NewWeavaiteGraphqlPostUnprocessableEntity()
+			return graphql.NewWeaviateGraphqlPostUnprocessableEntity()
 		}
 
 		// Only set variables if exists in request
@@ -1024,7 +1023,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// If json gave error, return nothing.
 		if jsonErr != nil {
-			return graphql.NewWeavaiteGraphqlPostUnprocessableEntity()
+			return graphql.NewWeaviateGraphqlPostUnprocessableEntity()
 		}
 
 		// Put the data in a response ready object
@@ -1033,13 +1032,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// If json gave error, return nothing.
 		if err != nil {
-			return graphql.NewWeavaiteGraphqlPostUnprocessableEntity()
+			return graphql.NewWeaviateGraphqlPostUnprocessableEntity()
 		}
 
 		messaging.DebugMessage("Ending GraphQL resolving")
 
 		// Return the response
-		return graphql.NewWeavaiteGraphqlPostOK().WithPayload(graphQLResponse)
+		return graphql.NewWeaviateGraphqlPostOK().WithPayload(graphQLResponse)
 	})
 
 	api.ServerShutdown = func() {}
@@ -1132,8 +1131,6 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 		messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+errInitGQL.Error())
 	}
 
-	// connect to mqtt
-	mqttclient.Connect()
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.

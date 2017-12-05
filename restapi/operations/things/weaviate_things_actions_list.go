@@ -8,7 +8,7 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * Contact: @weaviate_iot / yourfriends@weaviate.com
+ * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
  */
 
 package things
@@ -41,7 +41,7 @@ func NewWeaviateThingsActionsList(ctx *middleware.Context, handler WeaviateThing
 
 /*WeaviateThingsActionsList swagger:route GET /things/{thingId}/actions things weaviateThingsActionsList
 
-Get a thing based on its uuid related to this thing. Also available as MQTT.
+Get a thing based on its uuid related to this thing. Also available as Websocket.
 
 Returns the actions of a thing in a list.
 
