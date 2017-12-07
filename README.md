@@ -1,93 +1,126 @@
-# Weaviate
-**A private cloud for the Internet of Things [Weave](https://developers.google.com/weave) protocol**
+# Weaviate [![Build Status](https://travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=develop)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
+
+**A decentralised semantic, graph based Internet of Things platform based on web-semantics, GraphQL and RESTful API's.**
 
 *Important Note:
-Weaviate is not fully testable / production ready yet. Follow this repo or sign up for the [mailing list](http://eepurl.com/bRsMir) to stay informed about the progress.*
+Weaviate is not fully production ready yet. Follow this repo or sign up for the [mailing list](http://eepurl.com/bRsMir) to stay informed about the progress. We do have nightly builds that you can use to test Weaviate*
 
-| Branch   | Build status                                                                                                                    | Bithound                                                                                                                                         | Chat on Gitter                                                                                 |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| master   | [![Build Status](https://travis-ci.org/weaviate/weaviate.svg?branch=master)](https://travis-ci.org/weaviate/weaviate)           | [![bitHound Overall Score](https://www.bithound.io/github/weaviate/weaviate/badges/score.svg)](https://www.bithound.io/github/weaviate/weaviate) | [![Gitter chat](https://badges.gitter.im/weaviate/weaviate.svg)](https://gitter.im/weaviate/) |
-| develop  | [![Build Status](https://travis-ci.org/weaviate/weaviate.svg?branch=develop)](https://travis-ci.org/weaviate/weaviate/branches) | | | [![bitHound Overall Score](https://www.bithound.io/github/weaviate/weaviate/badges/score.svg)](https://www.bithound.io/github/weaviate/weaviate) | [![Gitter chat](https://badges.gitter.im/weaviate/weaviate.svg)](https://gitter.im/weaviate/) |
+## Using Weaviate
 
-### Table of contents
-* [How does it work and what is it?](#how-does-it-work)
-* [FAQ](#faq)
-* [Installation](#installation)
-* [Authentication](#authentication)
-* [Contributing and Gitflow](#contributing-and-gitflow)
-* [Main contributors](#main-contributors)
-* [More info](#more-info)
+If you want use weaviate, the best thing is to go to our website: [www.weaviate.com](http://www.weaviate.com). You can find all information (like Docker containers etcetera.) needed to getting started.
 
-### How does it work and what is it?
-Google's Weave protocol is an amazing Internet of Things protocol that connects with -for example- Android Things. You can also use the protocol for custom projects.
+Want to know more about what happens under the hood or do you want to contribute? Keep on reading!
 
-Google offers a great cloud service for Weave. There might be situations, though, where you prefer to store the data in your own solution. This is where Weaviate comes in. You can use Weaviate to create your own private Weave cloud.
+## How does it work?
 
-Weaviate comes with a set of adapters for databases, so you can use your DB of choice. Want to contribute an adapter? Feel free to [contribute](#contributing-and-gitflow)!
+Weaviate is based on the concepts of Semantic Internet of Things, Web 3.0 and RDF. If you want to learn more about the concept [you can do so by going to this blogpost](https://bob.wtf/semantic-internet-of-things-42811e1ca7a7).
 
-**Use cases**
+Your platforms or devices can interact with the service via the RESTful API or the MQTT buses. To see the Swagger documentation click [here](https://github.com/creativesoftwarefdn/weaviate/tree/develop/swagger).
 
-1. It can be used in combination with all Google's Weave and Android Things libraries ([link to the libs](https://weave.googlesource.com/), [link to Weave](https://developers.google.com/weave), [link to Android Things](https://developer.android.com)).
-2. It can be used for custom Internet of Things applications, based on the Weave protocol. This is often seen in a B2B situation.
-3. The Weave protocol can be updated and changed for a specific use case.
-4. Etcetera...
+## Getting started
 
-### FAQ
+1. Choose a semantic schema that you want to adopt. Out of the box, Weaviate has the [Resource Description Framework](https://en.wikipedia.org/wiki/Resource_Description_Framework) available to use. But you can also create your own schema. If you want to do this, follow this [link](https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).
+2. Create your configuration file.
+3. Install Weaviate. See the list of [nightly builds](#nightly-builds) 
 
-- Why Weaviate​?​ ​W​hy a private Weave cloud?
+## Nightly builds
 
-When we started discussing the potential of Google's Weave and Android Things with clients​,​ most​ of them​ were very interested but ​many could not use the Google Cloud​ for ​a​ variety of reasons. ​F​or exampl​e, a​ hospital with custom​-​made connected devices​ can ​only store data in their own datacenters.​ ​Another example ​could be somebody who want​s​ to manipulate the cloud response with machine learning software​,​ or ​to ​analyze the raw data that is sen​t​ from and to the devices.
+If you just want to get started, use our docker container! You can find more information about it on [www.weaviate.com/getting-started](http://www.weaviate.com/getting-started)
 
-- Can I extend Weaviate and the Weave API for my project​?​
+You can download one of our nightly builds here:
 
-Yes! You can change the Weave protocol to suit your needs.
+| OS and Architecture
+| -------------------
+| [weaviate_nightly_darwin_386.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_darwin_386.zip?raw=true)
+| [weaviate_nightly_darwin_amd64.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_darwin_amd64.zip?raw=true)
+| [weaviate_nightly_linux_386.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_386.zip?raw=true)
+| [weaviate_nightly_linux_amd64.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_amd64.zip?raw=true)
+| [weaviate_nightly_linux_arm.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_arm.zip?raw=true)
+| [weaviate_nightly_linux_mips.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_mips.zip?raw=true)
+| [weaviate_nightly_linux_mips64.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_mips64.zip?raw=true)
+| [weaviate_nightly_linux_mips64le.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_mips64le.zip?raw=true)
+| [weaviate_nightly_linux_mipsle.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_mipsle.zip?raw=true)
+| [weaviate_nightly_linux_ppc64.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_ppc64.zip?raw=true)
+| [weaviate_nightly_linux_ppc64le.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_linux_ppc64le.zip?raw=true)
+| [weaviate_nightly_windows_386.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_windows_386.zip?raw=true)
+| [weaviate_nightly_windows_amd64.zip](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_windows_amd64.zip?raw=true)
 
-- Where can I get some background about Google Weave.
-1) [https://cloud.google.com/solutions/iot-overview](https://cloud.google.com/solutions/iot-overview)
-2) [https://developers.google.com/weave](https://developers.google.com/weave)
+[Checksum file](https://github.com/creativesoftwarefdn/weaviate/blob/develop/dist/weaviate_nightly_checksums.txt).
 
-- Can I integrate Weaviate with my existing software?
+## Creating a config file
 
-Absolutely​. If, l​et​'​s say​,​ you want to use Tensorflow to create predictions based on device statistics​,​ you can easily integrate this with Weaviate.
+You can create an array of `environments` that should include:
 
-- How does it work?
+- **name** the name that you will use to refer to the configuration.
+- **cache** possiblity to add cache layer between database and core. Without cache layer Weaviate will connect directly to the DB.
+- **cache -> name** name of the cache layer (kv-cache is implemented)
+- **database -> name** name of the database.
+- **database -> database_config -> host** hostname of the DB.
+- **database -> database_config -> port** port of the database.
+- **schemas -> Thing** file or URL of a semantic schema of Things
+- **schemas -> Thing** file or URL of a semantic schema of Actions
+- **websocketsEnabled** boolean, do you want to publish information on the websockets?
 
-The Google API listens to three dozen commands​.​ Weaviate mimics the methods, URIs and resources that the Google cloud listens to. Weaviate will respond and listen to your devices in the same way the Google cloud does.
+Example of config file:
 
-- Do I need to download or clone Brillo, Libweave or uWeave from a different fork to use Weaviate?
+```
+{
+    "environments": [
+        {
+            "name": "default",
+            "cache": {
+                "name": "kv-cache"
+            },
+            "database": {
+                "name": "dgraph",
+                "database_config" : {
+                    "host": "127.0.0.1",
+                    "port": 9080
+                }
+            },
+            "schemas": {
+                "Thing": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-schema-Thing-schema_org.json",
+                "Action": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-schema-Action-schema_org.json"
+            },
+            "websocketsEnabled": false
+        }
+    ]
+}
+```
 
-No, you can use the official open source repos from Google.
+## Run with Docker
 
-- What are you planning on releasing?
+You can run a complete Docker setup with:
 
-​W​e are working hard to get 0.1.x ready​ as soon as possible​.​ We will let you know as soon​ as​ this version is ready​ i​f you follow us on Twitter or if you sign​ ​up for our newsletter .
+```
+$ curl https://git.io/vdwgr -sL | sudo bash
+```
 
-- How to use Weaviate​?​ Where to start?
+_Note:<br>Make sure [jq](https://stedolan.github.io/jq/) is installed and Docker is running_
 
-​We will release documentation and videos​ u​pon​ ​the ​release​ of​ version 0.1.x​​. This will only be for Weaviate​.​ You can use the Google documentation ​for ​Weave and Brillo​ ​on their respective website​s​.
+_Note:<br>In case of a linux-gnu OS, the above dependencies will be installed automatically_
 
-- Why Node/Javascript?
+## Run Weaviate
 
-Because we think Node is a language ​that many​ people ​are able to read and write. We want to make the Weave community as large as possible.
+To get an overview of available flag, run `$ weaviate --help`
 
-### Installation
-[SOON MORE]
+To get started without https: `$ weaviate --scheme=http --config=YOUR_CONFIG_NAME --config-file=/path/to/your/config/file.json`
 
-### Authentication
-[SOON MORE]
+## Databases we support
 
-### Contributing and Gitflow
-Read more in the [CONTRIBUTE.md](CONTRIBUTE.md) file.
+For now, we only support [Dgraph](https://dgraph.io) in case you want to use another Graph DB. Let us know in the [issues](https://github.com/creativesoftwarefdn/weaviate/issues) but we are adding Gremlin support!
 
-### About Weaviate
-[Weave](https://developers.google.com/weave) is a high quality, open source end-to-end communications platform for IoT that allows you to connect and manage devices in a generic way. We understand that sometimes you need to be in control over your complete dataset. This may depend on the nature of your business, on analytics and predictions you want to do, or because you want to extend the protocol. Weaviate works as a replicate of the Google Weave cloud and runs on your own cloud or datacenter solution.
+## Roadmap
 
-### Main contributors
-- Bob van Luijt (bob@weaviate.com, @bobvanluijt)
+| Feature    | Progress
+| ---------  | --------
+| Things     | Done 
+| Actions    | Done 
+| xPlatform  | In Progress
+| Gremlin    | In Progress
+| Keys       | In Progress
+| Websockets | In Progress
 
-### More info
-Please keep checking back this repo or the website, we will start publishing software soon.
+## Contact us!
 
-- Website: http://www.weaviate.com
-- Mailing: http://eepurl.com/bRsMir
-- Twitter: http://twitter.com/weaviate_iot
+Via [email](mailto:yourfriends@weaviate.com), [Twitter](https://twitter.com/weaviate) or the [newsletter](http://eepurl.com/bRsMir).

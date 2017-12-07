@@ -1,0 +1,67 @@
+{
+    "environments": [
+        {
+            "name": "test-dgraph",
+            "cache": {
+                "name": "kv-cache"
+            },
+            "database": {
+                "name": "dgraph",
+                "database_config" : {
+                    "host": "127.0.0.1",
+                    "port": 9080
+                }
+            },
+            "schemas": {
+                "Thing": "test/schema/test-thing-schema.json",
+                "Action": "test/schema/test-action-schema.json"
+            },
+            "mqttEnabled": false
+        },
+        {
+            "name": "test-gremlin",
+            "database": {
+                "name": "gremlin",
+                "database_config" : {
+                    "host": "127.0.0.1",
+                    "port": 8182
+                }
+            },
+            "schemas": {
+                "Thing": "test/schema/test-thing-schema.json",
+                "Action": "test/schema/test-action-schema.json"
+            },
+            "mqttEnabled": false
+        },
+        {
+            "name": "graph",
+            "database": {
+                "name": "dgraph",
+                "database_config" : {
+                    "host": "127.0.0.1",
+                    "port": 8888
+                }
+            },
+            "schemas": {
+                "Thing": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.min.json",
+                "Action": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.min.json"
+            },
+            "mqttEnabled": false
+        },
+        {
+            "name": "docker",
+            "database": {
+                "name": "dgraph",
+                "database_config" : {
+                    "host": "x.x.x.x",
+                    "port": 9080
+                }
+            },
+            "schemas": {
+                "Thing": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.min.json",
+                "Action": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.min.json"
+            },
+            "mqttEnabled": false
+        }
+    ]
+}
