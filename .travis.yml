@@ -30,5 +30,7 @@ deploy:
     secure: c9ebRoXUjb96osnIjn2QkIBo7FdfENU2yD/NxnYkWjAx3t7IkNvSEmEcX88VfrOyIYIjQSJ0123ILUpk7HVnWg44PhuE+ezXV488NSxtL/EFJRIDLOU84RNYrYRfeP7U/MpAKW7vk1pefggt90BSS3dE4DbedPWtHyvX9HH/TEbRLChuRrOdqB6QQ/Ikoa9tvyfsAJa1EYyGBr1J2yaYFO7mPEUpG/uYb2T8Y1NmUWzkgAOqe4rFjdYQstvdmrFkWtmbY+NtA8X1Us1Oq79Vo9ysUt259AYOdJ6Puc56oSojTT1ABsNUVH45Mtl7GHCUvoyUaOq2f6fkt+Th8HpleIcsgI6TMtogvS9DQV4YFfppEeBp9k5O2tSXDqFNXR3rUX6dMzQ60HpucoWr4Q2b0tn5E8OOztkBS043UsfI16dFJdUa8ZGEwzjfY75TnSaO7pvKMYAgVHiri6pYJEqeeVGJJ8EgJFknDZO9b9fUD+TTgAYEdOSqQZhUKis1jHFZJQeU2vHoUdZmQM2YqbZhuHnhl6AldynS081KSdquMZIw/unoDiyp0NFFNwCO5AwbWLNlfiURRqNc13G3ivd9Le7ISGUkSc+He8GZk/TrtBv3GK8K9eZBgL4g255dIlUZlz2sgXHdgyEXXBkDabh+EQEM50jjvJ5c/HKtX3H6rec=
   skip_cleanup: true
   acl: public-read
-  # local-dir: dist/
+  local-dir: dist/
   detect_encoding: true
+  on:
+    branch: develop
