@@ -2,32 +2,32 @@ sudo: required
 language: go
 branches:
   except:
-    - master # ignore master branch
+  - master
 go:
-  - 1.8.3
+- 1.8.3
 services:
-  - docker
+- docker
 before_install:
-  - sudo apt-get update
-  - sudo apt-get install jq
-  - go get github.com/goreleaser/goreleaser
+- sudo apt-get update
+- sudo apt-get install jq
+- go get github.com/goreleaser/goreleaser
 before_script:
-  - curl https://git.io/vdwgr -sL | bash
+- curl https://git.io/vdwgr -sL | bash
 script:
-  # update nightly builds
-  - goreleaser --rm-dist --snapshot --skip-validate
-  # remove all that is not the zip
-  - mkdir -p dist_tmp
-  - mv dist/*.zip dist_tmp
-  - mv dist/*.txt dist_tmp
-  - rm -rf dist
-  - mv dist_tmp dist
-  # commit back to GH
-  - git config credential.helper "store --file=.git/credentials"
-  - echo "https://${GH_TOKEN}:@github.com" > .git/credentials
-  - git add -A
-  - git commit -m "🤖 updated nightly builds with travis" || true
-  - git push origin HEAD:${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH} || true
-env:
-  global:
-    secure: lgvDdvtiar2YW00brPv48BtcehGMkY9wTHRhUcTEZWqgYwQrfBK+mFTRy3N+r1JRZ5ke4qmGM5ikaDEpcbt3wLfDVhluXoluGr/mA32UE1xhfubM6ognlYAqpN9dBt6eLGn+HoXkOtFxnzDNdLoZ1tIgXfF7TB9F3WKCgkDWJc/nnW/GzXfoZ82LB1nf5Pry+UE9oapoO3mWj1Ub/NgFfNS6YkMS4TW2yYh+TO2XPTRO2U/Jk9kRLAoCfJGP2o8vIRXr/p0/G0KEoIqdLbAj0A4J/JV4RgXEu/cav97f4P2nU0IMSgzbzSHY7J7iUKzlbebHcKoX1RPfD8dWUvzV9645/U2+egGOkE1XoXLnB/WUx14xFOqU6uCjAOeJTN3WUs6UdlTG7Ni0HtsqpCq63YN3qj7WG2OpAmvICJ3cmjNaHhuwfQ2HLr87BTzYNXZstcNZC10xHl5dc6Vlni3qXLr/OJ5ZHQOavUPi5H9VBLYvCGBJUM11sNgvKSVREe+ZSoNmrHgzhVuqiZ9cGThCafBNw3PAH+k5ufc9d9tp25l31LdSf6LbiVqE2E9Da3aH1rnQ48ZdGxR7ENwAyM0Rmj4JibE8yA7hUAVohmB4VBtkKOUqV3RReFo6Zkkyz4OU3IS9nxdCOe9MGJsRAdWMIc63t7N+txktDKnuviqXg+M=
+- goreleaser --rm-dist --snapshot --skip-validate
+- mkdir -p dist_tmp
+- mv dist/*.zip dist_tmp
+- mv dist/*.txt dist_tmp
+- rm -rf dist
+- mv dist_tmp dist
+deploy:
+  provider: gcs
+  access_key_id:
+    secure: j4PWjkZAwud1MF9zsLMWOHdeMAI5uvQIMCZrl1k2s/qVKqg9bQWdY7E3cz8Op03JoqPru6777HX4nduxROlrtwdjlGYxSIanFaoZ7AG3dSNejpJahOW1Skuj3ApU/IiXGt9gc8h13d91tD4uEfJrGK5AQSkwiJ9jBUxLfKP5BNX94z+8/5YZpAKhMlCdiCLy92nU0a0B4t5Jp+cpLtPzi45VRmTSKSYGnGFyiXXIgB6mBARW6mdC2kzYAzUqzetplLB62/9MB84rPkOJ58FWqHemQSwO3AWZr1ul1vWZYW1xvJWrGeltSMPSs3XlZlxpja6ScyVAS0Pg0uIWOBPOfewNyWHlWpT5z8K8GM7Ouqac/LLRmkAamzYYnfI8tOnQl+8K2f05Atce35bylxLh/YnLPBPnEQ+UOOdcE91J9faToZhmx8MuAg+xgHhhZFEftw90Is1VHoYEpxqQHxgltMvExO1pcbMTGs/JVOP5IO2dCvLv3emtDI2TRJZbTV2M0DkQ6vLDiTxwy5BomNN0Bss38dPwp4VHq9q1B2C/o++IJLPfJKbVNWuooPAjSaSuKqw/6NRlh5wGIozLpu2+wBofMW7pIfX2ohG2YxB0czJdgJr3SB0cPsF9cEwJ8ouyFvo01zDJVe5ESmpJCj9drBUM6HtfVQvzKyV7Ng3haWw=
+  secret_access_key:
+    secure: E6dB/4F5jxfbmc4jqgDG1gQFaz3P3wn1zCGtsb5FS5Gmn2F6+9ki0uNpOz1qiPpSOjwZjeOSGeBAsoEbOgoou1BpJ4J17Rr7L9/S2TXbRyp6AiCa5QpjUMHUZfF4DdDg7hgxsuTAqvcPT0u7wc8lY1WXL7IzAdfIDGLibNzDdjUWNUd9zL5BSVZ3YJoK4zyERoGPNWyWIE4nuBHP3BUcsCjg6ax34onmWs8TfTpK//VJi8fybeQizMbkPP6iWLF+NCvtw1EaTeh7vbuuLY3VxFQM0cJk0SuJLhrqczHHtQnYZI4X7QlsnP0+xfy6PmAOcshstHRIePiTM2e6XsIbC3eqEzN8LHb4tAfpjCWgyEYWMZ+dMXeAE4WERk1Wal1ENYQgS1+4f0Hib6DNu9CDjRS5DNbbyHSC3HdQWJJ00hfHPKmJzrMNgbhFjHl1yTIY6Y5cLv5uaXGZXV/sCTwSBsqHMEem0ci9UsB7O+segSy97JsEqbixv6jBzh8AXQ6WoB3HoNnJVdlZvvBHTWvx0fD94l9WJeRC2w+FLHSqnouBQcy+xGEVYP5HiZQNejaJEkZ4tXD7BPZqSYv1VqgcW3mHKykuboeTw9qrjDPPWLziK2ZQVUJnImDajgxnq01ybOGQHcbO4fZepscVpouDdwjfTm1Ka1yIBMz/JBItal8=
+  bucket:
+    secure: c9ebRoXUjb96osnIjn2QkIBo7FdfENU2yD/NxnYkWjAx3t7IkNvSEmEcX88VfrOyIYIjQSJ0123ILUpk7HVnWg44PhuE+ezXV488NSxtL/EFJRIDLOU84RNYrYRfeP7U/MpAKW7vk1pefggt90BSS3dE4DbedPWtHyvX9HH/TEbRLChuRrOdqB6QQ/Ikoa9tvyfsAJa1EYyGBr1J2yaYFO7mPEUpG/uYb2T8Y1NmUWzkgAOqe4rFjdYQstvdmrFkWtmbY+NtA8X1Us1Oq79Vo9ysUt259AYOdJ6Puc56oSojTT1ABsNUVH45Mtl7GHCUvoyUaOq2f6fkt+Th8HpleIcsgI6TMtogvS9DQV4YFfppEeBp9k5O2tSXDqFNXR3rUX6dMzQ60HpucoWr4Q2b0tn5E8OOztkBS043UsfI16dFJdUa8ZGEwzjfY75TnSaO7pvKMYAgVHiri6pYJEqeeVGJJ8EgJFknDZO9b9fUD+TTgAYEdOSqQZhUKis1jHFZJQeU2vHoUdZmQM2YqbZhuHnhl6AldynS081KSdquMZIw/unoDiyp0NFFNwCO5AwbWLNlfiURRqNc13G3ivd9Le7ISGUkSc+He8GZk/TrtBv3GK8K9eZBgL4g255dIlUZlz2sgXHdgyEXXBkDabh+EQEM50jjvJ5c/HKtX3H6rec=
+  skip_cleanup: true
+  acl: public-read
+  local-dir: dist/
