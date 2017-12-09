@@ -8,7 +8,7 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * Contact: @weaviate_iot / yourfriends@weaviate.com
+ * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
  */
 
 package restapi
@@ -46,14 +46,14 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Semantic Graphql, RESTful and MQTT Web of Things platform.",
-    "title": "Weaviate - Semantic Graphql, RESTful and MQTT Web of Things platform.",
+    "description": "Semantic Graphql, RESTful and Websocket Web of Things platform.",
+    "title": "Weaviate - Semantic Graphql, RESTful and Websocket Web of Things platform.",
     "contact": {
       "name": "Weaviate",
       "url": "https://weaviate.com",
       "email": "yourfriends@weaviate.com"
     },
-    "version": "v0.6.0"
+    "version": "v0.7.0"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -98,7 +98,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/actions/validate": {
@@ -139,7 +139,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/actions/{actionId}": {
@@ -148,7 +148,7 @@ func init() {
         "tags": [
           "actions"
         ],
-        "summary": "Get a specific action based on its uuid and a thing uuid related to this key. Also available as MQTT bus.",
+        "summary": "Get a specific action based on its uuid and a thing uuid related to this key. Also available as Websocket bus.",
         "operationId": "weaviate.actions.get",
         "parameters": [
           {
@@ -180,7 +180,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "delete": {
         "description": "Deletes an action from the system.",
@@ -216,7 +216,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "patch": {
         "description": "Updates an action. This method supports patch semantics.",
@@ -276,7 +276,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/graphql": {
@@ -286,7 +286,7 @@ func init() {
           "graphql"
         ],
         "summary": "Get a response based on GraphQL",
-        "operationId": "weavaite.graphql.post",
+        "operationId": "weaviate.graphql.post",
         "parameters": [
           {
             "description": "The GraphQL query request parameters.",
@@ -321,7 +321,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/keys": {
@@ -362,7 +362,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/keys/me": {
@@ -390,7 +390,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/keys/me/children": {
@@ -418,7 +418,7 @@ func init() {
             "description": "Not (yet) implemented"
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/keys/{keyId}": {
@@ -459,7 +459,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "delete": {
         "description": "Deletes a key. Only parent or self is allowed to delete key.",
@@ -495,7 +495,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/keys/{keyId}/children": {
@@ -536,7 +536,7 @@ func init() {
             "description": "Not (yet) implemented"
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/meta": {
@@ -564,7 +564,7 @@ func init() {
             "description": "Not (yet) implemented"
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/things": {
@@ -603,7 +603,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "post": {
         "description": "Registers a new thing. This method may be used only by aggregator things or adapters.",
@@ -645,7 +645,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/things/validate": {
@@ -686,7 +686,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/things/{thingId}": {
@@ -727,7 +727,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "put": {
         "description": "Updates a thing data.",
@@ -780,7 +780,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "delete": {
         "description": "Deletes a thing from the system.",
@@ -816,7 +816,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       },
       "patch": {
         "description": "Updates a thing data. This method supports patch semantics.",
@@ -876,7 +876,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": false
+        "x-available-in-websocket": false
       }
     },
     "/things/{thingId}/actions": {
@@ -885,7 +885,7 @@ func init() {
         "tags": [
           "things"
         ],
-        "summary": "Get a thing based on its uuid related to this thing. Also available as MQTT.",
+        "summary": "Get a thing based on its uuid related to this thing. Also available as Websocket.",
         "operationId": "weaviate.things.actions.list",
         "parameters": [
           {
@@ -923,7 +923,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-mqtt": true
+        "x-available-in-websocket": true
       }
     }
   },

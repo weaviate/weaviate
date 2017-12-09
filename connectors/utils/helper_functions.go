@@ -8,7 +8,7 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * Contact: @weaviate_iot / yourfriends@weaviate.com
+ * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
  */
 
 package connutils
@@ -19,8 +19,8 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/go-openapi/strfmt"
 
 	"log"
 	"net"

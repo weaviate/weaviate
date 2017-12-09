@@ -8,7 +8,7 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * Contact: @weaviate_iot / yourfriends@weaviate.com
+ * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
  */
 
 package operations
@@ -62,9 +62,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		XMLProducer:           runtime.XMLProducer(),
 		MultipartformProducer: runtime.DiscardProducer,
 		TxtProducer:           runtime.TextProducer(),
-		GraphqlWeavaiteGraphqlPostHandler: graphql.WeavaiteGraphqlPostHandlerFunc(func(params graphql.WeavaiteGraphqlPostParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation GraphqlWeavaiteGraphqlPost has not yet been implemented")
-		}),
 		ActionsWeaviateActionsCreateHandler: actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsCreate has not yet been implemented")
 		}),
@@ -79,6 +76,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		ActionsWeaviateActionsValidateHandler: actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsValidate has not yet been implemented")
+		}),
+		GraphqlWeaviateGraphqlPostHandler: graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation GraphqlWeaviateGraphqlPost has not yet been implemented")
 		}),
 		KeysWeaviateKeyCreateHandler: keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation KeysWeaviateKeyCreate has not yet been implemented")
@@ -136,7 +136,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 	}
 }
 
-/*WeaviateAPI Semantic Graphql, RESTful and MQTT Web of Things platform. */
+/*WeaviateAPI Semantic Graphql, RESTful and Websocket Web of Things platform. */
 type WeaviateAPI struct {
 	spec            *loads.Document
 	context         *middleware.Context
@@ -193,8 +193,6 @@ type WeaviateAPI struct {
 	// APIAuthorizer provides access control (ACL/RBAC/ABAC) by providing access to the request and authenticated principal
 	APIAuthorizer runtime.Authorizer
 
-	// GraphqlWeavaiteGraphqlPostHandler sets the operation handler for the weavaite graphql post operation
-	GraphqlWeavaiteGraphqlPostHandler graphql.WeavaiteGraphqlPostHandler
 	// ActionsWeaviateActionsCreateHandler sets the operation handler for the weaviate actions create operation
 	ActionsWeaviateActionsCreateHandler actions.WeaviateActionsCreateHandler
 	// ActionsWeaviateActionsDeleteHandler sets the operation handler for the weaviate actions delete operation
@@ -205,6 +203,8 @@ type WeaviateAPI struct {
 	ActionsWeaviateActionsPatchHandler actions.WeaviateActionsPatchHandler
 	// ActionsWeaviateActionsValidateHandler sets the operation handler for the weaviate actions validate operation
 	ActionsWeaviateActionsValidateHandler actions.WeaviateActionsValidateHandler
+	// GraphqlWeaviateGraphqlPostHandler sets the operation handler for the weaviate graphql post operation
+	GraphqlWeaviateGraphqlPostHandler graphql.WeaviateGraphqlPostHandler
 	// KeysWeaviateKeyCreateHandler sets the operation handler for the weaviate key create operation
 	KeysWeaviateKeyCreateHandler keys.WeaviateKeyCreateHandler
 	// KeysWeaviateKeysChildrenGetHandler sets the operation handler for the weaviate keys children get operation
@@ -350,10 +350,6 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "XAPIKEYAuth")
 	}
 
-	if o.GraphqlWeavaiteGraphqlPostHandler == nil {
-		unregistered = append(unregistered, "graphql.WeavaiteGraphqlPostHandler")
-	}
-
 	if o.ActionsWeaviateActionsCreateHandler == nil {
 		unregistered = append(unregistered, "actions.WeaviateActionsCreateHandler")
 	}
@@ -372,6 +368,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.ActionsWeaviateActionsValidateHandler == nil {
 		unregistered = append(unregistered, "actions.WeaviateActionsValidateHandler")
+	}
+
+	if o.GraphqlWeaviateGraphqlPostHandler == nil {
+		unregistered = append(unregistered, "graphql.WeaviateGraphqlPostHandler")
 	}
 
 	if o.KeysWeaviateKeyCreateHandler == nil {
@@ -576,11 +576,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/graphql"] = graphql.NewWeavaiteGraphqlPost(o.context, o.GraphqlWeavaiteGraphqlPostHandler)
-
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
 	o.handlers["POST"]["/actions"] = actions.NewWeaviateActionsCreate(o.context, o.ActionsWeaviateActionsCreateHandler)
 
 	if o.handlers["DELETE"] == nil {
@@ -602,6 +597,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/actions/validate"] = actions.NewWeaviateActionsValidate(o.context, o.ActionsWeaviateActionsValidateHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/graphql"] = graphql.NewWeaviateGraphqlPost(o.context, o.GraphqlWeaviateGraphqlPostHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
