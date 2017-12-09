@@ -15,11 +15,11 @@ before_script:
 - curl https://git.io/vdwgr -sL | bash
 script:
 - goreleaser --rm-dist --snapshot --skip-validate
-- mkdir -p dist_tmp
-- mv dist/*.zip dist_tmp
-- mv dist/*.txt dist_tmp
+- mkdir -p nightly
+- mv dist/*.zip nightly
+- mv dist/*.txt nightly
 - rm -rf dist
-- mv dist_tmp dist
+- mv nightly dist
 deploy:
   provider: gcs
   access_key_id: GOOG53DEMILDMQ2IJSEX
@@ -28,7 +28,7 @@ deploy:
   bucket: weaviate-dist
   # skip_cleanup: true
   acl: public-read
-  # local-dir: dist/
+  local-dir: nightly
   detect_encoding: true
   on:
     branch: develop
