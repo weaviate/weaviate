@@ -16,10 +16,7 @@ before_script:
 script:
 - goreleaser --rm-dist --snapshot --skip-validate
 - mkdir -p nightly
-- mv dist/*.zip nightly
-- mv dist/*.txt nightly
-- rm -rf dist
-- mv nightly dist
+- mv dist nightly
 deploy:
   provider: gcs
   access_key_id: GOOG4QOEU2HGYSA6CRE6
