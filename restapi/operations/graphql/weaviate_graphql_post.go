@@ -8,7 +8,7 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * Contact: @weaviate_iot / yourfriends@weaviate.com
+ * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
  */
 
 package graphql
@@ -21,42 +21,42 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-// WeavaiteGraphqlPostHandlerFunc turns a function with the right signature into a weavaite graphql post handler
-type WeavaiteGraphqlPostHandlerFunc func(WeavaiteGraphqlPostParams, interface{}) middleware.Responder
+// WeaviateGraphqlPostHandlerFunc turns a function with the right signature into a weaviate graphql post handler
+type WeaviateGraphqlPostHandlerFunc func(WeaviateGraphqlPostParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeavaiteGraphqlPostHandlerFunc) Handle(params WeavaiteGraphqlPostParams, principal interface{}) middleware.Responder {
+func (fn WeaviateGraphqlPostHandlerFunc) Handle(params WeaviateGraphqlPostParams, principal interface{}) middleware.Responder {
 	return fn(params, principal)
 }
 
-// WeavaiteGraphqlPostHandler interface for that can handle valid weavaite graphql post params
-type WeavaiteGraphqlPostHandler interface {
-	Handle(WeavaiteGraphqlPostParams, interface{}) middleware.Responder
+// WeaviateGraphqlPostHandler interface for that can handle valid weaviate graphql post params
+type WeaviateGraphqlPostHandler interface {
+	Handle(WeaviateGraphqlPostParams, interface{}) middleware.Responder
 }
 
-// NewWeavaiteGraphqlPost creates a new http.Handler for the weavaite graphql post operation
-func NewWeavaiteGraphqlPost(ctx *middleware.Context, handler WeavaiteGraphqlPostHandler) *WeavaiteGraphqlPost {
-	return &WeavaiteGraphqlPost{Context: ctx, Handler: handler}
+// NewWeaviateGraphqlPost creates a new http.Handler for the weaviate graphql post operation
+func NewWeaviateGraphqlPost(ctx *middleware.Context, handler WeaviateGraphqlPostHandler) *WeaviateGraphqlPost {
+	return &WeaviateGraphqlPost{Context: ctx, Handler: handler}
 }
 
-/*WeavaiteGraphqlPost swagger:route POST /graphql graphql weavaiteGraphqlPost
+/*WeaviateGraphqlPost swagger:route POST /graphql graphql weaviateGraphqlPost
 
 Get a response based on GraphQL
 
 Get an object based on GraphQL
 
 */
-type WeavaiteGraphqlPost struct {
+type WeaviateGraphqlPost struct {
 	Context *middleware.Context
-	Handler WeavaiteGraphqlPostHandler
+	Handler WeaviateGraphqlPostHandler
 }
 
-func (o *WeavaiteGraphqlPost) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *WeaviateGraphqlPost) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewWeavaiteGraphqlPostParams()
+	var Params = NewWeaviateGraphqlPostParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {

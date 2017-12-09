@@ -9,7 +9,7 @@
 # LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
 # AUTHOR: Bob van Luijt (bob@weaviate.com)
 # See www.weaviate.com for details
-# Contact: @weaviate_iot / yourfriends@weaviate.com
+# Contact: @CreativeSofwFdn / yourfriends@weaviate.com
 #
 
 # Welkom message
@@ -21,26 +21,29 @@ if [[ "$OSTYPE" == "win32" ]]; then
     exit 1
 fi
 
-# check if jq is installed
-jq --help >/dev/null 2>&1 || {
-    sudo apt-get -qq update
-    sudo apt-get -qq install jq
-}
+# install stuff
+if [[ "$OSTYPE" == "linux-gnu" ]]; then
+    # check if jq is installed
+    jq --help >/dev/null 2>&1 || {
+        sudo apt-get -qq update
+        sudo apt-get -qq  -y install jq
+    }
 
-# check if docker is installed
-sudo docker ps >/dev/null 2>&1 || {
-    sudo apt-get -qq update
-    sudo apt-get -qq install \
-        apt-transport-https \
-        ca-certificates \
-        curl \
-        jq \
-        software-properties-common
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add - 
-    sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
-    sudo apt-get -qq update
-    sudo apt-get -qq install docker-ce
-}
+    # check if docker is installed
+    sudo docker ps >/dev/null 2>&1 || {
+        sudo apt-get -qq update
+        sudo apt-get -qq  -y install \
+            apt-transport-https \
+            ca-certificates \
+            curl \
+            jq \
+            software-properties-common
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add - 
+        sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+        sudo apt-get -qq  update
+        sudo apt-get -qq  -y install docker-ce
+    }
+fi
 
 # get all running docker container names
 containers=$(sudo docker ps | awk '{if(NR>1) print $NF}')
@@ -71,5 +74,5 @@ WEAVIATEID=$(sudo docker run -d weaviate)
 WEAVIATEIP=$(sudo docker inspect $WEAVIATEID | jq -r '.[0].NetworkSettings.IPAddress')
 
 # Return end-point
-echo "Next line contains Weaviate IP + Weaviate ID seperated by a vertical bar (|)"
-echo "WEAVIATE|$WEAVIATEIP|$WEAVIATEID"
+echo "Next line contains Weaviate IP + Weaviate root key seperated by a vertical bar (|). Make sure to update the root key!"
+echo "WEAVIATE|$WEAVIATEIP|ROOT-KEY"

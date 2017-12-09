@@ -8,7 +8,7 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * Contact: @weaviate_iot / yourfriends@weaviate.com
+ * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
  */
 
 package main
@@ -38,8 +38,8 @@ func main() {
 	defer server.Shutdown()
 
 	parser := flags.NewParser(server, flags.Default)
-	parser.ShortDescription = "Weaviate - Semantic Graphql, RESTful and MQTT Web of Things platform."
-	parser.LongDescription = "Semantic Graphql, RESTful and MQTT Web of Things platform."
+	parser.ShortDescription = "Weaviate - Semantic Graphql, RESTful and Websocket Web of Things platform."
+	parser.LongDescription = "Semantic Graphql, RESTful and Websocket Web of Things platform."
 
 	server.ConfigureFlags()
 	for _, optsGroup := range api.CommandLineOptionsGroups {

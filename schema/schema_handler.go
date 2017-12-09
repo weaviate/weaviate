@@ -8,7 +8,7 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * Contact: @weaviate_iot / yourfriends@weaviate.com
+ * Contact: @ CreativeSofwFdn / yourfriends@weaviate.com
  */
 
 package schema
@@ -17,13 +17,14 @@ import (
 	"encoding/json"
 	errors_ "errors"
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+
+	"github.com/creativesoftwarefdn/weaviate/models"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"

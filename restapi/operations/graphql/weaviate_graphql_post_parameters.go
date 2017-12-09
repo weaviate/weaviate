@@ -8,7 +8,7 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
- * Contact: @weaviate_iot / yourfriends@weaviate.com
+ * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
  */
 
 package graphql
@@ -24,18 +24,18 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
-// NewWeavaiteGraphqlPostParams creates a new WeavaiteGraphqlPostParams object
+// NewWeaviateGraphqlPostParams creates a new WeaviateGraphqlPostParams object
 // with the default values initialized.
-func NewWeavaiteGraphqlPostParams() WeavaiteGraphqlPostParams {
+func NewWeaviateGraphqlPostParams() WeaviateGraphqlPostParams {
 	var ()
-	return WeavaiteGraphqlPostParams{}
+	return WeaviateGraphqlPostParams{}
 }
 
-// WeavaiteGraphqlPostParams contains all the bound params for the weavaite graphql post operation
+// WeaviateGraphqlPostParams contains all the bound params for the weaviate graphql post operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters weavaite.graphql.post
-type WeavaiteGraphqlPostParams struct {
+// swagger:parameters weaviate.graphql.post
+type WeaviateGraphqlPostParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request
@@ -49,7 +49,7 @@ type WeavaiteGraphqlPostParams struct {
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls
-func (o *WeavaiteGraphqlPostParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+func (o *WeaviateGraphqlPostParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 	o.HTTPRequest = r
 
