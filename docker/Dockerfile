@@ -1,5 +1,5 @@
 # Run on Ubuntu
-FROM ubuntu:16.04
+FROM ubuntu:14.04
 
 # Set the Workdir to weaviate
 RUN mkdir -p /var/weaviate/config && cd /var/weaviate
