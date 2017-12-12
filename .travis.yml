@@ -15,7 +15,6 @@ before_script:
 - curl https://git.io/vdwgr -sL | bash
 script:
 - goreleaser --rm-dist --snapshot --skip-validate
-- mkdir -p nightly
 - mv dist nightly
 deploy:
   provider: gcs
@@ -23,6 +22,7 @@ deploy:
   bucket: weaviate-dist
   acl: public-read
   # local-dir: nightly
+  skip_cleanup: true
   detect_encoding: true
   on:
     branch: develop
