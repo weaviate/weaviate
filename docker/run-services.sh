@@ -89,7 +89,8 @@ fi
 #build locally
 #docker build --quiet --build-arg DGRAPHIP=$DGRAPHIP -t weaviate .
 #Dockerfile should be present in current directory 
-docker build --quiet -t weaviate .  &>/dev/null || true
+#docker build --quiet -t weaviate .  &>/dev/null || true
+docker build -t weaviate .
 
 # get the config file 
 wget -q -O weaviate/config/example_weaviate.conf.json https://raw.githubusercontent.com/weaviate/weaviate/develop/weaviate.conf.json
