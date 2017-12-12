@@ -22,7 +22,7 @@ deploy:
   access_key_id: GOOG4QOEU2HGYSA6CRE6
   bucket: weaviate-dist
   acl: public-read
-  local-dir: nightly
+  # local-dir: nightly
   detect_encoding: true
   on:
     branch: develop
