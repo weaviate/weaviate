@@ -12,7 +12,7 @@ WORKDIR /var/weaviate
 RUN echo "BUILDING WITH DGRAPH IP: $DGRAPHIP"
 
 RUN apt-get -qq update && apt-get -qq install -y jq curl zip wget && \
-    wget -q -O /var/weaviate/weaviate.zip https://raw.githubusercontent.com/weaviate/weaviate/develop/dist/weaviate_nightly_linux_amd64.zip && \
+    wget -q -O /var/weaviate/weaviate.zip https://storage.googleapis.com/weaviate-dist/nightly/weaviate_nightly_linux_amd64.zip && \
     unzip -o -q -j weaviate.zip && \
     rm /var/weaviate/weaviate.zip && \
     rm -rf weaviate_nightly_linux_amd64.zip && \
