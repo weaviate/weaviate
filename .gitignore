@@ -1,3 +1,9 @@
+# ignore release dirs
+nightly/*
+dist/*
+nightly
+dist
+
 # Ignore OLD files
 *.OLD
 *.OLD.go
