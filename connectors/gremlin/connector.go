@@ -12,31 +12,28 @@
  */
 
 /*
-When starting Weaviate, functions are called in the following order;
-(find the function in this document to understand what it is that they do)
- - GetName
- - SetConfig
- - SetSchema
- - SetMessaging
- - SetServerAddress
- - Connect
- - Init
 
-All other function are called on the API request
-
-After creating the connector, make sure to add the name of the connector to: func GetAllConnectors() in configure_weaviate.go
+- Gremlin Verticals are always a "thing", "action" or "key".
+- The object itself is constructed in the same way the JSON object is.
+- Private items are set prefixed with _
+- All have the property _type and _id (which is a uuid)
 
 */
 
 package gremlin
 
 import (
+	"encoding/json"
 	errors_ "errors"
 	"fmt"
-	"runtime"
+	"go-gremlin/gremlin"
+	"reflect"
+	"strconv"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/gorilla/websocket"
+	"github.com/imdario/mergo"
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
@@ -69,12 +66,150 @@ type Config struct {
 	Port int
 }
 
-func (f *Gremlin) trace() {
-	pc := make([]uintptr, 10) // at least 1 entry needed
-	runtime.Callers(2, pc)
-	f2 := runtime.FuncForPC(pc[0])
-	//file, line := f2.FileLine(pc[0])
-	fmt.Printf("THIS FUNCTION RUNS: %s\n", f2.Name())
+// Gremlin Query result struct
+type GremlinResult struct {
+	AtType  string `json:"@type"`
+	AtValue []struct {
+		AtType  string `json:"@type"`
+		AtValue struct {
+			ID struct {
+				AtType  string `json:"@type"`
+				AtValue int    `json:"@value"`
+			} `json:"id"`
+			Label      string `json:"label"`
+			Properties map[string][]struct {
+				AtType  string `json:"@type"`
+				AtValue struct {
+					ID struct {
+						AtType  string `json:"@type"`
+						AtValue int    `json:"@value"`
+					} `json:"id"`
+					Label string      `json:"label"`
+					Value interface{} `json:"value"`
+				} `json:"@value"`
+			} `json:"properties"`
+		} `json:"@value"`
+	} `json:"@value"`
+}
+
+// Finds the value in a Gremlin result
+func (f *Gremlin) getGremlinResultValue(value string, result *GremlinResult) interface{} {
+
+	// check if the map exists
+	if _, ok := result.AtValue[0].AtValue.Properties[value]; ok {
+		// send the right value back as a string
+		return result.AtValue[0].AtValue.Properties[value][0].AtValue.Value
+	}
+
+	// not found, return empty string
+	return ""
+}
+
+func (f *Gremlin) parseMap(aMap map[string]interface{}, prefix string, propertyString string) string {
+
+	for key, val := range aMap {
+		switch concreteVal := val.(type) {
+		case map[string]interface{}:
+			propertyString += f.parseMap(val.(map[string]interface{}), key+".", "")
+		case []interface{}:
+			f.parseArray(val.([]interface{}), key+".", propertyString)
+		default:
+
+			// set the correct type in the Gremlin query, note that ONLY the string has quotes!
+			switch reflect.TypeOf(concreteVal).Name() {
+			case "string":
+				propertyString += `.property("` + prefix + key + `", "` + concreteVal.(string) + `")`
+			case "float64":
+				propertyString += `.property("` + prefix + key + `", ` + strconv.FormatFloat(concreteVal.(float64), 'E', -1, 64) + `)`
+			case "float32":
+				propertyString += `.property("` + prefix + key + `", ` + strconv.FormatFloat(concreteVal.(float64), 'E', -1, 32) + `)`
+			case "bool":
+				propertyString += `.property("` + prefix + key + `", ` + strconv.FormatBool(concreteVal.(bool)) + `)`
+			case "int":
+				propertyString += `.property("` + prefix + key + `", ` + strconv.FormatInt(concreteVal.(int64), 16) + `)`
+			case "uint":
+				propertyString += `.property("` + prefix + key + `", ` + strconv.FormatUint(concreteVal.(uint64), 16) + `)`
+			}
+
+		}
+	}
+
+	// escape the at sign, note that $ will become "Dollar__"
+	return strings.Replace(propertyString, "$", "Dollar__", -1)
+
+}
+
+func (f *Gremlin) parseArray(anArray []interface{}, prefix string, propertyString string) {
+	for _, val := range anArray {
+		switch val.(type) {
+		case map[string]interface{}:
+			propertyString += f.parseMap(val.(map[string]interface{}), prefix, propertyString)
+		case []interface{}:
+			f.parseArray(val.([]interface{}), prefix, propertyString)
+		}
+	}
+}
+
+// Creates a string of properties like: .property("key", "value")
+func (f *Gremlin) createGremlinProperties(input interface{}) string {
+
+	inputAsJson, _ := json.Marshal(input)
+
+	jsonMap := map[string]interface{}{}
+
+	// Parsing/Unmarshalling JSON encoding/json
+	err := json.Unmarshal([]byte(inputAsJson), &jsonMap)
+
+	if err != nil {
+		panic(err)
+	}
+
+	return f.parseMap(jsonMap, "", "")
+
+}
+
+// Creates a struct based on the input struct and result JSON
+func (f *Gremlin) gremlinResultToStruct(inputJSON []byte, handleStruct interface{}) interface{} {
+
+	inputJSONResultStruct := GremlinResult{}
+	err := json.Unmarshal(inputJSON, &inputJSONResultStruct)
+	if err != nil {
+		// SEND ERROR UNMARSHALLING
+	}
+
+	t := reflect.TypeOf(handleStruct).Elem()
+	v := reflect.ValueOf(handleStruct).Elem()
+
+	for i := 0; i < t.NumField(); i++ {
+
+		switch v.Field(i).Kind().String() {
+		case "struct":
+			// go through same function and merge interfaces
+			if err := mergo.Merge(&handleStruct, f.gremlinResultToStruct(inputJSON, v.Field(i).Addr().Interface())); err != nil {
+				// ERROR
+			}
+		case "string":
+			v.Field(i).SetString(f.getGremlinResultValue(t.Field(i).Name, &inputJSONResultStruct).(string))
+		case "int":
+			// Set the integer value to int64
+			v.Field(i).SetInt(f.getGremlinResultValue(t.Field(i).Name, &inputJSONResultStruct).(int64))
+		case "int64":
+			// Set the integer64 value to int64
+			fmt.Println("NEED TO FIX - IM an INT: ", t.Field(i).Name)
+			v.Field(i).SetInt(-1)
+		case "bool":
+			// Set a boolean value
+			v.Field(i).SetBool(f.getGremlinResultValue(t.Field(i).Name, &inputJSONResultStruct).(bool))
+		case "slice":
+			// Set the slice
+			fmt.Println("NEED TO FIX - IM a SLICE: ", t.Field(i).Name)
+		default:
+			// sets the string to the right value
+			fmt.Println("NEED TO FIX - IM a UNKNOWN THING: ", v.Field(i).Kind().String())
+
+		}
+	}
+	return handleStruct
 }
 
 // GetName returns a unique connector name, this name is used to define the connector in the weaviate config
@@ -145,17 +280,9 @@ func (f *Gremlin) Connect() error {
 	/*
 	 * NOTE: EXPLAIN WHAT HAPPENS HERE
 	 */
-
-	gremlinWsAddress := fmt.Sprintf("ws://%s:%d/gremlin", f.config.Host, f.config.Port)
-
-	var dialer *websocket.Dialer
-
-	clientConn, _, err := dialer.Dial(gremlinWsAddress, nil)
-	if err != nil {
+	if err := gremlin.NewCluster(fmt.Sprintf("ws://%s:%d/gremlin", f.config.Host, f.config.Port)); err != nil {
 		return err
 	}
-
-	f.client = clientConn
 
 	// If success return nil, otherwise return the error (also see above)
 	return nil
@@ -164,35 +291,44 @@ func (f *Gremlin) Connect() error {
 // Init 1st initializes the schema in the database and 2nd creates a root key.
 func (f *Gremlin) Init() error {
 
-	/*
-	 * 1.  If a schema is needed, you need to add the schema to the DB here.
-	 * 1.1 Create the (thing or action) classes first, classes that a node (subject or object) can have (for example: Building, Person, etcetera)
-	 * 2.  Create a root key.
-	 */
+	// Init message
+	f.messaging.InfoMessage("Initializing Gremlin connector...")
 
-	// Example of creating rootkey
-	//
-	// Add ROOT-key if not exists
-	// Search for Root key
-
-	// SEARCH FOR ROOTKEY
-
-	//if totalResult.Root.Count == 0 {
-	//	f.messaging.InfoMessage("No root-key found.")
-	//
-	//	// Create new object and fill it
-	//	keyObject := models.Key{}
-	//	token := connutils.CreateRootKeyObject(&keyObject)
-	//
-	//	err = f.AddKey(&keyObject, connutils.GenerateUUID(), token)
-	//
-	//	if err != nil {
-	//		return err
-	//	}
+	// REMOVE THIS WHEN DONE, IS JUST FOR DEV
+	//_, err := gremlin.Query(`g.V().drop().iterate()`).Exec()
+	//if err != nil {
+	//	f.messaging.DebugMessage("Error while restoring.")
 	//}
-	// END KEYS
 
-	// If success return nil, otherwise return the error
+	// Check if a rootkey is present
+	keyAvailable, err := gremlin.Query(`g.V().has("_type", "key").has("_isRoot", true)`).Exec()
+	if err != nil {
+		f.messaging.DebugMessage("Error while fetching the root key.")
+	}
+
+	// there is no root key, meaning that it is a clean database and all should be setup
+	if keyAvailable == nil {
+		f.messaging.InfoMessage("No root key found, setting up a clean database installation...")
+
+		// Create new object and fill it
+		keyObject := models.Key{}
+		token := connutils.CreateRootKeyObject(&keyObject)
+
+		// Create the Gremlin query to add a root key
+		_, err := gremlin.Query(`g.addV("key").property("_id", "` + string(connutils.GenerateUUID()) + `").property("_type", "key").property("_isRoot", "true").property("Write", ` + strconv.FormatBool(keyObject.Write) + `).property("Read", ` + strconv.FormatBool(keyObject.Read) + `).property("Delete", ` + strconv.FormatBool(keyObject.Delete) + `).property("Execute", ` + strconv.FormatBool(keyObject.Execute) + `).property("KeyExpiresUnix", ` + strconv.FormatInt(keyObject.KeyExpiresUnix, 16) + `).property("KeyID", "` + string(token) + `").property("Token", "` + string(token) + `").next()`).Exec()
+
+		if err != nil {
+			f.messaging.ExitError(1, "Can not create the root key, maybe the DB is corrupt.")
+		}
+
+	}
+
+	// Init message
+	f.messaging.InfoMessage("Gremlin connected.")
+
+	// Init message
+	f.messaging.InfoMessage("Weaviate is running.")
+
 	return nil
 }
 
@@ -200,6 +336,15 @@ func (f *Gremlin) Init() error {
 // Takes the thing and a UUID as input.
 // Thing is already validated against the ontology
 func (f *Gremlin) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
+
+	gremlinQueryProps := f.createGremlinProperties(thing)
+
+	// Create the Gremlin query to add a root key
+	_, err := gremlin.Query(`g.addV("thing").property("_id", "` + string(UUID) + `")` + gremlinQueryProps + `.next()`).Exec()
+
+	if err != nil {
+		f.messaging.ErrorMessage("Could not create thing with id: " + string(UUID))
+	}
 
 	// If success return nil, otherwise return the error
 	return nil
@@ -212,6 +357,33 @@ func (f *Gremlin) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespo
 	// thingResponse = based on the ontology
 
 	// If success return nil, otherwise return the error
+
+	// Check if the key is present
+	queryResult, err := gremlin.Query(`g.V().has("_id", "` + string(UUID) + `")`).Exec()
+	if err != nil {
+		f.messaging.DebugMessage("Error while fetching a key.")
+		return errors_.New("Key not found.")
+	}
+
+	// set Dollar__ to $
+	queryResultAsString := strings.Replace(string(queryResult), "Dollar__", "$", -1)
+
+	// Create struct of results
+	queryResultAsStruct := GremlinResult{}
+
+	// marshall to interface
+	err = json.Unmarshal([]byte(queryResultAsString), &queryResultAsStruct)
+	if err != nil {
+		return errors_.New("Error when fetching results from Gremlin DB.")
+	}
+
+	// add values to key by merging them
+	if err := mergo.MergeWithOverwrite(thingResponse, f.gremlinResultToStruct(queryResult, &models.ThingGetResponse{}).(*models.ThingGetResponse)); err != nil {
+		return errors_.New("Could not merge the Gremlin results with the appropriate struct.")
+	}
+
+	fmt.Println("AND OUT!")
+
 	return nil
 }
 
@@ -307,19 +479,41 @@ func (f *Gremlin) ValidateToken(token strfmt.UUID, key *models.KeyTokenGetRespon
 	// return errors_.New("Key not found in database.")
 
 	// If success return nil, otherwise return the error
+
+	// Check if the key is present
+	queryResult, err := gremlin.Query(`g.V().has("KeyID", "` + string(token) + `")`).Exec()
+	if err != nil {
+		f.messaging.DebugMessage("Error while fetching a key.")
+		return errors_.New("Key not found.")
+	}
+
+	// key is not found in results at all
+	if queryResult == nil {
+		f.messaging.DebugMessage("An unknown key is used.")
+		return errors_.New("Key not valid.")
+	}
+
+	// add values to key by merging them
+	if err := mergo.MergeWithOverwrite(key, f.gremlinResultToStruct(queryResult, &models.KeyTokenGetResponse{}).(*models.KeyTokenGetResponse)); err != nil {
+		return errors_.New("Could not merge the Gremlin results with the appropriate struct.")
+	}
+
 	return nil
 }
 
 // GetKey fills the given KeyTokenGetResponse with the values from the database, based on the given UUID.
 func (f *Gremlin) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
 
-	f.trace()
+	connutils.Trace()
+
 	return nil
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
 func (f *Gremlin) DeleteKey(UUID strfmt.UUID) error {
-	f.trace()
+
+	connutils.Trace()
+
 	return nil
 }
 
