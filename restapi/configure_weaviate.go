@@ -42,7 +42,6 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors"
-	"github.com/creativesoftwarefdn/weaviate/connectors/dgraph"
 	"github.com/creativesoftwarefdn/weaviate/connectors/foobar"
 	"github.com/creativesoftwarefdn/weaviate/connectors/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/connectors/kvcache"
@@ -198,7 +197,6 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 func GetAllConnectors() []dbconnector.DatabaseConnector {
 	// Set all existing connectors
 	connectors := []dbconnector.DatabaseConnector{
-		&dgraph.Dgraph{},
 		&gremlin.Gremlin{},
 		&foobar.Foobar{},
 	}
@@ -371,6 +369,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Validate the key on expiry time
 		currentUnix := connutils.NowUnix()
+
 		if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
 			return nil, errors.New(401, "Provided key has expired.")
 		}
