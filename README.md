@@ -58,7 +58,7 @@ You can create an array of `environments` that should include:
 - **database -> database_config -> host** hostname of the DB.
 - **database -> database_config -> port** port of the database.
 - **schemas -> Thing** file or URL of a semantic schema of Things
-- **schemas -> Thing** file or URL of a semantic schema of Actions
+- **schemas -> Action** file or URL of a semantic schema of Actions
 - **websocketsEnabled** boolean, do you want to publish information on the websockets?
 
 Example of config file:
