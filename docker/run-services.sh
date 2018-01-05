@@ -111,7 +111,7 @@ COUNTER=0
 while [ "$ROOTKEY" == "NO_ROOT_KEY_YET" ]
 do  
     docker exec -it weaviate cat /var/weaviate/first_run.log
-    
+
     COUNTER=$[$COUNTER +1]
     if (( $COUNTER >  10 ))
     then
@@ -121,7 +121,11 @@ do
     
     echo "waiting 10 seconds..."
         sleep 10
-    GET_ROOTKEY=$(docker exec -it weaviate grep -s ROOTKEY /var/weaviate/first_run.log|sed 's/.*ROOTKEY=//')
+    # GET_ROOTKEY=$(docker exec -it weaviate grep -s ROOTKEY /var/weaviate/first_run.log | sed 's/.*ROOTKEY=//')
+    GET_ROOTKEY=$(docker exec -it weaviate cat /var/weaviate/first_run.log|grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
+    echo "ROOTKEY===$GET_ROOTKEY==="
+    RKNR=$(echo $ROOTKEY|sed 's/\r//')
+    echo "RKNR===$RKNR==="
     if [ "$GET_ROOTKEY" != "" ]
     then
         ROOTKEY=$GET_ROOTKEY
