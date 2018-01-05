@@ -12,7 +12,7 @@ before_install:
 - sudo apt-get install jq
 - go get github.com/goreleaser/goreleaser
 before_script:
-- curl https://git.io/vdwgr -sL | bash
+- curl https://git.io/vdwgr -sL | sudo bash
 - sudo docker ps -a
 - sudo docker exec -it weaviate cat /var/weaviate/first_run.log
 - cd -
