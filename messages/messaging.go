@@ -17,6 +17,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
+	"runtime"
+	"time"
 )
 
 // Messaging has some basic variables.
@@ -52,4 +55,22 @@ func (f *Messaging) DebugMessage(message interface{}) {
 func (f *Messaging) ErrorMessage(message interface{}) {
 	// Print Error
 	log.Println("ERROR: " + fmt.Sprint(message) + ".")
+}
+
+// TimeTrack tracks the time from execution to return of the function
+// Usage: defer TimeTrack(time.Now())
+func (f *Messaging) TimeTrack(start time.Time) {
+	elapsed := time.Since(start)
+
+	// Skip this function, and fetch the PC and file for its parent
+	pc, _, line, _ := runtime.Caller(1)
+
+	// Retrieve a Function object this functions parent
+	functionObject := runtime.FuncForPC(pc)
+
+	// Regex to extract just the function name (and not the module path)
+	extractFnName := regexp.MustCompile(`^.*\/(.*)$`)
+	name := extractFnName.ReplaceAllString(functionObject.Name(), "$1")
+
+	f.DebugMessage(fmt.Sprintf("%s:%d took %s", name, line, elapsed))
 }
