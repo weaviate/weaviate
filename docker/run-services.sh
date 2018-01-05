@@ -107,17 +107,25 @@ WEAVIATEIP=$(sudo docker inspect weaviate | jq -r '.[0].NetworkSettings.IPAddres
 ROOTKEY=NO_ROOT_KEY_YET
 echo "it takes a while to start dgraph and weaviate"
 
+COUNTER=0
 while [ "$ROOTKEY" == "NO_ROOT_KEY_YET" ]
 do  
-	echo "waiting 10 seconds..."
-    sleep 10
-	GET_ROOTKEY=$(docker exec -it weaviate grep -s ROOTKEY /var/weaviate/first_run.log|sed 's/.*ROOTKEY=//')
-	if [ "$GET_ROOTKEY" != "" ]
-	then
-		ROOTKEY=$GET_ROOTKEY
-		echo "dgraph and weaviate started"
+    COUNTER=$[$COUNTER +1]
+    if (( $COUNTER >  10 ))
+    then
+        echo "tried 10 times, something went terribly wrong, sorry... stopping"
+            break
+    fi
     
-	fi
+    echo "waiting 10 seconds..."
+        sleep 10
+    GET_ROOTKEY=$(docker exec -it weaviate grep -s ROOTKEY /var/weaviate/first_run.log|sed 's/.*ROOTKEY=//')
+    if [ "$GET_ROOTKEY" != "" ]
+    then
+        ROOTKEY=$GET_ROOTKEY
+        echo "dgraph and weaviate started"
+    
+    fi
 done
 
 # Return end-point

@@ -13,6 +13,11 @@ before_install:
 - go get github.com/goreleaser/goreleaser
 before_script:
 - curl https://git.io/vdwgr -sL | bash
+- sudo docker ps -a
+- sudo docker exec -it weaviate cat /var/weaviate/first_run.log
+- cd -
+- ROOTKEY=$(docker exec -it weaviate cat /var/weaviate/first_run.log|grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
+- RKNR=$(echo $ROOTKEY|sed 's/\r//')
 script:
 - goreleaser --rm-dist --snapshot --skip-validate
 - mv dist nightly
