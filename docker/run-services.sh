@@ -110,6 +110,8 @@ echo "it takes a while to start dgraph and weaviate"
 COUNTER=0
 while [ "$ROOTKEY" == "NO_ROOT_KEY_YET" ]
 do  
+    docker exec -it weaviate cat /var/weaviate/first_run.log
+    
     COUNTER=$[$COUNTER +1]
     if (( $COUNTER >  10 ))
     then
