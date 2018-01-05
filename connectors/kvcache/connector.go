@@ -15,6 +15,8 @@ package kvcache
 
 import (
 	"fmt"
+	"time"
+
 	"github.com/go-openapi/strfmt"
 	cache "github.com/patrickmn/go-cache"
 
@@ -80,11 +82,15 @@ func (f *KVCache) SetSchema(schemaInput *schema.WeaviateSchema) error {
 
 // AddThing function
 func (f *KVCache) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	return f.databaseConnector.AddThing(thing, UUID)
 }
 
 // GetThing function
 func (f *KVCache) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Create a cache key
 	key := fmt.Sprintf("Thing#%s", UUID)
 
@@ -111,11 +117,15 @@ func (f *KVCache) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespo
 
 // ListThings function
 func (f *KVCache) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	return f.databaseConnector.ListThings(first, offset, keyID, wheres, thingsResponse)
 }
 
 // UpdateThing function
 func (f *KVCache) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Delete from cache before updating, otherwise the old version still exists
 	key := fmt.Sprintf("Thing#%s", UUID)
 	f.cache.Delete(key)
@@ -125,6 +135,8 @@ func (f *KVCache) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 // DeleteThing function
 func (f *KVCache) DeleteThing(UUID strfmt.UUID) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Delete from cache before updating, otherwise the old version still exists
 	key := fmt.Sprintf("Thing#%s", UUID)
 	f.cache.Delete(key)
@@ -134,11 +146,15 @@ func (f *KVCache) DeleteThing(UUID strfmt.UUID) error {
 
 // AddAction function
 func (f *KVCache) AddAction(action *models.Action, UUID strfmt.UUID) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	return f.databaseConnector.AddAction(action, UUID)
 }
 
 // GetAction function
 func (f *KVCache) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Create a cache key
 	key := fmt.Sprintf("Action#%s", UUID)
 
@@ -165,11 +181,15 @@ func (f *KVCache) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetRe
 
 // ListActions function
 func (f *KVCache) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	return f.databaseConnector.ListActions(UUID, first, offset, wheres, actionsResponse)
 }
 
 // UpdateAction function
 func (f *KVCache) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Delete from cache before updating, otherwise the old version still exists
 	key := fmt.Sprintf("Action#%s", UUID)
 	f.cache.Delete(key)
@@ -179,6 +199,8 @@ func (f *KVCache) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 
 // DeleteAction function
 func (f *KVCache) DeleteAction(UUID strfmt.UUID) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Delete from cache before updating, otherwise the old version still exists
 	key := fmt.Sprintf("Action#%s", UUID)
 	f.cache.Delete(key)
@@ -188,11 +210,15 @@ func (f *KVCache) DeleteAction(UUID strfmt.UUID) error {
 
 // AddKey function
 func (f *KVCache) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	return f.databaseConnector.AddKey(key, UUID, token)
 }
 
 // ValidateToken function
 func (f *KVCache) ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Delete from cache before updating, otherwise the old version still exists
 	ck := fmt.Sprintf("Key#%s", UUID)
 	f.cache.Delete(ck)
@@ -202,6 +228,8 @@ func (f *KVCache) ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetRespons
 
 // GetKey function
 func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Create a cache key
 	key := fmt.Sprintf("Key#%s", UUID)
 
@@ -228,6 +256,8 @@ func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetRespon
 
 // DeleteKey function
 func (f *KVCache) DeleteKey(UUID strfmt.UUID) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Delete from cache before updating, otherwise the old version still exists
 	key := fmt.Sprintf("Key#%s", UUID)
 	f.cache.Delete(key)
@@ -237,5 +267,7 @@ func (f *KVCache) DeleteKey(UUID strfmt.UUID) error {
 
 // GetKeyChildren function
 func (f *KVCache) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	return f.databaseConnector.GetKeyChildren(UUID, children)
 }
