@@ -101,7 +101,7 @@ echo "{ \"environments\": [ $JSONRESULT ] }"  > weaviate/config/weaviate.conf.js
 
 
 
-docker run --name weaviate -v ~/tryweaviate/weaviate/config:/var/weaviate/config  -p 8070:80 -d weaviate &>/dev/null || true 
+docker run --name weaviate -v ~/tryweaviate/weaviate/config:/var/weaviate/config  -p 8070:80 -d weaviate
 WEAVIATEIP=$(sudo docker inspect weaviate | jq -r '.[0].NetworkSettings.IPAddress')
 
 ROOTKEY=NO_ROOT_KEY_YET
