@@ -29,7 +29,7 @@ import (
 	dgraphClient "github.com/dgraph-io/dgraph/client"
 	"github.com/dgraph-io/dgraph/protos"
 	"github.com/dgraph-io/dgraph/types"
-	gouuid "gopkg.in/satori/go.uuid.v1"
+	gouuid "github.com/satori/go.uuid"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
