@@ -25,7 +25,7 @@ import (
 	"log"
 	"net"
 
-	gouuid "github.com/satori/go.uuid"
+	gouuid "gopkg.in/satori/go.uuid.v1"
 )
 
 // NewDatabaseObjectFromPrincipal creates a new object with default values, out of principle object
