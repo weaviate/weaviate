@@ -13,7 +13,7 @@
 #
 
 # uncomment net line for debugging info
-# set -x
+set -x
 
 # Welkom message
 echo "Building weaviate with Docker..."
