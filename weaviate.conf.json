@@ -16,6 +16,21 @@
             "mqttEnabled": false
         },
         {
+            "name": "cassandra",
+            "database": {
+                "name": "cassandra",
+                "database_config" : {
+                    "host": "127.0.0.1",
+                    "port": 7000
+                }
+            },
+            "schemas": {
+                "Thing": "test/schema/test-thing-schema.json",
+                "Action": "test/schema/test-action-schema.json"
+            },
+            "mqttEnabled": false
+        },
+        {
             "name": "docker",
             "database": {
                 "name": "dgraph",
