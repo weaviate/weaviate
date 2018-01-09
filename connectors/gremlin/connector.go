@@ -26,11 +26,11 @@ import (
 	"encoding/json"
 	errors_ "errors"
 	"fmt"
-	"go-gremlin/gremlin"
 	"reflect"
 	"strconv"
 	"strings"
 
+	"github.com/go-gremlin/gremlin"
 	"github.com/go-openapi/strfmt"
 	"github.com/gorilla/websocket"
 	"github.com/imdario/mergo"

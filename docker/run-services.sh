@@ -89,7 +89,7 @@ fi
 #build locally
 #docker build --quiet --build-arg DGRAPHIP=$DGRAPHIP -t weaviate .
 #Dockerfile should be present in current directory 
-docker build --quiet -t weaviate .  &>/dev/null || true
+docker build -t weaviate .
 
 # get the config file 
 wget -q -O weaviate/config/example_weaviate.conf.json https://raw.githubusercontent.com/weaviate/weaviate/develop/weaviate.conf.json
@@ -101,23 +101,37 @@ echo "{ \"environments\": [ $JSONRESULT ] }"  > weaviate/config/weaviate.conf.js
 
 
 
-docker run --name weaviate -v ~/tryweaviate/weaviate/config:/var/weaviate/config  -p 8070:80 -d weaviate &>/dev/null || true 
+docker run --name weaviate -v ~/tryweaviate/weaviate/config:/var/weaviate/config  -p 8070:80 -d weaviate
 WEAVIATEIP=$(sudo docker inspect weaviate | jq -r '.[0].NetworkSettings.IPAddress')
 
 ROOTKEY=NO_ROOT_KEY_YET
 echo "it takes a while to start dgraph and weaviate"
 
+COUNTER=0
 while [ "$ROOTKEY" == "NO_ROOT_KEY_YET" ]
 do  
-	echo "waiting 10 seconds..."
-    sleep 10
-	GET_ROOTKEY=$(docker exec -it weaviate grep -s ROOTKEY /var/weaviate/first_run.log|sed 's/.*ROOTKEY=//')
-	if [ "$GET_ROOTKEY" != "" ]
-	then
-		ROOTKEY=$GET_ROOTKEY
-		echo "dgraph and weaviate started"
+    docker exec -it weaviate cat /var/weaviate/first_run.log
+
+    COUNTER=$[$COUNTER +1]
+    if (( $COUNTER >  10 ))
+    then
+        echo "tried 10 times, something went terribly wrong, sorry... stopping"
+            break
+    fi
     
-	fi
+    echo "waiting 10 seconds..."
+        sleep 10
+    # GET_ROOTKEY=$(docker exec -it weaviate grep -s ROOTKEY /var/weaviate/first_run.log | sed 's/.*ROOTKEY=//')
+    GET_ROOTKEY=$(docker exec -it weaviate cat /var/weaviate/first_run.log|grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
+    echo "ROOTKEY===$GET_ROOTKEY==="
+    RKNR=$(echo $ROOTKEY|sed 's/\r//')
+    echo "RKNR===$RKNR==="
+    if [ "$GET_ROOTKEY" != "" ]
+    then
+        ROOTKEY=$GET_ROOTKEY
+        echo "dgraph and weaviate started"
+    
+    fi
 done
 
 # Return end-point

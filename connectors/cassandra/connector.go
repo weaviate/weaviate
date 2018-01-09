@@ -41,7 +41,7 @@ import (
 	"runtime"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/gorilla/websocket"
+	"github.com/gocql/gocql"
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
@@ -54,7 +54,7 @@ import (
 // Cassandra has some basic variables.
 // This is mandatory, only change it if you need aditional, global variables
 type Cassandra struct {
-	client *websocket.Conn
+	client *gocql.Session
 	kind   string
 
 	config        Config
@@ -146,21 +146,33 @@ func (f *Cassandra) SetServerAddress(addr string) {
 // Connect creates a connection to the database and tables if not already available.
 // The connections could not be closed because it is used more often.
 func (f *Cassandra) Connect() error {
-
 	/*
 	 * NOTE: EXPLAIN WHAT HAPPENS HERE
 	 */
 
-	cassandraWsAddress := fmt.Sprintf("ws://%s:%d/cassandra", f.config.Host, f.config.Port)
+	cluster := gocql.NewCluster("127.0.0.1") // TODO variable
 
-	var dialer *websocket.Dialer
+	session, err := cluster.CreateSession()
 
-	clientConn, _, err := dialer.Dial(cassandraWsAddress, nil)
 	if err != nil {
 		return err
 	}
 
-	f.client = clientConn
+	if err := session.Query(`CREATE KEYSPACE IF NOT EXISTS weaviate 
+		WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 }`).Exec(); err != nil {
+		return err
+	} // TODO variable
+
+	session.Close()
+
+	cluster.Keyspace = "weaviate" // TODO variable
+	session, err = cluster.CreateSession()
+
+	if err != nil {
+		return err
+	}
+
+	f.client = session
 
 	// If success return nil, otherwise return the error (also see above)
 	return nil
