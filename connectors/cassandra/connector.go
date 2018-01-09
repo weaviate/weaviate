@@ -39,6 +39,7 @@ import (
 	errors_ "errors"
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/gocql/gocql"
@@ -50,6 +51,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema"
 )
+
+const objectTableName = "object_data"
 
 // Cassandra has some basic variables.
 // This is mandatory, only change it if you need aditional, global variables
@@ -180,34 +183,59 @@ func (f *Cassandra) Connect() error {
 
 // Init 1st initializes the schema in the database and 2nd creates a root key.
 func (f *Cassandra) Init() error {
+	// Add table 'object_data'
+	err := f.client.Query(`
+		CREATE TABLE IF NOT EXISTS weaviate.object_data (
+			id UUID PRIMARY KEY,
+			uuid UUID,
+			type text,
+			class text,
+			property_key text,
+			property_val_string text,
+			property_val_bool boolean,
+			property_val_timestamp timestamp,
+			property_val_int int,
+			property_val_float float,
+			property_ref text,
+			timestamp timestamp,
+			deleted boolean
+		);`).Exec()
 
-	/*
-	 * 1.  If a schema is needed, you need to add the schema to the DB here.
-	 * 1.1 Create the (thing or action) classes first, classes that a node (subject or object) can have (for example: Building, Person, etcetera)
-	 * 2.  Create a root key.
-	 */
+	if err != nil {
+		return err
+	}
 
-	// Example of creating rootkey
-	//
+	// Create all indexes
+	indexes := []string{"uuid", "type", "class", "property_key", "property_val_string", "property_val_bool", "property_val_timestamp", "property_val_int", "property_val_float", "property_ref", "timestamp", "deleted"}
+	for _, prop := range indexes {
+		if err := f.client.Query(fmt.Sprintf(`CREATE INDEX IF NOT EXISTS object_%s ON weaviate.object_data (%s);`, prop, prop)).Exec(); err != nil {
+			return err
+		}
+	}
+
 	// Add ROOT-key if not exists
 	// Search for Root key
+	var rootCount int
 
-	// SEARCH FOR ROOTKEY
+	if err := f.client.Query(`
+		SELECT COUNT(id) AS rootCount FROM object_data WHERE property_key = ? AND property_val_bool = ? ALLOW FILTERING
+	`, "root", true).Scan(&rootCount); err != nil {
+		return err
+	}
 
-	//if totalResult.Root.Count == 0 {
-	//	f.messaging.InfoMessage("No root-key found.")
-	//
-	//	// Create new object and fill it
-	//	keyObject := models.Key{}
-	//	token := connutils.CreateRootKeyObject(&keyObject)
-	//
-	//	err = f.AddKey(&keyObject, connutils.GenerateUUID(), token)
-	//
-	//	if err != nil {
-	//		return err
-	//	}
-	//}
-	// END KEYS
+	if rootCount == 0 {
+		f.messaging.InfoMessage("No root-key found.")
+
+		// Create new object and fill it
+		keyObject := models.Key{}
+		token := connutils.CreateRootKeyObject(&keyObject)
+
+		err = f.AddKey(&keyObject, connutils.GenerateUUID(), token)
+
+		if err != nil {
+			return err
+		}
+	}
 
 	// If success return nil, otherwise return the error
 	return nil
@@ -307,8 +335,27 @@ func (f *Cassandra) DeleteAction(UUID strfmt.UUID) error {
 // UUID  = reference to the key
 // token = is the actual access token used in the API's header
 func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error {
+	insertStmt := `
+		INSERT INTO %v (id, uuid, type, class, property_key, %s, property_ref, timestamp, deleted) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
 
-	// Key struct should be stored
+	batch := f.client.NewBatch(gocql.LoggedBatch)
+
+	keyUUID, _ := gocql.ParseUUID(string(UUID))
+
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "delete", key.Delete, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_string"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "email", key.Email, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "execute", key.Execute, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_string"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "ipOrigin", strings.Join(key.IPOrigin, "|"), "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_timestamp"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "keyExpiresUnix", key.KeyExpiresUnix, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "read", key.Read, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "write", key.Write, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "root", true, "", connutils.NowUnix(), false)
+
+	if err := f.client.ExecuteBatch(batch); err != nil {
+		return err
+	}
 
 	// If success return nil, otherwise return the error
 	return nil
