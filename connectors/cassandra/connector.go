@@ -38,8 +38,8 @@ package cassandra
 import (
 	errors_ "errors"
 	"fmt"
-	"runtime"
 	"strings"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/gocql/gocql"
@@ -53,6 +53,7 @@ import (
 )
 
 const objectTableName = "object_data"
+const schemaPrefix string = "schema." // TODO to utils
 
 // Cassandra has some basic variables.
 // This is mandatory, only change it if you need aditional, global variables
@@ -75,14 +76,6 @@ type Cassandra struct {
 type Config struct {
 	Host string
 	Port int
-}
-
-func (f *Cassandra) trace() {
-	pc := make([]uintptr, 10) // at least 1 entry needed
-	runtime.Callers(2, pc)
-	f2 := runtime.FuncForPC(pc[0])
-	//file, line := f2.FileLine(pc[0])
-	fmt.Printf("THIS FUNCTION RUNS: %s\n", f2.Name())
 }
 
 // GetName returns a unique connector name, this name is used to define the connector in the weaviate config
@@ -184,6 +177,8 @@ func (f *Cassandra) Connect() error {
 // Init 1st initializes the schema in the database and 2nd creates a root key.
 func (f *Cassandra) Init() error {
 	// Add table 'object_data'
+
+	// TODO make const
 	err := f.client.Query(`
 		CREATE TABLE IF NOT EXISTS weaviate.object_data (
 			id UUID PRIMARY KEY,
@@ -195,7 +190,7 @@ func (f *Cassandra) Init() error {
 			property_val_bool boolean,
 			property_val_timestamp timestamp,
 			property_val_int int,
-			property_val_float float,
+			property_val_float double,
 			property_ref text,
 			timestamp timestamp,
 			deleted boolean
@@ -245,6 +240,72 @@ func (f *Cassandra) Init() error {
 // Takes the thing and a UUID as input.
 // Thing is already validated against the ontology
 func (f *Cassandra) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
+	insertStmt := `
+		INSERT INTO %v (id, uuid, type, class, property_key, %s, property_ref, timestamp, deleted) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`
+	fmt.Println("Ja 1")
+	batch := f.client.NewBatch(gocql.LoggedBatch)
+
+	thingUUID, _ := gocql.ParseUUID(string(UUID))
+
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_string"), gocql.TimeUUID(), thingUUID, connutils.RefTypeThing, thing.AtClass, "@context", thing.AtContext, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_timestamp"), gocql.TimeUUID(), thingUUID, connutils.RefTypeThing, thing.AtClass, "creationTimeUnix", thing.CreationTimeUnix, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_timestamp"), gocql.TimeUUID(), thingUUID, connutils.RefTypeThing, thing.AtClass, "lastUpdateTimeUnix", thing.LastUpdateTimeUnix, "", connutils.NowUnix(), false)
+	fmt.Println("Ja 2")
+	// Add Object properties
+	for propKey, propValue := range thing.Schema.(map[string]interface{}) {
+		var c *models.SemanticSchemaClass
+
+		c, err := schema.GetClassByName(f.schema.ThingSchema.Schema, thing.AtClass)
+		if err != nil {
+			return err
+		}
+
+		// Add prefix to the schema properties
+		edgeName := schemaPrefix + propKey
+
+		// If it is an interface, then it should contain a "cref" reference to another object. Use it to connect nodes.
+		dataType, err := schema.GetPropertyDataType(c, propKey)
+		// If getting a property gives an error, return it
+		if err != nil {
+			return err
+		}
+		dataTypeColumn := ""
+		fmt.Println("Ja 3")
+		if *dataType == schema.DataTypeBoolean {
+			dataTypeColumn = "property_val_bool"
+		} else if *dataType == schema.DataTypeDate {
+			dataTypeColumn = "property_val_timestamp"
+			propValue, err = time.Parse(time.RFC3339, propValue.(string))
+
+			// Return if there is an error while parsing
+			if err != nil {
+				return err
+			}
+		} else if *dataType == schema.DataTypeInt {
+			dataTypeColumn = "property_val_int"
+		} else if *dataType == schema.DataTypeNumber {
+			dataTypeColumn = "property_val_float" //TODO
+		} else if *dataType == schema.DataTypeString {
+			dataTypeColumn = "property_val_string"
+		} else if *dataType == schema.DataTypeCRef {
+			// TODO
+		} else {
+			// return errors_.New("given type can not be saved to the database") TODO
+			continue
+		}
+
+		if dataTypeColumn != "" {
+			batch.Query(fmt.Sprintf(insertStmt, objectTableName, dataTypeColumn), gocql.TimeUUID(), thingUUID, connutils.RefTypeThing, thing.AtClass, edgeName, propValue, "", connutils.NowUnix(), false)
+			fmt.Println("Ja 4")
+
+		}
+	}
+	fmt.Println("Ja 5")
+	if err := f.client.ExecuteBatch(batch); err != nil {
+		return err
+	}
 
 	// If success return nil, otherwise return the error
 	return nil
@@ -352,6 +413,7 @@ func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID)
 	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "read", key.Read, "", connutils.NowUnix(), false)
 	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "write", key.Write, "", connutils.NowUnix(), false)
 	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "root", true, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_string"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "token", token, "", connutils.NowUnix(), false)
 
 	if err := f.client.ExecuteBatch(batch); err != nil {
 		return err
@@ -362,7 +424,7 @@ func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID)
 }
 
 // ValidateToken validates/gets a key to the Cassandra database with the given token (=UUID)
-func (f *Cassandra) ValidateToken(token strfmt.UUID, key *models.KeyTokenGetResponse) error {
+func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
 
 	// key (= models.KeyTokenGetResponse) should be populated with the response that comes from the DB.
 	// key = based on the ontology
@@ -370,20 +432,101 @@ func (f *Cassandra) ValidateToken(token strfmt.UUID, key *models.KeyTokenGetResp
 	// in case the key is not found, return an error like:
 	// return errors_.New("Key not found in database.")
 
+	var UUID gocql.UUID
+
+	if err := f.client.Query(fmt.Sprintf(`SELECT uuid 
+			FROM %s 
+			WHERE property_key = 'token' AND property_val_string = ?
+			LIMIT 1
+			ALLOW FILTERING
+		`, objectTableName), token).Consistency(gocql.One).Scan(&UUID); err != nil {
+		return err
+	}
+	fmt.Println("Token UUID:", UUID)
+
+	// Get all rows for the key
+	iter := f.client.Query(fmt.Sprintf(`
+		SELECT id, uuid, property_key, property_val_string, property_val_bool, property_val_timestamp, property_val_int, property_val_float, property_ref, timestamp, deleted 
+		FROM %s 
+		WHERE uuid = ?
+	`, objectTableName), UUID).Iter()
+
+	var id gocql.UUID
+	var uuid gocql.UUID
+	var property_key string
+	var property_val_string string
+	var property_val_bool bool
+	var property_val_timestamp time.Time
+	var property_val_int int
+	var property_val_float float64
+	var property_ref string
+	var timestamp time.Time
+	var deleted bool
+
+	for iter.Scan(&id, &uuid, &property_key, &property_val_string, &property_val_bool, &property_val_timestamp, &property_val_int, &property_val_float, &property_ref, &timestamp, &deleted) {
+		switch property_key {
+		case "delete":
+			keyResponse.Delete = property_val_bool
+		case "email":
+			keyResponse.Email = property_val_string
+		case "execute":
+			keyResponse.Execute = property_val_bool
+		case "ipOrigin":
+			keyResponse.IPOrigin = strings.Split(property_val_string, "|") // TODO const seperator
+		case "keyExpiresUnix":
+			keyResponse.KeyExpiresUnix = property_val_timestamp.Unix()
+		case "read":
+			keyResponse.Read = property_val_bool
+		case "write":
+			keyResponse.Write = property_val_bool
+		case "token":
+			keyResponse.Token = strfmt.UUID(property_val_string)
+
+		}
+	}
+
+	if err := iter.Close(); err != nil {
+		return err
+	}
+
 	// If success return nil, otherwise return the error
 	return nil
 }
 
 // GetKey fills the given KeyTokenGetResponse with the values from the database, based on the given UUID.
 func (f *Cassandra) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
+	// Get all rows for the key
+	iter := f.client.Query(fmt.Sprintf(`
+		SELECT id, uuid, type, class, property_key, property_val_string, property_val_bool, property_val_timestamp, property_val_int, property_val_float, property_ref, timestamp, deleted 
+		FROM %s 
+		WHERE uuid = ?
+	`, objectTableName), UUID).Iter()
 
-	f.trace()
+	var id gocql.UUID
+	var uuid gocql.UUID
+	var property_key string
+	var property_val_string string
+	var property_val_bool bool
+	var property_val_timestamp time.Time
+	var property_val_int int
+	var property_val_float float64
+	var property_ref string
+	var timestamp time.Time
+	var deleted bool
+
+	for iter.Scan(&id, &uuid, &property_key, &property_val_string, &property_val_bool, &property_val_timestamp, &property_val_int, &property_val_float, &property_ref, &timestamp, &deleted) {
+		fmt.Println("Tweet:", id, uuid, property_key, property_val_string, property_val_bool, property_val_timestamp, property_val_int, property_val_float, property_ref, timestamp, deleted)
+	}
+	if err := iter.Close(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
 func (f *Cassandra) DeleteKey(UUID strfmt.UUID) error {
-	f.trace()
+
 	return nil
 }
 
