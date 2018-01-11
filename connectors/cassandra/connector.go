@@ -54,6 +54,25 @@ import (
 
 const objectTableName = "object_data"
 const schemaPrefix string = "schema." // TODO to utils
+const IDColumn string = "id"
+const UUIDColumn string = "uuid"
+const TypeColumn string = "type"
+const ClassColumn string = "class"
+const PropertyKeyColumn string = "property_key"
+const PropertyValueStringColumn string = "property_val_string"
+const PropertyValueBoolColumn string = "property_val_bool"
+const PropertyValueTimeStampColumn string = "property_val_timestamp"
+const PropertyValueIntColumn string = "property_val_int"
+const PropertyValueFloatColumn string = "property_val_float"
+const PropertyRefColumn string = "property_ref"
+const TimeStampColumn string = "timestamp"
+const DeletedColumn string = "deleted"
+
+// Global insert statement
+const insertStatement = `
+	INSERT INTO %v (` + IDColumn + `, ` + UUIDColumn + `, ` + TypeColumn + `, ` + ClassColumn + `, ` + PropertyKeyColumn + `, %s, ` + PropertyRefColumn + `, ` + TimeStampColumn + `, ` + DeletedColumn + `) 
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
 
 // Cassandra has some basic variables.
 // This is mandatory, only change it if you need aditional, global variables
@@ -142,12 +161,10 @@ func (f *Cassandra) SetServerAddress(addr string) {
 // Connect creates a connection to the database and tables if not already available.
 // The connections could not be closed because it is used more often.
 func (f *Cassandra) Connect() error {
-	/*
-	 * NOTE: EXPLAIN WHAT HAPPENS HERE
-	 */
-
+	// Create a Cassandra cluster
 	cluster := gocql.NewCluster("127.0.0.1") // TODO variable
 
+	// Create a session on the cluster for just creating/checking the Keyspace
 	session, err := cluster.CreateSession()
 
 	if err != nil {
@@ -159,15 +176,20 @@ func (f *Cassandra) Connect() error {
 		return err
 	} // TODO variable
 
+	// Close session for checking Keyspace
 	session.Close()
 
+	// Settings for createing the new Session
 	cluster.Keyspace = "weaviate" // TODO variable
+	cluster.ConnectTimeout = time.Minute
+	cluster.Timeout = time.Hour
 	session, err = cluster.CreateSession()
 
 	if err != nil {
 		return err
 	}
 
+	// Put the session into the client-variable to make is usable everywhere else
 	f.client = session
 
 	// If success return nil, otherwise return the error (also see above)
@@ -179,31 +201,23 @@ func (f *Cassandra) Init() error {
 	// Add table 'object_data'
 
 	// TODO make const
-	err := f.client.Query(`
-		CREATE TABLE IF NOT EXISTS weaviate.object_data (
-			id UUID PRIMARY KEY,
-			uuid UUID,
-			type text,
-			class text,
-			property_key text,
-			property_val_string text,
-			property_val_bool boolean,
-			property_val_timestamp timestamp,
-			property_val_int int,
-			property_val_float double,
-			property_ref text,
-			timestamp timestamp,
-			deleted boolean
-		);`).Exec()
+	// TODO property_ref = UUID type?
+
+	err := f.client.Query(fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS object_data (
+			%s UUID PRIMARY KEY, %s UUID, %s text, %s text,
+			%s text, %s text, %s boolean, %s timestamp,
+			%s int, %s double, %s text, %s timestamp, %s boolean
+		);`, IDColumn, UUIDColumn, TypeColumn, ClassColumn, PropertyKeyColumn, PropertyValueStringColumn, PropertyValueBoolColumn, PropertyValueTimeStampColumn, PropertyValueIntColumn, PropertyValueFloatColumn, PropertyRefColumn, TimeStampColumn, DeletedColumn)).Exec()
 
 	if err != nil {
 		return err
 	}
 
 	// Create all indexes
-	indexes := []string{"uuid", "type", "class", "property_key", "property_val_string", "property_val_bool", "property_val_timestamp", "property_val_int", "property_val_float", "property_ref", "timestamp", "deleted"}
+	indexes := []string{UUIDColumn, TypeColumn, ClassColumn, PropertyKeyColumn, PropertyValueStringColumn, PropertyValueBoolColumn, PropertyValueTimeStampColumn, PropertyValueIntColumn, PropertyValueFloatColumn, PropertyRefColumn, TimeStampColumn, DeletedColumn}
 	for _, prop := range indexes {
-		if err := f.client.Query(fmt.Sprintf(`CREATE INDEX IF NOT EXISTS object_%s ON weaviate.object_data (%s);`, prop, prop)).Exec(); err != nil {
+		if err := f.client.Query(fmt.Sprintf(`CREATE INDEX IF NOT EXISTS object_%s ON object_data (%s);`, prop, prop)).Exec(); err != nil {
 			return err
 		}
 	}
@@ -212,12 +226,13 @@ func (f *Cassandra) Init() error {
 	// Search for Root key
 	var rootCount int
 
-	if err := f.client.Query(`
-		SELECT COUNT(id) AS rootCount FROM object_data WHERE property_key = ? AND property_val_bool = ? ALLOW FILTERING
-	`, "root", true).Scan(&rootCount); err != nil {
+	if err := f.client.Query(fmt.Sprintf(`
+		SELECT COUNT(id) AS rootCount FROM object_data WHERE %s = ? AND %s = ? ALLOW FILTERING
+	`, PropertyKeyColumn, PropertyValueBoolColumn), "root", true).Scan(&rootCount); err != nil {
 		return err
 	}
 
+	// If root-key is not found
 	if rootCount == 0 {
 		f.messaging.InfoMessage("No root-key found.")
 
@@ -240,69 +255,19 @@ func (f *Cassandra) Init() error {
 // Takes the thing and a UUID as input.
 // Thing is already validated against the ontology
 func (f *Cassandra) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
-	insertStmt := `
-		INSERT INTO %v (id, uuid, type, class, property_key, %s, property_ref, timestamp, deleted) 
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`
-	fmt.Println("Ja 1")
+	// Create new batch
 	batch := f.client.NewBatch(gocql.LoggedBatch)
 
-	thingUUID, _ := gocql.ParseUUID(string(UUID))
+	// Parse UUID in Cassandra type
+	cqlUUID := f.convUUID(UUID)
 
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_string"), gocql.TimeUUID(), thingUUID, connutils.RefTypeThing, thing.AtClass, "@context", thing.AtContext, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_timestamp"), gocql.TimeUUID(), thingUUID, connutils.RefTypeThing, thing.AtClass, "creationTimeUnix", thing.CreationTimeUnix, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_timestamp"), gocql.TimeUUID(), thingUUID, connutils.RefTypeThing, thing.AtClass, "lastUpdateTimeUnix", thing.LastUpdateTimeUnix, "", connutils.NowUnix(), false)
-	fmt.Println("Ja 2")
-	// Add Object properties
-	for propKey, propValue := range thing.Schema.(map[string]interface{}) {
-		var c *models.SemanticSchemaClass
+	// Add first level properties
+	f.addFirstLevelQueriesToBatch(connutils.RefTypeThing, thing, cqlUUID, batch)
 
-		c, err := schema.GetClassByName(f.schema.ThingSchema.Schema, thing.AtClass)
-		if err != nil {
-			return err
-		}
+	// Add Object properties using a callback
+	callback := f.createPropertyCallback(batch, cqlUUID, thing.AtClass)
+	schema.UpdateObjectSchemaProperties(connutils.RefTypeThing, thing, thing.Schema, f.schema, callback)
 
-		// Add prefix to the schema properties
-		edgeName := schemaPrefix + propKey
-
-		// If it is an interface, then it should contain a "cref" reference to another object. Use it to connect nodes.
-		dataType, err := schema.GetPropertyDataType(c, propKey)
-		// If getting a property gives an error, return it
-		if err != nil {
-			return err
-		}
-		dataTypeColumn := ""
-		fmt.Println("Ja 3")
-		if *dataType == schema.DataTypeBoolean {
-			dataTypeColumn = "property_val_bool"
-		} else if *dataType == schema.DataTypeDate {
-			dataTypeColumn = "property_val_timestamp"
-			propValue, err = time.Parse(time.RFC3339, propValue.(string))
-
-			// Return if there is an error while parsing
-			if err != nil {
-				return err
-			}
-		} else if *dataType == schema.DataTypeInt {
-			dataTypeColumn = "property_val_int"
-		} else if *dataType == schema.DataTypeNumber {
-			dataTypeColumn = "property_val_float" //TODO
-		} else if *dataType == schema.DataTypeString {
-			dataTypeColumn = "property_val_string"
-		} else if *dataType == schema.DataTypeCRef {
-			// TODO
-		} else {
-			// return errors_.New("given type can not be saved to the database") TODO
-			continue
-		}
-
-		if dataTypeColumn != "" {
-			batch.Query(fmt.Sprintf(insertStmt, objectTableName, dataTypeColumn), gocql.TimeUUID(), thingUUID, connutils.RefTypeThing, thing.AtClass, edgeName, propValue, "", connutils.NowUnix(), false)
-			fmt.Println("Ja 4")
-
-		}
-	}
-	fmt.Println("Ja 5")
 	if err := f.client.ExecuteBatch(batch); err != nil {
 		return err
 	}
@@ -313,9 +278,84 @@ func (f *Cassandra) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 // GetThing fills the given ThingGetResponse with the values from the database, based on the given UUID.
 func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+	// Get all rows for the key
+	iter := f.client.Query(fmt.Sprintf(`
+		SELECT id, uuid, class, property_key, property_val_string, property_val_bool, property_val_timestamp, property_val_int, property_val_float, property_ref, timestamp, deleted 
+		FROM %s 
+		WHERE uuid = ?
+	`, objectTableName), string(UUID)).Iter()
 
-	// thingResponse should be populated with the response that comes from the DB.
-	// thingResponse = based on the ontology
+	var id gocql.UUID
+	var uuid gocql.UUID
+	var class string
+	var property_key string
+	var property_val_string string
+	var property_val_bool bool
+	var property_val_timestamp time.Time
+	var property_val_int int
+	var property_val_float float64
+	var property_ref string
+	var timestamp time.Time
+	var deleted bool
+
+	thingResponse.Schema = make(map[string]interface{})
+
+	for iter.Scan(&id, &uuid, &class, &property_key, &property_val_string, &property_val_bool, &property_val_timestamp, &property_val_int, &property_val_float, &property_ref, &timestamp, &deleted) {
+		if strings.HasPrefix(property_key, schemaPrefix) {
+			propKey := strings.TrimPrefix(property_key, schemaPrefix)
+
+			var c *models.SemanticSchemaClass
+			c, err := schema.GetClassByName(f.schema.ThingSchema.Schema, class)
+			if err != nil {
+				return err
+			}
+			dataType, err := schema.GetPropertyDataType(c, propKey)
+
+			if err != nil {
+				return err
+			}
+
+			var propValue interface{}
+			if *dataType == schema.DataTypeBoolean {
+				propValue = property_val_bool
+			} else if *dataType == schema.DataTypeDate {
+				propValue = property_val_timestamp
+			} else if *dataType == schema.DataTypeInt {
+				propValue = property_val_int
+			} else if *dataType == schema.DataTypeNumber {
+				propValue = property_val_float
+			} else if *dataType == schema.DataTypeString {
+				propValue = property_val_string
+			}
+
+			thingResponse.Schema.(map[string]interface{})[propKey] = propValue
+		} else {
+			switch property_key {
+			case "@context":
+				thingResponse.AtContext = property_val_string
+			case "creationTimeUnix":
+				thingResponse.CreationTimeUnix = property_val_timestamp.Unix()
+			case "lastUpdateTimeUnix":
+				thingResponse.LastUpdateTimeUnix = property_val_timestamp.Unix()
+			case "key":
+				url := property_val_string
+
+				crefObj := models.SingleRef{}
+				crefObj.NrDollarCref = strfmt.UUID(property_ref)
+				crefObj.LocationURL = &url
+				crefObj.Type = connutils.RefTypeKey
+				thingResponse.Key = &crefObj
+			}
+		}
+	}
+
+	thingResponse.ThingID = strfmt.UUID(uuid.String())
+	thingResponse.AtClass = class
+
+	if err := iter.Close(); err != nil {
+		fmt.Println(err)
+		return err
+	}
 
 	// If success return nil, otherwise return the error
 	return nil
@@ -396,7 +436,7 @@ func (f *Cassandra) DeleteAction(UUID strfmt.UUID) error {
 // UUID  = reference to the key
 // token = is the actual access token used in the API's header
 func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error {
-	insertStmt := `
+	insertStatement := `
 		INSERT INTO %v (id, uuid, type, class, property_key, %s, property_ref, timestamp, deleted) 
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
@@ -405,15 +445,15 @@ func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID)
 
 	keyUUID, _ := gocql.ParseUUID(string(UUID))
 
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "delete", key.Delete, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_string"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "email", key.Email, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "execute", key.Execute, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_string"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "ipOrigin", strings.Join(key.IPOrigin, "|"), "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_timestamp"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "keyExpiresUnix", key.KeyExpiresUnix, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "read", key.Read, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "write", key.Write, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "root", true, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStmt, objectTableName, "property_val_string"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "token", token, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStatement, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "delete", key.Delete, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStatement, objectTableName, "property_val_string"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "email", key.Email, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStatement, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "execute", key.Execute, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStatement, objectTableName, "property_val_string"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "ipOrigin", strings.Join(key.IPOrigin, "|"), "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStatement, objectTableName, "property_val_timestamp"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "keyExpiresUnix", key.KeyExpiresUnix, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStatement, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "read", key.Read, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStatement, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "write", key.Write, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStatement, objectTableName, "property_val_bool"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "root", true, "", connutils.NowUnix(), false)
+	batch.Query(fmt.Sprintf(insertStatement, objectTableName, "property_val_string"), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "token", token, "", connutils.NowUnix(), false)
 
 	if err := f.client.ExecuteBatch(batch); err != nil {
 		return err
@@ -442,7 +482,6 @@ func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyToke
 		`, objectTableName), token).Consistency(gocql.One).Scan(&UUID); err != nil {
 		return err
 	}
-	fmt.Println("Token UUID:", UUID)
 
 	// Get all rows for the key
 	iter := f.client.Query(fmt.Sprintf(`
@@ -484,6 +523,8 @@ func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyToke
 
 		}
 	}
+
+	keyResponse.KeyID = strfmt.UUID(uuid.String())
 
 	if err := iter.Close(); err != nil {
 		return err
@@ -537,4 +578,55 @@ func (f *Cassandra) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyToke
 	// Where an OBJECT = models.KeyTokenGetResponse
 
 	return nil
+}
+
+func (f *Cassandra) convUUID(UUID strfmt.UUID) gocql.UUID {
+	cqlUUID, _ := gocql.ParseUUID(string(UUID))
+	return cqlUUID
+}
+
+func (f *Cassandra) addFirstLevelQueriesToBatch(refType string, object interface{}, UUID gocql.UUID, batch *gocql.Batch) {
+	if connutils.RefTypeThing == refType {
+		thing := object.(*models.Thing)
+		batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueStringColumn), gocql.TimeUUID(), UUID, refType, thing.AtClass, "@context", thing.AtContext, "", connutils.NowUnix(), false)
+		batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueTimeStampColumn), gocql.TimeUUID(), UUID, refType, thing.AtClass, "creationTimeUnix", thing.CreationTimeUnix, "", connutils.NowUnix(), false)
+		batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueTimeStampColumn), gocql.TimeUUID(), UUID, refType, thing.AtClass, "lastUpdateTimeUnix", thing.LastUpdateTimeUnix, "", connutils.NowUnix(), false)
+		batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueStringColumn), gocql.TimeUUID(), UUID, refType, thing.AtClass, "key", thing.Key.LocationURL, thing.Key.NrDollarCref, connutils.NowUnix(), false)
+	}
+}
+
+func (f *Cassandra) createPropertyCallback(batch *gocql.Batch, cqlUUID gocql.UUID, className string) func(string, interface{}, *schema.DataType) error {
+	return func(propKey string, propValue interface{}, dataType *schema.DataType) error {
+		edgeName := schemaPrefix + propKey
+		dataTypeColumn := ""
+
+		if *dataType == schema.DataTypeBoolean {
+			dataTypeColumn = PropertyValueBoolColumn
+		} else if *dataType == schema.DataTypeDate {
+			dataTypeColumn = PropertyValueTimeStampColumn
+
+			var err error
+			propValue, err = time.Parse(time.RFC3339, propValue.(string))
+
+			// Return if there is an error while parsing
+			if err != nil {
+				return err
+			}
+		} else if *dataType == schema.DataTypeInt {
+			dataTypeColumn = PropertyValueIntColumn
+			propValue = int64(propValue.(float64))
+		} else if *dataType == schema.DataTypeNumber {
+			dataTypeColumn = PropertyValueFloatColumn
+		} else if *dataType == schema.DataTypeString {
+			dataTypeColumn = PropertyValueStringColumn
+		} else if *dataType == schema.DataTypeCRef {
+			// TODO
+		}
+
+		if dataTypeColumn != "" {
+			batch.Query(fmt.Sprintf(insertStatement, objectTableName, dataTypeColumn), gocql.TimeUUID(), cqlUUID, connutils.RefTypeThing, className, edgeName, propValue, "", connutils.NowUnix(), false)
+		}
+
+		return nil
+	}
 }

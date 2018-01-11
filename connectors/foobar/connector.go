@@ -306,7 +306,6 @@ func (f *Foobar) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) er
 func (f *Foobar) ValidateToken(token strfmt.UUID, key *models.KeyTokenGetResponse) error {
 
 	// key (= models.KeyTokenGetResponse) should be populated with the response that comes from the DB.
-	// key = based on the ontology
 
 	// in case the key is not found, return an error like:
 	// return errors_.New("Key not found in database.")
