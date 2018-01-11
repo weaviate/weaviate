@@ -546,7 +546,7 @@
     },
     "description": "Semantic Graphql, RESTful and Websocket Web of Things platform.",
     "title": "Weaviate - Semantic Graphql, RESTful and Websocket Web of Things platform.",
-    "version": "v0.7.0"
+    "version": "0.7.1"
   },
   "parameters": {
     "CommonPageParameterQuery": {
@@ -564,6 +564,14 @@
       "type": "integer",
       "in": "query",
       "required": false
+    },
+    "CommonTimeSnapParameterQuery": {
+      "name": "timesnap",
+      "in": "query",
+      "description": "Takes a snapshot back in time, in case not set it will show the most recent results.",
+      "required": false,
+      "format": "int64",
+      "type": "integer"
     }
   },
   "paths": {
@@ -659,6 +667,9 @@
             "name": "actionId",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonTimeSnapParameterQuery"
           }
         ],
         "responses": {
@@ -802,6 +813,9 @@
             "schema": {
               "$ref": "#/definitions/GraphQLQuery"
             }
+          },
+          {
+            "$ref": "#/parameters/CommonTimeSnapParameterQuery"
           }
         ],
         "responses": {
@@ -1087,6 +1101,9 @@
           },
           {
             "$ref": "#/parameters/CommonPageParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTimeSnapParameterQuery"
           }
         ],
         "responses": {
@@ -1247,6 +1264,9 @@
             "name": "thingId",
             "required": true,
             "type": "string"
+          },
+          {
+            "$ref": "#/parameters/CommonTimeSnapParameterQuery"
           }
         ],
         "responses": {
@@ -1407,6 +1427,9 @@
           },
           {
             "$ref": "#/parameters/CommonPageParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonTimeSnapParameterQuery"
           }
         ],
         "responses": {
