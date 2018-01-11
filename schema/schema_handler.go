@@ -31,6 +31,9 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/messages"
 )
 
+// SchemaPrefix is the prefixed used in the database for schema properties
+const SchemaPrefix string = "schema."
+
 type schemaProperties struct {
 	localFile                string
 	schemaLocationFromConfig string
@@ -64,6 +67,8 @@ const (
 	DataTypeBoolean DataType = "boolean"
 	// DataTypeDate The data type is a value of type date
 	DataTypeDate DataType = "date"
+	// DataTypeUnknown The data type is unknown
+	DataTypeUnknown DataType = "unknown"
 	// validationErrorMessage is a constant for returning the same message
 	validationErrorMessage string = "All predicates with the same name across different classes should contain the same kind of data"
 )
@@ -370,7 +375,7 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 
 // UpdateObjectSchemaProperties updates all the edges of the Object in 'schema', used with a new Object or to update/patch a Object using a connector specified callback.
 // This function is not part of connector utils because of the import cycle problem
-func UpdateObjectSchemaProperties(refType string, object interface{}, nodeSchema models.Schema, schemas *WeaviateSchema, callback func(string, interface{}, *DataType) error) error {
+func UpdateObjectSchemaProperties(refType string, object interface{}, nodeSchema models.Schema, schemas *WeaviateSchema, callback func(string, interface{}, *DataType, string) error) error {
 	// Init error var
 	var err error
 
@@ -399,7 +404,7 @@ func UpdateObjectSchemaProperties(refType string, object interface{}, nodeSchema
 			return err
 		}
 
-		err = callback(propKey, propValue, dataType)
+		err = callback(propKey, propValue, dataType, SchemaPrefix+propKey)
 
 		// If adding a property gives an error, return it
 		if err != nil {
@@ -408,4 +413,25 @@ func UpdateObjectSchemaProperties(refType string, object interface{}, nodeSchema
 	}
 
 	return err
+}
+
+// TranslateSchemaPropertiesFromDataBase translates property keys from DB into data types
+func TranslateSchemaPropertiesFromDataBase(propKey string, className string, modelSchema *models.SemanticSchema) (isSchema bool, schemaPropKey string, dataType *DataType, err error) {
+	ud := DataTypeUnknown
+	if strings.HasPrefix(propKey, SchemaPrefix) {
+		propKey := strings.TrimPrefix(propKey, SchemaPrefix)
+
+		var c *models.SemanticSchemaClass
+		c, err := GetClassByName(modelSchema, className)
+		if err != nil {
+			return true, propKey, &ud, err
+		}
+		dataType, err := GetPropertyDataType(c, propKey)
+
+		if err != nil {
+			return true, propKey, &ud, err
+		}
+		return true, propKey, dataType, nil
+	}
+	return false, propKey, &ud, nil
 }
