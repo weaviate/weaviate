@@ -28,7 +28,8 @@
                 "Thing": "test/schema/test-thing-schema.json",
                 "Action": "test/schema/test-action-schema.json"
             },
-            "mqttEnabled": false
+            "mqttEnabled": false,
+            "debug": true
         },
         {
             "name": "docker",

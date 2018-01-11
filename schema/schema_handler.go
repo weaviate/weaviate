@@ -367,3 +367,45 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 
 	return nil
 }
+
+// UpdateObjectSchemaProperties updates all the edges of the Object in 'schema', used with a new Object or to update/patch a Object using a connector specified callback.
+// This function is not part of connector utils because of the import cycle problem
+func UpdateObjectSchemaProperties(refType string, object interface{}, nodeSchema models.Schema, schemas *WeaviateSchema, callback func(string, interface{}, *DataType) error) error {
+	// Init error var
+	var err error
+
+	// Add Object properties
+	for propKey, propValue := range nodeSchema.(map[string]interface{}) {
+		var c *models.SemanticSchemaClass
+		if refType == connutils.RefTypeAction {
+			thing := object.(*models.Thing)
+			c, err = GetClassByName(schemas.ActionSchema.Schema, thing.AtClass)
+			if err != nil {
+				return err
+			}
+		} else if refType == connutils.RefTypeThing {
+			action := object.(*models.Thing)
+			c, err = GetClassByName(schemas.ThingSchema.Schema, action.AtClass)
+			if err != nil {
+				return err
+			}
+		} else {
+			return errors_.New("invalid refType given")
+		}
+
+		dataType, err := GetPropertyDataType(c, propKey)
+		// If getting a property gives an error, return it
+		if err != nil {
+			return err
+		}
+
+		err = callback(propKey, propValue, dataType)
+
+		// If adding a property gives an error, return it
+		if err != nil {
+			return err
+		}
+	}
+
+	return err
+}
