@@ -107,6 +107,14 @@ func GenerateUUID() strfmt.UUID {
 	return strfmt.UUID(fmt.Sprintf("%v", gouuid.NewV4()))
 }
 
+// Must panics if error, otherwise retunr value
+func Must(i interface{}, err error) interface{} {
+	if err != nil {
+		panic(err)
+	}
+	return i
+}
+
 // WhereStringToStruct is the 'compiler' for converting the filter/where query-string into a struct
 func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
 	whereQuery := WhereQuery{}

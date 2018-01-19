@@ -38,6 +38,7 @@ package cassandra
 import (
 	errors_ "errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +54,7 @@ import (
 )
 
 const objectTableName = "object_data"
+const sep = "||"
 
 // IDColumn constant column name
 const IDColumn string = "id"
@@ -66,42 +68,55 @@ const TypeColumn string = "type"
 // ClassColumn constant column name
 const ClassColumn string = "class"
 
-// PropertyKeyColumn constant column name
-const PropertyKeyColumn string = "property_key"
+// CreationTimeColumn constant column name
+const CreationTimeColumn string = "creation_time"
 
-// PropertyValueStringColumn constant column name
-const PropertyValueStringColumn string = "property_val_string"
+// LastUpdatedTimeColumn constant column name
+const LastUpdatedTimeColumn string = "last_updated_time"
 
-// PropertyValueBoolColumn constant column name
-const PropertyValueBoolColumn string = "property_val_bool"
+// OwnerColumn constant column name
+const OwnerColumn string = "owner"
 
-// PropertyValueTimeStampColumn constant column name
-const PropertyValueTimeStampColumn string = "property_val_timestamp"
+// PropertiesColumn const column name
+const PropertiesColumn string = "properties"
 
-// PropertyValueIntColumn constant column name
-const PropertyValueIntColumn string = "property_val_int"
+// // PropertyKeyMapKey constant column name
+// const PropertyKeyMapKey string = "property_key"
 
-// PropertyValueFloatColumn constant column name
-const PropertyValueFloatColumn string = "property_val_float"
-
-// PropertyRefColumn constant column name
-const PropertyRefColumn string = "property_ref"
-
-// TimeStampColumn constant column name
-const TimeStampColumn string = "timestamp"
+// // PropertyValueMapKey constant column name
+// const PropertyValueMapKey string = "property_value"
 
 // DeletedColumn constant column name
 const DeletedColumn string = "deleted"
 
+// TimeStampColumn constant column name
+const TimeStampColumn string = "timestamp"
+
 // Global insert statement
 const insertStatement = `
-	INSERT INTO %v (` + IDColumn + `, ` + UUIDColumn + `, ` + TypeColumn + `, ` + ClassColumn + `, ` + PropertyKeyColumn + `, %s, ` + PropertyRefColumn + `, ` + TimeStampColumn + `, ` + DeletedColumn + `) 
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO %v (
+		` + IDColumn + `, 
+		` + UUIDColumn + `, 
+		` + TypeColumn + `, 
+		` + ClassColumn + `, 
+		` + CreationTimeColumn + `,
+		` + LastUpdatedTimeColumn + `, 
+		` + OwnerColumn + `, 
+		` + PropertiesColumn + `,
+		` + DeletedColumn + `,
+		` + TimeStampColumn + `) 
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 const selectStatement = `
-	SELECT id, uuid, type, class, property_key, property_val_string, property_val_bool, property_val_timestamp, property_val_int, property_val_float, property_ref, timestamp, deleted 
+	SELECT *
 	FROM ` + objectTableName + ` WHERE uuid = ?
+`
+
+const listSelectStatement = `
+	SELECT uuid 
+	FROM ` + objectTableName + ` 
+	WHERE property_ref = ? AND property_key = 'key' AND type = '` + connutils.RefTypeThing + `' ALLOW FILTERING
 `
 
 // Cassandra has some basic variables.
@@ -235,17 +250,24 @@ func (f *Cassandra) Init() error {
 
 	err := f.client.Query(fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS object_data (
-			%s UUID PRIMARY KEY, %s UUID, %s text, %s text,
-			%s text, %s text, %s boolean, %s timestamp,
-			%s int, %s double, %s text, %s timestamp, %s boolean
-		);`, IDColumn, UUIDColumn, TypeColumn, ClassColumn, PropertyKeyColumn, PropertyValueStringColumn, PropertyValueBoolColumn, PropertyValueTimeStampColumn, PropertyValueIntColumn, PropertyValueFloatColumn, PropertyRefColumn, TimeStampColumn, DeletedColumn)).Exec()
+			` + IDColumn + ` UUID PRIMARY KEY, 
+			` + UUIDColumn + ` UUID, 
+			` + TypeColumn + ` text, 
+			` + ClassColumn + ` text,
+			` + CreationTimeColumn + ` timestamp, 
+			` + LastUpdatedTimeColumn + ` timestamp, 
+			` + OwnerColumn + ` UUID, 
+			` + PropertiesColumn + ` map<text, text>,
+			` + DeletedColumn + ` boolean, 
+			` + TimeStampColumn + ` timestamp
+		);`)).Exec()
 
 	if err != nil {
 		return err
 	}
 
 	// Create all indexes
-	indexes := []string{UUIDColumn, TypeColumn, ClassColumn, PropertyKeyColumn, PropertyValueStringColumn, PropertyValueBoolColumn, PropertyValueTimeStampColumn, PropertyValueIntColumn, PropertyValueFloatColumn, PropertyRefColumn, TimeStampColumn, DeletedColumn}
+	indexes := []string{UUIDColumn, ClassColumn}
 	for _, prop := range indexes {
 		if err := f.client.Query(fmt.Sprintf(`CREATE INDEX IF NOT EXISTS object_%s ON object_data (%s);`, prop, prop)).Exec(); err != nil {
 			return err
@@ -257,8 +279,8 @@ func (f *Cassandra) Init() error {
 	var rootCount int
 
 	if err := f.client.Query(fmt.Sprintf(`
-		SELECT COUNT(id) AS rootCount FROM object_data WHERE %s = ? AND %s = ? ALLOW FILTERING
-	`, PropertyKeyColumn, PropertyValueBoolColumn), "root", true).Scan(&rootCount); err != nil {
+		SELECT COUNT(id) AS rootCount FROM %s WHERE %s = ? AND %s['%s'] = ? ALLOW FILTERING
+	`, objectTableName, TypeColumn, PropertiesColumn, `root`), connutils.RefTypeKey, strconv.FormatBool(true)).Scan(&rootCount); err != nil {
 		return err
 	}
 
@@ -285,20 +307,35 @@ func (f *Cassandra) Init() error {
 // Takes the thing and a UUID as input.
 // Thing is already validated against the ontology
 func (f *Cassandra) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
-	// Create new batch
-	batch := f.client.NewBatch(gocql.LoggedBatch)
-
 	// Parse UUID in Cassandra type
 	cqlUUID := f.convUUIDtoCQLUUID(UUID)
 
-	// Add first level properties
-	f.addFirstLevelQueriesToBatch(connutils.RefTypeThing, thing, cqlUUID, batch)
+	properties := map[string]string{}
+	properties["context"] = thing.AtContext
 
 	// Add Object properties using a callback
-	callback := f.createPropertyCallback(batch, cqlUUID, thing.AtClass)
-	schema.UpdateObjectSchemaProperties(connutils.RefTypeThing, thing, thing.Schema, f.schema, callback)
+	callback := f.createPropertyCallback(&properties, cqlUUID, thing.AtClass)
+	err := schema.UpdateObjectSchemaProperties(connutils.RefTypeThing, thing, thing.Schema, f.schema, callback)
 
-	if err := f.client.ExecuteBatch(batch); err != nil {
+	if err != nil {
+		return err
+	}
+
+	query := f.client.Query(
+		fmt.Sprintf(insertStatement, objectTableName),
+		gocql.TimeUUID(),
+		cqlUUID,
+		connutils.RefTypeThing,
+		thing.AtClass,
+		thing.CreationTimeUnix,
+		nil,
+		f.convUUIDtoCQLUUID(thing.Key.NrDollarCref),
+		properties,
+		false,
+		connutils.NowUnix(),
+	)
+
+	if err := query.Exec(); err != nil {
 		return err
 	}
 
@@ -311,20 +348,22 @@ func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRes
 	// Get the iterator
 	iter := f.getSelectIteratorByUUID(UUID)
 
-	f.fillResponseWithIter(iter, thingResponse, connutils.RefTypeThing)
-	if err := iter.Close(); err != nil {
-		return err
-	}
+	err := f.fillResponseWithIter(iter, thingResponse, connutils.RefTypeThing)
 
 	// If success return nil, otherwise return the error
-	return nil
+	return err
 }
 
 // ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
 func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 
-	// thingsResponse should be populated with the response that comes from the DB.
-	// thingsResponse = based on the ontology
+	iterUUIDs := f.client.Query(listSelectStatement, string(keyID)).Iter()
+
+	var sUUID gocql.UUID
+	for iterUUIDs.Scan(&sUUID) {
+		fmt.Println(sUUID)
+		fmt.Println("hoi")
+	}
 
 	// If success return nil, otherwise return the error
 	return nil
@@ -395,26 +434,43 @@ func (f *Cassandra) DeleteAction(UUID strfmt.UUID) error {
 // UUID  = reference to the key
 // token = is the actual access token used in the API's header
 func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error {
-	batch := f.client.NewBatch(gocql.LoggedBatch)
-
 	keyUUID, _ := gocql.ParseUUID(string(UUID))
 
-	batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueBoolColumn), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "delete", key.Delete, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueStringColumn), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "email", key.Email, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueBoolColumn), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "execute", key.Execute, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueStringColumn), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "ipOrigin", strings.Join(key.IPOrigin, "|"), "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueTimeStampColumn), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "keyExpiresUnix", key.KeyExpiresUnix, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueBoolColumn), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "read", key.Read, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueBoolColumn), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "write", key.Write, "", connutils.NowUnix(), false)
-	batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueStringColumn), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "token", token, "", connutils.NowUnix(), false)
+	isRoot := key.Parent == nil
 
-	isRoot := key.Parent != nil
-	if !isRoot {
-		batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueStringColumn), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "parent", key.Parent.LocationURL, key.Parent.NrDollarCref, connutils.NowUnix(), false)
+	properties := map[string]string{
+		"delete":           strconv.FormatBool(key.Delete),
+		"email":            key.Email,
+		"execute":          strconv.FormatBool(key.Execute),
+		"ip_origin":        strings.Join(key.IPOrigin, sep), // TODO
+		"key_expires_unix": strconv.FormatInt(key.KeyExpiresUnix, 10),
+		"read":             strconv.FormatBool(key.Read),
+		"write":            strconv.FormatBool(key.Write),
+		"root":             strconv.FormatBool(isRoot),
+		"token":            string(token),
 	}
-	batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueBoolColumn), gocql.TimeUUID(), keyUUID, connutils.RefTypeKey, "", "root", isRoot, "", connutils.NowUnix(), false)
 
-	if err := f.client.ExecuteBatch(batch); err != nil {
+	if !isRoot {
+		properties["parent.location_url"] = *key.Parent.LocationURL
+		properties["parent.cref"] = string(key.Parent.NrDollarCref)
+		properties["parent.type"] = key.Parent.Type
+	}
+
+	query := f.client.Query(
+		fmt.Sprintf(insertStatement, objectTableName),
+		gocql.TimeUUID(),
+		keyUUID,
+		connutils.RefTypeKey,
+		nil,
+		connutils.NowUnix(),
+		nil,
+		nil,
+		properties,
+		false,
+		connutils.NowUnix(),
+	)
+
+	if err := query.Exec(); err != nil {
 		return err
 	}
 
@@ -431,23 +487,17 @@ func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyToke
 	// in case the key is not found, return an error like:
 	// return errors_.New("Key not found in database.")
 
-	var UUID gocql.UUID
+	iter := f.client.Query(fmt.Sprintf(`
+		SELECT * 
+		FROM %s 
+		WHERE %s = ? AND %s['%s'] = ? 
+		LIMIT 1 ALLOW FILTERING
+	`, objectTableName, TypeColumn, PropertiesColumn, `token`), connutils.RefTypeKey, string(token)).Consistency(gocql.One).Iter()
 
-	if err := f.client.Query(fmt.Sprintf(`SELECT uuid 
-			FROM %s 
-			WHERE property_key = 'token' AND property_val_string = ?
-			LIMIT 1
-			ALLOW FILTERING
-		`, objectTableName), token).Consistency(gocql.One).Scan(&UUID); err != nil {
-		return err
-	}
+	err := f.fillResponseWithIter(iter, keyResponse, connutils.RefTypeKey)
 
-	// Get all rows for the key
-	iter := f.getSelectIteratorByUUID(f.convCQLUUIDtoUUID(UUID))
-
-	f.fillResponseWithIter(iter, keyResponse, connutils.RefTypeKey)
-	if err := iter.Close(); err != nil {
-		return err
+	if err != nil {
+		return errors_.New("Key not found in database.")
 	}
 
 	// If success return nil, otherwise return the error
@@ -456,17 +506,12 @@ func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyToke
 
 // GetKey fills the given KeyTokenGetResponse with the values from the database, based on the given UUID.
 func (f *Cassandra) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
-	// Get all rows for the key
-	// Get all rows for the key
+	// Get row for the key
 	iter := f.getSelectIteratorByUUID(UUID)
 
-	f.fillResponseWithIter(iter, keyResponse, connutils.RefTypeKey)
+	err := f.fillResponseWithIter(iter, keyResponse, connutils.RefTypeKey)
 
-	if err := iter.Close(); err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
@@ -494,45 +539,26 @@ func (f *Cassandra) convCQLUUIDtoUUID(cqlUUID gocql.UUID) strfmt.UUID {
 	return UUID
 }
 
-func (f *Cassandra) addFirstLevelQueriesToBatch(refType string, object interface{}, UUID gocql.UUID, batch *gocql.Batch) {
-	if connutils.RefTypeThing == refType {
-		thing := object.(*models.Thing)
-		batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueStringColumn), gocql.TimeUUID(), UUID, refType, thing.AtClass, "@context", thing.AtContext, "", connutils.NowUnix(), false)
-		batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueTimeStampColumn), gocql.TimeUUID(), UUID, refType, thing.AtClass, "creationTimeUnix", thing.CreationTimeUnix, "", connutils.NowUnix(), false)
-		batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueTimeStampColumn), gocql.TimeUUID(), UUID, refType, thing.AtClass, "lastUpdateTimeUnix", thing.LastUpdateTimeUnix, "", connutils.NowUnix(), false)
-		batch.Query(fmt.Sprintf(insertStatement, objectTableName, PropertyValueStringColumn), gocql.TimeUUID(), UUID, refType, thing.AtClass, "key", thing.Key.LocationURL, thing.Key.NrDollarCref, connutils.NowUnix(), false)
-	}
-}
-
-func (f *Cassandra) createPropertyCallback(batch *gocql.Batch, cqlUUID gocql.UUID, className string) func(string, interface{}, *schema.DataType, string) error {
+func (f *Cassandra) createPropertyCallback(properties *map[string]string, cqlUUID gocql.UUID, className string) func(string, interface{}, *schema.DataType, string) error {
 	return func(propKey string, propValue interface{}, dataType *schema.DataType, edgeName string) error {
-		dataTypeColumn := ""
+		var dataValue string
 
 		if *dataType == schema.DataTypeBoolean {
-			dataTypeColumn = PropertyValueBoolColumn
+			dataValue = strconv.FormatBool(propValue.(bool))
 		} else if *dataType == schema.DataTypeDate {
-			dataTypeColumn = PropertyValueTimeStampColumn
-
-			var err error
-			propValue, err = time.Parse(time.RFC3339, propValue.(string))
-
-			// Return if there is an error while parsing
-			if err != nil {
-				return err
-			}
+			dataValue = propValue.(string)
 		} else if *dataType == schema.DataTypeInt {
-			dataTypeColumn = PropertyValueIntColumn
-			propValue = int64(propValue.(float64))
+			dataValue = strconv.FormatInt(int64(propValue.(float64)), 10)
 		} else if *dataType == schema.DataTypeNumber {
-			dataTypeColumn = PropertyValueFloatColumn
+			dataValue = strconv.FormatFloat(propValue.(float64), 'f', -1, 64)
 		} else if *dataType == schema.DataTypeString {
-			dataTypeColumn = PropertyValueStringColumn
+			dataValue = propValue.(string)
 		} else if *dataType == schema.DataTypeCRef {
 			// TODO
 		}
 
-		if dataTypeColumn != "" {
-			batch.Query(fmt.Sprintf(insertStatement, objectTableName, dataTypeColumn), gocql.TimeUUID(), cqlUUID, connutils.RefTypeThing, className, edgeName, propValue, "", connutils.NowUnix(), false)
+		if dataValue != "" {
+			(*properties)[schema.SchemaPrefix+propKey] = dataValue
 		}
 
 		return nil
@@ -544,114 +570,90 @@ func (f *Cassandra) getSelectIteratorByUUID(UUID strfmt.UUID) *gocql.Iter {
 }
 
 func (f *Cassandra) fillResponseWithIter(iter *gocql.Iter, response interface{}, refType string) error {
-	var sID gocql.UUID
-	var sUUID gocql.UUID
-	var sType string
-	var sClass string
-	var sPropKey string
-	var sPropValString string
-	var sPropValBool bool
-	var sPropValTime time.Time
-	var sPropValInt int
-	var sPropValFloat float64
-	var sPropRef string
-	var sTimeStamp time.Time
-	var sDeleted bool
+	m := map[string]interface{}{}
+
+	found := false
 
 	responseSchema := make(map[string]interface{})
-	var atContext string
-	var creationTimeUnix int64
-	var lastUpdateTimeUnix int64
-	crefObj := models.SingleRef{}
-	var UUID strfmt.UUID
-	var atClass string
+	for iter.MapScan(m) {
+		p := m[PropertiesColumn].(map[string]string)
 
-	var delete bool
-	var email string
-	var execute bool
-	var ipOrigin []string
-	var keyExpiresUnix int64
-	var read bool
-	var write bool
-	var token strfmt.UUID
+		if connutils.RefTypeKey == refType {
+			keyResponse := response.(*models.KeyTokenGetResponse)
+			keyResponse.KeyID = f.convCQLUUIDtoUUID(m[UUIDColumn].(gocql.UUID))
+			keyResponse.Delete = connutils.Must(strconv.ParseBool(p["delete"])).(bool)
+			keyResponse.Email = p["email"]
+			keyResponse.Execute = connutils.Must(strconv.ParseBool(p["execute"])).(bool)
+			keyResponse.IPOrigin = strings.Split(p["ip_origin"], sep)
+			keyResponse.KeyExpiresUnix = connutils.Must(strconv.ParseInt(p["key_expires_unix"], 20, 64)).(int64)
+			keyResponse.Read = connutils.Must(strconv.ParseBool(p["read"])).(bool)
+			keyResponse.Write = connutils.Must(strconv.ParseBool(p["write"])).(bool)
+			keyResponse.Token = strfmt.UUID(p["token"])
 
-	for iter.Scan(&sID, &sUUID, &sType, &sClass, &sPropKey, &sPropValString, &sPropValBool, &sPropValTime, &sPropValInt, &sPropValFloat, &sPropRef, &sTimeStamp, &sDeleted) {
-		if isSchema, propKey, dataType, err := schema.TranslateSchemaPropertiesFromDataBase(sPropKey, sClass, f.schema.ThingSchema.Schema); isSchema {
-			if err != nil {
-				return err
+			// TODO Add parent
+			// if !isRoot {
+			// 	properties["parent.location_url"] = *key.Parent.LocationURL
+			// 	properties["parent.cref"] = string(key.Parent.NrDollarCref)
+			// 	properties["parent.type"] = key.Parent.Type
+			// }
+		} else if connutils.RefTypeThing == refType {
+			class := m[ClassColumn].(string)
+
+			thingResponse := response.(*models.ThingGetResponse)
+			thingResponse.ThingID = f.convCQLUUIDtoUUID(m[UUIDColumn].(gocql.UUID))
+			thingResponse.AtClass = class
+			thingResponse.AtContext = p["context"]
+			thingResponse.CreationTimeUnix = m[CreationTimeColumn].(time.Time).Unix()
+
+			url := ""
+			ownerObj := models.SingleRef{
+				LocationURL:  &url,
+				NrDollarCref: f.convCQLUUIDtoUUID(m[OwnerColumn].(gocql.UUID)),
+				Type:         connutils.RefTypeKey,
+			}
+			thingResponse.Key = &ownerObj
+			thingResponse.LastUpdateTimeUnix = m[LastUpdatedTimeColumn].(time.Time).Unix()
+
+			for key, value := range p {
+				if isSchema, propKey, dataType, err := schema.TranslateSchemaPropertiesFromDataBase(key, class, f.schema.ThingSchema.Schema); isSchema {
+					if err != nil {
+						return err
+					}
+
+					if *dataType == schema.DataTypeBoolean {
+						responseSchema[propKey] = connutils.Must(strconv.ParseBool(value)).(bool)
+					} else if *dataType == schema.DataTypeDate {
+						t, err := time.Parse(time.RFC3339, value)
+
+						// Return if there is an error while parsing
+						if err != nil {
+							return err
+						}
+						responseSchema[propKey] = t
+					} else if *dataType == schema.DataTypeInt {
+						responseSchema[propKey] = connutils.Must(strconv.ParseInt(value, 20, 64)).(int64)
+					} else if *dataType == schema.DataTypeNumber {
+						responseSchema[propKey] = connutils.Must(strconv.ParseFloat(value, 64)).(float64)
+					} else if *dataType == schema.DataTypeString {
+						responseSchema[propKey] = value
+					} else if *dataType == schema.DataTypeCRef {
+						// TODO
+					}
+				}
 			}
 
-			var propValue interface{}
-			if *dataType == schema.DataTypeBoolean {
-				propValue = sPropValBool
-			} else if *dataType == schema.DataTypeDate {
-				propValue = sPropValTime
-			} else if *dataType == schema.DataTypeInt {
-				propValue = sPropValInt
-			} else if *dataType == schema.DataTypeNumber {
-				propValue = sPropValFloat
-			} else if *dataType == schema.DataTypeString {
-				propValue = sPropValString
-			}
-
-			responseSchema[propKey] = propValue
-		} else {
-			switch sPropKey {
-			case "@context":
-				atContext = sPropValString
-			case "creationTimeUnix":
-				creationTimeUnix = sPropValTime.Unix()
-			case "lastUpdateTimeUnix":
-				lastUpdateTimeUnix = sPropValTime.Unix()
-			case "key":
-				url := sPropValString
-
-				crefObj.NrDollarCref = strfmt.UUID(sPropRef)
-				crefObj.LocationURL = &url
-				crefObj.Type = connutils.RefTypeKey
-			case "delete":
-				delete = sPropValBool
-			case "email":
-				email = sPropValString
-			case "execute":
-				execute = sPropValBool
-			case "ipOrigin":
-				ipOrigin = strings.Split(sPropValString, "|") // TODO const seperator
-			case "keyExpiresUnix":
-				keyExpiresUnix = sPropValTime.Unix()
-			case "read":
-				read = sPropValBool
-			case "write":
-				write = sPropValBool
-			case "token":
-				token = strfmt.UUID(sPropValString)
-			}
+			thingResponse.Schema = responseSchema
 		}
+
+		found = true
 	}
 
-	UUID = strfmt.UUID(sUUID.String())
-	atClass = sClass
+	if !found {
+		return errors_.New("Nothing found")
+	}
 
-	if connutils.RefTypeThing == refType {
-		thingResponse := response.(*models.ThingGetResponse)
-		thingResponse.Schema = responseSchema
-		thingResponse.AtContext = atContext
-		thingResponse.CreationTimeUnix = creationTimeUnix
-		thingResponse.LastUpdateTimeUnix = lastUpdateTimeUnix
-		thingResponse.Key = &crefObj
-		thingResponse.ThingID = UUID
-		thingResponse.AtClass = atClass
-	} else if connutils.RefTypeKey == refType {
-		keyResponse := response.(*models.KeyTokenGetResponse)
-		keyResponse.KeyID = UUID
-		keyResponse.Delete = delete
-		keyResponse.Email = email
-		keyResponse.Execute = execute
-		keyResponse.IPOrigin = ipOrigin
-		keyResponse.KeyExpiresUnix = keyExpiresUnix
-		keyResponse.Read = read
-		keyResponse.Write = write
-		keyResponse.Token = token
+	if err := iter.Close(); err != nil {
+		return err
 	}
 
 	return nil
