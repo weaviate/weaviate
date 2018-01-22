@@ -110,13 +110,16 @@ const insertStatement = `
 
 const selectStatement = `
 	SELECT *
-	FROM ` + objectTableName + ` WHERE uuid = ?
+	FROM ` + objectTableName + ` 
+	WHERE uuid = ?
 `
 
 const listSelectStatement = `
-	SELECT uuid 
+	SELECT * 
 	FROM ` + objectTableName + ` 
-	WHERE property_ref = ? AND property_key = 'key' AND type = '` + connutils.RefTypeThing + `' ALLOW FILTERING
+	WHERE ` + OwnerColumn + ` = ?
+	%s
+	ALLOW FILTERING
 `
 
 // Cassandra has some basic variables.
@@ -250,7 +253,7 @@ func (f *Cassandra) Init() error {
 
 	err := f.client.Query(fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS object_data (
-			` + IDColumn + ` UUID PRIMARY KEY, 
+			` + IDColumn + ` UUID, 
 			` + UUIDColumn + ` UUID, 
 			` + TypeColumn + ` text, 
 			` + ClassColumn + ` text,
@@ -259,8 +262,9 @@ func (f *Cassandra) Init() error {
 			` + OwnerColumn + ` UUID, 
 			` + PropertiesColumn + ` map<text, text>,
 			` + DeletedColumn + ` boolean, 
-			` + TimeStampColumn + ` timestamp
-		);`)).Exec()
+			` + TimeStampColumn + ` timestamp,
+			PRIMARY KEY (` + IDColumn + `, ` + TimeStampColumn + `, ` + CreationTimeColumn + `)
+		)`)).Exec()
 
 	if err != nil {
 		return err
@@ -356,17 +360,16 @@ func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRes
 
 // ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
 func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
+	// TODO order not working?
 
-	iterUUIDs := f.client.Query(listSelectStatement, string(keyID)).Iter()
+	whereFilter := f.parseWhereFilters(wheres, false)
 
-	var sUUID gocql.UUID
-	for iterUUIDs.Scan(&sUUID) {
-		fmt.Println(sUUID)
-		fmt.Println("hoi")
-	}
+	iter := f.client.Query(fmt.Sprintf(listSelectStatement, whereFilter), string(keyID)).Iter()
+
+	err := f.fillResponseWithIter(iter, thingsResponse, connutils.RefTypeThing)
 
 	// If success return nil, otherwise return the error
-	return nil
+	return err
 }
 
 // UpdateThing updates the Thing in the DB at the given UUID.
@@ -554,7 +557,10 @@ func (f *Cassandra) createPropertyCallback(properties *map[string]string, cqlUUI
 		} else if *dataType == schema.DataTypeString {
 			dataValue = propValue.(string)
 		} else if *dataType == schema.DataTypeCRef {
-			// TODO
+			values := propValue.(map[string]interface{})
+			(*properties)[schema.SchemaPrefix+propKey+".location_url"] = values["locationUrl"].(string)
+			(*properties)[schema.SchemaPrefix+propKey+".type"] = values["type"].(string)
+			(*properties)[schema.SchemaPrefix+propKey+".cref"] = values["$cref"].(string)
 		}
 
 		if dataValue != "" {
@@ -570,12 +576,17 @@ func (f *Cassandra) getSelectIteratorByUUID(UUID strfmt.UUID) *gocql.Iter {
 }
 
 func (f *Cassandra) fillResponseWithIter(iter *gocql.Iter, response interface{}, refType string) error {
-	m := map[string]interface{}{}
 
 	found := false
 
-	responseSchema := make(map[string]interface{})
-	for iter.MapScan(m) {
+	for {
+		m := map[string]interface{}{}
+		if !iter.MapScan(m) {
+			break
+		}
+
+		responseSchema := make(map[string]interface{})
+
 		p := m[PropertiesColumn].(map[string]string)
 
 		if connutils.RefTypeKey == refType {
@@ -590,29 +601,40 @@ func (f *Cassandra) fillResponseWithIter(iter *gocql.Iter, response interface{},
 			keyResponse.Write = connutils.Must(strconv.ParseBool(p["write"])).(bool)
 			keyResponse.Token = strfmt.UUID(p["token"])
 
-			// TODO Add parent
-			// if !isRoot {
-			// 	properties["parent.location_url"] = *key.Parent.LocationURL
-			// 	properties["parent.cref"] = string(key.Parent.NrDollarCref)
-			// 	properties["parent.type"] = key.Parent.Type
-			// }
+			isRoot := connutils.Must(strconv.ParseBool(p["root"])).(bool)
+			if !isRoot {
+				keyResponse.Parent = f.createCrefObject(p, "parent.")
+			}
+
 		} else if connutils.RefTypeThing == refType {
 			class := m[ClassColumn].(string)
 
-			thingResponse := response.(*models.ThingGetResponse)
+			tr := models.ThingGetResponse{}
+			thingResponse := &tr
+
+			switch response.(type) {
+			case *models.ThingGetResponse:
+				thingResponse = response.(*models.ThingGetResponse)
+			case *models.ThingsListResponse:
+				response.(*models.ThingsListResponse).Things = append(response.(*models.ThingsListResponse).Things, thingResponse)
+			}
+
 			thingResponse.ThingID = f.convCQLUUIDtoUUID(m[UUIDColumn].(gocql.UUID))
 			thingResponse.AtClass = class
 			thingResponse.AtContext = p["context"]
 			thingResponse.CreationTimeUnix = m[CreationTimeColumn].(time.Time).Unix()
 
-			url := ""
+			url := f.serverAddress
 			ownerObj := models.SingleRef{
 				LocationURL:  &url,
 				NrDollarCref: f.convCQLUUIDtoUUID(m[OwnerColumn].(gocql.UUID)),
 				Type:         connutils.RefTypeKey,
 			}
 			thingResponse.Key = &ownerObj
-			thingResponse.LastUpdateTimeUnix = m[LastUpdatedTimeColumn].(time.Time).Unix()
+			lut := m[LastUpdatedTimeColumn].(time.Time).Unix()
+			if lut > 0 {
+				thingResponse.LastUpdateTimeUnix = lut
+			}
 
 			for key, value := range p {
 				if isSchema, propKey, dataType, err := schema.TranslateSchemaPropertiesFromDataBase(key, class, f.schema.ThingSchema.Schema); isSchema {
@@ -631,13 +653,15 @@ func (f *Cassandra) fillResponseWithIter(iter *gocql.Iter, response interface{},
 						}
 						responseSchema[propKey] = t
 					} else if *dataType == schema.DataTypeInt {
-						responseSchema[propKey] = connutils.Must(strconv.ParseInt(value, 20, 64)).(int64)
+						responseSchema[propKey] = connutils.Must(strconv.ParseInt(value, 10, 64)).(int64)
 					} else if *dataType == schema.DataTypeNumber {
 						responseSchema[propKey] = connutils.Must(strconv.ParseFloat(value, 64)).(float64)
 					} else if *dataType == schema.DataTypeString {
 						responseSchema[propKey] = value
 					} else if *dataType == schema.DataTypeCRef {
-						// TODO
+						if responseSchema[propKey] == nil {
+							responseSchema[propKey] = f.createCrefObject(p, schema.SchemaPrefix+propKey+".")
+						}
 					}
 				}
 			}
@@ -648,13 +672,76 @@ func (f *Cassandra) fillResponseWithIter(iter *gocql.Iter, response interface{},
 		found = true
 	}
 
-	if !found {
-		return errors_.New("Nothing found")
-	}
-
 	if err := iter.Close(); err != nil {
 		return err
 	}
 
+	if !found {
+		return errors_.New("Nothing found")
+	}
+
 	return nil
+}
+
+// createCrefObject is a helper function to create a cref-object. This function is used for Cassandra only.
+func (f *Cassandra) createCrefObject(properties map[string]string, prefix string) *models.SingleRef {
+	// Create the 'cref'-node for the response.
+	crefObj := models.SingleRef{}
+
+	// Get the given node properties to generate response object
+	crefObj.NrDollarCref = strfmt.UUID(properties[prefix+"cref"])
+	crefObj.Type = properties[prefix+"type"]
+	url := properties[prefix+"location_url"]
+	crefObj.LocationURL = &url
+
+	return &crefObj
+}
+
+func (f *Cassandra) parseWhereFilters(wheres []*connutils.WhereQuery, useWhere bool) string {
+	filterWheres := ""
+
+	// Create filter query
+	var op string
+	var prop string
+	var value string
+	for _, vWhere := range wheres {
+		// Set the operator
+		if vWhere.Value.Operator == connutils.Equal || vWhere.Value.Operator == connutils.NotEqual {
+			// Set the value from the object (now only string)
+			// TODO: https://github.com/creativesoftwarefdn/weaviate/issues/202
+			value = vWhere.Value.Value.(string)
+
+			if vWhere.Value.Contains {
+				continue // TODO
+			} else {
+				op = "="
+				value = fmt.Sprintf(`'%s'`, value)
+			}
+
+			if vWhere.Value.Operator == connutils.NotEqual {
+				op = "!="
+			}
+		}
+
+		// Set the property
+		prop = vWhere.Property
+		if prop == "atClass" {
+			prop = "class"
+		} else if strings.HasPrefix(prop, schema.SchemaPrefix) {
+			prop = fmt.Sprintf("%s['%s']", PropertiesColumn, prop)
+		}
+
+		// Filter on wheres variable which is used later in the query
+		andOp := ""
+		if useWhere {
+			andOp = "WHERE"
+		} else {
+			andOp = "AND"
+		}
+
+		// Parse the filter 'wheres'. Note that the 'value' may need block-quotes.
+		filterWheres = fmt.Sprintf(`%s %s %s %s %s`, filterWheres, andOp, prop, op, value)
+	}
+
+	return filterWheres
 }

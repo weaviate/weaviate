@@ -93,7 +93,7 @@ func GetPropertyByName(c *models.SemanticSchemaClass, propName string) (*models.
 	for _, prop := range c.Properties {
 
 		// Check if the name of the property is the given name, that's the property we need
-		if prop.Name == propName {
+		if prop.Name == strings.Split(propName, ".")[0] {
 			return prop, nil
 		}
 	}
@@ -419,7 +419,7 @@ func UpdateObjectSchemaProperties(refType string, object interface{}, nodeSchema
 func TranslateSchemaPropertiesFromDataBase(propKey string, className string, modelSchema *models.SemanticSchema) (isSchema bool, schemaPropKey string, dataType *DataType, err error) {
 	ud := DataTypeUnknown
 	if strings.HasPrefix(propKey, SchemaPrefix) {
-		propKey := strings.TrimPrefix(propKey, SchemaPrefix)
+		propKey := strings.Split(propKey, ".")[1]
 
 		var c *models.SemanticSchemaClass
 		c, err := GetClassByName(modelSchema, className)

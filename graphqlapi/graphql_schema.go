@@ -1117,21 +1117,21 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.
 func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.SingleRef, objectLoaded interface{}) error {
 	var err error
 
-	if f.serverConfig.GetHostAddress() != *cref.LocationURL {
-		// Return an error because you want to connect to other server. You need an license.
-		err = errors.New("a license for connection to another Weaviate-instance is required in order to resolve this query further")
+	// if f.serverConfig.GetHostAddress() != *cref.LocationURL {
+	// 	// Return an error because you want to connect to other server. You need an license.
+	// 	err = errors.New("a license for connection to another Weaviate-instance is required in order to resolve this query further")
+	// } else {
+	// Check whether the request has to be done for key, thing or action types
+	if cref.Type == "Thing" {
+		err = f.dbConnector.GetThing(cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
+	} else if cref.Type == "Action" {
+		err = f.dbConnector.GetAction(cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
+	} else if cref.Type == "Key" {
+		err = f.dbConnector.GetKey(cref.NrDollarCref, objectLoaded.(*models.KeyTokenGetResponse))
 	} else {
-		// Check whether the request has to be done for key, thing or action types
-		if cref.Type == "Thing" {
-			err = f.dbConnector.GetThing(cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
-		} else if cref.Type == "Action" {
-			err = f.dbConnector.GetAction(cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
-		} else if cref.Type == "Key" {
-			err = f.dbConnector.GetKey(cref.NrDollarCref, objectLoaded.(*models.KeyTokenGetResponse))
-		} else {
-			err = fmt.Errorf("can't resolve the given type '%s'", cref.Type)
-		}
+		err = fmt.Errorf("can't resolve the given type '%s'", cref.Type)
 	}
+	// }
 
 	if err != nil {
 		stack := err.Error()
