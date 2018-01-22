@@ -728,10 +728,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thing.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go dbConnector.AddThing(thing, UUID)
-		// if insertErr != nil {
-		// 	messaging.ErrorMessage(insertErr)
-		// }
+		insertErr := dbConnector.AddThing(thing, UUID)
+		if insertErr != nil {
+			messaging.ErrorMessage(insertErr)
+		}
 
 		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
@@ -786,6 +786,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Object is not found
 		if err != nil {
+			messaging.ErrorMessage(err)
 			return things.NewWeaviateThingsGetNotFound()
 		}
 
