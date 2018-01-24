@@ -379,18 +379,22 @@ func UpdateObjectSchemaProperties(refType string, object interface{}, nodeSchema
 	// Init error var
 	var err error
 
+	if nodeSchema == nil {
+		return nil
+	}
+
 	// Add Object properties
 	for propKey, propValue := range nodeSchema.(map[string]interface{}) {
 		var c *models.SemanticSchemaClass
 		if refType == connutils.RefTypeAction {
-			thing := object.(*models.Thing)
-			c, err = GetClassByName(schemas.ActionSchema.Schema, thing.AtClass)
+			action := object.(*models.Action)
+			c, err = GetClassByName(schemas.ActionSchema.Schema, action.AtClass)
 			if err != nil {
 				return err
 			}
 		} else if refType == connutils.RefTypeThing {
-			action := object.(*models.Thing)
-			c, err = GetClassByName(schemas.ThingSchema.Schema, action.AtClass)
+			thing := object.(*models.Thing)
+			c, err = GetClassByName(schemas.ThingSchema.Schema, thing.AtClass)
 			if err != nil {
 				return err
 			}

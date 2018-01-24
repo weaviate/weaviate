@@ -407,7 +407,7 @@ func (f *Gremlin) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // DeleteThing deletes the Thing in the DB at the given UUID.
-func (f *Gremlin) DeleteThing(UUID strfmt.UUID) error {
+func (f *Gremlin) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 	// Run the query to delete the thing based on its UUID.
 
@@ -450,7 +450,7 @@ func (f *Gremlin) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 }
 
 // DeleteAction deletes the Action in the DB at the given UUID.
-func (f *Gremlin) DeleteAction(UUID strfmt.UUID) error {
+func (f *Gremlin) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 
 	// Run the query to delete the action based on its UUID.
 
@@ -510,7 +510,7 @@ func (f *Gremlin) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetRespon
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
-func (f *Gremlin) DeleteKey(UUID strfmt.UUID) error {
+func (f *Gremlin) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
 
 	connutils.Trace()
 

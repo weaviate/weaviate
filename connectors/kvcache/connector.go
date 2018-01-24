@@ -134,14 +134,14 @@ func (f *KVCache) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // DeleteThing function
-func (f *KVCache) DeleteThing(UUID strfmt.UUID) error {
+func (f *KVCache) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Delete from cache before updating, otherwise the old version still exists
 	key := fmt.Sprintf("Thing#%s", UUID)
 	f.cache.Delete(key)
 
-	return f.databaseConnector.DeleteThing(UUID)
+	return f.databaseConnector.DeleteThing(thing, UUID)
 }
 
 // AddAction function
@@ -198,14 +198,14 @@ func (f *KVCache) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 }
 
 // DeleteAction function
-func (f *KVCache) DeleteAction(UUID strfmt.UUID) error {
+func (f *KVCache) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Delete from cache before updating, otherwise the old version still exists
 	key := fmt.Sprintf("Action#%s", UUID)
 	f.cache.Delete(key)
 
-	return f.databaseConnector.DeleteAction(UUID)
+	return f.databaseConnector.DeleteAction(action, UUID)
 }
 
 // AddKey function
@@ -255,14 +255,14 @@ func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetRespon
 }
 
 // DeleteKey function
-func (f *KVCache) DeleteKey(UUID strfmt.UUID) error {
+func (f *KVCache) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Delete from cache before updating, otherwise the old version still exists
-	key := fmt.Sprintf("Key#%s", UUID)
-	f.cache.Delete(key)
+	cacheKey := fmt.Sprintf("Key#%s", UUID)
+	f.cache.Delete(cacheKey)
 
-	return f.databaseConnector.DeleteKey(UUID)
+	return f.databaseConnector.DeleteKey(key, UUID)
 }
 
 // GetKeyChildren function

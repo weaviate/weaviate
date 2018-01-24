@@ -36,6 +36,7 @@ After creating the connector, make sure to add the name of the connector to: fun
 package cassandra
 
 import (
+	"encoding/json"
 	errors_ "errors"
 	"fmt"
 	"strconv"
@@ -119,6 +120,42 @@ const listSelectStatement = `
 	FROM ` + objectTableName + ` 
 	WHERE ` + OwnerColumn + ` = ?
 	%s
+	ALLOW FILTERING
+`
+
+const listActionsSelectStatement = `
+	SELECT * 
+	FROM ` + objectTableName + ` 
+	WHERE ` + PropertiesColumn + `['things.object.cref'] = ?
+	%s
+	ALLOW FILTERING
+`
+
+const keyChildrenSelectStatement = `
+	SELECT * 
+	FROM ` + objectTableName + ` 
+	WHERE ` + PropertiesColumn + `['parent.cref'] = ?
+	ALLOW FILTERING
+`
+
+const updateKeyStatement = `
+	UPDATE %s
+	SET deleted = ?
+	WHERE uuid = ?
+`
+
+const selectKeyByTokenStatement = `
+	SELECT * 
+	FROM %s 
+	WHERE %s = ? AND %s['%s'] = ? 
+	LIMIT 1 
+	ALLOW FILTERING
+`
+
+const selectRootKeyStatement = `
+	SELECT COUNT(id) AS rootCount 
+	FROM %s WHERE %s = ? 
+	AND %s['%s'] = ? 
 	ALLOW FILTERING
 `
 
@@ -247,10 +284,6 @@ func (f *Cassandra) Connect() error {
 // Init 1st initializes the schema in the database and 2nd creates a root key.
 func (f *Cassandra) Init() error {
 	// Add table 'object_data'
-
-	// TODO make const
-	// TODO property_ref = UUID type?
-
 	err := f.client.Query(fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS object_data (
 			` + IDColumn + ` UUID, 
@@ -273,7 +306,10 @@ func (f *Cassandra) Init() error {
 	// Create all indexes
 	indexes := []string{UUIDColumn, ClassColumn}
 	for _, prop := range indexes {
-		if err := f.client.Query(fmt.Sprintf(`CREATE INDEX IF NOT EXISTS object_%s ON object_data (%s);`, prop, prop)).Exec(); err != nil {
+		if err := f.client.Query(fmt.Sprintf(`
+			CREATE INDEX IF NOT EXISTS object_%s ON object_data (%s);
+			`, prop, prop)).Exec(); err != nil {
+
 			return err
 		}
 	}
@@ -282,9 +318,11 @@ func (f *Cassandra) Init() error {
 	// Search for Root key
 	var rootCount int
 
-	if err := f.client.Query(fmt.Sprintf(`
-		SELECT COUNT(id) AS rootCount FROM %s WHERE %s = ? AND %s['%s'] = ? ALLOW FILTERING
-	`, objectTableName, TypeColumn, PropertiesColumn, `root`), connutils.RefTypeKey, strconv.FormatBool(true)).Scan(&rootCount); err != nil {
+	if err := f.client.Query(
+		fmt.Sprintf(selectRootKeyStatement, objectTableName, TypeColumn, PropertiesColumn, `root`),
+		connutils.RefTypeKey,
+		strconv.FormatBool(true),
+	).Scan(&rootCount); err != nil {
 		return err
 	}
 
@@ -311,40 +349,15 @@ func (f *Cassandra) Init() error {
 // Takes the thing and a UUID as input.
 // Thing is already validated against the ontology
 func (f *Cassandra) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
-	// Parse UUID in Cassandra type
-	cqlUUID := f.convUUIDtoCQLUUID(UUID)
-
-	properties := map[string]string{}
-	properties["context"] = thing.AtContext
-
-	// Add Object properties using a callback
-	callback := f.createPropertyCallback(&properties, cqlUUID, thing.AtClass)
-	err := schema.UpdateObjectSchemaProperties(connutils.RefTypeThing, thing, thing.Schema, f.schema, callback)
+	// Run the query to add the thing based on its UUID.
+	err := f.addThingRow(thing, UUID, false)
 
 	if err != nil {
-		return err
-	}
-
-	query := f.client.Query(
-		fmt.Sprintf(insertStatement, objectTableName),
-		gocql.TimeUUID(),
-		cqlUUID,
-		connutils.RefTypeThing,
-		thing.AtClass,
-		thing.CreationTimeUnix,
-		nil,
-		f.convUUIDtoCQLUUID(thing.Key.NrDollarCref),
-		properties,
-		false,
-		connutils.NowUnix(),
-	)
-
-	if err := query.Exec(); err != nil {
-		return err
+		f.messaging.ErrorMessage(err)
 	}
 
 	// If success return nil, otherwise return the error
-	return nil
+	return err
 }
 
 // GetThing fills the given ThingGetResponse with the values from the database, based on the given UUID.
@@ -355,18 +368,26 @@ func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRes
 	err := f.fillResponseWithIter(iter, thingResponse, connutils.RefTypeThing)
 
 	// If success return nil, otherwise return the error
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+	}
+
+	// If success return nil, otherwise return the error
 	return err
 }
 
 // ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
 func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 	// TODO order not working?
+	// TODO List return most recents
+	// TODO Dont show deleted
 
 	whereFilter := f.parseWhereFilters(wheres, false)
 
 	iter := f.client.Query(fmt.Sprintf(listSelectStatement, whereFilter), string(keyID)).Iter()
 
 	err := f.fillResponseWithIter(iter, thingsResponse, connutils.RefTypeThing)
+	thingsResponse.TotalResults = 0 // TODO
 
 	// If success return nil, otherwise return the error
 	return err
@@ -374,63 +395,101 @@ func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres 
 
 // UpdateThing updates the Thing in the DB at the given UUID.
 func (f *Cassandra) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
-
 	// Run the query to update the thing based on its UUID.
+	err := f.addThingRow(thing, UUID, false)
+
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+	}
 
 	// If success return nil, otherwise return the error
-	return nil
+	return err
 }
 
 // DeleteThing deletes the Thing in the DB at the given UUID.
-func (f *Cassandra) DeleteThing(UUID strfmt.UUID) error {
-
+func (f *Cassandra) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Run the query to delete the thing based on its UUID.
+	err := f.addThingRow(thing, UUID, true)
+
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+	}
 
 	// If success return nil, otherwise return the error
-	return nil
+	return err
 }
 
 // AddAction adds an action to the Cassandra database with the given UUID.
 // Takes the action and a UUID as input.
 // Action is already validated against the ontology
 func (f *Cassandra) AddAction(action *models.Action, UUID strfmt.UUID) error {
+	err := f.addActionRow(action, UUID, false)
 
 	// If success return nil, otherwise return the error
-	return nil
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+	}
+
+	return err
 }
 
 // GetAction fills the given ActionGetResponse with the values from the database, based on the given UUID.
 func (f *Cassandra) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
-	// actionResponse should be populated with the response that comes from the DB.
-	// actionResponse = based on the ontology
+	// Get the iterator
+	iter := f.getSelectIteratorByUUID(UUID)
+
+	err := f.fillResponseWithIter(iter, actionResponse, connutils.RefTypeAction)
 
 	// If success return nil, otherwise return the error
-	return nil
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+	}
+
+	// If success return nil, otherwise return the error
+	return err
 }
 
 // ListActions fills the given ActionListResponse with the values from the database, based on the given parameters.
 func (f *Cassandra) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
-	// actionsResponse should be populated with the response that comes from the DB.
-	// actionsResponse = based on the ontology
+	// TODO order not working?
+	// TODO List return most recents
+	// TODO Dont show deleted
+
+	whereFilter := f.parseWhereFilters(wheres, false)
+
+	iter := f.client.Query(fmt.Sprintf(listActionsSelectStatement, whereFilter), string(UUID)).Iter()
+
+	err := f.fillResponseWithIter(iter, actionsResponse, connutils.RefTypeAction)
+	actionsResponse.TotalResults = 0 // TODO
 
 	// If success return nil, otherwise return the error
-	return nil
+	return err
 }
 
-// UpdateAction updates the Thing in the DB at the given UUID.
+// UpdateAction updates the Action in the DB at the given UUID.
 func (f *Cassandra) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
+	// Run the query to update the action based on its UUID.
+	err := f.addActionRow(action, UUID, false)
+
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+	}
 
 	// If success return nil, otherwise return the error
-	return nil
+	return err
 }
 
 // DeleteAction deletes the Action in the DB at the given UUID.
-func (f *Cassandra) DeleteAction(UUID strfmt.UUID) error {
-
+func (f *Cassandra) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 	// Run the query to delete the action based on its UUID.
+	err := f.addActionRow(action, UUID, true)
+
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+	}
 
 	// If success return nil, otherwise return the error
-	return nil
+	return err
 }
 
 // AddKey adds a key to the Cassandra database with the given UUID and token.
@@ -473,12 +532,8 @@ func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID)
 		connutils.NowUnix(),
 	)
 
-	if err := query.Exec(); err != nil {
-		return err
-	}
-
 	// If success return nil, otherwise return the error
-	return nil
+	return query.Exec()
 }
 
 // ValidateToken validates/gets a key to the Cassandra database with the given token (=UUID)
@@ -490,12 +545,11 @@ func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyToke
 	// in case the key is not found, return an error like:
 	// return errors_.New("Key not found in database.")
 
-	iter := f.client.Query(fmt.Sprintf(`
-		SELECT * 
-		FROM %s 
-		WHERE %s = ? AND %s['%s'] = ? 
-		LIMIT 1 ALLOW FILTERING
-	`, objectTableName, TypeColumn, PropertiesColumn, `token`), connutils.RefTypeKey, string(token)).Consistency(gocql.One).Iter()
+	iter := f.client.Query(
+		fmt.Sprintf(selectKeyByTokenStatement, objectTableName, TypeColumn, PropertiesColumn, `token`),
+		connutils.RefTypeKey,
+		string(token),
+	).Consistency(gocql.One).Iter()
 
 	err := f.fillResponseWithIter(iter, keyResponse, connutils.RefTypeKey)
 
@@ -514,22 +568,41 @@ func (f *Cassandra) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResp
 
 	err := f.fillResponseWithIter(iter, keyResponse, connutils.RefTypeKey)
 
+	// TODO check deleted
+
 	return err
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
-func (f *Cassandra) DeleteKey(UUID strfmt.UUID) error {
+func (f *Cassandra) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
+	fmt.Println(key)
+	query := f.client.Query(
+		fmt.Sprintf(updateKeyStatement, objectTableName), // TODO Does not work because of missing primary key
+		true,
+		f.convUUIDtoCQLUUID(UUID),
+	)
 
-	return nil
+	err := query.Exec()
+
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+	}
+
+	return err
 }
 
 // GetKeyChildren fills the given KeyTokenGetResponse array with the values from the database, based on the given UUID.
 func (f *Cassandra) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error {
+	// Get row for the key
+	iter := f.client.Query(keyChildrenSelectStatement, string(UUID)).Iter()
 
-	// for examle: `children = [OBJECT-A, OBJECT-B, OBJECT-C]`
-	// Where an OBJECT = models.KeyTokenGetResponse
+	err := f.fillResponseWithIter(iter, children, connutils.RefTypeKey)
 
-	return nil
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+	}
+
+	return err
 }
 
 func (f *Cassandra) convUUIDtoCQLUUID(UUID strfmt.UUID) gocql.UUID {
@@ -549,9 +622,9 @@ func (f *Cassandra) createPropertyCallback(properties *map[string]string, cqlUUI
 		if *dataType == schema.DataTypeBoolean {
 			dataValue = strconv.FormatBool(propValue.(bool))
 		} else if *dataType == schema.DataTypeDate {
-			dataValue = propValue.(string)
+			dataValue = propValue.(time.Time).String()
 		} else if *dataType == schema.DataTypeInt {
-			dataValue = strconv.FormatInt(int64(propValue.(float64)), 10)
+			dataValue = strconv.FormatInt(propValue.(int64), 10)
 		} else if *dataType == schema.DataTypeNumber {
 			dataValue = strconv.FormatFloat(propValue.(float64), 'f', -1, 64)
 		} else if *dataType == schema.DataTypeString {
@@ -590,7 +663,16 @@ func (f *Cassandra) fillResponseWithIter(iter *gocql.Iter, response interface{},
 		p := m[PropertiesColumn].(map[string]string)
 
 		if connutils.RefTypeKey == refType {
-			keyResponse := response.(*models.KeyTokenGetResponse)
+			kr := models.KeyTokenGetResponse{}
+			keyResponse := &kr
+
+			switch response.(type) {
+			case *models.KeyTokenGetResponse:
+				keyResponse = response.(*models.KeyTokenGetResponse)
+			case *[]*models.KeyTokenGetResponse:
+				*response.(*[]*models.KeyTokenGetResponse) = append(*response.(*[]*models.KeyTokenGetResponse), keyResponse)
+			}
+
 			keyResponse.KeyID = f.convCQLUUIDtoUUID(m[UUIDColumn].(gocql.UUID))
 			keyResponse.Delete = connutils.Must(strconv.ParseBool(p["delete"])).(bool)
 			keyResponse.Email = p["email"]
@@ -622,7 +704,7 @@ func (f *Cassandra) fillResponseWithIter(iter *gocql.Iter, response interface{},
 			thingResponse.ThingID = f.convCQLUUIDtoUUID(m[UUIDColumn].(gocql.UUID))
 			thingResponse.AtClass = class
 			thingResponse.AtContext = p["context"]
-			thingResponse.CreationTimeUnix = m[CreationTimeColumn].(time.Time).Unix()
+			thingResponse.CreationTimeUnix = connutils.MakeUnixMillisecond(m[CreationTimeColumn].(time.Time))
 
 			url := f.serverAddress
 			ownerObj := models.SingleRef{
@@ -631,42 +713,58 @@ func (f *Cassandra) fillResponseWithIter(iter *gocql.Iter, response interface{},
 				Type:         connutils.RefTypeKey,
 			}
 			thingResponse.Key = &ownerObj
-			lut := m[LastUpdatedTimeColumn].(time.Time).Unix()
+			lut := connutils.MakeUnixMillisecond(m[LastUpdatedTimeColumn].(time.Time))
 			if lut > 0 {
 				thingResponse.LastUpdateTimeUnix = lut
 			}
 
-			for key, value := range p {
-				if isSchema, propKey, dataType, err := schema.TranslateSchemaPropertiesFromDataBase(key, class, f.schema.ThingSchema.Schema); isSchema {
-					if err != nil {
-						return err
-					}
+			err := f.fillResponseSchema(&responseSchema, p, class, f.schema.ThingSchema.Schema)
 
-					if *dataType == schema.DataTypeBoolean {
-						responseSchema[propKey] = connutils.Must(strconv.ParseBool(value)).(bool)
-					} else if *dataType == schema.DataTypeDate {
-						t, err := time.Parse(time.RFC3339, value)
-
-						// Return if there is an error while parsing
-						if err != nil {
-							return err
-						}
-						responseSchema[propKey] = t
-					} else if *dataType == schema.DataTypeInt {
-						responseSchema[propKey] = connutils.Must(strconv.ParseInt(value, 10, 64)).(int64)
-					} else if *dataType == schema.DataTypeNumber {
-						responseSchema[propKey] = connutils.Must(strconv.ParseFloat(value, 64)).(float64)
-					} else if *dataType == schema.DataTypeString {
-						responseSchema[propKey] = value
-					} else if *dataType == schema.DataTypeCRef {
-						if responseSchema[propKey] == nil {
-							responseSchema[propKey] = f.createCrefObject(p, schema.SchemaPrefix+propKey+".")
-						}
-					}
-				}
+			if err != nil {
+				return err
 			}
 
 			thingResponse.Schema = responseSchema
+		} else if connutils.RefTypeAction == refType {
+			class := m[ClassColumn].(string)
+
+			ar := models.ActionGetResponse{}
+			actionResponse := &ar
+
+			switch response.(type) {
+			case *models.ActionGetResponse:
+				actionResponse = response.(*models.ActionGetResponse)
+			case *models.ActionsListResponse:
+				response.(*models.ActionsListResponse).Actions = append(response.(*models.ActionsListResponse).Actions, actionResponse)
+			}
+
+			actionResponse.ActionID = f.convCQLUUIDtoUUID(m[UUIDColumn].(gocql.UUID))
+			actionResponse.AtClass = class
+			actionResponse.AtContext = p["context"]
+			actionResponse.CreationTimeUnix = connutils.MakeUnixMillisecond(m[CreationTimeColumn].(time.Time))
+			actionResponse.Things = &models.ObjectSubject{}
+			actionResponse.Things.Object = f.createCrefObject(p, "things.object.")
+			actionResponse.Things.Subject = f.createCrefObject(p, "things.subject.")
+
+			url := f.serverAddress
+			ownerObj := models.SingleRef{
+				LocationURL:  &url,
+				NrDollarCref: f.convCQLUUIDtoUUID(m[OwnerColumn].(gocql.UUID)),
+				Type:         connutils.RefTypeKey,
+			}
+			actionResponse.Key = &ownerObj
+			lut := connutils.MakeUnixMillisecond(m[LastUpdatedTimeColumn].(time.Time))
+			if lut > 0 {
+				actionResponse.LastUpdateTimeUnix = lut
+			}
+
+			err := f.fillResponseSchema(&responseSchema, p, class, f.schema.ActionSchema.Schema)
+
+			if err != nil {
+				return err
+			}
+
+			actionResponse.Schema = responseSchema
 		}
 
 		found = true
@@ -678,6 +776,45 @@ func (f *Cassandra) fillResponseWithIter(iter *gocql.Iter, response interface{},
 
 	if !found {
 		return errors_.New("Nothing found")
+	}
+
+	return nil
+}
+
+func (f *Cassandra) fillResponseSchema(responseSchema *map[string]interface{}, p map[string]string, class string, schemaType *models.SemanticSchema) error {
+	for key, value := range p {
+		if isSchema, propKey, dataType, err := schema.TranslateSchemaPropertiesFromDataBase(key, class, schemaType); isSchema {
+			if err != nil {
+				return err
+			}
+
+			if *dataType == schema.DataTypeBoolean {
+				(*responseSchema)[propKey] = connutils.Must(strconv.ParseBool(value)).(bool)
+			} else if *dataType == schema.DataTypeDate {
+				t, err := time.Parse(time.RFC3339, value)
+
+				// Return if there is an error while parsing
+				if err != nil {
+					return err
+				}
+				(*responseSchema)[propKey] = t
+			} else if *dataType == schema.DataTypeInt {
+				(*responseSchema)[propKey] = connutils.Must(strconv.ParseInt(value, 10, 64)).(int64)
+			} else if *dataType == schema.DataTypeNumber {
+				(*responseSchema)[propKey] = connutils.Must(strconv.ParseFloat(value, 64)).(float64)
+			} else if *dataType == schema.DataTypeString {
+				(*responseSchema)[propKey] = value
+			} else if *dataType == schema.DataTypeCRef {
+				if (*responseSchema)[propKey] == nil {
+					in := f.createCrefObject(p, schema.SchemaPrefix+propKey+".")
+					// Rewrite to interface because thats how we also get it when it is recieved as JSON
+					var inInterface map[string]interface{}
+					inrec, _ := json.Marshal(in)
+					json.Unmarshal(inrec, &inInterface)
+					(*responseSchema)[propKey] = inInterface
+				}
+			}
+		}
 	}
 
 	return nil
@@ -744,4 +881,86 @@ func (f *Cassandra) parseWhereFilters(wheres []*connutils.WhereQuery, useWhere b
 	}
 
 	return filterWheres
+}
+
+func (f *Cassandra) addThingRow(thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
+	// Parse UUID in Cassandra type
+	cqlUUID := f.convUUIDtoCQLUUID(UUID)
+
+	properties := map[string]string{}
+	properties["context"] = thing.AtContext
+
+	// Add Object properties using a callback
+	callback := f.createPropertyCallback(&properties, cqlUUID, thing.AtClass)
+	err := schema.UpdateObjectSchemaProperties(connutils.RefTypeThing, thing, thing.Schema, f.schema, callback)
+
+	if err != nil {
+		return err
+	}
+
+	// Check whether last updated time is set, otherwise 'nil'
+	var lut interface{}
+	lut = thing.LastUpdateTimeUnix
+	if lut.(int64) <= 0 {
+		lut = nil
+	}
+	query := f.client.Query(
+		fmt.Sprintf(insertStatement, objectTableName),
+		gocql.TimeUUID(),
+		cqlUUID,
+		connutils.RefTypeThing,
+		thing.AtClass,
+		thing.CreationTimeUnix,
+		lut,
+		f.convUUIDtoCQLUUID(thing.Key.NrDollarCref),
+		properties,
+		deleted,
+		connutils.NowUnix(),
+	)
+
+	return query.Exec()
+}
+
+func (f *Cassandra) addActionRow(action *models.Action, UUID strfmt.UUID, deleted bool) error {
+	// Parse UUID in Cassandra type
+	cqlUUID := f.convUUIDtoCQLUUID(UUID)
+
+	properties := map[string]string{}
+	properties["context"] = action.AtContext
+	properties["things.object.location_url"] = *action.Things.Object.LocationURL
+	properties["things.object.cref"] = string(action.Things.Object.NrDollarCref)
+	properties["things.object.type"] = action.Things.Object.Type
+	properties["things.subject.location_url"] = *action.Things.Subject.LocationURL
+	properties["things.subject.cref"] = string(action.Things.Subject.NrDollarCref)
+	properties["things.subject.type"] = action.Things.Subject.Type
+
+	// Add Object properties using a callback
+	callback := f.createPropertyCallback(&properties, cqlUUID, action.AtClass)
+	err := schema.UpdateObjectSchemaProperties(connutils.RefTypeAction, action, action.Schema, f.schema, callback)
+
+	if err != nil {
+		return err
+	}
+
+	// Check whether last updated time is set, otherwise 'nil'
+	var lut interface{}
+	lut = action.LastUpdateTimeUnix
+	if lut.(int64) <= 0 {
+		lut = nil
+	}
+	query := f.client.Query(
+		fmt.Sprintf(insertStatement, objectTableName),
+		gocql.TimeUUID(),
+		cqlUUID,
+		connutils.RefTypeAction,
+		action.AtClass,
+		action.CreationTimeUnix,
+		lut,
+		f.convUUIDtoCQLUUID(action.Key.NrDollarCref),
+		properties,
+		deleted,
+		connutils.NowUnix(),
+	)
+
+	return query.Exec()
 }

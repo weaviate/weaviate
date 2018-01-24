@@ -240,7 +240,7 @@ func (f *Foobar) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // DeleteThing deletes the Thing in the DB at the given UUID.
-func (f *Foobar) DeleteThing(UUID strfmt.UUID) error {
+func (f *Foobar) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 	// Run the query to delete the thing based on its UUID.
 
@@ -283,7 +283,7 @@ func (f *Foobar) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 }
 
 // DeleteAction deletes the Action in the DB at the given UUID.
-func (f *Foobar) DeleteAction(UUID strfmt.UUID) error {
+func (f *Foobar) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 
 	// Run the query to delete the action based on its UUID.
 
@@ -322,7 +322,7 @@ func (f *Foobar) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetRespons
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
-func (f *Foobar) DeleteKey(UUID strfmt.UUID) error {
+func (f *Foobar) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
 	f.trace()
 	return nil
 }
