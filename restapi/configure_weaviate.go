@@ -190,7 +190,13 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 
 	// Delete for every child
 	for _, keyID := range allIDs {
-		go databaseConnector.DeleteKey(keyID)
+		// Initialize response
+		keyResponse := models.KeyTokenGetResponse{}
+
+		// Get the key to delete
+		dbConnector.GetKey(keyID, &keyResponse)
+
+		go databaseConnector.DeleteKey(&keyResponse.Key, keyID)
 	}
 }
 
@@ -510,10 +516,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		action.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := dbConnector.AddAction(action, UUID)
-		if insertErr != nil {
-			messaging.ErrorMessage(insertErr)
-		}
+		go dbConnector.AddAction(action, UUID)
+		// if insertErr != nil {
+		// 	messaging.ErrorMessage(insertErr)
+		// }
 
 		// Initialize a response object
 		responseObject := &models.ActionGetResponse{}
@@ -542,8 +548,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
+		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
+
 		// Add new row as GO-routine
-		go dbConnector.DeleteAction(params.ActionID)
+		go dbConnector.DeleteAction(&actionGetResponse.Action, params.ActionID)
 
 		// Return 'No Content'
 		return actions.NewWeaviateActionsDeleteNoContent()
@@ -763,15 +771,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionsExist := true
 		for actionsExist {
 			actions := models.ActionsListResponse{}
+			actions.Actions = []*models.ActionGetResponse{}
 			dbConnector.ListActions(params.ThingID, 50, 0, []*connutils.WhereQuery{}, &actions)
 			for _, v := range actions.Actions {
-				go dbConnector.DeleteAction(v.ActionID)
+				go dbConnector.DeleteAction(&v.Action, v.ActionID)
 			}
 			actionsExist = actions.TotalResults > 0
 		}
 
+		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
+
 		// Add new row as GO-routine
-		go dbConnector.DeleteThing(params.ThingID)
+		go dbConnector.DeleteThing(&thingGetResponse.Thing, params.ThingID)
 
 		// Return 'No Content'
 		return things.NewWeaviateThingsDeleteNoContent()
@@ -915,6 +926,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
+		params.Body.Key = thingGetResponse.Key
 		insertErr := dbConnector.UpdateThing(&params.Body.Thing, UUID)
 		if insertErr != nil {
 			messaging.ErrorMessage(insertErr)

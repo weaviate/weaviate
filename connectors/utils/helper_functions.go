@@ -99,7 +99,12 @@ func Trace() {
 
 // NowUnix returns the current Unix time
 func NowUnix() int64 {
-	return time.Now().UnixNano() / int64(time.Millisecond)
+	return MakeUnixMillisecond(time.Now())
+}
+
+// MakeUnixMillisecond returns the milisecond unix-version of the given time
+func MakeUnixMillisecond(t time.Time) int64 {
+	return t.UnixNano() / int64(time.Millisecond)
 }
 
 // GenerateUUID returns a new UUID

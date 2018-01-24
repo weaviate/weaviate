@@ -37,18 +37,18 @@ type DatabaseConnector interface {
 	GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
 	ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
 	UpdateThing(thing *models.Thing, UUID strfmt.UUID) error
-	DeleteThing(UUID strfmt.UUID) error
+	DeleteThing(thing *models.Thing, UUID strfmt.UUID) error
 
 	AddAction(action *models.Action, UUID strfmt.UUID) error
 	GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error
 	ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error
 	UpdateAction(action *models.Action, UUID strfmt.UUID) error
-	DeleteAction(UUID strfmt.UUID) error
+	DeleteAction(action *models.Action, UUID strfmt.UUID) error
 
 	AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error
 	ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse) error
 	GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error
-	DeleteKey(UUID strfmt.UUID) error
+	DeleteKey(key *models.Key, UUID strfmt.UUID) error
 	GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error
 }
 
