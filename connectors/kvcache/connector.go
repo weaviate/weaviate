@@ -216,14 +216,31 @@ func (f *KVCache) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) e
 }
 
 // ValidateToken function
-func (f *KVCache) ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse) error {
+func (f *KVCache) ValidateToken(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	// Delete from cache before updating, otherwise the old version still exists
-	ck := fmt.Sprintf("Key#%s", UUID)
-	f.cache.Delete(ck)
+	// Create a cache key
+	ck := fmt.Sprintf("KeyToken#%s", UUID)
 
-	return f.databaseConnector.ValidateToken(UUID, key)
+	// Get the item from the cache
+	v, found := f.cache.Get(ck)
+
+	// If it is found in the cache, set the response pointer to the same key as in the cache is pointed to
+	if found {
+		*keyResponse = *v.(*models.KeyTokenGetResponse)
+
+		return nil
+	}
+
+	// If not found, get it from the DB
+	err := f.databaseConnector.ValidateToken(UUID, keyResponse)
+
+	// If no error is given, set the pointer in the cache on the created key
+	if err == nil {
+		f.cache.Set(ck, keyResponse, 0)
+	}
+
+	return err
 }
 
 // GetKey function
@@ -231,10 +248,10 @@ func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetRespon
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Create a cache key
-	key := fmt.Sprintf("Key#%s", UUID)
+	ck := fmt.Sprintf("Key#%s", UUID)
 
 	// Get the item from the cache
-	v, found := f.cache.Get(key)
+	v, found := f.cache.Get(ck)
 
 	// If it is found in the cache, set the response pointer to the same key as in the cache is pointed to
 	if found {
@@ -248,7 +265,7 @@ func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetRespon
 
 	// If no error is given, set the pointer in the cache on the created key
 	if err == nil {
-		f.cache.Set(key, keyResponse, 0)
+		f.cache.Set(ck, keyResponse, 0)
 	}
 
 	return err
@@ -259,8 +276,15 @@ func (f *KVCache) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Delete from cache before updating, otherwise the old version still exists
-	cacheKey := fmt.Sprintf("Key#%s", UUID)
-	f.cache.Delete(cacheKey)
+	ck := fmt.Sprintf("Key#%s", UUID)
+	f.cache.Delete(ck)
+
+	// Also remove the 'token'-cache, by loading the key first
+	keyResponse := &models.KeyTokenGetResponse{}
+	f.GetKey(UUID, keyResponse)
+
+	ctk := fmt.Sprintf("KeyToken#%s", keyResponse.Token)
+	f.cache.Delete(ctk)
 
 	return f.databaseConnector.DeleteKey(key, UUID)
 }
