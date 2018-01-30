@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
@@ -1003,6 +1004,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
 	})
 	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal interface{}) middleware.Responder {
+		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL resolving")
 
 		// Get all input from the body of the request, as it is a POST.

@@ -120,6 +120,7 @@ const listSelectStatement = `
 	FROM ` + objectTableName + ` 
 	WHERE ` + OwnerColumn + ` = ?
 	%s
+	LIMIT ?
 	ALLOW FILTERING
 `
 
@@ -128,6 +129,7 @@ const listActionsSelectStatement = `
 	FROM ` + objectTableName + ` 
 	WHERE ` + PropertiesColumn + `['things.object.cref'] = ?
 	%s
+	LIMIT ?
 	ALLOW FILTERING
 `
 
@@ -382,9 +384,11 @@ func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres 
 	// TODO List return most recents
 	// TODO Dont show deleted
 
+	defer f.messaging.TimeTrack(time.Now())
+
 	whereFilter := f.parseWhereFilters(wheres, false)
 
-	iter := f.client.Query(fmt.Sprintf(listSelectStatement, whereFilter), string(keyID)).Iter()
+	iter := f.client.Query(fmt.Sprintf(listSelectStatement, whereFilter), string(keyID), first).Iter()
 
 	err := f.fillResponseWithIter(iter, thingsResponse, connutils.RefTypeThing)
 	thingsResponse.TotalResults = 0 // TODO
@@ -457,7 +461,7 @@ func (f *Cassandra) ListActions(UUID strfmt.UUID, first int, offset int, wheres 
 
 	whereFilter := f.parseWhereFilters(wheres, false)
 
-	iter := f.client.Query(fmt.Sprintf(listActionsSelectStatement, whereFilter), string(UUID)).Iter()
+	iter := f.client.Query(fmt.Sprintf(listActionsSelectStatement, whereFilter), string(UUID), first).Iter()
 
 	err := f.fillResponseWithIter(iter, actionsResponse, connutils.RefTypeAction)
 	actionsResponse.TotalResults = 0 // TODO
@@ -538,7 +542,6 @@ func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID)
 
 // ValidateToken validates/gets a key to the Cassandra database with the given token (=UUID)
 func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
-
 	// key (= models.KeyTokenGetResponse) should be populated with the response that comes from the DB.
 	// key = based on the ontology
 

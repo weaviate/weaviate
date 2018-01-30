@@ -16,8 +16,6 @@ package graphqlapi
 import (
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -65,6 +63,8 @@ func (f *GraphQLSchema) SetKey(key models.KeyTokenGetResponse) {
 
 // GetGraphQLSchema returns the schema if it is set
 func (f *GraphQLSchema) GetGraphQLSchema() (graphql.Schema, error) {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Return the schema, note that InitSchema has to be runned before this could be used
 	if &f.weaviateGraphQLSchema == nil {
 		return graphql.Schema{}, errors.New("schema is not initialized, perhaps you forget to run 'InitSchema'")
@@ -75,6 +75,8 @@ func (f *GraphQLSchema) GetGraphQLSchema() (graphql.Schema, error) {
 
 // InitSchema the GraphQL schema
 func (f *GraphQLSchema) InitSchema() error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Create the interface to which all objects (Key, Thing and Action) must comply
 	objectInterface := graphql.NewInterface(graphql.InterfaceConfig{
 		Name:        "WeaviateObject",
@@ -809,6 +811,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					},
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					defer f.messaging.TimeTrack(time.Now())
 					// Initialize the thing response
 					thingsResponse := &models.ThingsListResponse{}
 
@@ -963,36 +966,10 @@ func GetSubQuery(selections []ast.Selection) string {
 	return collectQuery
 }
 
-// Request function
-func doRequest(hostname string, endpoint string, method string, body io.Reader, apiKey string) (*http.Response, error) {
-	// Set the HTTP Transport information
-	tr := &http.Transport{
-		MaxIdleConns:       10,
-		IdleConnTimeout:    30 * time.Second,
-		DisableCompression: true,
-	}
-
-	// Init client
-	client := &http.Client{Transport: tr}
-
-	// Set-up the request
-	req, _ := http.NewRequest(method, "http://"+hostname+"/"+endpoint, body)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	// Add the API-key into the headers
-	if apiKey != "" {
-		req.Header.Set("X-API-KEY", apiKey)
-	}
-
-	// Get the response
-	response, err := client.Do(req)
-
-	return response, err
-}
-
 // buildFieldsBySchema builds a GraphQL fields object for the given fields
 func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.Fields, error) {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Init the fields for the return of the function
 	fields := graphql.Fields{}
 
@@ -1115,6 +1092,8 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.
 
 // resolveCrossRef Resolves a Cross reference
 func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.SingleRef, objectLoaded interface{}) error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	var err error
 
 	// if f.serverConfig.GetHostAddress() != *cref.LocationURL {

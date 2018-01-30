@@ -24,6 +24,9 @@
                     "port": 7000
                 }
             },
+            "cache": {
+                "name": "kv-cache"
+            },
             "schemas": {
                 "Thing": "https://raw.githubusercontent.com/ING-Internet-of-Things/Smart-Building-Ontology/develop/thing_schema.json",
                 "Action": "test/schema/test-action-schema.json"
