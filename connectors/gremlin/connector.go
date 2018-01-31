@@ -387,6 +387,14 @@ func (f *Gremlin) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespo
 	return nil
 }
 
+// GetThings fills the given []ThingGetResponse with the values from the database, based on the given UUIDs.
+func (f *Gremlin) GetThings(UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error {
+	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
+
+	// If success return nil, otherwise return the error
+	return nil
+}
+
 // ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
 func (f *Gremlin) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 
