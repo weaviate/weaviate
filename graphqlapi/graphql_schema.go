@@ -14,6 +14,7 @@
 package graphqlapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/gqlerrors"
 	ast "github.com/graphql-go/graphql/language/ast"
+	"gopkg.in/nicksrandall/dataloader.v5"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors"
@@ -39,6 +41,8 @@ type GraphQLSchema struct {
 	dbConnector           dbconnector.DatabaseConnector
 	usedKey               models.KeyTokenGetResponse
 	messaging             *messages.Messaging
+	thingsDataLoader      *dataloader.Loader
+	context               context.Context
 }
 
 // NewGraphQLSchema create a new schema object
@@ -49,6 +53,41 @@ func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverCon
 	gqls.serverConfig = serverConfig
 	gqls.serverSchema = serverSchema
 	gqls.messaging = m
+	gqls.context = context.Background()
+
+	///// RESOLVER DATALOADER TEST
+	// setup batch function
+	batchFn := func(ctx context.Context, keys dataloader.Keys) []*dataloader.Result {
+		results := []*dataloader.Result{}
+		// do some aync work to get data for specified keys
+		// append to this list resolved values
+		things, err := func(keys dataloader.Keys) (things *models.ThingsListResponse, err error) {
+			things = &models.ThingsListResponse{}
+
+			UUIDs := []strfmt.UUID{}
+
+			for _, v := range keys {
+				UUIDs = append(UUIDs, strfmt.UUID(v.String()))
+			}
+
+			err = databaseConnector.GetThings(UUIDs, things)
+
+			return
+		}(keys)
+
+		for _, v := range things.Things {
+			results = append(results, &dataloader.Result{v, err})
+		}
+		return results
+	}
+
+	// create Loader with an in-memory cache
+	gqls.thingsDataLoader = dataloader.NewBatchedLoader(
+		batchFn,
+		dataloader.WithWait(50*time.Millisecond),
+		dataloader.WithBatchCapacity(100),
+	)
+	//////// END DATALOADERTEST
 
 	// Return the schema, note that InitSchema has to be runned before this could be used
 	return gqls
@@ -780,6 +819,7 @@ func (f *GraphQLSchema) InitSchema() error {
 
 					// Do a request on the database to get the Thing
 					err := f.dbConnector.GetThing(UUID, thingResponse)
+
 					if err != nil {
 						return thingResponse, err
 					}
@@ -1063,10 +1103,12 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.
 
 								// Return found
 								return thingResponse, nil
+							} else {
+								return nil, errors.New("Invalid type for CREF")
 							}
 
-							// Return nothing
-							return nil, nil
+							// // Return nothing
+							// return nil, nil
 						}
 
 						// Return parsing error
@@ -1096,13 +1138,24 @@ func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.Single
 
 	var err error
 
+	// TODO enable
 	// if f.serverConfig.GetHostAddress() != *cref.LocationURL {
 	// 	// Return an error because you want to connect to other server. You need an license.
 	// 	err = errors.New("a license for connection to another Weaviate-instance is required in order to resolve this query further")
 	// } else {
 	// Check whether the request has to be done for key, thing or action types
 	if cref.Type == "Thing" {
-		err = f.dbConnector.GetThing(cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
+		// DATALOADER TEST
+		var result interface{}
+		// StringKey is a convenience method that make wraps string to implement `Key` interface
+		thunk := f.thingsDataLoader.Load(f.context, dataloader.StringKey(string(cref.NrDollarCref)))
+		result, err = thunk()
+
+		objectLoaded.(*models.ThingGetResponse).Thing = result.(*models.ThingGetResponse).Thing
+		objectLoaded.(*models.ThingGetResponse).ThingID = result.(*models.ThingGetResponse).ThingID
+		// END DATALOADER TEST
+
+		// err = f.dbConnector.GetThing(cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
 	} else if cref.Type == "Action" {
 		err = f.dbConnector.GetAction(cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
 	} else if cref.Type == "Key" {

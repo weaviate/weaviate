@@ -115,6 +115,14 @@ func (f *KVCache) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespo
 	return err
 }
 
+// GetThings fills the given []ThingGetResponse with the values from the database, based on the given UUIDs.
+func (f *KVCache) GetThings(UUIDs []strfmt.UUID, thingsResponse *models.ThingsListResponse) error {
+	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
+
+	err := f.databaseConnector.GetThings(UUIDs, thingsResponse)
+	return err
+}
+
 // ListThings function
 func (f *KVCache) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 	defer f.messaging.TimeTrack(time.Now())

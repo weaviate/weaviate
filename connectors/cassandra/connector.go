@@ -36,7 +36,7 @@ After creating the connector, make sure to add the name of the connector to: fun
 package cassandra
 
 import (
-	"encoding/json"
+	// "encoding/json"
 	errors_ "errors"
 	"fmt"
 	"strconv"
@@ -113,6 +113,12 @@ const selectStatement = `
 	SELECT *
 	FROM ` + objectTableName + ` 
 	WHERE uuid = ?
+`
+
+const selectInStatement = `
+	SELECT *
+	FROM ` + objectTableName + ` 
+	WHERE uuid IN ?
 `
 
 const listSelectStatement = `
@@ -298,7 +304,7 @@ func (f *Cassandra) Init() error {
 			` + PropertiesColumn + ` map<text, text>,
 			` + DeletedColumn + ` boolean, 
 			` + TimeStampColumn + ` timestamp,
-			PRIMARY KEY (` + IDColumn + `, ` + TimeStampColumn + `, ` + CreationTimeColumn + `)
+			PRIMARY KEY (` + UUIDColumn + `, ` + TimeStampColumn + `)
 		)`)).Exec()
 
 	if err != nil {
@@ -306,7 +312,7 @@ func (f *Cassandra) Init() error {
 	}
 
 	// Create all indexes
-	indexes := []string{UUIDColumn, ClassColumn}
+	indexes := []string{ClassColumn}
 	for _, prop := range indexes {
 		if err := f.client.Query(fmt.Sprintf(`
 			CREATE INDEX IF NOT EXISTS object_%s ON object_data (%s);
@@ -364,6 +370,8 @@ func (f *Cassandra) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 // GetThing fills the given ThingGetResponse with the values from the database, based on the given UUID.
 func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+	f.messaging.DebugMessage(fmt.Sprintf("GetThing: %s", UUID))
+
 	// Get the iterator
 	iter := f.getSelectIteratorByUUID(UUID)
 
@@ -373,6 +381,25 @@ func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRes
 	if err != nil {
 		f.messaging.ErrorMessage(err)
 	}
+
+	// If success return nil, otherwise return the error
+	return err
+}
+
+// GetThings fills the given ThingGetResponse with the values from the database, based on the given UUID.
+func (f *Cassandra) GetThings(UUIDs []strfmt.UUID, thingsResponse *models.ThingsListResponse) error {
+	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
+
+	cqlUUIDs := []gocql.UUID{}
+
+	for _, UUID := range UUIDs {
+		cqlUUIDs = append(cqlUUIDs, f.convUUIDtoCQLUUID(UUID))
+	}
+
+	query := f.client.Query(selectInStatement, cqlUUIDs)
+	iter := query.Iter()
+
+	err := f.fillResponseWithIter(iter, thingsResponse, connutils.RefTypeThing)
 
 	// If success return nil, otherwise return the error
 	return err
@@ -627,7 +654,12 @@ func (f *Cassandra) createPropertyCallback(properties *map[string]string, cqlUUI
 		} else if *dataType == schema.DataTypeDate {
 			dataValue = propValue.(time.Time).String()
 		} else if *dataType == schema.DataTypeInt {
-			dataValue = strconv.FormatInt(propValue.(int64), 10)
+			switch propValue.(type) {
+			case int64:
+				dataValue = strconv.FormatInt(propValue.(int64), 10)
+			case float64:
+				dataValue = strconv.FormatInt(int64(propValue.(float64)), 10)
+			}
 		} else if *dataType == schema.DataTypeNumber {
 			dataValue = strconv.FormatFloat(propValue.(float64), 'f', -1, 64)
 		} else if *dataType == schema.DataTypeString {
@@ -809,12 +841,7 @@ func (f *Cassandra) fillResponseSchema(responseSchema *map[string]interface{}, p
 				(*responseSchema)[propKey] = value
 			} else if *dataType == schema.DataTypeCRef {
 				if (*responseSchema)[propKey] == nil {
-					in := f.createCrefObject(p, schema.SchemaPrefix+propKey+".")
-					// Rewrite to interface because thats how we also get it when it is recieved as JSON
-					var inInterface map[string]interface{}
-					inrec, _ := json.Marshal(in)
-					json.Unmarshal(inrec, &inInterface)
-					(*responseSchema)[propKey] = inInterface
+					(*responseSchema)[propKey] = f.createCrefObject(p, schema.SchemaPrefix+propKey+".")
 				}
 			}
 		}
