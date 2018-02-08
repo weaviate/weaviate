@@ -13,7 +13,7 @@
                 "Thing": "test/schema/test-thing-schema.json",
                 "Action": "test/schema/test-action-schema.json"
             },
-            "mqttEnabled": false
+            "mqttEnabled": false    
         },
         {
             "name": "cassandra",
@@ -26,6 +26,38 @@
             },
             "schemas": {
                 "Thing": "https://raw.githubusercontent.com/ING-Internet-of-Things/Smart-Building-Ontology/develop/thing_schema.json",
+                "Action": "test/schema/test-action-schema.json"
+            },
+            "mqttEnabled": false,
+            "debug": true
+        },
+        {
+            "name": "cassandra-map",
+            "database": {
+                "name": "cassandra-map",
+                "database_config" : {
+                    "host": "127.0.0.1",
+                    "port": 7000
+                }
+            },
+            "schemas": {
+                "Thing": "test/schema/test-thing-schema.json",
+                "Action": "test/schema/test-action-schema.json"
+            },
+            "mqttEnabled": false,
+            "debug": true
+        },
+        {
+            "name": "cassandra-wide",
+            "database": {
+                "name": "cassandra-wide",
+                "database_config" : {
+                    "host": "127.0.0.1",
+                    "port": 7000
+                }
+            },
+            "schemas": {
+                "Thing": "test/schema/test-thing-schema.json",
                 "Action": "test/schema/test-action-schema.json"
             },
             "mqttEnabled": false,

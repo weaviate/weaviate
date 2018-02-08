@@ -11,28 +11,6 @@
  * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
  */
 
-/*
- * THIS IS A DEMO CONNECTOR!
- * USE IT TO LEARN HOW TO CREATE YOUR OWN CONNECTOR.
- */
-
-/*
-When starting Weaviate, functions are called in the following order;
-(find the function in this document to understand what it is that they do)
- - GetName
- - SetConfig
- - SetSchema
- - SetMessaging
- - SetServerAddress
- - Connect
- - Init
-
-All other function are called on the API request
-
-After creating the connector, make sure to add the name of the connector to: func GetAllConnectors() in configure_weaviate.go
-
-*/
-
 package cassandra
 
 import (
@@ -293,7 +271,7 @@ func (f *Cassandra) Connect() error {
 func (f *Cassandra) Init() error {
 	// Add table 'object_data'
 	err := f.client.Query(fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS object_data (
+		CREATE TABLE IF NOT EXISTS ` + objectTableName + ` (
 			` + IDColumn + ` UUID, 
 			` + UUIDColumn + ` UUID, 
 			` + TypeColumn + ` text, 
@@ -315,7 +293,7 @@ func (f *Cassandra) Init() error {
 	indexes := []string{ClassColumn}
 	for _, prop := range indexes {
 		if err := f.client.Query(fmt.Sprintf(`
-			CREATE INDEX IF NOT EXISTS object_%s ON object_data (%s);
+			CREATE INDEX IF NOT EXISTS object_%s ON `+objectTableName+` (%s);
 			`, prop, prop)).Exec(); err != nil {
 
 			return err
