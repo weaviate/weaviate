@@ -20,11 +20,11 @@ Semantic Graphql, RESTful and Websocket Web of Things platform.
       https
     Host: localhost
     BasePath: /weaviate/v1
-    Version: 0.7.2
+    Version: 0.7.4
     Contact: Weaviate<yourfriends@weaviate.com> https://weaviate.com
 
     Consumes:
-    - application/json-patch+json
+    - application/json
     - application/octet-stream
     - application/x-www-form-urlencoded
     - application/x-yaml
