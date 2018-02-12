@@ -44,8 +44,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors"
 	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra"
-	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra-map"
-	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra-wide"
 	"github.com/creativesoftwarefdn/weaviate/connectors/foobar"
 	"github.com/creativesoftwarefdn/weaviate/connectors/kvcache"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
@@ -208,8 +206,6 @@ func GetAllConnectors() []dbconnector.DatabaseConnector {
 	connectors := []dbconnector.DatabaseConnector{
 		&foobar.Foobar{},
 		&cassandra.Cassandra{},
-		&cassandramap.Cassandra{},
-		&cassandrawide.Cassandra{},
 	}
 
 	return connectors

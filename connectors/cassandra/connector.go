@@ -72,20 +72,20 @@ const DeletedColumn string = "deleted"
 const TimeStampColumn string = "timestamp"
 
 // Global insert statement
-const insertStatement = `
-	INSERT INTO %v (
-		` + IDColumn + `, 
-		` + UUIDColumn + `, 
-		` + TypeColumn + `, 
-		` + ClassColumn + `, 
-		` + CreationTimeColumn + `,
-		` + LastUpdatedTimeColumn + `, 
-		` + OwnerColumn + `, 
-		` + PropertiesColumn + `,
-		` + DeletedColumn + `,
-		` + TimeStampColumn + `) 
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+const insertKeyStatement = `
+	INSERT INTO weaviate.keys (
+		key_token, 
+		key_uuid, 
+		parent, 
+		root,
+		allow_read, 
+		allow_write, 
+		allow_delete,
+		allow_execute ) 
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
+
+const insertStatement = ``
 
 const selectStatement = `
 	SELECT *
@@ -132,17 +132,14 @@ const updateKeyStatement = `
 
 const selectKeyByTokenStatement = `
 	SELECT * 
-	FROM %s 
-	WHERE %s = ? AND %s['%s'] = ? 
-	LIMIT 1 
-	ALLOW FILTERING
+	FROM weaviate.keys_by_token
+	WHERE key_token = ?
 `
 
 const selectRootKeyStatement = `
-	SELECT COUNT(id) AS rootCount 
-	FROM %s WHERE %s = ? 
-	AND %s['%s'] = ? 
-	ALLOW FILTERING
+	SELECT COUNT(key_uuid) AS rootCount 
+	FROM weaviate.keys 
+	WHERE root = true
 `
 
 // Cassandra has some basic variables.
@@ -269,33 +266,144 @@ func (f *Cassandra) Connect() error {
 
 // Init 1st initializes the schema in the database and 2nd creates a root key.
 func (f *Cassandra) Init() error {
-	// Add table 'object_data'
-	err := f.client.Query(fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS ` + objectTableName + ` (
-			` + IDColumn + ` UUID, 
-			` + UUIDColumn + ` UUID, 
-			` + TypeColumn + ` text, 
-			` + ClassColumn + ` text,
-			` + CreationTimeColumn + ` timestamp, 
-			` + LastUpdatedTimeColumn + ` timestamp, 
-			` + OwnerColumn + ` UUID, 
-			` + PropertiesColumn + ` map<text, text>,
-			` + DeletedColumn + ` boolean, 
-			` + TimeStampColumn + ` timestamp,
-			PRIMARY KEY (` + UUIDColumn + `, ` + TimeStampColumn + `)
-		)`)).Exec()
+	// DROP TABLE IF EXISTS weaviate.keys;
+	// DROP MATERIALIZED VIEW IF EXISTS weaviate.keys_by_token;
+	// DROP MATERIALIZED VIEW IF EXISTS weaviate.keys_by_parent;
+	// DROP TABLE IF EXISTS weaviate.things;
+	// DROP TABLE IF EXISTS weaviate.things_property_history;
+	// DROP MATERIALIZED VIEW IF EXISTS weaviate.things_class_search;
+	// DROP TABLE IF EXISTS weaviate.things_key_value_search;
+	// DROP TABLE IF EXISTS weaviate.actions;
+	// DROP TABLE IF EXISTS weaviate.actions_property_history;
+	// DROP MATERIALIZED VIEW IF EXISTS weaviate.actions_class_search;
+	// DROP TABLE IF EXISTS weaviate.actions_key_value_search;
+
+	// Add table for 'keys'
+
+	// TODO SOMETHING LIKE:
+	// has_read_access_to set<uuid>,
+	// has_write_access_to set<uuid>,
+	// has_delete_access_to set<uuid>,
+	// has_execute_access_to set<uuid>,
+	err := f.client.Query(`
+		CREATE TABLE IF NOT EXISTS weaviate.keys (
+			key_token uuid,
+			key_uuid uuid,
+			parent uuid,
+			root boolean,
+			allow_read boolean,
+			allow_write boolean,
+			allow_delete boolean,
+			allow_execute boolean,
+			PRIMARY KEY (key_uuid, root)
+		);
+	`).Exec()
 
 	if err != nil {
 		return err
 	}
 
-	// Create all indexes
-	indexes := []string{ClassColumn}
-	for _, prop := range indexes {
-		if err := f.client.Query(fmt.Sprintf(`
-			CREATE INDEX IF NOT EXISTS object_%s ON `+objectTableName+` (%s);
-			`, prop, prop)).Exec(); err != nil {
+	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_root ON weaviate.keys (root);`).Exec()
 
+	if err != nil {
+		return err
+	}
+
+	err = f.client.Query(`
+		CREATE MATERIALIZED VIEW IF NOT EXISTS weaviate.keys_by_token 
+		AS SELECT *
+		FROM weaviate.keys 
+		WHERE key_token IS NOT NULL AND key_uuid IS NOT NULL AND root IS NOT NULL
+		PRIMARY KEY (key_token, key_uuid, root);`).Exec()
+
+	if err != nil {
+		return err
+	}
+
+	err = f.client.Query(`
+		CREATE MATERIALIZED VIEW IF NOT EXISTS weaviate.keys_by_parent 
+		AS SELECT *
+		FROM weaviate.keys 
+		WHERE parent IS NOT NULL AND key_uuid IS NOT NULL AND root IS NOT NULL
+		PRIMARY KEY (parent, key_uuid, root);`).Exec()
+
+	if err != nil {
+		return err
+	}
+
+	for nodeTypeKey, nodeTypeValue := range map[string]string{"thing": "things", "action": "actions"} {
+		err = f.client.Query(`
+			CREATE TABLE IF NOT EXISTS weaviate.` + nodeTypeValue + ` (
+				owner_uuid uuid,
+				` + nodeTypeKey + `_uuid uuid,
+				deleted boolean,
+				creation_time timestamp,
+				last_update_time timestamp,
+				class text,
+				properties map<text, text>,
+				PRIMARY KEY (` + nodeTypeKey + `_uuid, owner_uuid, creation_time)
+			) WITH CLUSTERING ORDER BY (owner_uuid ASC, creation_time DESC);
+		`).Exec()
+
+		if err != nil {
+			return err
+		}
+
+		err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_deleted ON weaviate.` + nodeTypeValue + ` (deleted);`).Exec()
+
+		if err != nil {
+			return err
+		}
+
+		err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_owner_uuid ON weaviate.` + nodeTypeValue + ` (owner_uuid);`).Exec()
+
+		if err != nil {
+			return err
+		}
+
+		err = f.client.Query(`
+			CREATE TABLE IF NOT EXISTS weaviate.` + nodeTypeValue + `_property_history (
+				` + nodeTypeKey + `_uuid uuid,
+				key_uuid uuid,
+				creation_time timestamp,
+				properties map<text, text>,
+				PRIMARY KEY (` + nodeTypeKey + `_uuid, creation_time)
+			) WITH CLUSTERING ORDER BY (creation_time DESC);
+		`).Exec()
+
+		if err != nil {
+			return err
+		}
+
+		err = f.client.Query(`
+			CREATE MATERIALIZED VIEW IF NOT EXISTS weaviate.` + nodeTypeValue + `_class_search
+			AS SELECT *
+			FROM weaviate.` + nodeTypeValue + ` 
+			WHERE class IS NOT NULL AND ` + nodeTypeKey + `_uuid IS NOT NULL AND owner_uuid IS NOT NULL AND creation_time IS NOT NULL
+			PRIMARY KEY (class, ` + nodeTypeKey + `_uuid, owner_uuid, creation_time);
+		`).Exec()
+
+		if err != nil {
+			return err
+		}
+
+		err = f.client.Query(`
+			CREATE TABLE IF NOT EXISTS weaviate.` + nodeTypeValue + `_key_value_search (
+				property_key text,
+				property_value text,
+				` + nodeTypeKey + `_uuid uuid,
+				key_uuid uuid,
+				PRIMARY KEY (property_key, property_value)
+			);
+		`).Exec()
+
+		if err != nil {
+			return err
+		}
+
+		err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_property_value ON weaviate.` + nodeTypeValue + `_key_value_search (property_value);`).Exec()
+
+		if err != nil {
 			return err
 		}
 	}
@@ -304,11 +412,7 @@ func (f *Cassandra) Init() error {
 	// Search for Root key
 	var rootCount int
 
-	if err := f.client.Query(
-		fmt.Sprintf(selectRootKeyStatement, objectTableName, TypeColumn, PropertiesColumn, `root`),
-		connutils.RefTypeKey,
-		strconv.FormatBool(true),
-	).Scan(&rootCount); err != nil {
+	if err := f.client.Query(selectRootKeyStatement).Scan(&rootCount); err != nil {
 		return err
 	}
 
@@ -505,40 +609,25 @@ func (f *Cassandra) DeleteAction(action *models.Action, UUID strfmt.UUID) error 
 // UUID  = reference to the key
 // token = is the actual access token used in the API's header
 func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error {
-	keyUUID, _ := gocql.ParseUUID(string(UUID))
-
 	isRoot := key.Parent == nil
 
-	properties := map[string]string{
-		"delete":           strconv.FormatBool(key.Delete),
-		"email":            key.Email,
-		"execute":          strconv.FormatBool(key.Execute),
-		"ip_origin":        strings.Join(key.IPOrigin, sep), // TODO
-		"key_expires_unix": strconv.FormatInt(key.KeyExpiresUnix, 10),
-		"read":             strconv.FormatBool(key.Read),
-		"write":            strconv.FormatBool(key.Write),
-		"root":             strconv.FormatBool(isRoot),
-		"token":            string(token),
-	}
-
+	var parent interface{}
 	if !isRoot {
-		properties["parent.location_url"] = *key.Parent.LocationURL
-		properties["parent.cref"] = string(key.Parent.NrDollarCref)
-		properties["parent.type"] = key.Parent.Type
+		parent = f.convUUIDtoCQLUUID(key.Parent.NrDollarCref)
+	} else {
+		parent = nil
 	}
 
 	query := f.client.Query(
-		fmt.Sprintf(insertStatement, objectTableName),
-		gocql.TimeUUID(),
-		keyUUID,
-		connutils.RefTypeKey,
-		nil,
-		connutils.NowUnix(),
-		nil,
-		nil,
-		properties,
-		false,
-		connutils.NowUnix(),
+		insertKeyStatement,
+		f.convUUIDtoCQLUUID(token),
+		f.convUUIDtoCQLUUID(UUID),
+		parent,
+		isRoot,
+		key.Read,
+		key.Write,
+		key.Delete,
+		key.Execute,
 	)
 
 	// If success return nil, otherwise return the error
@@ -553,11 +642,7 @@ func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyToke
 	// in case the key is not found, return an error like:
 	// return errors_.New("Key not found in database.")
 
-	iter := f.client.Query(
-		fmt.Sprintf(selectKeyByTokenStatement, objectTableName, TypeColumn, PropertiesColumn, `token`),
-		connutils.RefTypeKey,
-		string(token),
-	).Consistency(gocql.One).Iter()
+	iter := f.client.Query(selectKeyByTokenStatement, f.convUUIDtoCQLUUID(token)).Consistency(gocql.One).Iter()
 
 	err := f.fillResponseWithIter(iter, keyResponse, connutils.RefTypeKey)
 
