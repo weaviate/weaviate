@@ -659,9 +659,6 @@
             "name": "actionId",
             "required": true,
             "type": "string"
-          },
-          {
-            "$ref": "#/parameters/CommonTimeSnapParameterQuery"
           }
         ],
         "responses": {
@@ -805,9 +802,6 @@
             "schema": {
               "$ref": "#/definitions/GraphQLQuery"
             }
-          },
-          {
-            "$ref": "#/parameters/CommonTimeSnapParameterQuery"
           }
         ],
         "responses": {
