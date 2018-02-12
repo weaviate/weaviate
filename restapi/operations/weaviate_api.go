@@ -113,6 +113,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ThingsWeaviateThingsGetHandler: things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsGet has not yet been implemented")
 		}),
+		ThingsWeaviateThingsGetHistoryHandler: things.WeaviateThingsGetHistoryHandlerFunc(func(params things.WeaviateThingsGetHistoryParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsGetHistory has not yet been implemented")
+		}),
 		ThingsWeaviateThingsListHandler: things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsList has not yet been implemented")
 		}),
@@ -156,7 +159,7 @@ type WeaviateAPI struct {
 	// It has a default implemention in the security package, however you can replace it for your particular usage.
 	BearerAuthenticator func(string, security.ScopedTokenAuthentication) runtime.Authenticator
 
-	// JSONConsumer registers a consumer for a "application/json" mime type
+	// JSONConsumer registers a consumer for a "application/json-patch+json" mime type
 	JSONConsumer runtime.Consumer
 	// BinConsumer registers a consumer for a "application/octet-stream" mime type
 	BinConsumer runtime.Consumer
@@ -227,6 +230,8 @@ type WeaviateAPI struct {
 	ThingsWeaviateThingsDeleteHandler things.WeaviateThingsDeleteHandler
 	// ThingsWeaviateThingsGetHandler sets the operation handler for the weaviate things get operation
 	ThingsWeaviateThingsGetHandler things.WeaviateThingsGetHandler
+	// ThingsWeaviateThingsGetHistoryHandler sets the operation handler for the weaviate things get history operation
+	ThingsWeaviateThingsGetHistoryHandler things.WeaviateThingsGetHistoryHandler
 	// ThingsWeaviateThingsListHandler sets the operation handler for the weaviate things list operation
 	ThingsWeaviateThingsListHandler things.WeaviateThingsListHandler
 	// ThingsWeaviateThingsPatchHandler sets the operation handler for the weaviate things patch operation
@@ -416,6 +421,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.ThingsWeaviateThingsGetHandler == nil {
 		unregistered = append(unregistered, "things.WeaviateThingsGetHandler")
+	}
+
+	if o.ThingsWeaviateThingsGetHistoryHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsGetHistoryHandler")
 	}
 
 	if o.ThingsWeaviateThingsListHandler == nil {
@@ -657,6 +666,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/things/{thingId}"] = things.NewWeaviateThingsGet(o.context, o.ThingsWeaviateThingsGetHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/things/{thingId}/history"] = things.NewWeaviateThingsGetHistory(o.context, o.ThingsWeaviateThingsGetHistoryHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
