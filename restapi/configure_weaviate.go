@@ -47,7 +47,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra-map"
 	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra-wide"
 	"github.com/creativesoftwarefdn/weaviate/connectors/foobar"
-	"github.com/creativesoftwarefdn/weaviate/connectors/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/connectors/kvcache"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
@@ -207,7 +206,6 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 func GetAllConnectors() []dbconnector.DatabaseConnector {
 	// Set all existing connectors
 	connectors := []dbconnector.DatabaseConnector{
-		&gremlin.Gremlin{},
 		&foobar.Foobar{},
 		&cassandra.Cassandra{},
 		&cassandramap.Cassandra{},

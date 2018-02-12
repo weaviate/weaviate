@@ -53,7 +53,7 @@ func init() {
       "url": "https://weaviate.com",
       "email": "yourfriends@weaviate.com"
     },
-    "version": "v0.7.0"
+    "version": "0.7.2"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -924,6 +924,47 @@ func init() {
           }
         },
         "x-available-in-websocket": true
+      }
+    },
+    "/things/{thingId}/history": {
+      "get": {
+        "description": "Returns a particular thing history.",
+        "tags": [
+          "things"
+        ],
+        "summary": "Get a thing's history based on its uuid related to this key.",
+        "operationId": "weaviate.things.get.history",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the thing.",
+            "name": "thingId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-websocket": false
       }
     }
   },
