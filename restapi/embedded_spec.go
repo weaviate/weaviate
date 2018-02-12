@@ -53,7 +53,7 @@ func init() {
       "url": "https://weaviate.com",
       "email": "yourfriends@weaviate.com"
     },
-    "version": "0.7.2"
+    "version": "0.7.4"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -948,7 +948,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/ThingGetHistoryResponse"
             }
           },
           "401": {
@@ -1304,6 +1304,10 @@ func init() {
       "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
       "type": "object"
     },
+    "SchemaHistory": {
+      "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "type": "object"
+    },
     "SemanticSchema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas)",
       "type": "object",
@@ -1448,6 +1452,22 @@ func init() {
         }
       }
     },
+    "ThingGetHistoryResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ThingHistory"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "thingId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      ]
+    },
     "ThingGetResponse": {
       "allOf": [
         {
@@ -1463,6 +1483,26 @@ func init() {
           }
         }
       ]
+    },
+    "ThingHistory": {
+      "type": "object",
+      "properties": {
+        "propertyHistory": {
+          "description": "An array with the history of the things.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "schema": {
+                "type": "object"
+              },
+              "updateTimeUnix": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
     },
     "ThingUpdate": {
       "allOf": [

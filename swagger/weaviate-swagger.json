@@ -470,6 +470,26 @@
         }
       ]
     },
+    "ThingHistory": {
+      "type": "object",
+      "properties": {
+        "propertyHistory": {
+          "description": "An array with the history of the things.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "updateTimeUnix": {
+                "type": "integer"
+              },
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
     "ThingCreate": {
       "type": "object",
       "properties": {
@@ -490,6 +510,22 @@
       "allOf": [
         {
           "$ref": "#/definitions/Thing"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "thingId": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "ThingGetHistoryResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ThingHistory"
         },
         {
           "type": "object",
@@ -533,6 +569,10 @@
     "Schema": {
       "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
       "type": "object"
+    },
+    "SchemaHistory": {
+      "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "type": "object"
     }
   },
   "externalDocs": {
@@ -546,7 +586,7 @@
     },
     "description": "Semantic Graphql, RESTful and Websocket Web of Things platform.",
     "title": "Weaviate - Semantic Graphql, RESTful and Websocket Web of Things platform.",
-    "version": "0.7.2"
+    "version": "0.7.4"
   },
   "parameters": {
     "CommonPageParameterQuery": {
@@ -1407,7 +1447,7 @@
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/ThingGetResponse"
+              "$ref": "#/definitions/ThingGetHistoryResponse"
             }
           },
           "401": {
