@@ -546,7 +546,7 @@
     },
     "description": "Semantic Graphql, RESTful and Websocket Web of Things platform.",
     "title": "Weaviate - Semantic Graphql, RESTful and Websocket Web of Things platform.",
-    "version": "0.7.1"
+    "version": "0.7.2"
   },
   "parameters": {
     "CommonPageParameterQuery": {
@@ -564,14 +564,6 @@
       "type": "integer",
       "in": "query",
       "required": false
-    },
-    "CommonTimeSnapParameterQuery": {
-      "name": "timesnap",
-      "in": "query",
-      "description": "Takes a snapshot back in time, in case not set it will show the most recent results.",
-      "required": false,
-      "format": "int64",
-      "type": "integer"
     }
   },
   "paths": {
@@ -1101,9 +1093,6 @@
           },
           {
             "$ref": "#/parameters/CommonPageParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTimeSnapParameterQuery"
           }
         ],
         "responses": {
@@ -1264,9 +1253,6 @@
             "name": "thingId",
             "required": true,
             "type": "string"
-          },
-          {
-            "$ref": "#/parameters/CommonTimeSnapParameterQuery"
           }
         ],
         "responses": {
@@ -1409,6 +1395,47 @@
         "x-available-in-websocket": false
       }
     },
+    "/things/{thingId}/history": {
+      "get": {
+        "description": "Returns a particular thing history.",
+        "operationId": "weaviate.things.get.history",
+        "parameters": [
+          {
+            "description": "Unique ID of the thing.",
+            "format": "uuid",
+            "in": "path",
+            "name": "thingId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a thing's history based on its uuid related to this key.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-websocket": false
+      }
+    },
     "/things/{thingId}/actions": {
       "get": {
         "description": "Returns the actions of a thing in a list.",
@@ -1427,9 +1454,6 @@
           },
           {
             "$ref": "#/parameters/CommonPageParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonTimeSnapParameterQuery"
           }
         ],
         "responses": {
