@@ -812,6 +812,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get is successful
 		return things.NewWeaviateThingsGetOK().WithPayload(&responseObject)
 	})
+	api.ThingsWeaviateThingsGetHistoryHandler = things.WeaviateThingsGetHistoryHandlerFunc(func(params things.WeaviateThingsGetHistoryParams, principal interface{}) middleware.Responder {
+		return things.NewWeaviateThingsGetHistoryOK()
+	})
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
 		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, nil); !allowed {
