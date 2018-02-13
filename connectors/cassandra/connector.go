@@ -18,7 +18,7 @@ import (
 	errors_ "errors"
 	"fmt"
 	"strconv"
-	"strings"
+	// "strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -35,54 +35,117 @@ import (
 const objectTableName = "object_data"
 const sep = "||"
 
-// IDColumn constant column name
-const IDColumn string = "id"
+// All Key constants
+const tableKeys string = "weaviate.keys"
+const tableKeysToken string = "weaviate.keys_by_token"
+const tableKeysParent string = "weaviate.keys_by_parent"
+const colKeyToken string = "key_token"
+const colKeyUUID string = "key_uuid"
+const colKeyParent string = "parent"
+const colKeyRoot string = "root"
+const colKeyAllowR string = "allow_read"
+const colKeyAllowW string = "allow_write"
+const colKeyAllowD string = "allow_delete"
+const colKeyAllowX string = "allow_execute"
+const colKeyEmail string = "email"
+const colKeyIPOrigin string = "ip_origin"
+const colKeyExpiryTime string = "key_expiry_time"
 
-// UUIDColumn constant column name
-const UUIDColumn string = "uuid"
+// All node constants
+const tableThings string = "weaviate.things"
+const tableActions string = "weaviate.actions"
+const tableHistorySuffix string = "_property_history"
+const tableClassSearchSuffix string = "_class_search"
+const tableValueSearchSuffix string = "_key_value_search"
+const tableThingsHistory string = tableThings + tableHistorySuffix
+const tableThingsClassSearch string = tableThings + tableClassSearchSuffix
+const tableThingsValueSearch string = tableThings + tableValueSearchSuffix
+const tableActionsHistory string = tableActions + tableHistorySuffix
+const tableActionsClassSearch string = tableActions + tableClassSearchSuffix
+const tableActionsValueSearch string = tableActions + tableValueSearchSuffix
 
-// TypeColumn constant column name
-const TypeColumn string = "type"
+const colNodeTypePrefixThing string = "thing"
+const colNodeTypePrefixAction string = "action"
+const colNodeUUIDSuffix string = "_uuid"
+const colThingUUID string = colNodeTypePrefixThing + colNodeUUIDSuffix
+const colActionUUID string = colNodeTypePrefixAction + colNodeUUIDSuffix
 
-// ClassColumn constant column name
-const ClassColumn string = "class"
-
-// CreationTimeColumn constant column name
-const CreationTimeColumn string = "creation_time"
-
-// LastUpdatedTimeColumn constant column name
-const LastUpdatedTimeColumn string = "last_updated_time"
-
-// OwnerColumn constant column name
-const OwnerColumn string = "owner"
-
-// PropertiesColumn const column name
-const PropertiesColumn string = "properties"
-
-// // PropertyKeyMapKey constant column name
-// const PropertyKeyMapKey string = "property_key"
-
-// // PropertyValueMapKey constant column name
-// const PropertyValueMapKey string = "property_value"
-
-// DeletedColumn constant column name
-const DeletedColumn string = "deleted"
-
-// TimeStampColumn constant column name
-const TimeStampColumn string = "timestamp"
+const colNodeOwner string = "owner_uuid"
+const colNodeDeleted string = "deleted"
+const colNodeCreationTime string = "creation_time"
+const colNodeLastUpdateTime string = "last_update_time"
+const colNodeClass string = "class"
+const colNodeContext string = "context"
+const colNodeProperties string = "properties"
+const colNodePropKey string = "property_key"
+const colNodePropValue string = "property_value"
 
 // Global insert statement
 const insertKeyStatement = `
-	INSERT INTO weaviate.keys (
-		key_token, 
-		key_uuid, 
-		parent, 
-		root,
-		allow_read, 
-		allow_write, 
-		allow_delete,
-		allow_execute ) 
+	INSERT INTO ` + tableKeys + ` (
+		` + colKeyToken + `, 
+		` + colKeyUUID + `, 
+		` + colKeyParent + `, 
+		` + colKeyRoot + `,
+		` + colKeyAllowR + `, 
+		` + colKeyAllowW + `, 
+		` + colKeyAllowD + `,
+		` + colKeyAllowX + `,
+		` + colKeyEmail + `,
+		` + colKeyIPOrigin + `,
+		` + colKeyExpiryTime + ` ) 
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+const insertThingStatement = `
+	INSERT INTO ` + tableThings + ` (
+		` + colThingUUID + `,
+		` + colNodeOwner + `, 
+		` + colNodeDeleted + `, 
+		` + colNodeCreationTime + `,
+		` + colNodeLastUpdateTime + `, 
+		` + colNodeClass + `, 
+		` + colNodeContext + `,
+		` + colNodeProperties + `) 
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+const updateThingStatement = `
+	UPDATE ` + tableThings + ` SET 
+		` + colNodeOwner + ` = ?,
+		` + colNodeDeleted + ` = ?, 
+		` + colNodeCreationTime + ` = ?,
+		` + colNodeLastUpdateTime + ` = ?, 
+		` + colNodeClass + ` = ?, 
+		` + colNodeContext + ` = ?,
+		` + colNodeProperties + ` = ?
+	WHERE ` + colThingUUID + ` = ?
+`
+
+const insertThingHistoryStatement = `
+	INSERT INTO ` + tableThingsHistory + ` (
+		` + colThingUUID + `, 
+		` + colNodeOwner + `, 
+		` + colNodeCreationTime + `, 
+		` + colNodeProperties + ` ) 
+	VALUES (?, ?, ?, ?)
+`
+
+const deleteThingStatement = `
+	DELETE FROM ` + tableThings + ` 
+	WHERE ` + colThingUUID + ` = ? IF EXISTS;
+`
+
+const selectKeyStatement = `
+	SELECT *
+	FROM ` + tableKeys + `
+	WHERE ` + colKeyUUID + ` = ?
+`
+
+const selectThingStatement = `
+	SELECT *
+	FROM ` + tableThings + ` 
+	WHERE thing_uuid = ?
 `
 
 const insertStatement = ``
@@ -99,47 +162,47 @@ const selectInStatement = `
 	WHERE uuid IN ?
 `
 
-const listSelectStatement = `
-	SELECT * 
-	FROM ` + objectTableName + ` 
-	WHERE ` + OwnerColumn + ` = ?
-	%s
-	LIMIT ?
-	ALLOW FILTERING
-`
+// const listSelectStatement = `
+// 	SELECT *
+// 	FROM ` + objectTableName + `
+// 	WHERE ` + OwnerColumn + ` = ?
+// 	%s
+// 	LIMIT ?
+// 	ALLOW FILTERING
+// `
 
-const listActionsSelectStatement = `
-	SELECT * 
-	FROM ` + objectTableName + ` 
-	WHERE ` + PropertiesColumn + `['things.object.cref'] = ?
-	%s
-	LIMIT ?
-	ALLOW FILTERING
-`
+// const listActionsSelectStatement = `
+// 	SELECT *
+// 	FROM ` + objectTableName + `
+// 	WHERE ` + PropertiesColumn + `['things.object.cref'] = ?
+// 	%s
+// 	LIMIT ?
+// 	ALLOW FILTERING
+// `
 
-const keyChildrenSelectStatement = `
-	SELECT * 
-	FROM ` + objectTableName + ` 
-	WHERE ` + PropertiesColumn + `['parent.cref'] = ?
-	ALLOW FILTERING
-`
+// const keyChildrenSelectStatement = `
+// 	SELECT *
+// 	FROM ` + objectTableName + `
+// 	WHERE ` + PropertiesColumn + `['parent.cref'] = ?
+// 	ALLOW FILTERING
+// `
 
-const updateKeyStatement = `
-	UPDATE %s
-	SET deleted = ?
-	WHERE uuid = ?
-`
+// const updateKeyStatement = `
+// 	UPDATE %s
+// 	SET deleted = ?
+// 	WHERE uuid = ?
+// `
 
 const selectKeyByTokenStatement = `
 	SELECT * 
-	FROM weaviate.keys_by_token
-	WHERE key_token = ?
+	FROM ` + tableKeysToken + `
+	WHERE ` + colKeyToken + ` = ?
 `
 
 const selectRootKeyStatement = `
-	SELECT COUNT(key_uuid) AS rootCount 
-	FROM weaviate.keys 
-	WHERE root = true
+	SELECT COUNT(` + colKeyUUID + `) AS rootCount 
+	FROM ` + tableKeys + ` 
+	WHERE ` + colKeyRoot + ` = true
 `
 
 // Cassandra has some basic variables.
@@ -279,23 +342,25 @@ func (f *Cassandra) Init() error {
 	// DROP TABLE IF EXISTS weaviate.actions_key_value_search;
 
 	// Add table for 'keys'
-
 	// TODO SOMETHING LIKE:
 	// has_read_access_to set<uuid>,
 	// has_write_access_to set<uuid>,
 	// has_delete_access_to set<uuid>,
 	// has_execute_access_to set<uuid>,
 	err := f.client.Query(`
-		CREATE TABLE IF NOT EXISTS weaviate.keys (
-			key_token uuid,
-			key_uuid uuid,
-			parent uuid,
-			root boolean,
-			allow_read boolean,
-			allow_write boolean,
-			allow_delete boolean,
-			allow_execute boolean,
-			PRIMARY KEY (key_uuid, root)
+		CREATE TABLE IF NOT EXISTS ` + tableKeys + ` (
+			` + colKeyToken + ` uuid,
+			` + colKeyUUID + ` uuid,
+			` + colKeyParent + ` uuid,
+			` + colKeyRoot + ` boolean,
+			` + colKeyAllowR + ` boolean,
+			` + colKeyAllowW + ` boolean,
+			` + colKeyAllowD + ` boolean,
+			` + colKeyAllowX + ` boolean,
+			` + colKeyEmail + ` text,
+			` + colKeyIPOrigin + ` list<text>,
+			` + colKeyExpiryTime + ` timestamp,
+			PRIMARY KEY (` + colKeyUUID + `, ` + colKeyRoot + `)
 		);
 	`).Exec()
 
@@ -303,72 +368,76 @@ func (f *Cassandra) Init() error {
 		return err
 	}
 
-	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_root ON weaviate.keys (root);`).Exec()
+	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_root ON ` + tableKeys + ` (` + colKeyRoot + `);`).Exec()
 
 	if err != nil {
 		return err
 	}
 
 	err = f.client.Query(`
-		CREATE MATERIALIZED VIEW IF NOT EXISTS weaviate.keys_by_token 
+		CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableKeysToken + ` 
 		AS SELECT *
-		FROM weaviate.keys 
-		WHERE key_token IS NOT NULL AND key_uuid IS NOT NULL AND root IS NOT NULL
-		PRIMARY KEY (key_token, key_uuid, root);`).Exec()
+		FROM ` + tableKeys + ` 
+		WHERE ` + colKeyToken + ` IS NOT NULL AND ` + colKeyUUID + ` IS NOT NULL AND ` + colKeyRoot + ` IS NOT NULL
+		PRIMARY KEY (` + colKeyToken + `, ` + colKeyUUID + `, ` + colKeyRoot + `);`).Exec()
 
 	if err != nil {
 		return err
 	}
 
 	err = f.client.Query(`
-		CREATE MATERIALIZED VIEW IF NOT EXISTS weaviate.keys_by_parent 
+		CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableKeysParent + `
 		AS SELECT *
-		FROM weaviate.keys 
-		WHERE parent IS NOT NULL AND key_uuid IS NOT NULL AND root IS NOT NULL
-		PRIMARY KEY (parent, key_uuid, root);`).Exec()
+		FROM ` + tableKeys + ` 
+		WHERE ` + colKeyParent + ` IS NOT NULL AND ` + colKeyUUID + ` IS NOT NULL AND ` + colKeyRoot + ` IS NOT NULL
+		PRIMARY KEY (` + colKeyParent + `, ` + colKeyUUID + `, ` + colKeyRoot + `);`).Exec()
 
 	if err != nil {
 		return err
 	}
 
-	for nodeTypeKey, nodeTypeValue := range map[string]string{"thing": "things", "action": "actions"} {
+	for colNodeUUID, tableNode := range map[string]string{
+		colThingUUID:  tableThings,
+		colActionUUID: tableActions,
+	} {
 		err = f.client.Query(`
-			CREATE TABLE IF NOT EXISTS weaviate.` + nodeTypeValue + ` (
-				owner_uuid uuid,
-				` + nodeTypeKey + `_uuid uuid,
-				deleted boolean,
-				creation_time timestamp,
-				last_update_time timestamp,
-				class text,
-				properties map<text, text>,
-				PRIMARY KEY (` + nodeTypeKey + `_uuid, owner_uuid, creation_time)
-			) WITH CLUSTERING ORDER BY (owner_uuid ASC, creation_time DESC);
+			CREATE TABLE IF NOT EXISTS ` + tableNode + ` (
+				` + colNodeOwner + ` uuid,
+				` + colNodeUUID + ` uuid,
+				` + colNodeDeleted + ` boolean,
+				` + colNodeCreationTime + ` timestamp,
+				` + colNodeLastUpdateTime + ` timestamp,
+				` + colNodeClass + ` text,
+				` + colNodeContext + ` text,
+				` + colNodeProperties + ` map<text, text>,
+				PRIMARY KEY (` + colNodeUUID + `, ` + colNodeOwner + `, ` + colNodeCreationTime + `)
+			) WITH CLUSTERING ORDER BY (` + colNodeOwner + ` ASC, ` + colNodeCreationTime + ` DESC);
 		`).Exec()
 
 		if err != nil {
 			return err
 		}
 
-		err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_deleted ON weaviate.` + nodeTypeValue + ` (deleted);`).Exec()
+		err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_deleted ON ` + tableNode + ` (` + colNodeDeleted + `);`).Exec()
 
 		if err != nil {
 			return err
 		}
 
-		err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_owner_uuid ON weaviate.` + nodeTypeValue + ` (owner_uuid);`).Exec()
+		err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_owner_uuid ON ` + tableNode + ` (` + colNodeOwner + `);`).Exec()
 
 		if err != nil {
 			return err
 		}
 
 		err = f.client.Query(`
-			CREATE TABLE IF NOT EXISTS weaviate.` + nodeTypeValue + `_property_history (
-				` + nodeTypeKey + `_uuid uuid,
-				key_uuid uuid,
-				creation_time timestamp,
-				properties map<text, text>,
-				PRIMARY KEY (` + nodeTypeKey + `_uuid, creation_time)
-			) WITH CLUSTERING ORDER BY (creation_time DESC);
+			CREATE TABLE IF NOT EXISTS ` + tableNode + tableHistorySuffix + ` (
+				` + colNodeUUID + ` uuid,
+				` + colNodeOwner + ` uuid,
+				` + colNodeCreationTime + ` timestamp,
+				` + colNodeProperties + ` map<text, text>,
+				PRIMARY KEY (` + colNodeUUID + `, ` + colNodeCreationTime + `)
+			) WITH CLUSTERING ORDER BY (` + colNodeCreationTime + ` DESC);
 		`).Exec()
 
 		if err != nil {
@@ -376,11 +445,11 @@ func (f *Cassandra) Init() error {
 		}
 
 		err = f.client.Query(`
-			CREATE MATERIALIZED VIEW IF NOT EXISTS weaviate.` + nodeTypeValue + `_class_search
+			CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableNode + tableClassSearchSuffix + `
 			AS SELECT *
-			FROM weaviate.` + nodeTypeValue + ` 
-			WHERE class IS NOT NULL AND ` + nodeTypeKey + `_uuid IS NOT NULL AND owner_uuid IS NOT NULL AND creation_time IS NOT NULL
-			PRIMARY KEY (class, ` + nodeTypeKey + `_uuid, owner_uuid, creation_time);
+			FROM ` + tableNode + ` 
+			WHERE ` + colNodeClass + ` IS NOT NULL AND ` + colNodeUUID + ` IS NOT NULL AND ` + colNodeOwner + ` IS NOT NULL AND ` + colNodeCreationTime + ` IS NOT NULL
+			PRIMARY KEY (` + colNodeClass + `, ` + colNodeUUID + `, ` + colNodeOwner + `, ` + colNodeCreationTime + `);
 		`).Exec()
 
 		if err != nil {
@@ -388,12 +457,12 @@ func (f *Cassandra) Init() error {
 		}
 
 		err = f.client.Query(`
-			CREATE TABLE IF NOT EXISTS weaviate.` + nodeTypeValue + `_key_value_search (
-				property_key text,
-				property_value text,
-				` + nodeTypeKey + `_uuid uuid,
-				key_uuid uuid,
-				PRIMARY KEY (property_key, property_value)
+			CREATE TABLE IF NOT EXISTS ` + tableNode + tableValueSearchSuffix + ` (
+				` + colNodePropKey + ` text,
+				` + colNodePropValue + ` text,
+				` + colNodeUUID + ` uuid,
+				` + colNodeOwner + ` uuid,
+				PRIMARY KEY (` + colNodePropKey + `, ` + colNodePropValue + `)
 			);
 		`).Exec()
 
@@ -401,7 +470,7 @@ func (f *Cassandra) Init() error {
 			return err
 		}
 
-		err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_property_value ON weaviate.` + nodeTypeValue + `_key_value_search (property_value);`).Exec()
+		err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_property_value ON ` + tableNode + tableValueSearchSuffix + ` (` + colNodePropValue + `);`).Exec()
 
 		if err != nil {
 			return err
@@ -452,64 +521,96 @@ func (f *Cassandra) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 // GetThing fills the given ThingGetResponse with the values from the database, based on the given UUID.
 func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
-	f.messaging.DebugMessage(fmt.Sprintf("GetThing: %s", UUID))
+	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetThing: %s", UUID))
 
 	// Get the iterator
-	iter := f.getSelectIteratorByUUID(UUID)
+	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
 
-	err := f.fillResponseWithIter(iter, thingResponse, connutils.RefTypeThing)
+	found := false
+	for {
+		m := map[string]interface{}{}
+		if !iter.MapScan(m) {
+			break
+		}
 
-	// If success return nil, otherwise return the error
-	if err != nil {
-		f.messaging.ErrorMessage(err)
+		f.fillThingResponseWithRow(m, thingResponse)
+
+		found = true
 	}
 
-	// If success return nil, otherwise return the error
-	return err
+	if err := iter.Close(); err != nil {
+		return err
+	}
+
+	if !found {
+		return errors_.New("Thing is not found in database")
+	}
+
+	return nil
+
+	// err := f.fillResponseWithIter(iter, thingResponse, connutils.RefTypeThing)
+
+	// // If success return nil, otherwise return the error
+	// if err != nil {
+	// 	f.messaging.ErrorMessage(err)
+	// }
+
+	// // If success return nil, otherwise return the error
+	// return err
 }
 
 // GetThings fills the given ThingGetResponse with the values from the database, based on the given UUID.
 func (f *Cassandra) GetThings(UUIDs []strfmt.UUID, thingsResponse *models.ThingsListResponse) error {
-	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
+	// f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
 
-	cqlUUIDs := []gocql.UUID{}
+	// cqlUUIDs := []gocql.UUID{}
 
-	for _, UUID := range UUIDs {
-		cqlUUIDs = append(cqlUUIDs, f.convUUIDtoCQLUUID(UUID))
-	}
+	// for _, UUID := range UUIDs {
+	// 	cqlUUIDs = append(cqlUUIDs, f.convUUIDtoCQLUUID(UUID))
+	// }
 
-	query := f.client.Query(selectInStatement, cqlUUIDs)
-	iter := query.Iter()
+	// query := f.client.Query(selectInStatement, cqlUUIDs)
+	// iter := query.Iter()
 
-	err := f.fillResponseWithIter(iter, thingsResponse, connutils.RefTypeThing)
+	// err := f.fillResponseWithIter(iter, thingsResponse, connutils.RefTypeThing)
 
-	// If success return nil, otherwise return the error
-	return err
+	// // If success return nil, otherwise return the error
+	// return err
+
+	return nil
 }
 
 // ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
 func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
-	// TODO order not working?
-	// TODO List return most recents
-	// TODO Dont show deleted
+	// // TODO order not working?
+	// // TODO List return most recents
+	// // TODO Dont show deleted
 
-	defer f.messaging.TimeTrack(time.Now())
+	// defer f.messaging.TimeTrack(time.Now())
 
-	whereFilter := f.parseWhereFilters(wheres, false)
+	// whereFilter := f.parseWhereFilters(wheres, false)
 
-	iter := f.client.Query(fmt.Sprintf(listSelectStatement, whereFilter), string(keyID), first).Iter()
+	// iter := f.client.Query(fmt.Sprintf(listSelectStatement, whereFilter), string(keyID), first).Iter()
 
-	err := f.fillResponseWithIter(iter, thingsResponse, connutils.RefTypeThing)
-	thingsResponse.TotalResults = 0 // TODO
+	// err := f.fillResponseWithIter(iter, thingsResponse, connutils.RefTypeThing)
+	// thingsResponse.TotalResults = 0 // TODO
 
-	// If success return nil, otherwise return the error
-	return err
+	// // If success return nil, otherwise return the error
+	// return err
+
+	return nil
 }
 
 // UpdateThing updates the Thing in the DB at the given UUID.
 func (f *Cassandra) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
+	err := f.moveThingToHistory(UUID)
+
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+	}
+
 	// Run the query to update the thing based on its UUID.
-	err := f.addThingRow(thing, UUID, false)
+	err = f.addThingRow(thing, UUID, false)
 
 	if err != nil {
 		f.messaging.ErrorMessage(err)
@@ -548,35 +649,39 @@ func (f *Cassandra) AddAction(action *models.Action, UUID strfmt.UUID) error {
 
 // GetAction fills the given ActionGetResponse with the values from the database, based on the given UUID.
 func (f *Cassandra) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
-	// Get the iterator
-	iter := f.getSelectIteratorByUUID(UUID)
+	// // Get the iterator
+	// iter := f.getSelectIteratorByUUID(UUID)
 
-	err := f.fillResponseWithIter(iter, actionResponse, connutils.RefTypeAction)
+	// err := f.fillResponseWithIter(iter, actionResponse, connutils.RefTypeAction)
 
-	// If success return nil, otherwise return the error
-	if err != nil {
-		f.messaging.ErrorMessage(err)
-	}
+	// // If success return nil, otherwise return the error
+	// if err != nil {
+	// 	f.messaging.ErrorMessage(err)
+	// }
 
-	// If success return nil, otherwise return the error
-	return err
+	// // If success return nil, otherwise return the error
+	// return err
+
+	return nil
 }
 
 // ListActions fills the given ActionListResponse with the values from the database, based on the given parameters.
 func (f *Cassandra) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
-	// TODO order not working?
-	// TODO List return most recents
-	// TODO Dont show deleted
+	// // TODO order not working?
+	// // TODO List return most recents
+	// // TODO Dont show deleted
 
-	whereFilter := f.parseWhereFilters(wheres, false)
+	// whereFilter := f.parseWhereFilters(wheres, false)
 
-	iter := f.client.Query(fmt.Sprintf(listActionsSelectStatement, whereFilter), string(UUID), first).Iter()
+	// iter := f.client.Query(fmt.Sprintf(listActionsSelectStatement, whereFilter), string(UUID), first).Iter()
 
-	err := f.fillResponseWithIter(iter, actionsResponse, connutils.RefTypeAction)
-	actionsResponse.TotalResults = 0 // TODO
+	// err := f.fillResponseWithIter(iter, actionsResponse, connutils.RefTypeAction)
+	// actionsResponse.TotalResults = 0 // TODO
 
-	// If success return nil, otherwise return the error
-	return err
+	// // If success return nil, otherwise return the error
+	// return err
+
+	return nil
 }
 
 // UpdateAction updates the Action in the DB at the given UUID.
@@ -628,6 +733,9 @@ func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID)
 		key.Write,
 		key.Delete,
 		key.Execute,
+		key.Email,
+		key.IPOrigin,
+		key.KeyExpiresUnix,
 	)
 
 	// If success return nil, otherwise return the error
@@ -644,10 +752,24 @@ func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyToke
 
 	iter := f.client.Query(selectKeyByTokenStatement, f.convUUIDtoCQLUUID(token)).Consistency(gocql.One).Iter()
 
-	err := f.fillResponseWithIter(iter, keyResponse, connutils.RefTypeKey)
+	found := false
+	for {
+		m := map[string]interface{}{}
+		if !iter.MapScan(m) {
+			break
+		}
 
-	if err != nil {
-		return errors_.New("Key not found in database.")
+		f.fillKeyResponseWithRow(m, keyResponse)
+
+		found = true
+	}
+
+	if err := iter.Close(); err != nil {
+		return err
+	}
+
+	if !found {
+		return errors_.New("Key is not found in database")
 	}
 
 	// If success return nil, otherwise return the error
@@ -657,45 +779,65 @@ func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyToke
 // GetKey fills the given KeyTokenGetResponse with the values from the database, based on the given UUID.
 func (f *Cassandra) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
 	// Get row for the key
-	iter := f.getSelectIteratorByUUID(UUID)
+	iter := f.client.Query(selectKeyStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
 
-	err := f.fillResponseWithIter(iter, keyResponse, connutils.RefTypeKey)
+	found := false
+	for {
+		m := map[string]interface{}{}
+		if !iter.MapScan(m) {
+			break
+		}
 
-	// TODO check deleted
+		f.fillKeyResponseWithRow(m, keyResponse)
 
-	return err
+		found = true
+	}
+
+	if err := iter.Close(); err != nil {
+		return err
+	}
+
+	if !found {
+		return errors_.New("Key is not found in database")
+	}
+
+	return nil
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
 func (f *Cassandra) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
-	fmt.Println(key)
-	query := f.client.Query(
-		fmt.Sprintf(updateKeyStatement, objectTableName), // TODO Does not work because of missing primary key
-		true,
-		f.convUUIDtoCQLUUID(UUID),
-	)
+	// fmt.Println(key)
+	// query := f.client.Query(
+	// 	fmt.Sprintf(updateKeyStatement, objectTableName), // TODO Does not work because of missing primary key
+	// 	true,
+	// 	f.convUUIDtoCQLUUID(UUID),
+	// )
 
-	err := query.Exec()
+	// err := query.Exec()
 
-	if err != nil {
-		f.messaging.ErrorMessage(err)
-	}
+	// if err != nil {
+	// 	f.messaging.ErrorMessage(err)
+	// }
 
-	return err
+	// return err
+
+	return nil
 }
 
 // GetKeyChildren fills the given KeyTokenGetResponse array with the values from the database, based on the given UUID.
 func (f *Cassandra) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error {
-	// Get row for the key
-	iter := f.client.Query(keyChildrenSelectStatement, string(UUID)).Iter()
+	// // Get row for the key
+	// iter := f.client.Query(keyChildrenSelectStatement, string(UUID)).Iter()
 
-	err := f.fillResponseWithIter(iter, children, connutils.RefTypeKey)
+	// err := f.fillResponseWithIter(iter, children, connutils.RefTypeKey)
 
-	if err != nil {
-		f.messaging.ErrorMessage(err)
-	}
+	// if err != nil {
+	// 	f.messaging.ErrorMessage(err)
+	// }
 
-	return err
+	// return err
+
+	return nil
 }
 
 func (f *Cassandra) convUUIDtoCQLUUID(UUID strfmt.UUID) gocql.UUID {
@@ -746,138 +888,170 @@ func (f *Cassandra) getSelectIteratorByUUID(UUID strfmt.UUID) *gocql.Iter {
 	return f.client.Query(selectStatement, string(UUID)).Iter()
 }
 
-func (f *Cassandra) fillResponseWithIter(iter *gocql.Iter, response interface{}, refType string) error {
+func (f *Cassandra) fillKeyResponseWithRow(row map[string]interface{}, keyResponse *models.KeyTokenGetResponse) error {
+	keyResponse.KeyID = f.convCQLUUIDtoUUID(row[colKeyUUID].(gocql.UUID))
+	keyResponse.Delete = row[colKeyAllowD].(bool)
+	keyResponse.Email = row[colKeyEmail].(string)
+	keyResponse.Execute = row[colKeyAllowX].(bool)
+	keyResponse.IPOrigin = row[colKeyIPOrigin].([]string)
+	keyResponse.KeyExpiresUnix = connutils.MakeUnixMillisecond(row[colKeyExpiryTime].(time.Time))
+	keyResponse.Read = row[colKeyAllowR].(bool)
+	keyResponse.Write = row[colKeyAllowW].(bool)
+	keyResponse.Token = f.convCQLUUIDtoUUID(row[colKeyToken].(gocql.UUID))
 
-	found := false
+	isRoot := row[colKeyRoot].(bool)
+	if !isRoot {
+		crefObj := models.SingleRef{}
+		// Get the given node properties to generate response object
+		crefObj.NrDollarCref = f.convCQLUUIDtoUUID(row[colKeyParent].(gocql.UUID))
+		crefObj.Type = connutils.RefTypeKey
+		url := f.serverAddress
+		crefObj.LocationURL = &url
 
-	for {
-		m := map[string]interface{}{}
-		if !iter.MapScan(m) {
-			break
-		}
-
-		responseSchema := make(map[string]interface{})
-
-		p := m[PropertiesColumn].(map[string]string)
-
-		if connutils.RefTypeKey == refType {
-			kr := models.KeyTokenGetResponse{}
-			keyResponse := &kr
-
-			switch response.(type) {
-			case *models.KeyTokenGetResponse:
-				keyResponse = response.(*models.KeyTokenGetResponse)
-			case *[]*models.KeyTokenGetResponse:
-				*response.(*[]*models.KeyTokenGetResponse) = append(*response.(*[]*models.KeyTokenGetResponse), keyResponse)
-			}
-
-			keyResponse.KeyID = f.convCQLUUIDtoUUID(m[UUIDColumn].(gocql.UUID))
-			keyResponse.Delete = connutils.Must(strconv.ParseBool(p["delete"])).(bool)
-			keyResponse.Email = p["email"]
-			keyResponse.Execute = connutils.Must(strconv.ParseBool(p["execute"])).(bool)
-			keyResponse.IPOrigin = strings.Split(p["ip_origin"], sep)
-			keyResponse.KeyExpiresUnix = connutils.Must(strconv.ParseInt(p["key_expires_unix"], 20, 64)).(int64)
-			keyResponse.Read = connutils.Must(strconv.ParseBool(p["read"])).(bool)
-			keyResponse.Write = connutils.Must(strconv.ParseBool(p["write"])).(bool)
-			keyResponse.Token = strfmt.UUID(p["token"])
-
-			isRoot := connutils.Must(strconv.ParseBool(p["root"])).(bool)
-			if !isRoot {
-				keyResponse.Parent = f.createCrefObject(p, "parent.")
-			}
-
-		} else if connutils.RefTypeThing == refType {
-			class := m[ClassColumn].(string)
-
-			tr := models.ThingGetResponse{}
-			thingResponse := &tr
-
-			switch response.(type) {
-			case *models.ThingGetResponse:
-				thingResponse = response.(*models.ThingGetResponse)
-			case *models.ThingsListResponse:
-				response.(*models.ThingsListResponse).Things = append(response.(*models.ThingsListResponse).Things, thingResponse)
-			}
-
-			thingResponse.ThingID = f.convCQLUUIDtoUUID(m[UUIDColumn].(gocql.UUID))
-			thingResponse.AtClass = class
-			thingResponse.AtContext = p["context"]
-			thingResponse.CreationTimeUnix = connutils.MakeUnixMillisecond(m[CreationTimeColumn].(time.Time))
-
-			url := f.serverAddress
-			ownerObj := models.SingleRef{
-				LocationURL:  &url,
-				NrDollarCref: f.convCQLUUIDtoUUID(m[OwnerColumn].(gocql.UUID)),
-				Type:         connutils.RefTypeKey,
-			}
-			thingResponse.Key = &ownerObj
-			lut := connutils.MakeUnixMillisecond(m[LastUpdatedTimeColumn].(time.Time))
-			if lut > 0 {
-				thingResponse.LastUpdateTimeUnix = lut
-			}
-
-			err := f.fillResponseSchema(&responseSchema, p, class, f.schema.ThingSchema.Schema)
-
-			if err != nil {
-				return err
-			}
-
-			thingResponse.Schema = responseSchema
-		} else if connutils.RefTypeAction == refType {
-			class := m[ClassColumn].(string)
-
-			ar := models.ActionGetResponse{}
-			actionResponse := &ar
-
-			switch response.(type) {
-			case *models.ActionGetResponse:
-				actionResponse = response.(*models.ActionGetResponse)
-			case *models.ActionsListResponse:
-				response.(*models.ActionsListResponse).Actions = append(response.(*models.ActionsListResponse).Actions, actionResponse)
-			}
-
-			actionResponse.ActionID = f.convCQLUUIDtoUUID(m[UUIDColumn].(gocql.UUID))
-			actionResponse.AtClass = class
-			actionResponse.AtContext = p["context"]
-			actionResponse.CreationTimeUnix = connutils.MakeUnixMillisecond(m[CreationTimeColumn].(time.Time))
-			actionResponse.Things = &models.ObjectSubject{}
-			actionResponse.Things.Object = f.createCrefObject(p, "things.object.")
-			actionResponse.Things.Subject = f.createCrefObject(p, "things.subject.")
-
-			url := f.serverAddress
-			ownerObj := models.SingleRef{
-				LocationURL:  &url,
-				NrDollarCref: f.convCQLUUIDtoUUID(m[OwnerColumn].(gocql.UUID)),
-				Type:         connutils.RefTypeKey,
-			}
-			actionResponse.Key = &ownerObj
-			lut := connutils.MakeUnixMillisecond(m[LastUpdatedTimeColumn].(time.Time))
-			if lut > 0 {
-				actionResponse.LastUpdateTimeUnix = lut
-			}
-
-			err := f.fillResponseSchema(&responseSchema, p, class, f.schema.ActionSchema.Schema)
-
-			if err != nil {
-				return err
-			}
-
-			actionResponse.Schema = responseSchema
-		}
-
-		found = true
-	}
-
-	if err := iter.Close(); err != nil {
-		return err
-	}
-
-	if !found {
-		return errors_.New("Nothing found")
+		keyResponse.Parent = &crefObj
 	}
 
 	return nil
 }
+
+func (f *Cassandra) fillThingResponseWithRow(row map[string]interface{}, thingResponse *models.ThingGetResponse) error {
+	responseSchema := make(map[string]interface{})
+	thingResponse.ThingID = f.convCQLUUIDtoUUID(row[colThingUUID].(gocql.UUID))
+	class := row[colNodeClass].(string)
+	thingResponse.AtClass = class
+	thingResponse.AtContext = row[colNodeContext].(string)
+	thingResponse.CreationTimeUnix = connutils.MakeUnixMillisecond(row[colNodeCreationTime].(time.Time))
+
+	url := f.serverAddress
+	ownerObj := models.SingleRef{
+		LocationURL:  &url,
+		NrDollarCref: f.convCQLUUIDtoUUID(row[colNodeOwner].(gocql.UUID)),
+		Type:         connutils.RefTypeKey,
+	}
+	thingResponse.Key = &ownerObj
+	lut := connutils.MakeUnixMillisecond(row[colNodeLastUpdateTime].(time.Time))
+	if lut > 0 {
+		thingResponse.LastUpdateTimeUnix = lut
+	}
+
+	p := row[colNodeProperties].(map[string]string)
+	err := f.fillResponseSchema(&responseSchema, p, class, f.schema.ThingSchema.Schema)
+
+	if err != nil {
+		return err
+	}
+
+	thingResponse.Schema = responseSchema
+
+	return nil
+}
+
+// func (f *Cassandra) fillResponseWithIter(iter *gocql.Iter, response interface{}, refType string) error {
+
+// 	found := false
+
+// 	for {
+// 		m := map[string]interface{}{}
+// 		if !iter.MapScan(m) {
+// 			break
+// 		}
+
+// 		responseSchema := make(map[string]interface{})
+
+// 		p := m[PropertiesColumn].(map[string]string)
+
+// 		if connutils.RefTypeThing == refType {
+// 			class := m[ClassColumn].(string)
+
+// 			tr := models.ThingGetResponse{}
+// 			thingResponse := &tr
+
+// 			switch response.(type) {
+// 			case *models.ThingGetResponse:
+// 				thingResponse = response.(*models.ThingGetResponse)
+// 			case *models.ThingsListResponse:
+// 				response.(*models.ThingsListResponse).Things = append(response.(*models.ThingsListResponse).Things, thingResponse)
+// 			}
+
+// 			thingResponse.ThingID = f.convCQLUUIDtoUUID(m[UUIDColumn].(gocql.UUID))
+// 			thingResponse.AtClass = class
+// 			thingResponse.AtContext = p["context"]
+// 			thingResponse.CreationTimeUnix = connutils.MakeUnixMillisecond(m[CreationTimeColumn].(time.Time))
+
+// 			url := f.serverAddress
+// 			ownerObj := models.SingleRef{
+// 				LocationURL:  &url,
+// 				NrDollarCref: f.convCQLUUIDtoUUID(m[OwnerColumn].(gocql.UUID)),
+// 				Type:         connutils.RefTypeKey,
+// 			}
+// 			thingResponse.Key = &ownerObj
+// 			lut := connutils.MakeUnixMillisecond(m[LastUpdatedTimeColumn].(time.Time))
+// 			if lut > 0 {
+// 				thingResponse.LastUpdateTimeUnix = lut
+// 			}
+
+// 			err := f.fillResponseSchema(&responseSchema, p, class, f.schema.ThingSchema.Schema)
+
+// 			if err != nil {
+// 				return err
+// 			}
+
+// 			thingResponse.Schema = responseSchema
+// 		} else if connutils.RefTypeAction == refType {
+// 			class := m[ClassColumn].(string)
+
+// 			ar := models.ActionGetResponse{}
+// 			actionResponse := &ar
+
+// 			switch response.(type) {
+// 			case *models.ActionGetResponse:
+// 				actionResponse = response.(*models.ActionGetResponse)
+// 			case *models.ActionsListResponse:
+// 				response.(*models.ActionsListResponse).Actions = append(response.(*models.ActionsListResponse).Actions, actionResponse)
+// 			}
+
+// 			actionResponse.ActionID = f.convCQLUUIDtoUUID(m[UUIDColumn].(gocql.UUID))
+// 			actionResponse.AtClass = class
+// 			actionResponse.AtContext = p["context"]
+// 			actionResponse.CreationTimeUnix = connutils.MakeUnixMillisecond(m[CreationTimeColumn].(time.Time))
+// 			actionResponse.Things = &models.ObjectSubject{}
+// 			actionResponse.Things.Object = f.createCrefObject(p, "things.object.")
+// 			actionResponse.Things.Subject = f.createCrefObject(p, "things.subject.")
+
+// 			url := f.serverAddress
+// 			ownerObj := models.SingleRef{
+// 				LocationURL:  &url,
+// 				NrDollarCref: f.convCQLUUIDtoUUID(m[OwnerColumn].(gocql.UUID)),
+// 				Type:         connutils.RefTypeKey,
+// 			}
+// 			actionResponse.Key = &ownerObj
+// 			lut := connutils.MakeUnixMillisecond(m[LastUpdatedTimeColumn].(time.Time))
+// 			if lut > 0 {
+// 				actionResponse.LastUpdateTimeUnix = lut
+// 			}
+
+// 			err := f.fillResponseSchema(&responseSchema, p, class, f.schema.ActionSchema.Schema)
+
+// 			if err != nil {
+// 				return err
+// 			}
+
+// 			actionResponse.Schema = responseSchema
+// 		}
+
+// 		found = true
+// 	}
+
+// 	if err := iter.Close(); err != nil {
+// 		return err
+// 	}
+
+// 	if !found {
+// 		return errors_.New("Nothing found")
+// 	}
+
+// 	return nil
+// }
 
 func (f *Cassandra) fillResponseSchema(responseSchema *map[string]interface{}, p map[string]string, class string, schemaType *models.SemanticSchema) error {
 	for key, value := range p {
@@ -927,61 +1101,60 @@ func (f *Cassandra) createCrefObject(properties map[string]string, prefix string
 	return &crefObj
 }
 
-func (f *Cassandra) parseWhereFilters(wheres []*connutils.WhereQuery, useWhere bool) string {
-	filterWheres := ""
+// func (f *Cassandra) parseWhereFilters(wheres []*connutils.WhereQuery, useWhere bool) string {
+// 	filterWheres := ""
 
-	// Create filter query
-	var op string
-	var prop string
-	var value string
-	for _, vWhere := range wheres {
-		// Set the operator
-		if vWhere.Value.Operator == connutils.Equal || vWhere.Value.Operator == connutils.NotEqual {
-			// Set the value from the object (now only string)
-			// TODO: https://github.com/creativesoftwarefdn/weaviate/issues/202
-			value = vWhere.Value.Value.(string)
+// 	// Create filter query
+// 	var op string
+// 	var prop string
+// 	var value string
+// 	for _, vWhere := range wheres {
+// 		// Set the operator
+// 		if vWhere.Value.Operator == connutils.Equal || vWhere.Value.Operator == connutils.NotEqual {
+// 			// Set the value from the object (now only string)
+// 			// TODO: https://github.com/creativesoftwarefdn/weaviate/issues/202
+// 			value = vWhere.Value.Value.(string)
 
-			if vWhere.Value.Contains {
-				continue // TODO
-			} else {
-				op = "="
-				value = fmt.Sprintf(`'%s'`, value)
-			}
+// 			if vWhere.Value.Contains {
+// 				continue // TODO
+// 			} else {
+// 				op = "="
+// 				value = fmt.Sprintf(`'%s'`, value)
+// 			}
 
-			if vWhere.Value.Operator == connutils.NotEqual {
-				op = "!="
-			}
-		}
+// 			if vWhere.Value.Operator == connutils.NotEqual {
+// 				op = "!="
+// 			}
+// 		}
 
-		// Set the property
-		prop = vWhere.Property
-		if prop == "atClass" {
-			prop = "class"
-		} else if strings.HasPrefix(prop, schema.SchemaPrefix) {
-			prop = fmt.Sprintf("%s['%s']", PropertiesColumn, prop)
-		}
+// 		// Set the property
+// 		prop = vWhere.Property
+// 		if prop == "atClass" {
+// 			prop = "class"
+// 		} else if strings.HasPrefix(prop, schema.SchemaPrefix) {
+// 			prop = fmt.Sprintf("%s['%s']", PropertiesColumn, prop)
+// 		}
 
-		// Filter on wheres variable which is used later in the query
-		andOp := ""
-		if useWhere {
-			andOp = "WHERE"
-		} else {
-			andOp = "AND"
-		}
+// 		// Filter on wheres variable which is used later in the query
+// 		andOp := ""
+// 		if useWhere {
+// 			andOp = "WHERE"
+// 		} else {
+// 			andOp = "AND"
+// 		}
 
-		// Parse the filter 'wheres'. Note that the 'value' may need block-quotes.
-		filterWheres = fmt.Sprintf(`%s %s %s %s %s`, filterWheres, andOp, prop, op, value)
-	}
+// 		// Parse the filter 'wheres'. Note that the 'value' may need block-quotes.
+// 		filterWheres = fmt.Sprintf(`%s %s %s %s %s`, filterWheres, andOp, prop, op, value)
+// 	}
 
-	return filterWheres
-}
+// 	return filterWheres
+// }
 
 func (f *Cassandra) addThingRow(thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
 	// Parse UUID in Cassandra type
 	cqlUUID := f.convUUIDtoCQLUUID(UUID)
 
 	properties := map[string]string{}
-	properties["context"] = thing.AtContext
 
 	// Add Object properties using a callback
 	callback := f.createPropertyCallback(&properties, cqlUUID, thing.AtClass)
@@ -998,20 +1171,52 @@ func (f *Cassandra) addThingRow(thing *models.Thing, UUID strfmt.UUID, deleted b
 		lut = nil
 	}
 	query := f.client.Query(
-		fmt.Sprintf(insertStatement, objectTableName),
-		gocql.TimeUUID(),
+		insertThingStatement,
 		cqlUUID,
-		connutils.RefTypeThing,
-		thing.AtClass,
+		f.convUUIDtoCQLUUID(thing.Key.NrDollarCref),
+		deleted,
 		thing.CreationTimeUnix,
 		lut,
-		f.convUUIDtoCQLUUID(thing.Key.NrDollarCref),
+		thing.AtClass,
+		thing.AtContext,
 		properties,
-		deleted,
-		connutils.NowUnix(),
 	)
 
 	return query.Exec()
+}
+
+func (f *Cassandra) moveThingToHistory(UUID strfmt.UUID) error {
+	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
+
+	for {
+		m := map[string]interface{}{}
+		if !iter.MapScan(m) {
+			break
+		}
+
+		err := f.client.Query(
+			insertThingHistoryStatement,
+			m[colThingUUID],
+			m[colNodeOwner],
+			time.Now(),
+			m[colNodeProperties],
+		).Exec()
+
+		if err != nil {
+			return err
+		}
+
+		err = f.client.Query(
+			deleteThingStatement,
+			m[colThingUUID],
+		).Exec()
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (f *Cassandra) addActionRow(action *models.Action, UUID strfmt.UUID, deleted bool) error {
