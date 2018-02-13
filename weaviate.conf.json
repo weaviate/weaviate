@@ -25,7 +25,7 @@
                 }
             },
             "schemas": {
-                "Thing": "https://raw.githubusercontent.com/ING-Internet-of-Things/Smart-Building-Ontology/develop/thing_schema.json",
+                "Thing": "test/schema/test-thing-schema.json",
                 "Action": "test/schema/test-action-schema.json"
             },
             "mqttEnabled": false,
