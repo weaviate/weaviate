@@ -699,6 +699,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get is successful
 		return keys.NewWeaviateKeysMeGetOK().WithPayload(&tokenResponseObject)
 	})
+	api.KeysWeaviateKeysMeGetRenewHandler = keys.WeaviateKeysMeGetRenewHandlerFunc(func(params keys.WeaviateKeysMeGetRenewParams, principal interface{}) middleware.Responder {
+		return keys.NewWeaviateKeysMeGetRenewNotImplemented()
+	})
 
 	/*
 	 * HANDLE THINGS
