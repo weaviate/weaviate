@@ -16,40 +16,6 @@
             "mqttEnabled": false,
             "limit": 100,
             "debug": true
-        },
-        {
-            "name": "cassandra-map",
-            "database": {
-                "name": "cassandra-map",
-                "database_config" : {
-                    "host": "127.0.0.1",
-                    "port": 7000
-                }
-            },
-            "schemas": {
-                "Thing": "test/schema/test-thing-schema.json",
-                "Action": "test/schema/test-action-schema.json"
-            },
-            "mqttEnabled": false,
-            "limit": 100,
-            "debug": true
-        },
-        {
-            "name": "cassandra-wide",
-            "database": {
-                "name": "cassandra-wide",
-                "database_config" : {
-                    "host": "127.0.0.1",
-                    "port": 7000
-                }
-            },
-            "schemas": {
-                "Thing": "test/schema/test-thing-schema.json",
-                "Action": "test/schema/test-action-schema.json"
-            },
-            "mqttEnabled": false,
-            "limit": 100,
-            "debug": true
         }
     ]
 }
