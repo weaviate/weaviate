@@ -1,21 +1,6 @@
 {
     "environments": [
         {
-            "name": "gremlin",
-            "database": {
-                "name": "gremlin",
-                "database_config" : {
-                    "host": "127.0.0.1",
-                    "port": 8182
-                }
-            },
-            "schemas": {
-                "Thing": "test/schema/test-thing-schema.json",
-                "Action": "test/schema/test-action-schema.json"
-            },
-            "mqttEnabled": false    
-        },
-        {
             "name": "cassandra",
             "database": {
                 "name": "cassandra",
@@ -29,6 +14,7 @@
                 "Action": "test/schema/test-action-schema.json"
             },
             "mqttEnabled": false,
+            "limit": 100,
             "debug": true
         },
         {
@@ -45,6 +31,7 @@
                 "Action": "test/schema/test-action-schema.json"
             },
             "mqttEnabled": false,
+            "limit": 100,
             "debug": true
         },
         {
@@ -61,22 +48,8 @@
                 "Action": "test/schema/test-action-schema.json"
             },
             "mqttEnabled": false,
+            "limit": 100,
             "debug": true
-        },
-        {
-            "name": "docker",
-            "database": {
-                "name": "dgraph",
-                "database_config" : {
-                    "host": "x.x.x.x",
-                    "port": 9080
-                }
-            },
-            "schemas": {
-                "Thing": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.min.json",
-                "Action": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.min.json"
-            },
-            "mqttEnabled": false
         }
     ]
 }
