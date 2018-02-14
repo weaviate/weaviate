@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -46,14 +46,14 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Semantic Graphql, RESTful and Websocket Web of Things platform.",
-    "title": "Weaviate - Semantic Graphql, RESTful and Websocket Web of Things platform.",
+    "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
+    "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
     "contact": {
       "name": "Weaviate",
-      "url": "https://weaviate.com",
-      "email": "yourfriends@weaviate.com"
+      "url": "http://www.creativesoftwarefdn.org",
+      "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.7.4"
+    "version": "0.7.5"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -416,6 +416,43 @@ func init() {
           },
           "501": {
             "description": "Not (yet) implemented"
+          }
+        },
+        "x-available-in-websocket": false
+      }
+    },
+    "/keys/me/renew": {
+      "put": {
+        "description": "Renews the related key.",
+        "tags": [
+          "keys"
+        ],
+        "summary": "Renews a key based on the key used to do the request.",
+        "operationId": "weaviate.keys.me.get.renew",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyTokenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-websocket": false

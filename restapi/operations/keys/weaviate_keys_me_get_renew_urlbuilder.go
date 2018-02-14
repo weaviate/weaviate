@@ -21,15 +21,15 @@ import (
 	golangswaggerpaths "path"
 )
 
-// WeaviateKeyCreateURL generates an URL for the weaviate key create operation
-type WeaviateKeyCreateURL struct {
+// WeaviateKeysMeGetRenewURL generates an URL for the weaviate keys me get renew operation
+type WeaviateKeysMeGetRenewURL struct {
 	_basePath string
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *WeaviateKeyCreateURL) WithBasePath(bp string) *WeaviateKeyCreateURL {
+func (o *WeaviateKeysMeGetRenewURL) WithBasePath(bp string) *WeaviateKeysMeGetRenewURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -37,15 +37,15 @@ func (o *WeaviateKeyCreateURL) WithBasePath(bp string) *WeaviateKeyCreateURL {
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *WeaviateKeyCreateURL) SetBasePath(bp string) {
+func (o *WeaviateKeysMeGetRenewURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *WeaviateKeyCreateURL) Build() (*url.URL, error) {
+func (o *WeaviateKeysMeGetRenewURL) Build() (*url.URL, error) {
 	var result url.URL
 
-	var _path = "/keys"
+	var _path = "/keys/me/renew"
 
 	_basePath := o._basePath
 	if _basePath == "" {
@@ -57,7 +57,7 @@ func (o *WeaviateKeyCreateURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *WeaviateKeyCreateURL) Must(u *url.URL, err error) *url.URL {
+func (o *WeaviateKeysMeGetRenewURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -68,17 +68,17 @@ func (o *WeaviateKeyCreateURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *WeaviateKeyCreateURL) String() string {
+func (o *WeaviateKeysMeGetRenewURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *WeaviateKeyCreateURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *WeaviateKeysMeGetRenewURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on WeaviateKeyCreateURL")
+		return nil, errors.New("scheme is required for a full url on WeaviateKeysMeGetRenewURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on WeaviateKeyCreateURL")
+		return nil, errors.New("host is required for a full url on WeaviateKeysMeGetRenewURL")
 	}
 
 	base, err := o.Build()
@@ -92,6 +92,6 @@ func (o *WeaviateKeyCreateURL) BuildFull(scheme, host string) (*url.URL, error) 
 }
 
 // StringFull returns the string representation of a complete url
-func (o *WeaviateKeyCreateURL) StringFull(scheme, host string) string {
+func (o *WeaviateKeysMeGetRenewURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }

@@ -11,7 +11,7 @@
  * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
  */
 
-package actions
+package keys
 
 // Editing this file might prove futile when you re-run the generate command
 
@@ -21,42 +21,42 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-// WeaviateActionsDeleteHandlerFunc turns a function with the right signature into a weaviate actions delete handler
-type WeaviateActionsDeleteHandlerFunc func(WeaviateActionsDeleteParams, interface{}) middleware.Responder
+// WeaviateKeysMeGetRenewHandlerFunc turns a function with the right signature into a weaviate keys me get renew handler
+type WeaviateKeysMeGetRenewHandlerFunc func(WeaviateKeysMeGetRenewParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateActionsDeleteHandlerFunc) Handle(params WeaviateActionsDeleteParams, principal interface{}) middleware.Responder {
+func (fn WeaviateKeysMeGetRenewHandlerFunc) Handle(params WeaviateKeysMeGetRenewParams, principal interface{}) middleware.Responder {
 	return fn(params, principal)
 }
 
-// WeaviateActionsDeleteHandler interface for that can handle valid weaviate actions delete params
-type WeaviateActionsDeleteHandler interface {
-	Handle(WeaviateActionsDeleteParams, interface{}) middleware.Responder
+// WeaviateKeysMeGetRenewHandler interface for that can handle valid weaviate keys me get renew params
+type WeaviateKeysMeGetRenewHandler interface {
+	Handle(WeaviateKeysMeGetRenewParams, interface{}) middleware.Responder
 }
 
-// NewWeaviateActionsDelete creates a new http.Handler for the weaviate actions delete operation
-func NewWeaviateActionsDelete(ctx *middleware.Context, handler WeaviateActionsDeleteHandler) *WeaviateActionsDelete {
-	return &WeaviateActionsDelete{Context: ctx, Handler: handler}
+// NewWeaviateKeysMeGetRenew creates a new http.Handler for the weaviate keys me get renew operation
+func NewWeaviateKeysMeGetRenew(ctx *middleware.Context, handler WeaviateKeysMeGetRenewHandler) *WeaviateKeysMeGetRenew {
+	return &WeaviateKeysMeGetRenew{Context: ctx, Handler: handler}
 }
 
-/*WeaviateActionsDelete swagger:route DELETE /actions/{actionId} actions weaviateActionsDelete
+/*WeaviateKeysMeGetRenew swagger:route PUT /keys/me/renew keys weaviateKeysMeGetRenew
 
-Delete an action based on its uuid related to this key.
+Renews a key based on the key used to do the request.
 
-Deletes an action from the system.
+Renews the related key.
 
 */
-type WeaviateActionsDelete struct {
+type WeaviateKeysMeGetRenew struct {
 	Context *middleware.Context
-	Handler WeaviateActionsDeleteHandler
+	Handler WeaviateKeysMeGetRenewHandler
 }
 
-func (o *WeaviateActionsDelete) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *WeaviateKeysMeGetRenew) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewWeaviateActionsDeleteParams()
+	var Params = NewWeaviateKeysMeGetRenewParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {

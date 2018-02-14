@@ -18,61 +18,33 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
-
-	strfmt "github.com/go-openapi/strfmt"
 )
 
-// NewWeaviateKeysDeleteParams creates a new WeaviateKeysDeleteParams object
+// NewWeaviateKeysMeGetRenewParams creates a new WeaviateKeysMeGetRenewParams object
 // with the default values initialized.
-func NewWeaviateKeysDeleteParams() WeaviateKeysDeleteParams {
+func NewWeaviateKeysMeGetRenewParams() WeaviateKeysMeGetRenewParams {
 	var ()
-	return WeaviateKeysDeleteParams{}
+	return WeaviateKeysMeGetRenewParams{}
 }
 
-// WeaviateKeysDeleteParams contains all the bound params for the weaviate keys delete operation
+// WeaviateKeysMeGetRenewParams contains all the bound params for the weaviate keys me get renew operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters weaviate.keys.delete
-type WeaviateKeysDeleteParams struct {
+// swagger:parameters weaviate.keys.me.get.renew
+type WeaviateKeysMeGetRenewParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request
-
-	/*Unique ID of the key.
-	  Required: true
-	  In: path
-	*/
-	KeyID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls
-func (o *WeaviateKeysDeleteParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+func (o *WeaviateKeysMeGetRenewParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 	o.HTTPRequest = r
-
-	rKeyID, rhkKeyID, _ := route.Params.GetOK("keyId")
-	if err := o.bindKeyID(rKeyID, rhkKeyID, route.Formats); err != nil {
-		res = append(res, err)
-	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (o *WeaviateKeysDeleteParams) bindKeyID(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	value, err := formats.Parse("uuid", raw)
-	if err != nil {
-		return errors.InvalidType("keyId", "path", "strfmt.UUID", raw)
-	}
-	o.KeyID = *(value.(*strfmt.UUID))
-
 	return nil
 }

@@ -581,12 +581,12 @@
   "info": {
     "contact": {
       "name": "Weaviate",
-      "url": "https://weaviate.com",
-      "email": "yourfriends@weaviate.com"
+      "url": "http://www.creativesoftwarefdn.org",
+      "email": "hello@creativesoftwarefdn.org"
     },
-    "description": "Semantic Graphql, RESTful and Websocket Web of Things platform.",
-    "title": "Weaviate - Semantic Graphql, RESTful and Websocket Web of Things platform.",
-    "version": "0.7.4"
+    "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
+    "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
+    "version": "0.7.5"
   },
   "parameters": {
     "CommonPageParameterQuery": {
@@ -1055,6 +1055,43 @@
           }
         },
         "summary": "Get a key based on the key used to do the request.",
+        "tags": [
+          "keys"
+        ],
+        "x-available-in-websocket": false
+      }
+    },
+    "/keys/me/renew": {
+      "put": {
+        "description": "Renews the related key.",
+        "operationId": "weaviate.keys.me.get.renew",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyTokenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Renews a key based on the key used to do the request.",
         "tags": [
           "keys"
         ],

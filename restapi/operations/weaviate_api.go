@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -98,6 +98,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		KeysWeaviateKeysMeGetHandler: keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation KeysWeaviateKeysMeGet has not yet been implemented")
 		}),
+		KeysWeaviateKeysMeGetRenewHandler: keys.WeaviateKeysMeGetRenewHandlerFunc(func(params keys.WeaviateKeysMeGetRenewParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation KeysWeaviateKeysMeGetRenew has not yet been implemented")
+		}),
 		MetaWeaviateMetaGetHandler: meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation MetaWeaviateMetaGet has not yet been implemented")
 		}),
@@ -139,7 +142,7 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 	}
 }
 
-/*WeaviateAPI Semantic Graphql, RESTful and Websocket Web of Things platform. */
+/*WeaviateAPI Weaviate - Semantic Graphql, RESTful Web of Things platform. */
 type WeaviateAPI struct {
 	spec            *loads.Document
 	context         *middleware.Context
@@ -159,7 +162,7 @@ type WeaviateAPI struct {
 	// It has a default implemention in the security package, however you can replace it for your particular usage.
 	BearerAuthenticator func(string, security.ScopedTokenAuthentication) runtime.Authenticator
 
-	// JSONConsumer registers a consumer for a "application/json" mime type
+	// JSONConsumer registers a consumer for a "application/json-patch+json" mime type
 	JSONConsumer runtime.Consumer
 	// BinConsumer registers a consumer for a "application/octet-stream" mime type
 	BinConsumer runtime.Consumer
@@ -220,6 +223,8 @@ type WeaviateAPI struct {
 	KeysWeaviateKeysMeChildrenGetHandler keys.WeaviateKeysMeChildrenGetHandler
 	// KeysWeaviateKeysMeGetHandler sets the operation handler for the weaviate keys me get operation
 	KeysWeaviateKeysMeGetHandler keys.WeaviateKeysMeGetHandler
+	// KeysWeaviateKeysMeGetRenewHandler sets the operation handler for the weaviate keys me get renew operation
+	KeysWeaviateKeysMeGetRenewHandler keys.WeaviateKeysMeGetRenewHandler
 	// MetaWeaviateMetaGetHandler sets the operation handler for the weaviate meta get operation
 	MetaWeaviateMetaGetHandler meta.WeaviateMetaGetHandler
 	// ThingsWeaviateThingsActionsListHandler sets the operation handler for the weaviate things actions list operation
@@ -401,6 +406,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.KeysWeaviateKeysMeGetHandler == nil {
 		unregistered = append(unregistered, "keys.WeaviateKeysMeGetHandler")
+	}
+
+	if o.KeysWeaviateKeysMeGetRenewHandler == nil {
+		unregistered = append(unregistered, "keys.WeaviateKeysMeGetRenewHandler")
 	}
 
 	if o.MetaWeaviateMetaGetHandler == nil {
@@ -641,6 +650,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/keys/me"] = keys.NewWeaviateKeysMeGet(o.context, o.KeysWeaviateKeysMeGetHandler)
+
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/keys/me/renew"] = keys.NewWeaviateKeysMeGetRenew(o.context, o.KeysWeaviateKeysMeGetRenewHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
