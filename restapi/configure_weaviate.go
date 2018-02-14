@@ -82,14 +82,14 @@ func init() {
 
 // getLimit returns the maximized limit
 func getLimit(paramMaxResults *int64) int {
-	maxResults := int64(connutils.DefaultFirst)
+	maxResults := serverConfig.Environment.Limit
 	// Get the max results from params, if exists
 	if paramMaxResults != nil {
 		maxResults = *paramMaxResults
 	}
 
-	// Max results form URL, otherwise max = connutils.DefaultFirst.
-	return int(math.Min(float64(maxResults), float64(connutils.DefaultFirst)))
+	// Max results form URL, otherwise max = config.Limit.
+	return int(math.Min(float64(maxResults), float64(serverConfig.Environment.Limit)))
 }
 
 // getPage returns the page if set
@@ -100,7 +100,7 @@ func getPage(paramPage *int64) int {
 		page = *paramPage
 	}
 
-	// Page form URL, otherwise max = connutils.DefaultFirst.
+	// Page form URL, otherwise max = config.Limit.
 	return int(page)
 }
 
