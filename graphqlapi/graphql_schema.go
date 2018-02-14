@@ -650,9 +650,9 @@ func (f *GraphQLSchema) InitSchema() error {
 		Description: "The actions belonging to this thing, sorted on creation time..",
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
-				Description:  "First X items from the given offset, when none given, it will be " + string(connutils.DefaultFirst) + ".",
+				Description:  "First X items from the given offset, when none given, it will be " + string(f.serverConfig.Environment.Limit) + ".",
 				Type:         graphql.Int,
-				DefaultValue: connutils.DefaultFirst,
+				DefaultValue: f.serverConfig.Environment.Limit,
 			},
 			"offset": &graphql.ArgumentConfig{
 				Description:  "Offset from the most recent item.",
@@ -832,9 +832,9 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        thingListType,
 				Args: graphql.FieldConfigArgument{
 					"first": &graphql.ArgumentConfig{
-						Description:  "First X items from the given offset, when none given, it will be " + string(connutils.DefaultFirst) + ".",
+						Description:  "First X items from the given offset, when none given, it will be " + string(f.serverConfig.Environment.Limit) + ".",
 						Type:         graphql.Int,
-						DefaultValue: connutils.DefaultFirst,
+						DefaultValue: f.serverConfig.Environment.Limit,
 					},
 					"offset": &graphql.ArgumentConfig{
 						Description:  "Offset from the most recent item.",

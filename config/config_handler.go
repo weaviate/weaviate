@@ -48,6 +48,7 @@ type Environment struct {
 	Schemas     Schemas  `json:"schemas"`
 	MQTTEnabled bool     `json:"mqttEnabled"`
 	Cache       Cache    `json:"cache"`
+	Limit       int64    `json:"limit"`
 	Debug       bool     `json:"debug"`
 }
 
