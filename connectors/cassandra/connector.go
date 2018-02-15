@@ -32,7 +32,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/schema"
 )
 
-const objectTableName = "object_data"
+// const objectTableName = "object_data"
 const sep = "||"
 
 // All Key constants
@@ -54,12 +54,15 @@ const colKeyExpiryTime string = "key_expiry_time"
 // All node constants
 const tableThings string = "weaviate.things"
 const tableActions string = "weaviate.actions"
+const tableListSuffix string = "_list"
 const tableHistorySuffix string = "_property_history"
 const tableClassSearchSuffix string = "_class_search"
 const tableValueSearchSuffix string = "_key_value_search"
+const tableThingsList string = tableThings + tableListSuffix
 const tableThingsHistory string = tableThings + tableHistorySuffix
 const tableThingsClassSearch string = tableThings + tableClassSearchSuffix
 const tableThingsValueSearch string = tableThings + tableValueSearchSuffix
+const tableActionsList string = tableActions + tableListSuffix
 const tableActionsHistory string = tableActions + tableHistorySuffix
 const tableActionsClassSearch string = tableActions + tableClassSearchSuffix
 const tableActionsValueSearch string = tableActions + tableValueSearchSuffix
@@ -132,8 +135,12 @@ const insertThingHistoryStatement = `
 `
 
 const deleteThingStatement = `
-	DELETE FROM ` + tableThings + ` 
-	WHERE ` + colThingUUID + ` = ? IF EXISTS;
+	UPDATE ` + tableThings + ` SET 
+	` + colNodeDeleted + ` = true
+	WHERE ` + colThingUUID + ` = ? 
+	AND ` + colNodeOwner + ` = ? 
+	AND ` + colNodeCreationTime + ` = ? 
+	IF EXISTS;
 `
 
 const selectKeyStatement = `
@@ -146,30 +153,22 @@ const selectThingStatement = `
 	SELECT *
 	FROM ` + tableThings + ` 
 	WHERE thing_uuid = ?
+	AND deleted = ?
 `
 
-const insertStatement = ``
-
-const selectStatement = `
+const listThingsSelectStatement = `
 	SELECT *
-	FROM ` + objectTableName + ` 
-	WHERE uuid = ?
+	FROM ` + tableThingsList + ` 
+	WHERE ` + colNodeOwner + ` = ? 
+	ORDER BY ` + colNodeCreationTime + ` DESC 
+	LIMIT ?
 `
 
-const selectInStatement = `
-	SELECT *
-	FROM ` + objectTableName + ` 
-	WHERE uuid IN ?
+const listThingsCountStatement = `
+	SELECT COUNT(` + colThingUUID + `) AS thingsCount 
+	FROM ` + tableThingsList + ` 
+	WHERE ` + colNodeOwner + ` = ?
 `
-
-// const listSelectStatement = `
-// 	SELECT *
-// 	FROM ` + objectTableName + `
-// 	WHERE ` + OwnerColumn + ` = ?
-// 	%s
-// 	LIMIT ?
-// 	ALLOW FILTERING
-// `
 
 // const listActionsSelectStatement = `
 // 	SELECT *
@@ -360,7 +359,7 @@ func (f *Cassandra) Init() error {
 			` + colKeyEmail + ` text,
 			` + colKeyIPOrigin + ` list<text>,
 			` + colKeyExpiryTime + ` timestamp,
-			PRIMARY KEY (` + colKeyUUID + `, ` + colKeyRoot + `)
+			PRIMARY KEY ((` + colKeyUUID + `), ` + colKeyRoot + `)
 		);
 	`).Exec()
 
@@ -379,7 +378,7 @@ func (f *Cassandra) Init() error {
 		AS SELECT *
 		FROM ` + tableKeys + ` 
 		WHERE ` + colKeyToken + ` IS NOT NULL AND ` + colKeyUUID + ` IS NOT NULL AND ` + colKeyRoot + ` IS NOT NULL
-		PRIMARY KEY (` + colKeyToken + `, ` + colKeyUUID + `, ` + colKeyRoot + `);`).Exec()
+		PRIMARY KEY ((` + colKeyToken + `), ` + colKeyUUID + `, ` + colKeyRoot + `);`).Exec()
 
 	if err != nil {
 		return err
@@ -390,7 +389,7 @@ func (f *Cassandra) Init() error {
 		AS SELECT *
 		FROM ` + tableKeys + ` 
 		WHERE ` + colKeyParent + ` IS NOT NULL AND ` + colKeyUUID + ` IS NOT NULL AND ` + colKeyRoot + ` IS NOT NULL
-		PRIMARY KEY (` + colKeyParent + `, ` + colKeyUUID + `, ` + colKeyRoot + `);`).Exec()
+		PRIMARY KEY ((` + colKeyParent + `), ` + colKeyUUID + `, ` + colKeyRoot + `);`).Exec()
 
 	if err != nil {
 		return err
@@ -410,8 +409,8 @@ func (f *Cassandra) Init() error {
 				` + colNodeClass + ` text,
 				` + colNodeContext + ` text,
 				` + colNodeProperties + ` map<text, text>,
-				PRIMARY KEY (` + colNodeUUID + `, ` + colNodeOwner + `, ` + colNodeCreationTime + `)
-			) WITH CLUSTERING ORDER BY (` + colNodeOwner + ` ASC, ` + colNodeCreationTime + ` DESC);
+				PRIMARY KEY ((` + colNodeUUID + `), ` + colNodeOwner + `, ` + colNodeCreationTime + `)
+			) WITH CLUSTERING ORDER BY (` + colNodeOwner + ` ASC);
 		`).Exec()
 
 		if err != nil {
@@ -436,8 +435,20 @@ func (f *Cassandra) Init() error {
 				` + colNodeOwner + ` uuid,
 				` + colNodeCreationTime + ` timestamp,
 				` + colNodeProperties + ` map<text, text>,
-				PRIMARY KEY (` + colNodeUUID + `, ` + colNodeCreationTime + `)
+				PRIMARY KEY ((` + colNodeUUID + `), ` + colNodeCreationTime + `)
 			) WITH CLUSTERING ORDER BY (` + colNodeCreationTime + ` DESC);
+		`).Exec()
+
+		if err != nil {
+			return err
+		}
+
+		err = f.client.Query(`
+			CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableNode + tableListSuffix + `
+			AS SELECT *
+			FROM ` + tableNode + ` 
+			WHERE ` + colNodeOwner + ` IS NOT NULL AND ` + colNodeCreationTime + ` IS NOT NULL AND ` + colNodeUUID + ` IS NOT NULL
+			PRIMARY KEY ((` + colNodeOwner + `), ` + colNodeCreationTime + `, ` + colNodeUUID + `);
 		`).Exec()
 
 		if err != nil {
@@ -449,7 +460,7 @@ func (f *Cassandra) Init() error {
 			AS SELECT *
 			FROM ` + tableNode + ` 
 			WHERE ` + colNodeClass + ` IS NOT NULL AND ` + colNodeUUID + ` IS NOT NULL AND ` + colNodeOwner + ` IS NOT NULL AND ` + colNodeCreationTime + ` IS NOT NULL
-			PRIMARY KEY (` + colNodeClass + `, ` + colNodeUUID + `, ` + colNodeOwner + `, ` + colNodeCreationTime + `);
+			PRIMARY KEY ((` + colNodeClass + `), ` + colNodeUUID + `, ` + colNodeOwner + `, ` + colNodeCreationTime + `);
 		`).Exec()
 
 		if err != nil {
@@ -462,7 +473,7 @@ func (f *Cassandra) Init() error {
 				` + colNodePropValue + ` text,
 				` + colNodeUUID + ` uuid,
 				` + colNodeOwner + ` uuid,
-				PRIMARY KEY (` + colNodePropKey + `, ` + colNodePropValue + `)
+				PRIMARY KEY ((` + colNodePropKey + `), ` + colNodePropValue + `)
 			);
 		`).Exec()
 
@@ -524,7 +535,7 @@ func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRes
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetThing: %s", UUID))
 
 	// Get the iterator
-	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
+	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID), false).Iter()
 
 	found := false
 	for {
@@ -582,22 +593,41 @@ func (f *Cassandra) GetThings(UUIDs []strfmt.UUID, thingsResponse *models.Things
 
 // ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
 func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
-	// // TODO order not working?
-	// // TODO List return most recents
-	// // TODO Dont show deleted
+	// TODO order not working?
+	// TODO List return most recents
+	// TODO Dont show deleted
 
-	// defer f.messaging.TimeTrack(time.Now())
+	defer f.messaging.TimeTrack(time.Now())
 
 	// whereFilter := f.parseWhereFilters(wheres, false)
 
-	// iter := f.client.Query(fmt.Sprintf(listSelectStatement, whereFilter), string(keyID), first).Iter()
+	iter := f.client.Query(listThingsSelectStatement, f.convUUIDtoCQLUUID(keyID), first).Iter()
 
-	// err := f.fillResponseWithIter(iter, thingsResponse, connutils.RefTypeThing)
-	// thingsResponse.TotalResults = 0 // TODO
+	for {
+		m := map[string]interface{}{}
+		if !iter.MapScan(m) {
+			break
+		}
 
-	// // If success return nil, otherwise return the error
-	// return err
+		thingResponse := models.ThingGetResponse{}
+		f.fillThingResponseWithRow(m, &thingResponse)
 
+		thingsResponse.Things = append(thingsResponse.Things, &thingResponse)
+	}
+
+	if err := iter.Close(); err != nil {
+		return err
+	}
+
+	var thingsCount int64
+
+	if err := f.client.Query(listThingsCountStatement, f.convUUIDtoCQLUUID(keyID)).Scan(&thingsCount); err != nil {
+		return err
+	}
+
+	thingsResponse.TotalResults = thingsCount
+
+	// If success return nil, otherwise return the error
 	return nil
 }
 
@@ -610,6 +640,7 @@ func (f *Cassandra) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 	}
 
 	// Run the query to update the thing based on its UUID.
+	// TODO: Just update properties, no other like owner ID etc.??
 	err = f.addThingRow(thing, UUID, false)
 
 	if err != nil {
@@ -623,14 +654,29 @@ func (f *Cassandra) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 // DeleteThing deletes the Thing in the DB at the given UUID.
 func (f *Cassandra) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Run the query to delete the thing based on its UUID.
-	err := f.addThingRow(thing, UUID, true)
+	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID), false).Iter()
 
-	if err != nil {
-		f.messaging.ErrorMessage(err)
+	for {
+		m := map[string]interface{}{}
+		if !iter.MapScan(m) {
+			break
+		}
+
+		err := f.client.Query(
+			deleteThingStatement,
+			m[colThingUUID],
+			m[colNodeOwner],
+			m[colNodeCreationTime],
+		).Exec()
+
+		if err != nil {
+			f.messaging.ErrorMessage(err)
+			return err
+		}
 	}
 
 	// If success return nil, otherwise return the error
-	return err
+	return nil
 }
 
 // AddAction adds an action to the Cassandra database with the given UUID.
@@ -882,10 +928,6 @@ func (f *Cassandra) createPropertyCallback(properties *map[string]string, cqlUUI
 
 		return nil
 	}
-}
-
-func (f *Cassandra) getSelectIteratorByUUID(UUID strfmt.UUID) *gocql.Iter {
-	return f.client.Query(selectStatement, string(UUID)).Iter()
 }
 
 func (f *Cassandra) fillKeyResponseWithRow(row map[string]interface{}, keyResponse *models.KeyTokenGetResponse) error {
@@ -1186,7 +1228,7 @@ func (f *Cassandra) addThingRow(thing *models.Thing, UUID strfmt.UUID, deleted b
 }
 
 func (f *Cassandra) moveThingToHistory(UUID strfmt.UUID) error {
-	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
+	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID), false).Iter()
 
 	for {
 		m := map[string]interface{}{}
@@ -1200,15 +1242,6 @@ func (f *Cassandra) moveThingToHistory(UUID strfmt.UUID) error {
 			m[colNodeOwner],
 			time.Now(),
 			m[colNodeProperties],
-		).Exec()
-
-		if err != nil {
-			return err
-		}
-
-		err = f.client.Query(
-			deleteThingStatement,
-			m[colThingUUID],
 		).Exec()
 
 		if err != nil {
@@ -1246,19 +1279,20 @@ func (f *Cassandra) addActionRow(action *models.Action, UUID strfmt.UUID, delete
 	if lut.(int64) <= 0 {
 		lut = nil
 	}
-	query := f.client.Query(
-		fmt.Sprintf(insertStatement, objectTableName),
-		gocql.TimeUUID(),
-		cqlUUID,
-		connutils.RefTypeAction,
-		action.AtClass,
-		action.CreationTimeUnix,
-		lut,
-		f.convUUIDtoCQLUUID(action.Key.NrDollarCref),
-		properties,
-		deleted,
-		connutils.NowUnix(),
-	)
+	// query := f.client.Query(
+	// 	fmt.Sprintf(insertStatement, objectTableName),
+	// 	gocql.TimeUUID(),
+	// 	cqlUUID,
+	// 	connutils.RefTypeAction,
+	// 	action.AtClass,
+	// 	action.CreationTimeUnix,
+	// 	lut,
+	// 	f.convUUIDtoCQLUUID(action.Key.NrDollarCref),
+	// 	properties,
+	// 	deleted,
+	// 	connutils.NowUnix(),
+	// )
 
-	return query.Exec()
+	// return query.Exec()
+	return nil
 }
