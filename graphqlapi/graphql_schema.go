@@ -652,7 +652,7 @@ func (f *GraphQLSchema) InitSchema() error {
 			"first": &graphql.ArgumentConfig{
 				Description:  "First X items from the given offset, when none given, it will be " + string(f.serverConfig.Environment.Limit) + ".",
 				Type:         graphql.Int,
-				DefaultValue: f.serverConfig.Environment.Limit,
+				DefaultValue: int(f.serverConfig.Environment.Limit),
 			},
 			"offset": &graphql.ArgumentConfig{
 				Description:  "Offset from the most recent item.",
@@ -834,7 +834,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					"first": &graphql.ArgumentConfig{
 						Description:  "First X items from the given offset, when none given, it will be " + string(f.serverConfig.Environment.Limit) + ".",
 						Type:         graphql.Int,
-						DefaultValue: f.serverConfig.Environment.Limit,
+						DefaultValue: int(f.serverConfig.Environment.Limit),
 					},
 					"offset": &graphql.ArgumentConfig{
 						Description:  "Offset from the most recent item.",
