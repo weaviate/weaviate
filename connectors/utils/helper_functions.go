@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"runtime"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -87,14 +88,36 @@ func CreateRootKeyObject(key *models.Key) strfmt.UUID {
 	return token
 }
 
+// Trace is used to display the running function in a connector
+func Trace() {
+	pc := make([]uintptr, 10) // at least 1 entry needed
+	runtime.Callers(2, pc)
+	f2 := runtime.FuncForPC(pc[0])
+	//file, line := f2.FileLine(pc[0])
+	fmt.Printf("THIS FUNCTION RUNS: %s\n", f2.Name())
+}
+
 // NowUnix returns the current Unix time
 func NowUnix() int64 {
-	return time.Now().UnixNano() / int64(time.Millisecond)
+	return MakeUnixMillisecond(time.Now())
+}
+
+// MakeUnixMillisecond returns the milisecond unix-version of the given time
+func MakeUnixMillisecond(t time.Time) int64 {
+	return t.UnixNano() / int64(time.Millisecond)
 }
 
 // GenerateUUID returns a new UUID
 func GenerateUUID() strfmt.UUID {
 	return strfmt.UUID(fmt.Sprintf("%v", gouuid.NewV4()))
+}
+
+// Must panics if error, otherwise retunr value
+func Must(i interface{}, err error) interface{} {
+	if err != nil {
+		panic(err)
+	}
+	return i
 }
 
 // WhereStringToStruct is the 'compiler' for converting the filter/where query-string into a struct

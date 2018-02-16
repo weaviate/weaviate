@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -19,6 +19,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -59,7 +60,7 @@ func (f *Messaging) ErrorMessage(message interface{}) {
 
 // TimeTrack tracks the time from execution to return of the function
 // Usage: defer TimeTrack(time.Now())
-func (f *Messaging) TimeTrack(start time.Time) {
+func (f *Messaging) TimeTrack(start time.Time, info ...string) {
 	elapsed := time.Since(start)
 
 	// Skip this function, and fetch the PC and file for its parent
@@ -72,5 +73,10 @@ func (f *Messaging) TimeTrack(start time.Time) {
 	extractFnName := regexp.MustCompile(`^.*\/(.*)$`)
 	name := extractFnName.ReplaceAllString(functionObject.Name(), "$1")
 
-	f.DebugMessage(fmt.Sprintf("%s:%d took %s", name, line, elapsed))
+	infoStr := ""
+	if len(info) > 0 {
+		infoStr = strings.Join(info, ", ") + ": "
+	}
+
+	f.DebugMessage(fmt.Sprintf("%s%s:%d took %s", infoStr, name, line, elapsed))
 }

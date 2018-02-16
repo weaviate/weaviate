@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -46,14 +46,14 @@ func init() {
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Semantic Graphql, RESTful and Websocket Web of Things platform.",
-    "title": "Weaviate - Semantic Graphql, RESTful and Websocket Web of Things platform.",
+    "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
+    "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
     "contact": {
       "name": "Weaviate",
-      "url": "https://weaviate.com",
-      "email": "yourfriends@weaviate.com"
+      "url": "http://www.creativesoftwarefdn.org",
+      "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "v0.7.0"
+    "version": "0.7.5"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -416,6 +416,43 @@ func init() {
           },
           "501": {
             "description": "Not (yet) implemented"
+          }
+        },
+        "x-available-in-websocket": false
+      }
+    },
+    "/keys/me/renew": {
+      "put": {
+        "description": "Renews the related key.",
+        "tags": [
+          "keys"
+        ],
+        "summary": "Renews a key based on the key used to do the request.",
+        "operationId": "weaviate.keys.me.get.renew",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyTokenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-websocket": false
@@ -925,6 +962,47 @@ func init() {
         },
         "x-available-in-websocket": true
       }
+    },
+    "/things/{thingId}/history": {
+      "get": {
+        "description": "Returns a particular thing history.",
+        "tags": [
+          "things"
+        ],
+        "summary": "Get a thing's history based on its uuid related to this key.",
+        "operationId": "weaviate.things.get.history",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the thing.",
+            "name": "thingId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetHistoryResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-websocket": false
+      }
     }
   },
   "definitions": {
@@ -1263,6 +1341,10 @@ func init() {
       "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
       "type": "object"
     },
+    "SchemaHistory": {
+      "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "type": "object"
+    },
     "SemanticSchema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas)",
       "type": "object",
@@ -1407,6 +1489,22 @@ func init() {
         }
       }
     },
+    "ThingGetHistoryResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ThingHistory"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "thingId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      ]
+    },
     "ThingGetResponse": {
       "allOf": [
         {
@@ -1422,6 +1520,26 @@ func init() {
           }
         }
       ]
+    },
+    "ThingHistory": {
+      "type": "object",
+      "properties": {
+        "propertyHistory": {
+          "description": "An array with the history of the things.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "schema": {
+                "type": "object"
+              },
+              "updateTimeUnix": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
     },
     "ThingUpdate": {
       "allOf": [

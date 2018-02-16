@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -35,20 +35,21 @@ type DatabaseConnector interface {
 
 	AddThing(thing *models.Thing, UUID strfmt.UUID) error
 	GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
+	GetThings(UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error
 	ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
 	UpdateThing(thing *models.Thing, UUID strfmt.UUID) error
-	DeleteThing(UUID strfmt.UUID) error
+	DeleteThing(thing *models.Thing, UUID strfmt.UUID) error
 
 	AddAction(action *models.Action, UUID strfmt.UUID) error
 	GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error
 	ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error
 	UpdateAction(action *models.Action, UUID strfmt.UUID) error
-	DeleteAction(UUID strfmt.UUID) error
+	DeleteAction(action *models.Action, UUID strfmt.UUID) error
 
 	AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error
 	ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse) error
 	GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error
-	DeleteKey(UUID strfmt.UUID) error
+	DeleteKey(key *models.Key, UUID strfmt.UUID) error
 	GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error
 }
 
