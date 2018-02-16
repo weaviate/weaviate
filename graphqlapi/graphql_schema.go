@@ -1145,17 +1145,17 @@ func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.Single
 	// } else {
 	// Check whether the request has to be done for key, thing or action types
 	if cref.Type == "Thing" {
-		// DATALOADER TEST
-		var result interface{}
-		// StringKey is a convenience method that make wraps string to implement `Key` interface
-		thunk := f.thingsDataLoader.Load(f.context, dataloader.StringKey(string(cref.NrDollarCref)))
-		result, err = thunk()
+		// // DATALOADER TEST
+		// var result interface{}
+		// // StringKey is a convenience method that make wraps string to implement `Key` interface
+		// thunk := f.thingsDataLoader.Load(f.context, dataloader.StringKey(string(cref.NrDollarCref)))
+		// result, err = thunk()
 
-		objectLoaded.(*models.ThingGetResponse).Thing = result.(*models.ThingGetResponse).Thing
-		objectLoaded.(*models.ThingGetResponse).ThingID = result.(*models.ThingGetResponse).ThingID
-		// END DATALOADER TEST
+		// objectLoaded.(*models.ThingGetResponse).Thing = result.(*models.ThingGetResponse).Thing
+		// objectLoaded.(*models.ThingGetResponse).ThingID = result.(*models.ThingGetResponse).ThingID
+		// // END DATALOADER TEST
 
-		// err = f.dbConnector.GetThing(cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
+		err = f.dbConnector.GetThing(cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
 	} else if cref.Type == "Action" {
 		err = f.dbConnector.GetAction(cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
 	} else if cref.Type == "Key" {
