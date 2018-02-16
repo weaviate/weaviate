@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -220,6 +220,14 @@ func (f *Foobar) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespon
 	return nil
 }
 
+// GetThings fills the given []ThingGetResponse with the values from the database, based on the given UUIDs.
+func (f *Foobar) GetThings(UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error {
+	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
+
+	// If success return nil, otherwise return the error
+	return nil
+}
+
 // ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
 func (f *Foobar) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 
@@ -240,7 +248,7 @@ func (f *Foobar) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // DeleteThing deletes the Thing in the DB at the given UUID.
-func (f *Foobar) DeleteThing(UUID strfmt.UUID) error {
+func (f *Foobar) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 	// Run the query to delete the thing based on its UUID.
 
@@ -283,7 +291,7 @@ func (f *Foobar) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 }
 
 // DeleteAction deletes the Action in the DB at the given UUID.
-func (f *Foobar) DeleteAction(UUID strfmt.UUID) error {
+func (f *Foobar) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 
 	// Run the query to delete the action based on its UUID.
 
@@ -306,7 +314,6 @@ func (f *Foobar) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) er
 func (f *Foobar) ValidateToken(token strfmt.UUID, key *models.KeyTokenGetResponse) error {
 
 	// key (= models.KeyTokenGetResponse) should be populated with the response that comes from the DB.
-	// key = based on the ontology
 
 	// in case the key is not found, return an error like:
 	// return errors_.New("Key not found in database.")
@@ -323,7 +330,7 @@ func (f *Foobar) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetRespons
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
-func (f *Foobar) DeleteKey(UUID strfmt.UUID) error {
+func (f *Foobar) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
 	f.trace()
 	return nil
 }

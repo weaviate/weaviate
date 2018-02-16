@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -115,6 +115,14 @@ func (f *KVCache) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespo
 	return err
 }
 
+// GetThings fills the given []ThingGetResponse with the values from the database, based on the given UUIDs.
+func (f *KVCache) GetThings(UUIDs []strfmt.UUID, thingsResponse *models.ThingsListResponse) error {
+	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
+
+	err := f.databaseConnector.GetThings(UUIDs, thingsResponse)
+	return err
+}
+
 // ListThings function
 func (f *KVCache) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
@@ -134,14 +142,14 @@ func (f *KVCache) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // DeleteThing function
-func (f *KVCache) DeleteThing(UUID strfmt.UUID) error {
+func (f *KVCache) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Delete from cache before updating, otherwise the old version still exists
 	key := fmt.Sprintf("Thing#%s", UUID)
 	f.cache.Delete(key)
 
-	return f.databaseConnector.DeleteThing(UUID)
+	return f.databaseConnector.DeleteThing(thing, UUID)
 }
 
 // AddAction function
@@ -198,14 +206,14 @@ func (f *KVCache) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
 }
 
 // DeleteAction function
-func (f *KVCache) DeleteAction(UUID strfmt.UUID) error {
+func (f *KVCache) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Delete from cache before updating, otherwise the old version still exists
 	key := fmt.Sprintf("Action#%s", UUID)
 	f.cache.Delete(key)
 
-	return f.databaseConnector.DeleteAction(UUID)
+	return f.databaseConnector.DeleteAction(action, UUID)
 }
 
 // AddKey function
@@ -216,14 +224,31 @@ func (f *KVCache) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) e
 }
 
 // ValidateToken function
-func (f *KVCache) ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse) error {
+func (f *KVCache) ValidateToken(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	// Delete from cache before updating, otherwise the old version still exists
-	ck := fmt.Sprintf("Key#%s", UUID)
-	f.cache.Delete(ck)
+	// Create a cache key
+	ck := fmt.Sprintf("KeyToken#%s", UUID)
 
-	return f.databaseConnector.ValidateToken(UUID, key)
+	// Get the item from the cache
+	v, found := f.cache.Get(ck)
+
+	// If it is found in the cache, set the response pointer to the same key as in the cache is pointed to
+	if found {
+		*keyResponse = *v.(*models.KeyTokenGetResponse)
+
+		return nil
+	}
+
+	// If not found, get it from the DB
+	err := f.databaseConnector.ValidateToken(UUID, keyResponse)
+
+	// If no error is given, set the pointer in the cache on the created key
+	if err == nil {
+		f.cache.Set(ck, keyResponse, 0)
+	}
+
+	return err
 }
 
 // GetKey function
@@ -231,10 +256,10 @@ func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetRespon
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Create a cache key
-	key := fmt.Sprintf("Key#%s", UUID)
+	ck := fmt.Sprintf("Key#%s", UUID)
 
 	// Get the item from the cache
-	v, found := f.cache.Get(key)
+	v, found := f.cache.Get(ck)
 
 	// If it is found in the cache, set the response pointer to the same key as in the cache is pointed to
 	if found {
@@ -248,21 +273,28 @@ func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetRespon
 
 	// If no error is given, set the pointer in the cache on the created key
 	if err == nil {
-		f.cache.Set(key, keyResponse, 0)
+		f.cache.Set(ck, keyResponse, 0)
 	}
 
 	return err
 }
 
 // DeleteKey function
-func (f *KVCache) DeleteKey(UUID strfmt.UUID) error {
+func (f *KVCache) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Delete from cache before updating, otherwise the old version still exists
-	key := fmt.Sprintf("Key#%s", UUID)
-	f.cache.Delete(key)
+	ck := fmt.Sprintf("Key#%s", UUID)
+	f.cache.Delete(ck)
 
-	return f.databaseConnector.DeleteKey(UUID)
+	// Also remove the 'token'-cache, by loading the key first
+	keyResponse := &models.KeyTokenGetResponse{}
+	f.GetKey(UUID, keyResponse)
+
+	ctk := fmt.Sprintf("KeyToken#%s", keyResponse.Token)
+	f.cache.Delete(ctk)
+
+	return f.databaseConnector.DeleteKey(key, UUID)
 }
 
 // GetKeyChildren function

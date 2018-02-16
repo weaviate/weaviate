@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -30,6 +30,9 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 )
+
+// SchemaPrefix is the prefixed used in the database for schema properties
+const SchemaPrefix string = "schema."
 
 type schemaProperties struct {
 	localFile                string
@@ -64,6 +67,8 @@ const (
 	DataTypeBoolean DataType = "boolean"
 	// DataTypeDate The data type is a value of type date
 	DataTypeDate DataType = "date"
+	// DataTypeUnknown The data type is unknown
+	DataTypeUnknown DataType = "unknown"
 	// validationErrorMessage is a constant for returning the same message
 	validationErrorMessage string = "All predicates with the same name across different classes should contain the same kind of data"
 )
@@ -88,7 +93,7 @@ func GetPropertyByName(c *models.SemanticSchemaClass, propName string) (*models.
 	for _, prop := range c.Properties {
 
 		// Check if the name of the property is the given name, that's the property we need
-		if prop.Name == propName {
+		if prop.Name == strings.Split(propName, ".")[0] {
 			return prop, nil
 		}
 	}
@@ -366,4 +371,71 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 	}
 
 	return nil
+}
+
+// UpdateObjectSchemaProperties updates all the edges of the Object in 'schema', used with a new Object or to update/patch a Object using a connector specified callback.
+// This function is not part of connector utils because of the import cycle problem
+func UpdateObjectSchemaProperties(refType string, object interface{}, nodeSchema models.Schema, schemas *WeaviateSchema, callback func(string, interface{}, *DataType, string) error) error {
+	// Init error var
+	var err error
+
+	if nodeSchema == nil {
+		return nil
+	}
+
+	// Add Object properties
+	for propKey, propValue := range nodeSchema.(map[string]interface{}) {
+		var c *models.SemanticSchemaClass
+		if refType == connutils.RefTypeAction {
+			action := object.(*models.Action)
+			c, err = GetClassByName(schemas.ActionSchema.Schema, action.AtClass)
+			if err != nil {
+				return err
+			}
+		} else if refType == connutils.RefTypeThing {
+			thing := object.(*models.Thing)
+			c, err = GetClassByName(schemas.ThingSchema.Schema, thing.AtClass)
+			if err != nil {
+				return err
+			}
+		} else {
+			return errors_.New("invalid refType given")
+		}
+
+		dataType, err := GetPropertyDataType(c, propKey)
+		// If getting a property gives an error, return it
+		if err != nil {
+			return err
+		}
+
+		err = callback(propKey, propValue, dataType, SchemaPrefix+propKey)
+
+		// If adding a property gives an error, return it
+		if err != nil {
+			return err
+		}
+	}
+
+	return err
+}
+
+// TranslateSchemaPropertiesFromDataBase translates property keys from DB into data types
+func TranslateSchemaPropertiesFromDataBase(propKey string, className string, modelSchema *models.SemanticSchema) (isSchema bool, schemaPropKey string, dataType *DataType, err error) {
+	ud := DataTypeUnknown
+	if strings.HasPrefix(propKey, SchemaPrefix) {
+		propKey := strings.Split(propKey, ".")[1]
+
+		var c *models.SemanticSchemaClass
+		c, err := GetClassByName(modelSchema, className)
+		if err != nil {
+			return true, propKey, &ud, err
+		}
+		dataType, err := GetPropertyDataType(c, propKey)
+
+		if err != nil {
+			return true, propKey, &ud, err
+		}
+		return true, propKey, dataType, nil
+	}
+	return false, propKey, &ud, nil
 }

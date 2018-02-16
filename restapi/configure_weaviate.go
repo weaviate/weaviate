@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
@@ -42,9 +43,8 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors"
-	"github.com/creativesoftwarefdn/weaviate/connectors/dgraph"
+	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra"
 	"github.com/creativesoftwarefdn/weaviate/connectors/foobar"
-	"github.com/creativesoftwarefdn/weaviate/connectors/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/connectors/kvcache"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
@@ -82,14 +82,14 @@ func init() {
 
 // getLimit returns the maximized limit
 func getLimit(paramMaxResults *int64) int {
-	maxResults := int64(connutils.DefaultFirst)
+	maxResults := serverConfig.Environment.Limit
 	// Get the max results from params, if exists
 	if paramMaxResults != nil {
 		maxResults = *paramMaxResults
 	}
 
-	// Max results form URL, otherwise max = connutils.DefaultFirst.
-	return int(math.Min(float64(maxResults), float64(connutils.DefaultFirst)))
+	// Max results form URL, otherwise max = config.Limit.
+	return int(math.Min(float64(maxResults), float64(serverConfig.Environment.Limit)))
 }
 
 // getPage returns the page if set
@@ -100,7 +100,7 @@ func getPage(paramPage *int64) int {
 		page = *paramPage
 	}
 
-	// Page form URL, otherwise max = connutils.DefaultFirst.
+	// Page form URL, otherwise max = config.Limit.
 	return int(page)
 }
 
@@ -190,7 +190,13 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 
 	// Delete for every child
 	for _, keyID := range allIDs {
-		go databaseConnector.DeleteKey(keyID)
+		// Initialize response
+		keyResponse := models.KeyTokenGetResponse{}
+
+		// Get the key to delete
+		dbConnector.GetKey(keyID, &keyResponse)
+
+		go databaseConnector.DeleteKey(&keyResponse.Key, keyID)
 	}
 }
 
@@ -198,9 +204,8 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 func GetAllConnectors() []dbconnector.DatabaseConnector {
 	// Set all existing connectors
 	connectors := []dbconnector.DatabaseConnector{
-		&dgraph.Dgraph{},
-		&gremlin.Gremlin{},
 		&foobar.Foobar{},
+		&cassandra.Cassandra{},
 	}
 
 	return connectors
@@ -371,6 +376,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Validate the key on expiry time
 		currentUnix := connutils.NowUnix()
+
 		if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
 			return nil, errors.New(401, "Provided key has expired.")
 		}
@@ -509,10 +515,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		action.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := dbConnector.AddAction(action, UUID)
-		if insertErr != nil {
-			messaging.ErrorMessage(insertErr)
-		}
+		go dbConnector.AddAction(action, UUID)
+		// if insertErr != nil {
+		// 	messaging.ErrorMessage(insertErr)
+		// }
 
 		// Initialize a response object
 		responseObject := &models.ActionGetResponse{}
@@ -541,8 +547,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
+		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
+
 		// Add new row as GO-routine
-		go dbConnector.DeleteAction(params.ActionID)
+		go dbConnector.DeleteAction(&actionGetResponse.Action, params.ActionID)
 
 		// Return 'No Content'
 		return actions.NewWeaviateActionsDeleteNoContent()
@@ -691,6 +699,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get is successful
 		return keys.NewWeaviateKeysMeGetOK().WithPayload(&tokenResponseObject)
 	})
+	api.KeysWeaviateKeysMeGetRenewHandler = keys.WeaviateKeysMeGetRenewHandlerFunc(func(params keys.WeaviateKeysMeGetRenewParams, principal interface{}) middleware.Responder {
+		return keys.NewWeaviateKeysMeGetRenewNotImplemented()
+	})
 
 	/*
 	 * HANDLE THINGS
@@ -762,15 +773,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionsExist := true
 		for actionsExist {
 			actions := models.ActionsListResponse{}
+			actions.Actions = []*models.ActionGetResponse{}
 			dbConnector.ListActions(params.ThingID, 50, 0, []*connutils.WhereQuery{}, &actions)
 			for _, v := range actions.Actions {
-				go dbConnector.DeleteAction(v.ActionID)
+				go dbConnector.DeleteAction(&v.Action, v.ActionID)
 			}
 			actionsExist = actions.TotalResults > 0
 		}
 
+		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
+
 		// Add new row as GO-routine
-		go dbConnector.DeleteThing(params.ThingID)
+		go dbConnector.DeleteThing(&thingGetResponse.Thing, params.ThingID)
 
 		// Return 'No Content'
 		return things.NewWeaviateThingsDeleteNoContent()
@@ -785,6 +799,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Object is not found
 		if err != nil {
+			messaging.ErrorMessage(err)
 			return things.NewWeaviateThingsGetNotFound()
 		}
 
@@ -795,6 +810,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get is successful
 		return things.NewWeaviateThingsGetOK().WithPayload(&responseObject)
+	})
+	api.ThingsWeaviateThingsGetHistoryHandler = things.WeaviateThingsGetHistoryHandlerFunc(func(params things.WeaviateThingsGetHistoryParams, principal interface{}) middleware.Responder {
+		return things.NewWeaviateThingsGetHistoryOK()
 	})
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
@@ -913,6 +931,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
+		params.Body.Key = thingGetResponse.Key
 		insertErr := dbConnector.UpdateThing(&params.Body.Thing, UUID)
 		if insertErr != nil {
 			messaging.ErrorMessage(insertErr)
@@ -989,6 +1008,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
 	})
 	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal interface{}) middleware.Responder {
+		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL resolving")
 
 		// Get all input from the body of the request, as it is a POST.
