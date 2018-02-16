@@ -148,7 +148,7 @@ const selectThingStatement = `
 `
 
 // listThingsSelectStatement is used to get a list of things form the database, based on owner and ordered by creationtime
-// TODO: Fix in such way that ALLOW FILTERING is not needed anymore
+// TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listThingsSelectStatement = `
 	SELECT *
 	FROM ` + tableThingsList + ` 
@@ -160,7 +160,7 @@ const listThingsSelectStatement = `
 `
 
 // listThingsCountStatement is used to count the total amount of things for a certain owner
-// TODO: Fix in such way that ALLOW FILTERING is not needed anymore
+// TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listThingsCountStatement = `
 	SELECT COUNT(` + colThingUUID + `) AS thingsCount 
 	FROM ` + tableThingsList + ` 
@@ -213,7 +213,7 @@ const selectActionStatement = `
 `
 
 // listActionsSelectStatement is used to get a list of actions form the database, based on object-thing-id and ordered by creationtime
-// TODO: Fix in such way that ALLOW FILTERING is not needed anymore
+// TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listActionsSelectStatement = `
 	SELECT *
 	FROM ` + tableActionsList + ` 
@@ -225,7 +225,7 @@ const listActionsSelectStatement = `
 `
 
 // listActionsCountStatement is used to count the total amount of actions for a certain object-thing-id
-// TODO: Fix in such way that ALLOW FILTERING is not needed anymore
+// TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listActionsCountStatement = `
 	SELECT COUNT(` + colActionUUID + `) AS actionsCount 
 	FROM ` + tableActionsList + ` 
@@ -377,7 +377,7 @@ func (f *Cassandra) Connect() error {
 	session.Close()
 
 	// Settings for createing the new Session
-	// TODO: Determine what to add to config and what not
+	// TODO: Determine what to add to config and what not (https://github.com/creativesoftwarefdn/weaviate/issues/308)
 	cluster.Keyspace = f.config.Keyspace
 	cluster.ConnectTimeout = time.Minute
 	cluster.Timeout = time.Hour
@@ -505,7 +505,7 @@ func (f *Cassandra) Init() error {
 	}
 
 	// Create a view for list queries based on onwer-UUID and ordered by creation time
-	// TODO: Do something with 'deleted' column
+	// TODO: Do something with 'deleted' column (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 	err = f.client.Query(`
 		CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableThingsList + `
 		AS SELECT *
@@ -608,7 +608,7 @@ func (f *Cassandra) Init() error {
 	}
 
 	// Create a view for list queries based on object-thing-UUID and ordered by creation time
-	// TODO: Do something with 'deleted' column
+	// TODO: Do something with 'deleted' column (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 	err = f.client.Query(`
 		CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableActionsList + `
 		AS SELECT *
@@ -827,7 +827,7 @@ func (f *Cassandra) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 	}
 
 	// Run the query to update the thing based on its UUID.
-	// TODO: Just update properties, no other like owner ID etc.??
+	// TODO: Just update properties, no other like owner ID etc.?? (https://github.com/creativesoftwarefdn/weaviate/issues/310)
 	err = f.addThingRow(thing, UUID, false)
 
 	// If there is an error, add an error message
@@ -998,7 +998,7 @@ func (f *Cassandra) UpdateAction(action *models.Action, UUID strfmt.UUID) error 
 	}
 
 	// Run the query to update the action based on its UUID.
-	// TODO: Just update properties, no other like owner ID etc.??
+	// TODO: Just update properties, no other like owner ID etc.?? (https://github.com/creativesoftwarefdn/weaviate/issues/310)
 	err = f.addActionRow(action, UUID, false)
 
 	// If there is an error, add an error message
@@ -1016,7 +1016,7 @@ func (f *Cassandra) DeleteAction(action *models.Action, UUID strfmt.UUID) error 
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("DeleteAction: %s", UUID))
 
 	// Run the query to delete the action based on its UUID.
-	// TODO: Just do delete, don't query old
+	// TODO: Just do delete, don't query old ((https://github.com/creativesoftwarefdn/weaviate/issues/307)
 	iter := f.client.Query(selectActionStatement, f.convUUIDtoCQLUUID(UUID), false).Iter()
 
 	// Put everyting in a for loop, allthough there is only one result in this case
