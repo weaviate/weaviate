@@ -1,10 +1,10 @@
 sudo: required
 language: go
+go:
+- 1.9.2
 branches:
   except:
   - master
-go:
-- 1.8.3
 services:
 - docker
 before_install:
