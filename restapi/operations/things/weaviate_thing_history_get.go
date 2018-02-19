@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -21,42 +21,42 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-// WeaviateThingsGetHistoryHandlerFunc turns a function with the right signature into a weaviate things get history handler
-type WeaviateThingsGetHistoryHandlerFunc func(WeaviateThingsGetHistoryParams, interface{}) middleware.Responder
+// WeaviateThingHistoryGetHandlerFunc turns a function with the right signature into a weaviate thing history get handler
+type WeaviateThingHistoryGetHandlerFunc func(WeaviateThingHistoryGetParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsGetHistoryHandlerFunc) Handle(params WeaviateThingsGetHistoryParams, principal interface{}) middleware.Responder {
+func (fn WeaviateThingHistoryGetHandlerFunc) Handle(params WeaviateThingHistoryGetParams, principal interface{}) middleware.Responder {
 	return fn(params, principal)
 }
 
-// WeaviateThingsGetHistoryHandler interface for that can handle valid weaviate things get history params
-type WeaviateThingsGetHistoryHandler interface {
-	Handle(WeaviateThingsGetHistoryParams, interface{}) middleware.Responder
+// WeaviateThingHistoryGetHandler interface for that can handle valid weaviate thing history get params
+type WeaviateThingHistoryGetHandler interface {
+	Handle(WeaviateThingHistoryGetParams, interface{}) middleware.Responder
 }
 
-// NewWeaviateThingsGetHistory creates a new http.Handler for the weaviate things get history operation
-func NewWeaviateThingsGetHistory(ctx *middleware.Context, handler WeaviateThingsGetHistoryHandler) *WeaviateThingsGetHistory {
-	return &WeaviateThingsGetHistory{Context: ctx, Handler: handler}
+// NewWeaviateThingHistoryGet creates a new http.Handler for the weaviate thing history get operation
+func NewWeaviateThingHistoryGet(ctx *middleware.Context, handler WeaviateThingHistoryGetHandler) *WeaviateThingHistoryGet {
+	return &WeaviateThingHistoryGet{Context: ctx, Handler: handler}
 }
 
-/*WeaviateThingsGetHistory swagger:route GET /things/{thingId}/history things weaviateThingsGetHistory
+/*WeaviateThingHistoryGet swagger:route GET /things/{thingId}/history things weaviateThingHistoryGet
 
 Get a thing's history based on its uuid related to this key.
 
 Returns a particular thing history.
 
 */
-type WeaviateThingsGetHistory struct {
+type WeaviateThingHistoryGet struct {
 	Context *middleware.Context
-	Handler WeaviateThingsGetHistoryHandler
+	Handler WeaviateThingHistoryGetHandler
 }
 
-func (o *WeaviateThingsGetHistory) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *WeaviateThingHistoryGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewWeaviateThingsGetHistoryParams()
+	var Params = NewWeaviateThingHistoryGetParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {

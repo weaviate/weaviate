@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -53,7 +53,7 @@ func init() {
       "url": "http://www.creativesoftwarefdn.org",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.7.5"
+    "version": "0.7.6"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -175,6 +175,59 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-websocket": false
+      },
+      "put": {
+        "description": "Updates an action's data.",
+        "tags": [
+          "actions"
+        ],
+        "summary": "Update an action based on its uuid related to this key.",
+        "operationId": "weaviate.action.update",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the action.",
+            "name": "actionId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ActionUpdate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful update.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -421,43 +474,6 @@ func init() {
         "x-available-in-websocket": false
       }
     },
-    "/keys/me/renew": {
-      "put": {
-        "description": "Renews the related key.",
-        "tags": [
-          "keys"
-        ],
-        "summary": "Renews a key based on the key used to do the request.",
-        "operationId": "weaviate.keys.me.get.renew",
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/KeyTokenGetResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "x-available-in-websocket": false
-      }
-    },
     "/keys/{keyId}": {
       "get": {
         "description": "Get a key.",
@@ -571,6 +587,53 @@ func init() {
           },
           "501": {
             "description": "Not (yet) implemented"
+          }
+        },
+        "x-available-in-websocket": false
+      }
+    },
+    "/keys/{keyId}/renew-token": {
+      "put": {
+        "description": "Renews the related key.",
+        "tags": [
+          "keys"
+        ],
+        "summary": "Renews a key based on the key given in the query string.",
+        "operationId": "weaviate.keys.renew.token",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the key.",
+            "name": "keyId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyTokenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-websocket": false
@@ -970,7 +1033,7 @@ func init() {
           "things"
         ],
         "summary": "Get a thing's history based on its uuid related to this key.",
-        "operationId": "weaviate.things.get.history",
+        "operationId": "weaviate.thing.history.get",
         "parameters": [
           {
             "type": "string",
@@ -1065,6 +1128,16 @@ func init() {
               "format": "uuid"
             }
           }
+        }
+      ]
+    },
+    "ActionUpdate": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Action"
+        },
+        {
+          "type": "object"
         }
       ]
     },
@@ -1524,22 +1597,34 @@ func init() {
     "ThingHistory": {
       "type": "object",
       "properties": {
+        "key": {
+          "$ref": "#/definitions/SingleRef"
+        },
         "propertyHistory": {
           "description": "An array with the history of the things.",
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "schema": {
-                "type": "object"
-              },
-              "updateTimeUnix": {
-                "type": "integer"
-              }
-            }
+            "$ref": "#/definitions/ThingHistoryObject"
           }
         }
       }
+    },
+    "ThingHistoryObject": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ThingCreate"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this thing in milliseconds since epoch UTC.",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        }
+      ]
     },
     "ThingUpdate": {
       "allOf": [
