@@ -91,6 +91,16 @@
       },
       "type": "object"
     },
+    "ActionUpdate": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Action"
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
     "ActionValidate": {
       "allOf": [
         {
@@ -470,22 +480,34 @@
         }
       ]
     },
+    "ThingHistoryObject": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ThingCreate"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this thing in milliseconds since epoch UTC.",
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        }
+      ]
+    },
     "ThingHistory": {
       "type": "object",
       "properties": {
+        "key": {
+          "$ref": "#/definitions/SingleRef"
+        },
         "propertyHistory": {
           "description": "An array with the history of the things.",
           "type": "array",
           "items": {
-            "type": "object",
-            "properties": {
-              "updateTimeUnix": {
-                "type": "integer"
-              },
-              "schema": {
-                "type": "object"
-              }
-            }
+            "$ref": "#/definitions/ThingHistoryObject"
           }
         }
       }
@@ -586,7 +608,7 @@
     },
     "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
     "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
-    "version": "0.7.5"
+    "version": "0.7.6"
   },
   "parameters": {
     "CommonPageParameterQuery": {
@@ -782,6 +804,59 @@
           }
         },
         "summary": "Update an action based on its uuid (using patch semantics) related to this key.",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-websocket": false
+      },
+      "put": {
+        "description": "Updates an action's data.",
+        "operationId": "weaviate.action.update",
+        "parameters": [
+          {
+            "description": "Unique ID of the action.",
+            "format": "uuid",
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ActionUpdate"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful update.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Update an action based on its uuid related to this key.",
         "tags": [
           "actions"
         ],
@@ -1033,38 +1108,20 @@
         "x-available-in-websocket": false
       }
     },
-    "/keys/me": {
-      "get": {
-        "description": "Get the key-information of the key used.",
-        "operationId": "weaviate.keys.me.get",
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/KeyTokenGetResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "summary": "Get a key based on the key used to do the request.",
-        "tags": [
-          "keys"
-        ],
-        "x-available-in-websocket": false
-      }
-    },
-    "/keys/me/renew": {
+    "/keys/{keyId}/renew-token": {
       "put": {
         "description": "Renews the related key.",
-        "operationId": "weaviate.keys.me.get.renew",
+        "operationId": "weaviate.keys.renew.token",
+        "parameters": [
+          {
+            "description": "Unique ID of the key.",
+            "format": "uuid",
+            "in": "path",
+            "name": "keyId",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful response.",
@@ -1091,7 +1148,35 @@
             "description": "Not (yet) implemented."
           }
         },
-        "summary": "Renews a key based on the key used to do the request.",
+        "summary": "Renews a key based on the key given in the query string.",
+        "tags": [
+          "keys"
+        ],
+        "x-available-in-websocket": false
+      }
+    },
+    "/keys/me": {
+      "get": {
+        "description": "Get the key-information of the key used.",
+        "operationId": "weaviate.keys.me.get",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyTokenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a key based on the key used to do the request.",
         "tags": [
           "keys"
         ],
@@ -1469,7 +1554,7 @@
     "/things/{thingId}/history": {
       "get": {
         "description": "Returns a particular thing history.",
-        "operationId": "weaviate.things.get.history",
+        "operationId": "weaviate.thing.history.get",
         "parameters": [
           {
             "description": "Unique ID of the thing.",

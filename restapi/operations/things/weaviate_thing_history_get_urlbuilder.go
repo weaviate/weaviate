@@ -4,14 +4,14 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
  * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
  */
 
-package keys
+package things
 
 // Editing this file might prove futile when you re-run the generate command
 
@@ -19,17 +19,24 @@ import (
 	"errors"
 	"net/url"
 	golangswaggerpaths "path"
+	"strings"
+
+	"github.com/go-openapi/strfmt"
 )
 
-// WeaviateKeysMeGetRenewURL generates an URL for the weaviate keys me get renew operation
-type WeaviateKeysMeGetRenewURL struct {
+// WeaviateThingHistoryGetURL generates an URL for the weaviate thing history get operation
+type WeaviateThingHistoryGetURL struct {
+	ThingID strfmt.UUID
+
 	_basePath string
+	// avoid unkeyed usage
+	_ struct{}
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *WeaviateKeysMeGetRenewURL) WithBasePath(bp string) *WeaviateKeysMeGetRenewURL {
+func (o *WeaviateThingHistoryGetURL) WithBasePath(bp string) *WeaviateThingHistoryGetURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -37,16 +44,22 @@ func (o *WeaviateKeysMeGetRenewURL) WithBasePath(bp string) *WeaviateKeysMeGetRe
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *WeaviateKeysMeGetRenewURL) SetBasePath(bp string) {
+func (o *WeaviateThingHistoryGetURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *WeaviateKeysMeGetRenewURL) Build() (*url.URL, error) {
+func (o *WeaviateThingHistoryGetURL) Build() (*url.URL, error) {
 	var result url.URL
 
-	var _path = "/keys/me/renew"
+	var _path = "/things/{thingId}/history"
 
+	thingID := o.ThingID.String()
+	if thingID != "" {
+		_path = strings.Replace(_path, "{thingId}", thingID, -1)
+	} else {
+		return nil, errors.New("ThingID is required on WeaviateThingHistoryGetURL")
+	}
 	_basePath := o._basePath
 	if _basePath == "" {
 		_basePath = "/weaviate/v1"
@@ -57,7 +70,7 @@ func (o *WeaviateKeysMeGetRenewURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *WeaviateKeysMeGetRenewURL) Must(u *url.URL, err error) *url.URL {
+func (o *WeaviateThingHistoryGetURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -68,17 +81,17 @@ func (o *WeaviateKeysMeGetRenewURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *WeaviateKeysMeGetRenewURL) String() string {
+func (o *WeaviateThingHistoryGetURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *WeaviateKeysMeGetRenewURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *WeaviateThingHistoryGetURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on WeaviateKeysMeGetRenewURL")
+		return nil, errors.New("scheme is required for a full url on WeaviateThingHistoryGetURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on WeaviateKeysMeGetRenewURL")
+		return nil, errors.New("host is required for a full url on WeaviateThingHistoryGetURL")
 	}
 
 	base, err := o.Build()
@@ -92,6 +105,6 @@ func (o *WeaviateKeysMeGetRenewURL) BuildFull(scheme, host string) (*url.URL, er
 }
 
 // StringFull returns the string representation of a complete url
-func (o *WeaviateKeysMeGetRenewURL) StringFull(scheme, host string) string {
+func (o *WeaviateThingHistoryGetURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }

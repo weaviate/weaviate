@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -62,6 +62,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		XMLProducer:           runtime.XMLProducer(),
 		MultipartformProducer: runtime.DiscardProducer,
 		TxtProducer:           runtime.TextProducer(),
+		ActionsWeaviateActionUpdateHandler: actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ActionsWeaviateActionUpdate has not yet been implemented")
+		}),
 		ActionsWeaviateActionsCreateHandler: actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsCreate has not yet been implemented")
 		}),
@@ -98,11 +101,14 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		KeysWeaviateKeysMeGetHandler: keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation KeysWeaviateKeysMeGet has not yet been implemented")
 		}),
-		KeysWeaviateKeysMeGetRenewHandler: keys.WeaviateKeysMeGetRenewHandlerFunc(func(params keys.WeaviateKeysMeGetRenewParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation KeysWeaviateKeysMeGetRenew has not yet been implemented")
+		KeysWeaviateKeysRenewTokenHandler: keys.WeaviateKeysRenewTokenHandlerFunc(func(params keys.WeaviateKeysRenewTokenParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation KeysWeaviateKeysRenewToken has not yet been implemented")
 		}),
 		MetaWeaviateMetaGetHandler: meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation MetaWeaviateMetaGet has not yet been implemented")
+		}),
+		ThingsWeaviateThingHistoryGetHandler: things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingHistoryGet has not yet been implemented")
 		}),
 		ThingsWeaviateThingsActionsListHandler: things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsActionsList has not yet been implemented")
@@ -115,9 +121,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		ThingsWeaviateThingsGetHandler: things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsGet has not yet been implemented")
-		}),
-		ThingsWeaviateThingsGetHistoryHandler: things.WeaviateThingsGetHistoryHandlerFunc(func(params things.WeaviateThingsGetHistoryParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsWeaviateThingsGetHistory has not yet been implemented")
 		}),
 		ThingsWeaviateThingsListHandler: things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsList has not yet been implemented")
@@ -162,7 +165,7 @@ type WeaviateAPI struct {
 	// It has a default implemention in the security package, however you can replace it for your particular usage.
 	BearerAuthenticator func(string, security.ScopedTokenAuthentication) runtime.Authenticator
 
-	// JSONConsumer registers a consumer for a "application/json-patch+json" mime type
+	// JSONConsumer registers a consumer for a "application/json" mime type
 	JSONConsumer runtime.Consumer
 	// BinConsumer registers a consumer for a "application/octet-stream" mime type
 	BinConsumer runtime.Consumer
@@ -199,6 +202,8 @@ type WeaviateAPI struct {
 	// APIAuthorizer provides access control (ACL/RBAC/ABAC) by providing access to the request and authenticated principal
 	APIAuthorizer runtime.Authorizer
 
+	// ActionsWeaviateActionUpdateHandler sets the operation handler for the weaviate action update operation
+	ActionsWeaviateActionUpdateHandler actions.WeaviateActionUpdateHandler
 	// ActionsWeaviateActionsCreateHandler sets the operation handler for the weaviate actions create operation
 	ActionsWeaviateActionsCreateHandler actions.WeaviateActionsCreateHandler
 	// ActionsWeaviateActionsDeleteHandler sets the operation handler for the weaviate actions delete operation
@@ -223,10 +228,12 @@ type WeaviateAPI struct {
 	KeysWeaviateKeysMeChildrenGetHandler keys.WeaviateKeysMeChildrenGetHandler
 	// KeysWeaviateKeysMeGetHandler sets the operation handler for the weaviate keys me get operation
 	KeysWeaviateKeysMeGetHandler keys.WeaviateKeysMeGetHandler
-	// KeysWeaviateKeysMeGetRenewHandler sets the operation handler for the weaviate keys me get renew operation
-	KeysWeaviateKeysMeGetRenewHandler keys.WeaviateKeysMeGetRenewHandler
+	// KeysWeaviateKeysRenewTokenHandler sets the operation handler for the weaviate keys renew token operation
+	KeysWeaviateKeysRenewTokenHandler keys.WeaviateKeysRenewTokenHandler
 	// MetaWeaviateMetaGetHandler sets the operation handler for the weaviate meta get operation
 	MetaWeaviateMetaGetHandler meta.WeaviateMetaGetHandler
+	// ThingsWeaviateThingHistoryGetHandler sets the operation handler for the weaviate thing history get operation
+	ThingsWeaviateThingHistoryGetHandler things.WeaviateThingHistoryGetHandler
 	// ThingsWeaviateThingsActionsListHandler sets the operation handler for the weaviate things actions list operation
 	ThingsWeaviateThingsActionsListHandler things.WeaviateThingsActionsListHandler
 	// ThingsWeaviateThingsCreateHandler sets the operation handler for the weaviate things create operation
@@ -235,8 +242,6 @@ type WeaviateAPI struct {
 	ThingsWeaviateThingsDeleteHandler things.WeaviateThingsDeleteHandler
 	// ThingsWeaviateThingsGetHandler sets the operation handler for the weaviate things get operation
 	ThingsWeaviateThingsGetHandler things.WeaviateThingsGetHandler
-	// ThingsWeaviateThingsGetHistoryHandler sets the operation handler for the weaviate things get history operation
-	ThingsWeaviateThingsGetHistoryHandler things.WeaviateThingsGetHistoryHandler
 	// ThingsWeaviateThingsListHandler sets the operation handler for the weaviate things list operation
 	ThingsWeaviateThingsListHandler things.WeaviateThingsListHandler
 	// ThingsWeaviateThingsPatchHandler sets the operation handler for the weaviate things patch operation
@@ -360,6 +365,10 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "XAPIKEYAuth")
 	}
 
+	if o.ActionsWeaviateActionUpdateHandler == nil {
+		unregistered = append(unregistered, "actions.WeaviateActionUpdateHandler")
+	}
+
 	if o.ActionsWeaviateActionsCreateHandler == nil {
 		unregistered = append(unregistered, "actions.WeaviateActionsCreateHandler")
 	}
@@ -408,12 +417,16 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "keys.WeaviateKeysMeGetHandler")
 	}
 
-	if o.KeysWeaviateKeysMeGetRenewHandler == nil {
-		unregistered = append(unregistered, "keys.WeaviateKeysMeGetRenewHandler")
+	if o.KeysWeaviateKeysRenewTokenHandler == nil {
+		unregistered = append(unregistered, "keys.WeaviateKeysRenewTokenHandler")
 	}
 
 	if o.MetaWeaviateMetaGetHandler == nil {
 		unregistered = append(unregistered, "meta.WeaviateMetaGetHandler")
+	}
+
+	if o.ThingsWeaviateThingHistoryGetHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingHistoryGetHandler")
 	}
 
 	if o.ThingsWeaviateThingsActionsListHandler == nil {
@@ -430,10 +443,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.ThingsWeaviateThingsGetHandler == nil {
 		unregistered = append(unregistered, "things.WeaviateThingsGetHandler")
-	}
-
-	if o.ThingsWeaviateThingsGetHistoryHandler == nil {
-		unregistered = append(unregistered, "things.WeaviateThingsGetHistoryHandler")
 	}
 
 	if o.ThingsWeaviateThingsListHandler == nil {
@@ -591,6 +600,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers = make(map[string]map[string]http.Handler)
 	}
 
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/actions/{actionId}"] = actions.NewWeaviateActionUpdate(o.context, o.ActionsWeaviateActionUpdateHandler)
+
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -654,12 +668,17 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
-	o.handlers["PUT"]["/keys/me/renew"] = keys.NewWeaviateKeysMeGetRenew(o.context, o.KeysWeaviateKeysMeGetRenewHandler)
+	o.handlers["PUT"]["/keys/{keyId}/renew-token"] = keys.NewWeaviateKeysRenewToken(o.context, o.KeysWeaviateKeysRenewTokenHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/meta"] = meta.NewWeaviateMetaGet(o.context, o.MetaWeaviateMetaGetHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/things/{thingId}/history"] = things.NewWeaviateThingHistoryGet(o.context, o.ThingsWeaviateThingHistoryGetHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
@@ -680,11 +699,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/things/{thingId}"] = things.NewWeaviateThingsGet(o.context, o.ThingsWeaviateThingsGetHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/things/{thingId}/history"] = things.NewWeaviateThingsGetHistory(o.context, o.ThingsWeaviateThingsGetHistoryHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)

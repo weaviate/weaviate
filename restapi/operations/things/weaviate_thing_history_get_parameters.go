@@ -4,7 +4,7 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * AUTHOR: Bob van Luijt (bob@weaviate.com)
  * See www.weaviate.com for details
@@ -22,18 +22,18 @@ import (
 	strfmt "github.com/go-openapi/strfmt"
 )
 
-// NewWeaviateThingsGetHistoryParams creates a new WeaviateThingsGetHistoryParams object
+// NewWeaviateThingHistoryGetParams creates a new WeaviateThingHistoryGetParams object
 // with the default values initialized.
-func NewWeaviateThingsGetHistoryParams() WeaviateThingsGetHistoryParams {
+func NewWeaviateThingHistoryGetParams() WeaviateThingHistoryGetParams {
 	var ()
-	return WeaviateThingsGetHistoryParams{}
+	return WeaviateThingHistoryGetParams{}
 }
 
-// WeaviateThingsGetHistoryParams contains all the bound params for the weaviate things get history operation
+// WeaviateThingHistoryGetParams contains all the bound params for the weaviate thing history get operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters weaviate.things.get.history
-type WeaviateThingsGetHistoryParams struct {
+// swagger:parameters weaviate.thing.history.get
+type WeaviateThingHistoryGetParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request
@@ -47,7 +47,7 @@ type WeaviateThingsGetHistoryParams struct {
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls
-func (o *WeaviateThingsGetHistoryParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+func (o *WeaviateThingHistoryGetParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 	o.HTTPRequest = r
 
@@ -62,7 +62,7 @@ func (o *WeaviateThingsGetHistoryParams) BindRequest(r *http.Request, route *mid
 	return nil
 }
 
-func (o *WeaviateThingsGetHistoryParams) bindThingID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *WeaviateThingHistoryGetParams) bindThingID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
