@@ -1163,7 +1163,7 @@
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/KeyTokenGetResponse"
+              "$ref": "#/definitions/KeyGetResponse"
             }
           },
           "401": {
