@@ -2088,11 +2088,11 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	// // Test ID in the middle of the 3 results
 	// require.Equal(t, actionIDs[7], string(resultActionsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
 
-	// // Search class 'TestAction2', most recent should be the set actionID[0]
-	// bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"TestAction2", first:1) { actions { uuid atClass } totalResults } } }`, thingID)}
-	// _, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
-	// resultActionsValueSearch1 := respObjectValueSearch1.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
-	// require.Equal(t, actionIDs[0], string(resultActionsValueSearch1[0].(map[string]interface{})["uuid"].(string)))
+	// Search class 'TestAction2', most recent should be the set actionID[0]
+	bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"TestAction2", first:1) { actions { uuid atClass } totalResults } } }`, thingID)}
+	_, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultActionsValueSearch1 := respObjectValueSearch1.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
+	require.Equal(t, actionIDs[0], string(resultActionsValueSearch1[0].(map[string]interface{})["uuid"].(string)))
 
 	// // Search class NOT 'TestAction2', most recent should be the set actionID
 	// bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"!:TestAction2", first:1) { actions { uuid atClass } totalResults } } }`, thingID)}
@@ -2205,11 +2205,11 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 	// // Test ID in the middle of the 3 results
 	// require.Equal(t, thingIDs[7], string(resultThingsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
 
-	// // Search class 'TestThing2', most recent should be the set thingIDsubject
-	// bodyObj = graphQLQueryObject{Query: `{ listThings(class:"TestThing2", first:1) { things { uuid atClass } totalResults } }`}
-	// _, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
-	// resultThingsValueSearch1 := respObjectValueSearch1.Data["listThings"].(map[string]interface{})["things"].([]interface{})
-	// require.Equal(t, thingIDsubject, string(resultThingsValueSearch1[0].(map[string]interface{})["uuid"].(string)))
+	// Search class 'TestThing2', most recent should be the set thingIDsubject
+	bodyObj = graphQLQueryObject{Query: `{ listThings(class:"TestThing2", first:1) { things { uuid atClass } totalResults } }`}
+	_, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	resultThingsValueSearch1 := respObjectValueSearch1.Data["listThings"].(map[string]interface{})["things"].([]interface{})
+	require.Equal(t, thingIDsubject, string(resultThingsValueSearch1[0].(map[string]interface{})["uuid"].(string)))
 
 	// // Search class NOT 'TestThing2', most recent should be the set thingID
 	// bodyObj = graphQLQueryObject{Query: `{ listThings(class:"!:TestThing2", first:1) { things { uuid atClass } totalResults } }`}

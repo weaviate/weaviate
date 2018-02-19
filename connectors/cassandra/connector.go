@@ -151,8 +151,9 @@ const selectThingStatement = `
 // TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listThingsSelectStatement = `
 	SELECT *
-	FROM ` + tableThingsList + ` 
-	WHERE ` + colNodeOwner + ` = ? 
+	FROM %s  
+	WHERE ` + colNodeOwner + ` = ?
+	%s 
 	AND ` + colNodeDeleted + ` = false
 	ORDER BY ` + colNodeCreationTime + ` DESC
 	LIMIT ?
@@ -163,8 +164,9 @@ const listThingsSelectStatement = `
 // TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listThingsCountStatement = `
 	SELECT COUNT(` + colThingUUID + `) AS thingsCount 
-	FROM ` + tableThingsList + ` 
+	FROM %s  
 	WHERE ` + colNodeOwner + ` = ?
+	%s
 	AND ` + colNodeDeleted + ` = false
 	ALLOW FILTERING
 `
@@ -216,8 +218,9 @@ const selectActionStatement = `
 // TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listActionsSelectStatement = `
 	SELECT *
-	FROM ` + tableActionsList + ` 
+	FROM %s 
 	WHERE ` + colActionObjectUUID + ` = ?
+	%s 
 	AND ` + colNodeDeleted + ` = false
 	ORDER BY ` + colNodeCreationTime + ` DESC 
 	LIMIT ?
@@ -228,8 +231,9 @@ const listActionsSelectStatement = `
 // TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listActionsCountStatement = `
 	SELECT COUNT(` + colActionUUID + `) AS actionsCount 
-	FROM ` + tableActionsList + ` 
+	FROM %s 
 	WHERE ` + colActionObjectUUID + ` = ?
+	%s 
 	AND ` + colNodeDeleted + ` = false
 	ALLOW FILTERING
 `
@@ -269,6 +273,7 @@ const deleteActionStatement = `
 	WHERE ` + colActionUUID + ` = ? 
 	AND ` + colNodeOwner + ` = ? 
 	AND ` + colNodeCreationTime + ` = ? 
+	AND ` + colActionObjectUUID + ` = ? 
 	IF EXISTS;
 `
 
@@ -523,8 +528,8 @@ func (f *Cassandra) Init() error {
 		CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableThingsClassSearch + `
 		AS SELECT *
 		FROM ` + tableThings + ` 
-		WHERE ` + colNodeClass + ` IS NOT NULL AND ` + colThingUUID + ` IS NOT NULL AND ` + colNodeOwner + ` IS NOT NULL AND ` + colNodeCreationTime + ` IS NOT NULL
-		PRIMARY KEY ((` + colNodeClass + `), ` + colThingUUID + `, ` + colNodeOwner + `, ` + colNodeCreationTime + `);
+		WHERE ` + colNodeClass + ` IS NOT NULL AND ` + colNodeOwner + ` IS NOT NULL AND ` + colThingUUID + ` IS NOT NULL AND ` + colNodeCreationTime + ` IS NOT NULL
+		PRIMARY KEY ((` + colNodeClass + `, ` + colNodeOwner + `), ` + colNodeCreationTime + `, ` + colThingUUID + `);
 	`).Exec()
 
 	if err != nil {
@@ -570,8 +575,8 @@ func (f *Cassandra) Init() error {
 			` + colActionSubjectLocation + ` text,
 			` + colActionObjectUUID + ` uuid,
 			` + colActionObjectLocation + ` text,
-			PRIMARY KEY ((` + colActionUUID + `), ` + colNodeOwner + `, ` + colNodeCreationTime + `)
-		) WITH CLUSTERING ORDER BY (` + colNodeOwner + ` ASC);
+			PRIMARY KEY ((` + colActionUUID + `), ` + colActionObjectUUID + `, ` + colNodeOwner + `, ` + colNodeCreationTime + `)
+		) WITH CLUSTERING ORDER BY (` + colActionObjectUUID + ` ASC);
 	`).Exec()
 
 	if err != nil {
@@ -626,8 +631,8 @@ func (f *Cassandra) Init() error {
 		CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableActionsClassSearch + `
 		AS SELECT *
 		FROM ` + tableActions + ` 
-		WHERE ` + colNodeClass + ` IS NOT NULL AND ` + colActionUUID + ` IS NOT NULL AND ` + colNodeOwner + ` IS NOT NULL AND ` + colNodeCreationTime + ` IS NOT NULL
-		PRIMARY KEY ((` + colNodeClass + `), ` + colActionUUID + `, ` + colNodeOwner + `, ` + colNodeCreationTime + `);
+		WHERE ` + colNodeClass + ` IS NOT NULL AND ` + colActionObjectUUID + ` IS NOT NULL AND ` + colNodeOwner + ` IS NOT NULL AND ` + colNodeCreationTime + ` IS NOT NULL AND ` + colActionUUID + ` IS NOT NULL 
+		PRIMARY KEY ((` + colNodeClass + `, ` + colActionObjectUUID + `), ` + colNodeCreationTime + `, ` + colNodeOwner + `, ` + colActionUUID + `);
 	`).Exec()
 
 	if err != nil {
@@ -771,10 +776,26 @@ func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres 
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now())
 
-	// whereFilter := f.parseWhereFilters(wheres, false)
+	// Get the filter on class
+	whereFilter, err := f.parseWhereFilters(wheres, false)
+
+	if err != nil {
+		return err
+	}
+
+	// Build the query
+	query := ""
+	countQuery := ""
+	if whereFilter != "" {
+		query = fmt.Sprintf(listThingsSelectStatement, tableThingsClassSearch, whereFilter)
+		countQuery = fmt.Sprintf(listThingsCountStatement, tableThingsClassSearch, whereFilter)
+	} else {
+		query = fmt.Sprintf(listThingsSelectStatement, tableThingsList, "")
+		countQuery = fmt.Sprintf(listThingsCountStatement, tableThingsList, "")
+	}
 
 	// Do the query to get the thing from the database and get the iterator
-	iter := f.client.Query(listThingsSelectStatement, f.convUUIDtoCQLUUID(keyID), first).Iter()
+	iter := f.client.Query(query, f.convUUIDtoCQLUUID(keyID), first).Iter()
 
 	// Put everyting in a for loop
 	for {
@@ -801,7 +822,7 @@ func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres 
 
 	// Query for the total count of things
 	var thingsCount int64
-	if err := f.client.Query(listThingsCountStatement, f.convUUIDtoCQLUUID(keyID)).Scan(&thingsCount); err != nil {
+	if err := f.client.Query(countQuery, f.convUUIDtoCQLUUID(keyID)).Scan(&thingsCount); err != nil {
 		return err
 	}
 
@@ -942,10 +963,26 @@ func (f *Cassandra) ListActions(UUID strfmt.UUID, first int, offset int, wheres 
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now())
 
-	// whereFilter := f.parseWhereFilters(wheres, false)
+	// Get the filter on class
+	whereFilter, err := f.parseWhereFilters(wheres, false)
+
+	if err != nil {
+		return err
+	}
+
+	// Build the query
+	query := ""
+	countQuery := ""
+	if whereFilter != "" {
+		query = fmt.Sprintf(listActionsSelectStatement, tableActionsClassSearch, whereFilter)
+		countQuery = fmt.Sprintf(listActionsCountStatement, tableActionsClassSearch, whereFilter)
+	} else {
+		query = fmt.Sprintf(listActionsSelectStatement, tableActionsList, "")
+		countQuery = fmt.Sprintf(listActionsCountStatement, tableActionsList, "")
+	}
 
 	// Do the query to get the action from the database and get the iterator
-	iter := f.client.Query(listActionsSelectStatement, f.convUUIDtoCQLUUID(UUID), first).Iter()
+	iter := f.client.Query(query, f.convUUIDtoCQLUUID(UUID), first).Iter()
 
 	// Put everyting in a for loop
 	for {
@@ -972,7 +1009,7 @@ func (f *Cassandra) ListActions(UUID strfmt.UUID, first int, offset int, wheres 
 
 	// Query for the total count of actions
 	var actionsCount int64
-	if err := f.client.Query(listActionsCountStatement, f.convUUIDtoCQLUUID(UUID)).Scan(&actionsCount); err != nil {
+	if err := f.client.Query(countQuery, f.convUUIDtoCQLUUID(UUID)).Scan(&actionsCount); err != nil {
 		return err
 	}
 
@@ -1035,6 +1072,7 @@ func (f *Cassandra) DeleteAction(action *models.Action, UUID strfmt.UUID) error 
 			m[colActionUUID],
 			m[colNodeOwner],
 			m[colNodeCreationTime],
+			m[colActionObjectUUID],
 		).Exec()
 
 		// If there is an error, add an error message and return
@@ -1464,54 +1502,56 @@ func (f *Cassandra) createCrefObject(UUID strfmt.UUID, location string, refType 
 	return &crefObj
 }
 
-// func (f *Cassandra) parseWhereFilters(wheres []*connutils.WhereQuery, useWhere bool) string {
-// 	filterWheres := ""
+func (f *Cassandra) parseWhereFilters(wheres []*connutils.WhereQuery, useWhere bool) (string, error) {
+	filterWheres := ""
 
-// 	// Create filter query
-// 	var op string
-// 	var prop string
-// 	var value string
-// 	for _, vWhere := range wheres {
-// 		// Set the operator
-// 		if vWhere.Value.Operator == connutils.Equal || vWhere.Value.Operator == connutils.NotEqual {
-// 			// Set the value from the object (now only string)
-// 			// TODO: https://github.com/creativesoftwarefdn/weaviate/issues/202
-// 			value = vWhere.Value.Value.(string)
+	// Create filter query
+	var op string
+	var prop string
+	var value string
+	for _, vWhere := range wheres {
+		// Set the operator
+		if vWhere.Value.Operator == connutils.Equal || vWhere.Value.Operator == connutils.NotEqual {
+			// Set the value from the object (now only string)
+			// TODO: https://github.com/creativesoftwarefdn/weaviate/issues/202
+			value = vWhere.Value.Value.(string)
 
-// 			if vWhere.Value.Contains {
-// 				continue // TODO
-// 			} else {
-// 				op = "="
-// 				value = fmt.Sprintf(`'%s'`, value)
-// 			}
+			if vWhere.Value.Contains {
+				continue // TODO
+			} else {
+				op = "="
+				value = fmt.Sprintf(`'%s'`, value)
+			}
 
-// 			if vWhere.Value.Operator == connutils.NotEqual {
-// 				op = "!="
-// 			}
-// 		}
+			if vWhere.Value.Operator == connutils.NotEqual {
+				op = "="
+				return "", errors_.New("Searching on not-equal is not supported in Cassandra.")
+			}
+		}
 
-// 		// Set the property
-// 		prop = vWhere.Property
-// 		if prop == "atClass" {
-// 			prop = "class"
-// 		} else if strings.HasPrefix(prop, schema.SchemaPrefix) {
-// 			prop = fmt.Sprintf("%s['%s']", PropertiesColumn, prop)
-// 		}
+		// Set the property
+		prop = vWhere.Property
+		if prop == "atClass" {
+			prop = "class"
+		}
+		// else if strings.HasPrefix(prop, schema.SchemaPrefix) {
+		// 	prop = fmt.Sprintf("%s['%s']", PropertiesColumn, prop)
+		// }
 
-// 		// Filter on wheres variable which is used later in the query
-// 		andOp := ""
-// 		if useWhere {
-// 			andOp = "WHERE"
-// 		} else {
-// 			andOp = "AND"
-// 		}
+		// Filter on wheres variable which is used later in the query
+		andOp := ""
+		if useWhere {
+			andOp = "WHERE"
+		} else {
+			andOp = "AND"
+		}
 
-// 		// Parse the filter 'wheres'. Note that the 'value' may need block-quotes.
-// 		filterWheres = fmt.Sprintf(`%s %s %s %s %s`, filterWheres, andOp, prop, op, value)
-// 	}
+		// Parse the filter 'wheres'. Note that the 'value' may need block-quotes.
+		filterWheres = fmt.Sprintf(`%s %s %s %s %s`, filterWheres, andOp, prop, op, value)
+	}
 
-// 	return filterWheres
-// }
+	return filterWheres, nil
+}
 
 // addThingRow adds a single thing row into the database for the given thing based on the given UUID
 func (f *Cassandra) addThingRow(thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
