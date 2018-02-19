@@ -155,7 +155,8 @@ func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
 	}
 
 	// The wild cards
-	whereQuery.Value.Contains = result[3] == "~"
+	// TODO: Wildcard search is disabled for now https://github.com/creativesoftwarefdn/weaviate/issues/202
+	whereQuery.Value.Contains = false //result[3] == "~"
 
 	// Set the value itself
 	if len(result[4]) == 0 {

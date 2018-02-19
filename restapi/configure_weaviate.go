@@ -771,6 +771,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Delete the Actions
 		actionsExist := true
+		lastActionsCount := int64(0)
 		for actionsExist {
 			actions := models.ActionsListResponse{}
 			actions.Actions = []*models.ActionGetResponse{}
@@ -778,7 +779,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			for _, v := range actions.Actions {
 				go dbConnector.DeleteAction(&v.Action, v.ActionID)
 			}
-			actionsExist = actions.TotalResults > 0
+
+			// Exit if total results are 0 or the total results are not lowering, then there is some kind of error
+			actionsExist = (actions.TotalResults > 0 && actions.TotalResults != lastActionsCount)
+			lastActionsCount = actions.TotalResults
 		}
 
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()

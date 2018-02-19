@@ -659,10 +659,10 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:         graphql.Int,
 				DefaultValue: 0,
 			},
-			"schema": &graphql.ArgumentConfig{
-				Description: "Schema filter options.",
-				Type:        graphql.String,
-			},
+			// "schema": &graphql.ArgumentConfig{
+			// 	Description: "Schema filter options.",
+			// 	Type:        graphql.String,
+			// },
 			"class": &graphql.ArgumentConfig{
 				Description: "Class filter options.",
 				Type:        graphql.String,
@@ -694,18 +694,18 @@ func (f *GraphQLSchema) InitSchema() error {
 				wheres := []*connutils.WhereQuery{}
 
 				// Check whether the schema var is filled in
-				if p.Args["schema"] != nil {
-					// Rewrite the string to structs
-					where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
+				// if p.Args["schema"] != nil {
+				// 	// Rewrite the string to structs
+				// 	where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
 
-					// If error is given, return it
-					if err != nil {
-						return actionsResponse, err
-					}
+				// 	// If error is given, return it
+				// 	if err != nil {
+				// 		return actionsResponse, err
+				// 	}
 
-					// Append wheres to the list
-					wheres = append(wheres, &where)
-				}
+				// 	// Append wheres to the list
+				// 	wheres = append(wheres, &where)
+				// }
 
 				// Check whether the class var is filled in
 				if p.Args["class"] != nil {
@@ -841,10 +841,10 @@ func (f *GraphQLSchema) InitSchema() error {
 						Type:         graphql.Int,
 						DefaultValue: 0,
 					},
-					"schema": &graphql.ArgumentConfig{
-						Description: "Schema filter options.",
-						Type:        graphql.String,
-					},
+					// "schema": &graphql.ArgumentConfig{
+					// 	Description: "Schema filter options.",
+					// 	Type:        graphql.String,
+					// },
 					"class": &graphql.ArgumentConfig{
 						Description: "Class filter options.",
 						Type:        graphql.String,
@@ -870,18 +870,18 @@ func (f *GraphQLSchema) InitSchema() error {
 					wheres := []*connutils.WhereQuery{}
 
 					// Check whether the schema var is filled in
-					if p.Args["schema"] != nil {
-						// Rewrite the string to structs
-						where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
+					// if p.Args["schema"] != nil {
+					// 	// Rewrite the string to structs
+					// 	where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
 
-						// If error is given, return it
-						if err != nil {
-							return thingsResponse, err
-						}
+					// 	// If error is given, return it
+					// 	if err != nil {
+					// 		return thingsResponse, err
+					// 	}
 
-						// Append wheres to the list
-						wheres = append(wheres, &where)
-					}
+					// 	// Append wheres to the list
+					// 	wheres = append(wheres, &where)
+					// }
 
 					// Check whether the class var is filled in
 					if p.Args["class"] != nil {
