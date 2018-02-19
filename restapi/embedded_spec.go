@@ -53,7 +53,7 @@ func init() {
       "url": "http://www.creativesoftwarefdn.org",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.7.6"
+    "version": "0.7.7"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -430,7 +430,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/KeyTokenGetResponse"
+              "$ref": "#/definitions/KeyGetResponse"
             }
           },
           "401": {
@@ -1676,11 +1676,17 @@ func init() {
       "type": "apiKey",
       "name": "X-API-KEY",
       "in": "header"
+    },
+    "apiToken": {
+      "type": "apiKey",
+      "name": "X-API-TOKEN",
+      "in": "header"
     }
   },
   "security": [
     {
-      "apiKey": []
+      "apiKey": [],
+      "apiToken": []
     }
   ],
   "tags": [
