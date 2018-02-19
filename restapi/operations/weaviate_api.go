@@ -139,6 +139,10 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		APIKeyAuth: func(token string) (interface{}, error) {
 			return nil, errors.NotImplemented("api key auth (apiKey) X-API-KEY from header param [X-API-KEY] has not yet been implemented")
 		},
+		// Applies when the "X-API-TOKEN" header is set
+		APITokenAuth: func(token string) (interface{}, error) {
+			return nil, errors.NotImplemented("api key auth (apiToken) X-API-TOKEN from header param [X-API-TOKEN] has not yet been implemented")
+		},
 
 		// default authorizer is authorized meaning no requests are blocked
 		APIAuthorizer: security.Authorized(),
@@ -198,6 +202,10 @@ type WeaviateAPI struct {
 	// APIKeyAuth registers a function that takes a token and returns a principal
 	// it performs authentication based on an api key X-API-KEY provided in the header
 	APIKeyAuth func(string) (interface{}, error)
+
+	// APITokenAuth registers a function that takes a token and returns a principal
+	// it performs authentication based on an api key X-API-TOKEN provided in the header
+	APITokenAuth func(string) (interface{}, error)
 
 	// APIAuthorizer provides access control (ACL/RBAC/ABAC) by providing access to the request and authenticated principal
 	APIAuthorizer runtime.Authorizer
@@ -365,6 +373,10 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "XAPIKEYAuth")
 	}
 
+	if o.APITokenAuth == nil {
+		unregistered = append(unregistered, "XAPITOKENAuth")
+	}
+
 	if o.ActionsWeaviateActionUpdateHandler == nil {
 		unregistered = append(unregistered, "actions.WeaviateActionUpdateHandler")
 	}
@@ -483,6 +495,10 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 		case "apiKey":
 
 			result[name] = o.APIKeyAuthenticator(scheme.Name, scheme.In, o.APIKeyAuth)
+
+		case "apiToken":
+
+			result[name] = o.APIKeyAuthenticator(scheme.Name, scheme.In, o.APITokenAuth)
 
 		}
 	}

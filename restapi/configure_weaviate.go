@@ -386,6 +386,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	}
 
 	/*
+	 * HANDLE X-API-TOKEN
+	 */
+	// Applies when the "X-API-TOKEN" header is set
+	api.APITokenAuth = func(token string) (interface{}, error) {
+		return nil, errors.NotImplemented("api key auth (apiToken) X-API-TOKEN from header param [X-API-TOKEN] has not yet been implemented")
+	}
+
+	/*
 	 * HANDLE EVENTS
 	 */
 	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams, principal interface{}) middleware.Responder {
