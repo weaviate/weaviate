@@ -1653,6 +1653,11 @@
     "https"
   ],
   "securityDefinitions": {
+    "apiToken": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-API-TOKEN"
+    },
     "apiKey": {
       "type": "apiKey",
       "in": "header",
@@ -1661,6 +1666,7 @@
   },
   "security": [
     {
+      "apiToken": [],
       "apiKey": []
     }
   ],
