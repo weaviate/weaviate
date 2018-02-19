@@ -699,8 +699,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get is successful
 		return keys.NewWeaviateKeysMeGetOK().WithPayload(&tokenResponseObject)
 	})
-	api.KeysWeaviateKeysMeGetRenewHandler = keys.WeaviateKeysMeGetRenewHandlerFunc(func(params keys.WeaviateKeysMeGetRenewParams, principal interface{}) middleware.Responder {
-		return keys.NewWeaviateKeysMeGetRenewNotImplemented()
+	api.KeysWeaviateKeysRenewTokenHandler = keys.WeaviateKeysRenewTokenHandlerFunc(func(params keys.WeaviateKeysRenewTokenParams, principal interface{}) middleware.Responder {
+		return keys.NewWeaviateKeysRenewTokenNotImplemented()
 	})
 
 	/*
@@ -811,9 +811,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get is successful
 		return things.NewWeaviateThingsGetOK().WithPayload(&responseObject)
 	})
-	api.ThingsWeaviateThingsGetHistoryHandler = things.WeaviateThingsGetHistoryHandlerFunc(func(params things.WeaviateThingsGetHistoryParams, principal interface{}) middleware.Responder {
-		return things.NewWeaviateThingsGetHistoryOK()
+
+	api.ThingsWeaviateThingHistoryGetHandler = things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal interface{}) middleware.Responder {
+		return things.NewWeaviateThingHistoryGetNotImplemented()
 	})
+
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
 		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, nil); !allowed {
