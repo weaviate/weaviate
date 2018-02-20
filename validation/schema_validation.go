@@ -39,6 +39,11 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 	// Validate whether the properties exist in the given schema
 	// Get the input properties from the bodySchema in readable format
 	isp := *bodySchema
+
+	if isp == nil {
+		return nil
+	}
+
 	inputSchema := isp.(map[string]interface{})
 
 	// For each property in the input schema
