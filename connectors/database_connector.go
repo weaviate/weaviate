@@ -46,11 +46,11 @@ type DatabaseConnector interface {
 	UpdateAction(action *models.Action, UUID strfmt.UUID) error
 	DeleteAction(action *models.Action, UUID strfmt.UUID) error
 
-	AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error
-	ValidateToken(UUID strfmt.UUID, key *models.KeyTokenGetResponse) error
-	GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error
+	AddKey(key *models.Key, UUID strfmt.UUID, token string) error
+	ValidateToken(token string, key *models.KeyGetResponse) error
+	GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error
 	DeleteKey(key *models.Key, UUID strfmt.UUID) error
-	GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error
+	GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetResponse) error
 }
 
 // CacheConnector is the interface that all cache-connectors should have
