@@ -224,12 +224,12 @@ func (f *KVCache) AddKey(key *models.Key, UUID strfmt.UUID, token string) error 
 }
 
 // ValidateToken function
-func (f *KVCache) ValidateToken(token string, keyResponse *models.KeyGetResponse) error {
+func (f *KVCache) ValidateToken(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
 	defer f.messaging.TimeTrack(time.Now())
 
-	err := f.databaseConnector.ValidateToken(token, keyResponse)
+	token, err = f.databaseConnector.ValidateToken(UUID, keyResponse)
 
-	return err
+	return token, err
 }
 
 // GetKey function

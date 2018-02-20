@@ -24,7 +24,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	gouuid "github.com/satori/go.uuid"
-	// "golang.org/x/crypto/bcrypt"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
@@ -41,9 +41,10 @@ import (
 // }
 
 // CreateRootKeyObject creates a new user with new API key when none exists when starting server
-func CreateRootKeyObject(key *models.Key) string {
-	// Create key token
+func CreateRootKeyObject(key *models.Key) (hashedToken string, UUID strfmt.UUID) {
+	// Create key token and UUID
 	token := GenerateUUID()
+	UUID = GenerateUUID()
 
 	// Do not set any parent
 
@@ -83,15 +84,24 @@ func CreateRootKeyObject(key *models.Key) string {
 	// Print the key
 	log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/creativesoftwarefdn/weaviate/blob/develop/README.md#authentication")
 	log.Println("INFO: Auto set allowed IPs to: ", key.IPOrigin)
-	log.Println("ROOTKEY=" + token)
+	log.Println("ROOTTOKEN=" + token)
+	log.Println("ROOTKEY=" + string(UUID))
 
-	return TokenHasher(token)
+	hashedToken = TokenHasher(token)
+
+	return
 }
 
 // TokenHasher is the function used to hash the UUID token
 func TokenHasher(UUID strfmt.UUID) string {
-	// TODO: implement hasher
-	return string(UUID)
+	hashed, _ := bcrypt.GenerateFromPassword([]byte(UUID), bcrypt.DefaultCost)
+	return string(hashed)
+}
+
+// TokenHashCompare is the function used to compare the hash with given UUID
+func TokenHashCompare(hashed string, token strfmt.UUID) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hashed), []byte(token))
+	return err == nil
 }
 
 // Trace is used to display the running function in a connector

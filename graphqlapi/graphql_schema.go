@@ -39,7 +39,7 @@ type GraphQLSchema struct {
 	serverConfig          *config.WeaviateConfig
 	serverSchema          *schema.WeaviateSchema
 	dbConnector           dbconnector.DatabaseConnector
-	usedKey               models.KeyGetResponse
+	usedKey               *models.KeyGetResponse
 	messaging             *messages.Messaging
 	thingsDataLoader      *dataloader.Loader
 	context               context.Context
@@ -96,7 +96,7 @@ func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverCon
 var thingType *graphql.Object
 
 // SetKey sets the key that is used for the latest request
-func (f *GraphQLSchema) SetKey(key models.KeyGetResponse) {
+func (f *GraphQLSchema) SetKey(key *models.KeyGetResponse) {
 	f.usedKey = key
 }
 
