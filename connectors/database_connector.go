@@ -47,7 +47,7 @@ type DatabaseConnector interface {
 	DeleteAction(action *models.Action, UUID strfmt.UUID) error
 
 	AddKey(key *models.Key, UUID strfmt.UUID, token string) error
-	ValidateToken(token string, key *models.KeyGetResponse) error
+	ValidateToken(UUID strfmt.UUID, key *models.KeyGetResponse) (token string, err error)
 	GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error
 	DeleteKey(key *models.Key, UUID strfmt.UUID) error
 	GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetResponse) error

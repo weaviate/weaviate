@@ -311,7 +311,7 @@ func (f *Foobar) AddKey(key *models.Key, UUID strfmt.UUID, token string) error {
 }
 
 // ValidateToken validates/gets a key to the Foobar database with the given token (=UUID)
-func (f *Foobar) ValidateToken(token string, key *models.KeyGetResponse) error {
+func (f *Foobar) ValidateToken(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
 
 	// key (= models.KeyGetResponse) should be populated with the response that comes from the DB.
 
@@ -319,7 +319,7 @@ func (f *Foobar) ValidateToken(token string, key *models.KeyGetResponse) error {
 	// return errors_.New("Key not found in database.")
 
 	// If success return nil, otherwise return the error
-	return nil
+	return "", nil
 }
 
 // GetKey fills the given KeyGetResponse with the values from the database, based on the given UUID.

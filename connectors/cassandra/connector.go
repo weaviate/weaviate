@@ -32,7 +32,8 @@ import (
 
 // Set constants for keys in the database, table names and columns
 const tableKeys string = "keys"
-const tableKeysToken string = "keys_by_token"
+
+// const tableKeysToken string = "keys_by_token"
 const tableKeysParent string = "keys_by_parent"
 const colKeyToken string = "key_token"
 const colKeyUUID string = "key_uuid"
@@ -109,12 +110,12 @@ const insertKeyStatement = `
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
-// selectKeyByTokenStatement is used to select a single key from the database based on the token
-const selectKeyByTokenStatement = `
-	SELECT * 
-	FROM ` + tableKeysToken + `
-	WHERE ` + colKeyToken + ` = ?
-`
+// // selectKeyByTokenStatement is used to select a single key from the database based on the token
+// const selectKeyByTokenStatement = `
+// 	SELECT *
+// 	FROM ` + tableKeysToken + `
+// 	WHERE ` + colKeyToken + ` = ?
+// `
 
 // selectRootKeyStatement is used to see whether a root key is present in the database
 const selectRootKeyStatement = `
@@ -435,17 +436,17 @@ func (f *Cassandra) Init() error {
 		return err
 	}
 
-	// Create a materialized view for querying on access-token
-	err = f.client.Query(`
-		CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableKeysToken + ` 
-		AS SELECT *
-		FROM ` + tableKeys + ` 
-		WHERE ` + colKeyToken + ` IS NOT NULL AND ` + colKeyUUID + ` IS NOT NULL AND ` + colKeyRoot + ` IS NOT NULL
-		PRIMARY KEY ((` + colKeyToken + `), ` + colKeyUUID + `, ` + colKeyRoot + `);`).Exec()
+	// // Create a materialized view for querying on access-token
+	// err = f.client.Query(`
+	// 	CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableKeysToken + `
+	// 	AS SELECT *
+	// 	FROM ` + tableKeys + `
+	// 	WHERE ` + colKeyToken + ` IS NOT NULL AND ` + colKeyUUID + ` IS NOT NULL AND ` + colKeyRoot + ` IS NOT NULL
+	// 	PRIMARY KEY ((` + colKeyToken + `), ` + colKeyUUID + `, ` + colKeyRoot + `);`).Exec()
 
-	if err != nil {
-		return err
-	}
+	// if err != nil {
+	// 	return err
+	// }
 
 	// Create a materialized view for querying for children of a certain node
 	err = f.client.Query(`
@@ -675,10 +676,10 @@ func (f *Cassandra) Init() error {
 
 		// Create new object and fill it
 		keyObject := models.Key{}
-		token := connutils.CreateRootKeyObject(&keyObject)
+		token, UUID := connutils.CreateRootKeyObject(&keyObject)
 
 		// Add the root-key to the database
-		err = f.AddKey(&keyObject, connutils.GenerateUUID(), token)
+		err = f.AddKey(&keyObject, UUID, token)
 
 		if err != nil {
 			return err
@@ -1125,12 +1126,12 @@ func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token string) erro
 }
 
 // ValidateToken validates/gets a key to the Cassandra database with the given token (=UUID)
-func (f *Cassandra) ValidateToken(token string, keyResponse *models.KeyGetResponse) error {
+func (f *Cassandra) ValidateToken(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("ValidateToken: %s", token))
 
 	// Do the query to get the key from the database based on access-token and get the iterator
-	iter := f.client.Query(selectKeyByTokenStatement, token).Consistency(gocql.One).Iter()
+	iter := f.client.Query(selectKeyStatement, f.convUUIDtoCQLUUID(UUID)).Consistency(gocql.One).Iter()
 
 	// Initialize the 'found' variable
 	found := false
@@ -1145,6 +1146,8 @@ func (f *Cassandra) ValidateToken(token string, keyResponse *models.KeyGetRespon
 			break
 		}
 
+		token = m[colKeyToken].(string)
+
 		// Fill the response with the row
 		f.fillKeyResponseWithRow(m, keyResponse)
 
@@ -1154,16 +1157,16 @@ func (f *Cassandra) ValidateToken(token string, keyResponse *models.KeyGetRespon
 
 	// Close the iterator to get errors
 	if err := iter.Close(); err != nil {
-		return err
+		return token, err
 	}
 
 	// If there is no key found, return an error
 	if !found {
-		return errors_.New("Key is not found in database")
+		return token, errors_.New("Key is not found in database")
 	}
 
 	// No errors, return nil
-	return nil
+	return token, nil
 }
 
 // GetKey fills the given KeyGetResponse with the values from the database, based on the given UUID.
