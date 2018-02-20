@@ -34,7 +34,7 @@ import (
 /*
  * Request function
  */
-func doRequest(endpoint string, method string, accept string, body io.Reader, apiKey string) *http.Response {
+func doRequest(endpoint string, method string, accept string, body io.Reader, apiKey string, apiToken string) *http.Response {
 	tr := &http.Transport{
 		MaxIdleConns:       10,
 		IdleConnTimeout:    30 * time.Second,
@@ -48,6 +48,10 @@ func doRequest(endpoint string, method string, accept string, body io.Reader, ap
 
 	if apiKey != "" {
 		req.Header.Set("X-API-KEY", apiKey)
+	}
+
+	if apiToken != "" {
+		req.Header.Set("X-API-TOKEN", apiToken)
 	}
 
 	response, err := client.Do(req)
@@ -83,6 +87,7 @@ func getWeaviateURL() string {
 
 // Set all re-used vars
 var apiKeyCmdLine string
+var apiTokenCmdLine string
 var serverPort string
 var serverHost string
 var serverScheme string
@@ -120,6 +125,7 @@ var messaging *messages.Messaging
 
 func init() {
 	flag.StringVar(&apiKeyCmdLine, "api-key", "", "API-KEY as used as haeder in the tests.")
+	flag.StringVar(&apiTokenCmdLine, "api-token", "", "API-KEY as used as haeder in the tests.")
 	flag.StringVar(&serverPort, "server-port", "", "Port number on which the server is running.")
 	flag.StringVar(&serverHost, "server-host", "", "Host-name on which the server is running.")
 	flag.StringVar(&serverScheme, "server-scheme", "", "Scheme on which the server is running.")
@@ -170,6 +176,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("X-API-KEY", apiKeyCmdLine)
+		req.Header.Set("X-API-TOKEN", apiTokenCmdLine)
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -198,7 +205,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 // 		"write": false,
 // 		"execute": true
 // 	}`))
-// 	response := doRequest("/keys", "POST", "application/json", jsonStr, apiKeyCmdLine)
+// 	response := doRequest("/keys", "POST", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 
 // 	// Check status code of create
 // 	require.Equal(t, http.StatusAccepted, response.StatusCode)
@@ -282,7 +289,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 // 		"write": true,
 // 		"execute": false
 // 	}`))
-// 	responseNewTokenSoonExpire := doRequest("/keys", "POST", "application/json", jsonStrNewKeySoonExpire, apiKeyCmdLine)
+// 	responseNewTokenSoonExpire := doRequest("/keys", "POST", "application/json", jsonStrNewKeySoonExpire, apiKeyCmdLine, apiTokenCmdLine)
 
 // 	// Test second statuscode
 // 	testStatusCode(t, responseNewTokenSoonExpire.StatusCode, http.StatusAccepted)
@@ -346,7 +353,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 // // weaviate.key.get
 // func Test__weaviate_key_get_JSON(t *testing.T) {
 // 	// Create get request
-// 	response := doRequest("/keys/"+newAPIKeyID, "GET", "application/json", nil, apiKeyCmdLine)
+// 	response := doRequest("/keys/"+newAPIKeyID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 // 	// Check status code get requestsOK)
 // require.Equal(t, http.StatusOK, response.StatusCode)
@@ -369,7 +376,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 // 	testStatusCode(t, responseForbidden.StatusCode, http.StatusForbidden)
 
 // 	// Create get request with non-existing ID, check its responsecode
-// 	testNotExistsRequest(t, "/keys", "GET", "application/json", nil, apiKeyCmdLine)
+// 	testNotExistsRequest(t, "/keys", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 // }
 
 // // weaviate.key.children.get
@@ -397,7 +404,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 // 	headID = string(respObjectHead.KeyID)
 
 // 	// Create get request
-// 	response := doRequest("/keys/"+newAPIKeyID+"/children", "GET", "application/json", nil, apiKeyCmdLine)
+// 	response := doRequest("/keys/"+newAPIKeyID+"/children", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 // 	// Check status code get requestsOK)
 // require.Equal(t, http.StatusOK, response.StatusCode)
@@ -534,12 +541,12 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 // 	time.Sleep(2 * time.Second)
 
 // 	// Delete sub1, check status and delay for faster check then request
-// 	responseDelSub1 := doRequest("/keys/"+sub1ID, "DELETE", "application/json", nil, apiKeyCmdLine)
+// 	responseDelSub1 := doRequest("/keys/"+sub1ID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 // 	testStatusCode(t, responseDelSub1.StatusCode, http.StatusNoContent)
 // 	time.Sleep(2 * time.Second)
 
 // 	// Check sub1 removed and check its statuscode (404)
-// 	responseSub1Deleted := doRequest("/keys/"+sub1ID, "DELETE", "application/json", nil, apiKeyCmdLine)
+// 	responseSub1Deleted := doRequest("/keys/"+sub1ID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 // 	testStatusCode(t, responseSub1Deleted.StatusCode, http.StatusNotFound)
 // 	time.Sleep(2 * time.Second)
 
@@ -554,17 +561,17 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 // 	time.Sleep(2 * time.Second)
 
 // 	// Check sub2 removed and check its statuscode (404)
-// 	responseSub2Deleted := doRequest("/keys/"+sub2ID, "DELETE", "application/json", nil, apiKeyCmdLine)
+// 	responseSub2Deleted := doRequest("/keys/"+sub2ID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 // 	testStatusCode(t, responseSub2Deleted.StatusCode, http.StatusNotFound)
 // 	time.Sleep(2 * time.Second)
 
 // 	// Check head removed and check its statuscode (404)
-// 	responseHeadDeleted := doRequest("/keys/"+headID, "GET", "application/json", nil, apiKeyCmdLine)
+// 	responseHeadDeleted := doRequest("/keys/"+headID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 // 	testStatusCode(t, responseHeadDeleted.StatusCode, http.StatusNotFound)
 // 	time.Sleep(2 * time.Second)
 
 // 	// Delete key that is expired
-// 	responseExpiredDeleted := doRequest("/keys/"+expiredID, "DELETE", "application/json", nil, apiKeyCmdLine)
+// 	responseExpiredDeleted := doRequest("/keys/"+expiredID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 // 	testStatusCode(t, responseExpiredDeleted.StatusCode, http.StatusNoContent)
 // 	time.Sleep(2 * time.Second)
 // }
@@ -574,7 +581,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
  ******************/
 
 func Test__weaviate_meta_get_JSON(t *testing.T) {
-	response := doRequest("/meta", "GET", "application/json", nil, apiKeyCmdLine)
+	response := doRequest("/meta", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check status code of create
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -603,7 +610,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			"testString": "%s"
 		}
 	}`, thingTestString)))
-	responseInvalid1 := doRequest(uri, method, "application/json", jsonStrInvalid1, apiKeyCmdLine)
+	responseInvalid1 := doRequest(uri, method, "application/json", jsonStrInvalid1, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid1.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid1)), "the given class is empty")
 
@@ -614,7 +621,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			"testString": "%s"
 		}
 	}`, thingTestString)))
-	responseInvalid2 := doRequest(uri, method, "application/json", jsonStrInvalid2, apiKeyCmdLine)
+	responseInvalid2 := doRequest(uri, method, "application/json", jsonStrInvalid2, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid2.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid2)), "the given context is empty")
 
@@ -626,7 +633,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			"testString": "%s"
 		}
 	}`, thingTestString)))
-	responseInvalid3 := doRequest(uri, method, "application/json", jsonStrInvalid3, apiKeyCmdLine)
+	responseInvalid3 := doRequest(uri, method, "application/json", jsonStrInvalid3, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid3.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid3)), "no such class with name")
 
@@ -638,7 +645,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			"testStrings": "%s"
 		}
 	}`, thingTestString)))
-	responseInvalid4 := doRequest(uri, method, "application/json", jsonStrInvalid4, apiKeyCmdLine)
+	responseInvalid4 := doRequest(uri, method, "application/json", jsonStrInvalid4, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid4.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid4)), "no such prop with name")
 
@@ -653,7 +660,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, getWeaviateURL())))
-	responseInvalid5 := doRequest(uri, method, "application/json", jsonStrInvalid5, apiKeyCmdLine)
+	responseInvalid5 := doRequest(uri, method, "application/json", jsonStrInvalid5, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid5.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid5)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema")
 
@@ -669,7 +676,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingID, getWeaviateURL())))
-	responseInvalid6 := doRequest(uri, method, "application/json", jsonStrInvalid6, apiKeyCmdLine)
+	responseInvalid6 := doRequest(uri, method, "application/json", jsonStrInvalid6, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid6.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid6)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema")
 
@@ -685,7 +692,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingID, getWeaviateURL())))
-	responseInvalid7 := doRequest(uri, method, "application/json", jsonStrInvalid7, apiKeyCmdLine)
+	responseInvalid7 := doRequest(uri, method, "application/json", jsonStrInvalid7, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid7)), "requires one of the following values in 'type':")
 
@@ -701,7 +708,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, fakeID, getWeaviateURL())))
-	responseInvalid7b := doRequest(uri, method, "application/json", jsonStrInvalid7b, apiKeyCmdLine)
+	responseInvalid7b := doRequest(uri, method, "application/json", jsonStrInvalid7b, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7b.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid7b)), "error finding the 'cref' to a Thing in the database:")
 
@@ -713,7 +720,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			"testString": 2
 		}
 	}`))
-	responseInvalid8 := doRequest(uri, method, "application/json", jsonStrInvalid8, apiKeyCmdLine)
+	responseInvalid8 := doRequest(uri, method, "application/json", jsonStrInvalid8, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid8.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid8)), "requires a string. The given value is")
 
@@ -725,7 +732,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			"testInt": 2.7
 		}
 	}`))
-	responseInvalid9 := doRequest(uri, method, "application/json", jsonStrInvalid9, apiKeyCmdLine)
+	responseInvalid9 := doRequest(uri, method, "application/json", jsonStrInvalid9, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid9.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid9)), "requires an integer")
 
@@ -737,7 +744,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			"testNumber": "test"
 		}
 	}`))
-	responseInvalid10 := doRequest(uri, method, "application/json", jsonStrInvalid10, apiKeyCmdLine)
+	responseInvalid10 := doRequest(uri, method, "application/json", jsonStrInvalid10, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid10.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid10)), "requires a float. The given value is")
 
@@ -749,7 +756,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			"testBoolean": "test"
 		}
 	}`))
-	responseInvalid11 := doRequest(uri, method, "application/json", jsonStrInvalid11, apiKeyCmdLine)
+	responseInvalid11 := doRequest(uri, method, "application/json", jsonStrInvalid11, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid11.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid11)), "requires a bool. The given value is")
 
@@ -761,7 +768,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 			"testDateTime": "test"
 		}
 	}`))
-	responseInvalid12 := doRequest(uri, method, "application/json", jsonStrInvalid12, apiKeyCmdLine)
+	responseInvalid12 := doRequest(uri, method, "application/json", jsonStrInvalid12, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid12.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid12)), "requires a string with a RFC3339 formatted date. The given value is")
 }
@@ -787,7 +794,7 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 			"testDateTime": "%s"
 		}
 	}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate)))
-	response := doRequest("/things", "POST", "application/json", jsonStr, apiKeyCmdLine)
+	response := doRequest("/things", "POST", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check status code of create
 	require.Equal(t, http.StatusAccepted, response.StatusCode)
@@ -833,7 +840,7 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 				}
 			}
 		}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate, thingID, getWeaviateURL())))
-		response := doRequest("/things", "POST", "application/json", jsonStr, apiKeyCmdLine)
+		response := doRequest("/things", "POST", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 		body := getResponseBody(response)
 		respObject := &models.ThingGetResponse{}
 		json.Unmarshal(body, respObject)
@@ -862,7 +869,7 @@ func Test__weaviate_things_create_JSON(t *testing.T) {
 // weaviate.thing.list
 func Test__weaviate_things_list_JSON(t *testing.T) {
 	// Create list request
-	response := doRequest("/things", "GET", "application/json", nil, apiKeyCmdLine)
+	response := doRequest("/things", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check status code of list
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -878,7 +885,7 @@ func Test__weaviate_things_list_JSON(t *testing.T) {
 	require.Equal(t, thingIDs[0], string(respObject.Things[0].ThingID))
 
 	// // Query whole list just created
-	// listResponse := doRequest("/things?maxResults=3", "GET", "application/json", nil, apiKeyCmdLine)
+	// listResponse := doRequest("/things?maxResults=3", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 	// listResponseObject := &models.ThingsListResponse{}
 	// json.Unmarshal(getResponseBody(listResponse), listResponseObject)
 
@@ -892,7 +899,7 @@ func Test__weaviate_things_list_JSON(t *testing.T) {
 	// require.Equal(t, thingIDs[1], string(listResponseObject.Things[1].ThingID))
 
 	// // Query whole list just created
-	// listResponse2 := doRequest("/things?maxResults=5&page=2", "GET", "application/json", nil, apiKeyCmdLine)
+	// listResponse2 := doRequest("/things?maxResults=5&page=2", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 	// listResponseObject2 := &models.ThingsListResponse{}
 	// json.Unmarshal(getResponseBody(listResponse2), listResponseObject2)
 
@@ -909,7 +916,7 @@ func Test__weaviate_things_list_JSON(t *testing.T) {
 // weaviate.thing.get
 func Test__weaviate_things_get_JSON(t *testing.T) {
 	// Create get request
-	response := doRequest("/things/"+thingIDs[0], "GET", "application/json", nil, apiKeyCmdLine)
+	response := doRequest("/things/"+thingIDs[0], "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check status code get request
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -933,7 +940,7 @@ func Test__weaviate_things_get_JSON(t *testing.T) {
 	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 
 	// Create get request with non-existing ID, check its responsecode
-	responseNotFound := doRequest("/things/"+fakeID, "GET", "application/json", nil, apiKeyCmdLine)
+	responseNotFound := doRequest("/things/"+fakeID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
@@ -952,7 +959,7 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 			"testDateTime": "%s"
 		}
 	}`, newValue, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate)))
-	response := doRequest("/things/"+thingID, "PUT", "application/json", jsonStr, apiKeyCmdLine)
+	response := doRequest("/things/"+thingID, "PUT", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 
 	body := getResponseBody(response)
 
@@ -983,7 +990,7 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Check if update is also applied on object when using a new GET request on same object
-	responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
+	responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	bodyGet := getResponseBody(responseGet)
 
@@ -999,7 +1006,7 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 	require.Equal(t, thingTestDate, respObjectGet.Schema.(map[string]interface{})["testDateTime"].(string))
 
 	// Create get request with non-existing ID, check its responsecode
-	responseNotFound := doRequest("/things/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine)
+	responseNotFound := doRequest("/things/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 
 	// Check validation with invalid requests
@@ -1012,7 +1019,7 @@ func Test__weaviate_things_patch_JSON(t *testing.T) {
 	newValue := "New string patched!"
 
 	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testString", "value": "` + newValue + `"}]`))
-	response := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
+	response := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 
 	body := getResponseBody(response)
 
@@ -1043,7 +1050,7 @@ func Test__weaviate_things_patch_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Check if patch is also applied on object when using a new GET request on same object
-	responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine)
+	responseGet := doRequest("/things/"+thingID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	bodyGet := getResponseBody(responseGet)
 
@@ -1060,70 +1067,70 @@ func Test__weaviate_things_patch_JSON(t *testing.T) {
 
 	// Check patch with incorrect contents
 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "` + newValue + `"}`))
-	responseError := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+	responseError := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusBadRequest, responseError.StatusCode)
 
 	// Create get request with non-existing ID, check its responsecode
-	responseNotFound := doRequest("/things/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
+	responseNotFound := doRequest("/things/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 
 	// Test non-existing class
 	jsonStrInvalid1 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/@class", "value": "%s"}]`, "TestThings")))
-	responseInvalid1 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid1, apiKeyCmdLine)
+	responseInvalid1 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid1, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid1.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid1)), "no such class with name")
 
 	// Test non-existing property
 	jsonStrInvalid2 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "add", "path": "/schema/testStrings", "value": "%s"}]`, "Test")))
-	responseInvalid2 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid2, apiKeyCmdLine)
+	responseInvalid2 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid2, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid2.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid2)), "no such prop with name")
 
 	// Test invalid property cref
 	jsonStrInvalid3 := bytes.NewBuffer([]byte(`[{ "op": "remove", "path": "/schema/testCref/locationUrl"}]`))
-	responseInvalid3 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid3, apiKeyCmdLine)
+	responseInvalid3 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid3, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid3.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid3)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema")
 
 	// Test invalid property cref2
 	jsonStrInvalid4 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "remove", "path": "/schema/testCref/locationUrl"}, { "op": "add", "path": "/schema/testCref/locationUrls", "value": "%s"}]`, getWeaviateURL())))
-	responseInvalid4 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid4, apiKeyCmdLine)
+	responseInvalid4 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid4, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid4.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid4)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema")
 
 	// Test invalid property cref3
 	jsonStrInvalid5 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testCref/type", "value": "%s"}]`, "Test")))
-	responseInvalid5 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid5, apiKeyCmdLine)
+	responseInvalid5 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid5, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid5.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid5)), "requires one of the following values in 'type':")
 
 	// Test invalid property string
 	jsonStrInvalid6 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testString", "value": %d}]`, 2)))
-	responseInvalid6 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid6, apiKeyCmdLine)
+	responseInvalid6 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid6, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid6.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid6)), "requires a string. The given value is")
 
 	// Test invalid property int
 	jsonStrInvalid7 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testInt", "value": 2.8}]`))
-	responseInvalid7 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid7, apiKeyCmdLine)
+	responseInvalid7 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid7, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid7)), "requires an integer")
 
 	// Test invalid property float
 	jsonStrInvalid8 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testNumber", "value": "test"}]`))
-	responseInvalid8 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid8, apiKeyCmdLine)
+	responseInvalid8 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid8, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid8.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid8)), "requires a float. The given value is")
 
 	// Test invalid property bool
 	jsonStrInvalid9 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testBoolean", "value": "test"}]`))
-	responseInvalid9 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid9, apiKeyCmdLine)
+	responseInvalid9 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid9, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid9.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid9)), "requires a bool. The given value is")
 
 	// Test invalid property date
 	jsonStrInvalid10 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testDateTime", "value": "test"}]`))
-	responseInvalid10 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid10, apiKeyCmdLine)
+	responseInvalid10 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid10, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid10.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid10)), "requires a string with a RFC3339 formatted date. The given value is")
 }
@@ -1150,7 +1157,7 @@ func Test__weaviate_things_validate_JSON(t *testing.T) {
 		}
 	}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate, thingID, getWeaviateURL())))
 
-	response := doRequest("/things/validate", "POST", "application/json", jsonStr, apiKeyCmdLine)
+	response := doRequest("/things/validate", "POST", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusOK, response.StatusCode)
 }
 
@@ -1167,7 +1174,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			"testString": "%s"
 		}
 	}`, thingTestString)))
-	responseInvalidThings1 := doRequest(uri, method, "application/json", jsonStrInvalidThings1, apiKeyCmdLine)
+	responseInvalidThings1 := doRequest(uri, method, "application/json", jsonStrInvalidThings1, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings1.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings1)), "no things, object and subject, are added. Add 'things' by using the 'things' key in the root of the JSON")
 
@@ -1186,7 +1193,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingTestString, thingID, getWeaviateURL())))
-	responseInvalidThings2 := doRequest(uri, method, "application/json", jsonStrInvalidThings2, apiKeyCmdLine)
+	responseInvalidThings2 := doRequest(uri, method, "application/json", jsonStrInvalidThings2, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings2.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings2)), "no object-thing is added. Add the 'object' inside the 'things' part of the JSON")
 
@@ -1205,7 +1212,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingTestString, thingID, getWeaviateURL())))
-	responseInvalidThings3 := doRequest(uri, method, "application/json", jsonStrInvalidThings3, apiKeyCmdLine)
+	responseInvalidThings3 := doRequest(uri, method, "application/json", jsonStrInvalidThings3, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings3.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings3)), "no subject-thing is added. Add the 'subject' inside the 'things' part of the JSON")
 
@@ -1229,7 +1236,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
-	responseInvalidThings4 := doRequest(uri, method, "application/json", jsonStrInvalidThings4, apiKeyCmdLine)
+	responseInvalidThings4 := doRequest(uri, method, "application/json", jsonStrInvalidThings4, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings4.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings4)), "no 'locationURL' is found in the object-thing. Add the 'locationURL' inside the 'object-thing' part of the JSON")
 
@@ -1253,7 +1260,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
-	responseInvalidThings5 := doRequest(uri, method, "application/json", jsonStrInvalidThings5, apiKeyCmdLine)
+	responseInvalidThings5 := doRequest(uri, method, "application/json", jsonStrInvalidThings5, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings5.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings5)), "no 'type' is found in the object-thing. Add the 'type' inside the 'object-thing' part of the JSON")
 
@@ -1277,7 +1284,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
-	responseInvalidThings6 := doRequest(uri, method, "application/json", jsonStrInvalidThings6, apiKeyCmdLine)
+	responseInvalidThings6 := doRequest(uri, method, "application/json", jsonStrInvalidThings6, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings6.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings6)), "type in body should be one of [Thing Action Key]")
 
@@ -1301,7 +1308,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingTestString, fakeID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
-	responseInvalidThings7 := doRequest(uri, method, "application/json", jsonStrInvalidThings7, apiKeyCmdLine)
+	responseInvalidThings7 := doRequest(uri, method, "application/json", jsonStrInvalidThings7, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings7.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings7)), "error finding the 'object'-thing in the database")
 
@@ -1325,7 +1332,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
-	responseInvalidThings8 := doRequest(uri, method, "application/json", jsonStrInvalidThings8, apiKeyCmdLine)
+	responseInvalidThings8 := doRequest(uri, method, "application/json", jsonStrInvalidThings8, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings8.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings8)), "no 'locationURL' is found in the subject-thing. Add the 'locationURL' inside the 'subject-thing' part of the JSON")
 
@@ -1349,7 +1356,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
-	responseInvalidThings9 := doRequest(uri, method, "application/json", jsonStrInvalidThings9, apiKeyCmdLine)
+	responseInvalidThings9 := doRequest(uri, method, "application/json", jsonStrInvalidThings9, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings9.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings9)), "no 'type' is found in the subject-thing. Add the 'type' inside the 'subject-thing' part of the JSON")
 
@@ -1373,7 +1380,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
-	responseInvalidThings10 := doRequest(uri, method, "application/json", jsonStrInvalidThings10, apiKeyCmdLine)
+	responseInvalidThings10 := doRequest(uri, method, "application/json", jsonStrInvalidThings10, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings10.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings10)), "type in body should be one of [Thing Action Key]")
 
@@ -1397,7 +1404,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}
 	}`, thingTestString, thingID, getWeaviateURL(), fakeID, getWeaviateURL())))
-	responseInvalidThings11 := doRequest(uri, method, "application/json", jsonStrInvalidThings11, apiKeyCmdLine)
+	responseInvalidThings11 := doRequest(uri, method, "application/json", jsonStrInvalidThings11, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings11.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings11)), "error finding the 'subject'-thing in the database")
 
@@ -1423,7 +1430,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			"testString": "%s"
 		}%s
 	}`, thingTestString, actionThingsJSON)))
-	responseInvalid1 := doRequest(uri, method, "application/json", jsonStrInvalid1, apiKeyCmdLine)
+	responseInvalid1 := doRequest(uri, method, "application/json", jsonStrInvalid1, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid1.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid1)), "the given class is empty")
 
@@ -1434,7 +1441,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			"testString": "%s"
 		}%s
 	}`, thingTestString, actionThingsJSON)))
-	responseInvalid2 := doRequest(uri, method, "application/json", jsonStrInvalid2, apiKeyCmdLine)
+	responseInvalid2 := doRequest(uri, method, "application/json", jsonStrInvalid2, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid2.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid2)), "the given context is empty")
 
@@ -1446,7 +1453,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			"testString": "%s"
 		}%s
 	}`, thingTestString, actionThingsJSON)))
-	responseInvalid3 := doRequest(uri, method, "application/json", jsonStrInvalid3, apiKeyCmdLine)
+	responseInvalid3 := doRequest(uri, method, "application/json", jsonStrInvalid3, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid3.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid3)), "no such class with name")
 
@@ -1458,7 +1465,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			"testStrings": "%s"
 		}%s
 	}`, thingTestString, actionThingsJSON)))
-	responseInvalid4 := doRequest(uri, method, "application/json", jsonStrInvalid4, apiKeyCmdLine)
+	responseInvalid4 := doRequest(uri, method, "application/json", jsonStrInvalid4, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid4.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid4)), "no such prop with name")
 
@@ -1473,7 +1480,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}%s
 	}`, getWeaviateURL(), actionThingsJSON)))
-	responseInvalid5 := doRequest(uri, method, "application/json", jsonStrInvalid5, apiKeyCmdLine)
+	responseInvalid5 := doRequest(uri, method, "application/json", jsonStrInvalid5, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid5.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid5)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema")
 
@@ -1489,7 +1496,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}%s
 	}`, thingID, getWeaviateURL(), actionThingsJSON)))
-	responseInvalid6 := doRequest(uri, method, "application/json", jsonStrInvalid6, apiKeyCmdLine)
+	responseInvalid6 := doRequest(uri, method, "application/json", jsonStrInvalid6, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid6.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid6)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema")
 
@@ -1505,7 +1512,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}%s
 	}`, thingID, getWeaviateURL(), actionThingsJSON)))
-	responseInvalid7 := doRequest(uri, method, "application/json", jsonStrInvalid7, apiKeyCmdLine)
+	responseInvalid7 := doRequest(uri, method, "application/json", jsonStrInvalid7, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid7)), "requires one of the following values in 'type':")
 
@@ -1521,7 +1528,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			}
 		}%s
 	}`, fakeID, getWeaviateURL(), actionThingsJSON)))
-	responseInvalid7b := doRequest(uri, method, "application/json", jsonStrInvalid7b, apiKeyCmdLine)
+	responseInvalid7b := doRequest(uri, method, "application/json", jsonStrInvalid7b, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7b.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid7b)), "error finding the 'cref' to a Thing in the database:")
 
@@ -1533,7 +1540,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			"testString": 2
 		}%s
 	}`, actionThingsJSON)))
-	responseInvalid8 := doRequest(uri, method, "application/json", jsonStrInvalid8, apiKeyCmdLine)
+	responseInvalid8 := doRequest(uri, method, "application/json", jsonStrInvalid8, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid8.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid8)), "requires a string. The given value is")
 
@@ -1545,7 +1552,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			"testInt": 2.7
 		}%s
 	}`, actionThingsJSON)))
-	responseInvalid9 := doRequest(uri, method, "application/json", jsonStrInvalid9, apiKeyCmdLine)
+	responseInvalid9 := doRequest(uri, method, "application/json", jsonStrInvalid9, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid9.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid9)), "requires an integer")
 
@@ -1557,7 +1564,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			"testNumber": "test"
 		}%s
 	}`, actionThingsJSON)))
-	responseInvalid10 := doRequest(uri, method, "application/json", jsonStrInvalid10, apiKeyCmdLine)
+	responseInvalid10 := doRequest(uri, method, "application/json", jsonStrInvalid10, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid10.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid10)), "requires a float. The given value is")
 
@@ -1569,7 +1576,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			"testBoolean": "test"
 		}%s
 	}`, actionThingsJSON)))
-	responseInvalid11 := doRequest(uri, method, "application/json", jsonStrInvalid11, apiKeyCmdLine)
+	responseInvalid11 := doRequest(uri, method, "application/json", jsonStrInvalid11, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid11.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid11)), "requires a bool. The given value is")
 
@@ -1581,7 +1588,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 			"testDateTime": "test"
 		}%s
 	}`, actionThingsJSON)))
-	responseInvalid12 := doRequest(uri, method, "application/json", jsonStrInvalid12, apiKeyCmdLine)
+	responseInvalid12 := doRequest(uri, method, "application/json", jsonStrInvalid12, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid12.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid12)), "requires a string with a RFC3339 formatted date. The given value is")
 }
@@ -1624,7 +1631,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 			}
 		}
 	}`, actionTestString, actionTestInt, actionTestBoolean, actionTestNumber, actionTestDate, thingID, getWeaviateURL(), thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
-	response := doRequest("/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
+	response := doRequest("/actions", "POST", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check status code of create
 	require.Equal(t, http.StatusAccepted, response.StatusCode)
@@ -1700,7 +1707,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 				}
 			}
 		}`, actionTestString, actionTestInt, actionTestBoolean, actionTestNumber, actionTestDate, thingID, getWeaviateURL(), thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
-		response := doRequest("/actions", "POST", "application/json", jsonStr, apiKeyCmdLine)
+		response := doRequest("/actions", "POST", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 		body := getResponseBody(response)
 		respObject := &models.ActionGetResponse{}
 		json.Unmarshal(body, respObject)
@@ -1723,7 +1730,7 @@ func Test__weaviate_actions_create_JSON(t *testing.T) {
 // weaviate.things.actions.list
 func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 	// Create list request
-	response := doRequest("/things/"+thingID+"/actions", "GET", "application/json", nil, apiKeyCmdLine)
+	response := doRequest("/things/"+thingID+"/actions", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check status code of list
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -1742,7 +1749,7 @@ func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 	require.Len(t, respObject.Actions, 10)
 
 	// // Query whole list just created
-	// listResponse := doRequest("/things/"+thingID+"/actions?maxResults=3", "GET", "application/json", nil, apiKeyCmdLine)
+	// listResponse := doRequest("/things/"+thingID+"/actions?maxResults=3", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 	// listResponseObject := &models.ActionsListResponse{}
 	// json.Unmarshal(getResponseBody(listResponse), listResponseObject)
 
@@ -1756,7 +1763,7 @@ func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 	// require.Equal(t, actionIDs[1], string(listResponseObject.Actions[1].ActionID))
 
 	// // Query whole list just created
-	// listResponse2 := doRequest("/things/"+thingID+"/actions?maxResults=5&page=2", "GET", "application/json", nil, apiKeyCmdLine)
+	// listResponse2 := doRequest("/things/"+thingID+"/actions?maxResults=5&page=2", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 	// listResponseObject2 := &models.ActionsListResponse{}
 	// json.Unmarshal(getResponseBody(listResponse2), listResponseObject2)
 
@@ -1773,7 +1780,7 @@ func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 // weaviate.action.get
 func Test__weaviate_actions_get_JSON(t *testing.T) {
 	// Create get request
-	response := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine)
+	response := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check status code get request
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -1807,7 +1814,7 @@ func Test__weaviate_actions_get_JSON(t *testing.T) {
 	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 
 	// Create get request with non-existing ID, check its responsecode
-	responseNotFound := doRequest("/actions/"+fakeID, "GET", "application/json", nil, apiKeyCmdLine)
+	responseNotFound := doRequest("/actions/"+fakeID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
@@ -1819,7 +1826,7 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 
 	// Create JSON and do the request
 	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testInt", "value": %d}, { "op": "replace", "path": "/schema/testString", "value": "%s"}]`, newValue, newValueStr)))
-	response := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStr, apiKeyCmdLine)
+	response := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 
 	body := getResponseBody(response)
 
@@ -1851,7 +1858,7 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Check if patch is also applied on object when using a new GET request on same object
-	responseGet := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine)
+	responseGet := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	bodyGet := getResponseBody(responseGet)
 
@@ -1869,11 +1876,11 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 
 	// Check patch with incorrect contents
 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/xxxx", "value": "` + string(newValue) + `"}`))
-	responseError := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine)
+	responseError := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStrError, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusBadRequest, responseError.StatusCode)
 
 	// Create get request with non-existing ID, check its responsecode
-	responseNotFound := doRequest("/actions/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine)
+	responseNotFound := doRequest("/actions/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
@@ -1910,7 +1917,7 @@ func Test__weaviate_actions_validate_JSON(t *testing.T) {
 			}
 		}
 	}`, actionTestString, actionTestInt, actionTestBoolean, actionTestNumber, actionTestDate, thingID, getWeaviateURL(), thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
-	response := doRequest("/actions/validate", "POST", "application/json", jsonStr, apiKeyCmdLine)
+	response := doRequest("/actions/validate", "POST", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusOK, response.StatusCode)
 }
 
@@ -1921,7 +1928,7 @@ type graphQLQueryObject struct {
 	Query string `json:"query,omitempty"`
 }
 
-func doGraphQLRequest(body graphQLQueryObject, apiKey string) (*http.Response, *models.GraphQLResponse) {
+func doGraphQLRequest(body graphQLQueryObject, apiKey string, apiToken string) (*http.Response, *models.GraphQLResponse) {
 	// Marshal into json
 	bodyJSON, _ := json.Marshal(body)
 
@@ -1929,7 +1936,7 @@ func doGraphQLRequest(body graphQLQueryObject, apiKey string) (*http.Response, *
 	jsonStr := bytes.NewBuffer(bodyJSON)
 
 	// Do the GraphQL request
-	response := doRequest("/graphql", "POST", "application/json", jsonStr, apiKey)
+	response := doRequest("/graphql", "POST", "application/json", jsonStr, apiKey, apiToken)
 
 	// Turn the response into a response object
 	respObject := &models.GraphQLResponse{}
@@ -1948,7 +1955,7 @@ func Test__weaviate_graphql_common_JSON(t *testing.T) {
 	jsonStr := bytes.NewBuffer([]byte(bodyUnpr))
 
 	// Do the GraphQL request
-	responseUnpr := doRequest("/graphql", "POST", "application/json", jsonStr, apiKeyCmdLine)
+	responseUnpr := doRequest("/graphql", "POST", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusUnprocessableEntity, responseUnpr.StatusCode)
@@ -1959,7 +1966,7 @@ func Test__weaviate_graphql_common_JSON(t *testing.T) {
 	}
 
 	// Do the GraphQL request
-	responseNonExistingProperty, respObjectNonExistingProperty := doGraphQLRequest(bodyNonExistingProperty, apiKeyCmdLine)
+	responseNonExistingProperty, respObjectNonExistingProperty := doGraphQLRequest(bodyNonExistingProperty, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseNonExistingProperty.StatusCode)
@@ -1980,7 +1987,7 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	}
 
 	// Do the GraphQL request
-	response, respObject := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	response, respObject := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -2018,7 +2025,7 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	}
 
 	// Do the GraphQL request
-	responseActions, respObjectActions := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	responseActions, respObjectActions := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseActions.StatusCode)
@@ -2043,7 +2050,7 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	}
 
 	// Do the GraphQL request
-	responseActionsLimit, respObjectActionsLimit := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	responseActionsLimit, respObjectActionsLimit := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseActionsLimit.StatusCode)
@@ -2069,7 +2076,7 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	// }
 
 	// // Do the GraphQL request
-	// responseActionsLimitOffset, respObjectActionsLimitOffset := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// responseActionsLimitOffset, respObjectActionsLimitOffset := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 
 	// // Check statuscode
 	// require.Equal(t, http.StatusOK, responseActionsLimitOffset.StatusCode)
@@ -2090,19 +2097,19 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 
 	// Search class 'TestAction2', most recent should be the set actionID[0]
 	bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"TestAction2", first:1) { actions { uuid atClass } totalResults } } }`, thingID)}
-	_, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	_, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	resultActionsValueSearch1 := respObjectValueSearch1.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
 	require.Equal(t, actionIDs[0], string(resultActionsValueSearch1[0].(map[string]interface{})["uuid"].(string)))
 
 	// // Search class NOT 'TestAction2', most recent should be the set actionID
 	// bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"!:TestAction2", first:1) { actions { uuid atClass } totalResults } } }`, thingID)}
-	// _, respObjectValueSearch2 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// _, respObjectValueSearch2 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	// resultActionsValueSearch2 := respObjectValueSearch2.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
 	// require.Equal(t, actionID, string(resultActionsValueSearch2[0].(map[string]interface{})["uuid"].(string)))
 
 	// // Search class '~TestAction', most recent 9 should be 'TestAction2' and the 10th is 'TestAction' (with uuid = actionID).
 	// bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"~TestAction", first:10) { actions { uuid atClass } totalResults } } }`, thingID)}
-	// _, respObjectValueSearch3 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// _, respObjectValueSearch3 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	// resultActionsValueSearch3 := respObjectValueSearch3.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
 	// require.Equal(t, "TestAction2", string(resultActionsValueSearch3[3].(map[string]interface{})["atClass"].(string)))
 	// require.Equal(t, "TestAction2", string(resultActionsValueSearch3[6].(map[string]interface{})["atClass"].(string)))
@@ -2111,19 +2118,19 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 
 	// // Search class 'TestAction' AND 'schema:"testString:patch"', should find nothing.
 	// bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"TestAction", schema:"testString:patch", first:1) { actions { uuid atClass } totalResults } } }`, thingID)}
-	// _, respObjectValueSearch4 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// _, respObjectValueSearch4 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	// totalResultsValueSearch4 := respObjectValueSearch4.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["totalResults"].(float64)
 	// require.Equal(t, float64(0), totalResultsValueSearch4)
 
 	// // Search class 'TestAction' AND 'schema:"testString:~patch"', should find ActionID as most recent.
 	// bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"TestAction", schema:"testString:~patch", first:1){ actions { uuid atClass } totalResults } } }`, thingID)}
-	// _, respObjectValueSearch5 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// _, respObjectValueSearch5 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	// resultActionsValueSearch5 := respObjectValueSearch5.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
 	// require.Equal(t, actionID, string(resultActionsValueSearch5[0].(map[string]interface{})["uuid"].(string)))
 
 	// // Search class '~TestAction' AND NOT 'schema:"testString:~patch"', should find thing with id == actionIDs[0] and have a length of 9
 	// bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"~TestAction", schema:"testString!:~patch", first:1){ actions { uuid atClass } totalResults } } }`, thingID)}
-	// _, respObjectValueSearch6 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// _, respObjectValueSearch6 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	// resultActionsValueSearch6 := respObjectValueSearch6.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
 	// require.Equal(t, actionIDs[0], string(resultActionsValueSearch6[0].(map[string]interface{})["uuid"].(string)))
 	// totalResultsValueSearch6 := respObjectValueSearch6.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["totalResults"].(float64)
@@ -2137,7 +2144,7 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 	}
 
 	// Do the GraphQL request
-	response, respObject := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	response, respObject := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -2161,7 +2168,7 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 	}
 
 	// Do the GraphQL request
-	responseLimit, respObjectLimit := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	responseLimit, respObjectLimit := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, responseLimit.StatusCode)
@@ -2186,7 +2193,7 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 	// }
 
 	// // Do the GraphQL request
-	// responseLimitOffset, respObjectLimitOffset := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// responseLimitOffset, respObjectLimitOffset := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 
 	// // Check statuscode
 	// require.Equal(t, http.StatusOK, responseLimitOffset.StatusCode)
@@ -2207,19 +2214,19 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 
 	// Search class 'TestThing2', most recent should be the set thingIDsubject
 	bodyObj = graphQLQueryObject{Query: `{ listThings(class:"TestThing2", first:1) { things { uuid atClass } totalResults } }`}
-	_, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	_, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	resultThingsValueSearch1 := respObjectValueSearch1.Data["listThings"].(map[string]interface{})["things"].([]interface{})
 	require.Equal(t, thingIDsubject, string(resultThingsValueSearch1[0].(map[string]interface{})["uuid"].(string)))
 
 	// // Search class NOT 'TestThing2', most recent should be the set thingID
 	// bodyObj = graphQLQueryObject{Query: `{ listThings(class:"!:TestThing2", first:1) { things { uuid atClass } totalResults } }`}
-	// _, respObjectValueSearch2 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// _, respObjectValueSearch2 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	// resultThingsValueSearch2 := respObjectValueSearch2.Data["listThings"].(map[string]interface{})["things"].([]interface{})
 	// require.Equal(t, thingID, string(resultThingsValueSearch2[0].(map[string]interface{})["uuid"].(string)))
 
 	// // Search class '~TestThing', most recent 9 should be 'TestThing2' and the 10th is 'TestThing' (with uuid = thingID).
 	// // bodyObj = graphQLQueryObject{Query: `{ listThings(class:"~TestThing", first:10) { things { uuid atClass } totalResults } }`}
-	// // _, respObjectValueSearch3 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// // _, respObjectValueSearch3 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	// // resultThingsValueSearch3 := respObjectValueSearch3.Data["listThings"].(map[string]interface{})["things"].([]interface{})
 	// // require.Equal(t, "TestThing2", string(resultThingsValueSearch3[3].(map[string]interface{})["atClass"].(string)))
 	// // require.Equal(t, "TestThing2", string(resultThingsValueSearch3[6].(map[string]interface{})["atClass"].(string)))
@@ -2228,19 +2235,19 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 
 	// // Search class 'TestThing' AND 'schema:"testString:patch"', should find nothing.
 	// bodyObj = graphQLQueryObject{Query: `{ listThings(class:"TestThing", schema:"testString:patch", first:1) { things { uuid atClass } totalResults } }`}
-	// _, respObjectValueSearch4 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// _, respObjectValueSearch4 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	// totalResultsValueSearch4 := respObjectValueSearch4.Data["listThings"].(map[string]interface{})["totalResults"].(float64)
 	// require.Equal(t, float64(0), totalResultsValueSearch4)
 
 	// // Search class 'TestThing' AND 'schema:"testString:~patch"', should find ThingID as most recent.
 	// bodyObj = graphQLQueryObject{Query: `{ listThings(class:"TestThing", schema:"testString:~patch", first:1){ things { uuid atClass } totalResults } }`}
-	// _, respObjectValueSearch5 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// _, respObjectValueSearch5 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	// resultThingsValueSearch5 := respObjectValueSearch5.Data["listThings"].(map[string]interface{})["things"].([]interface{})
 	// require.Equal(t, thingID, string(resultThingsValueSearch5[0].(map[string]interface{})["uuid"].(string)))
 
 	// // Search class '~TestThing' AND NOT 'schema:"testString:~patch"', should find thing with id == thingIDs[0]
 	// // bodyObj = graphQLQueryObject{Query: `{ listThings(class:"~TestThing", schema:"testString!:~patch", first:1){ things { uuid atClass } totalResults } }`}
-	// // _, respObjectValueSearch6 := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	// // _, respObjectValueSearch6 := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 	// // resultThingsValueSearch6 := respObjectValueSearch6.Data["listThings"].(map[string]interface{})["things"].([]interface{})
 	// // require.Equal(t, thingIDs[0], string(resultThingsValueSearch6[0].(map[string]interface{})["uuid"].(string)))
 }
@@ -2253,7 +2260,7 @@ func Test__weaviate_graphql_action_JSON(t *testing.T) {
 	}
 
 	// Do the GraphQL request
-	response, respObject := doGraphQLRequest(bodyObj, apiKeyCmdLine)
+	response, respObject := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check statuscode
 	require.Equal(t, http.StatusOK, response.StatusCode)
@@ -2291,7 +2298,7 @@ func Test__weaviate_graphql_key_JSON(t *testing.T) {
 	// jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(body, newAPIKeyID)))
 
 	// // Do the GraphQL request
-	// response := doGraphQLRequest(jsonStr, apiKeyCmdLine)
+	// response := doGraphQLRequest(jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 
 	// // Check statuscode
 	// require.Equal(t, http.StatusOK, response.StatusCode)
@@ -2328,7 +2335,7 @@ func Test__weaviate_graphql_key_JSON(t *testing.T) {
 // weaviate.action.delete
 func Test__weaviate_actions_delete_JSON(t *testing.T) {
 	// Create delete request
-	response := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	response := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check status code get request
 	require.Equal(t, http.StatusNoContent, response.StatusCode)
@@ -2337,13 +2344,13 @@ func Test__weaviate_actions_delete_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Create delete request
-	responseAlreadyDeleted := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	responseAlreadyDeleted := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check status code already deleted
 	require.Equal(t, http.StatusNotFound, responseAlreadyDeleted.StatusCode)
 
 	// Create get request with non-existing ID, check its responsecode
-	responseNotFound := doRequest("/actions/"+fakeID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	responseNotFound := doRequest("/actions/"+fakeID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
@@ -2356,12 +2363,12 @@ func Test__weaviate_things_delete_JSON(t *testing.T) {
 			continue
 		}
 
-		responseNotYetDeletedByObjectThing := doRequest("/actions/"+deletedActionID, "GET", "application/json", nil, apiKeyCmdLine)
+		responseNotYetDeletedByObjectThing := doRequest("/actions/"+deletedActionID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 		require.Equal(t, http.StatusOK, responseNotYetDeletedByObjectThing.StatusCode)
 	}
 
 	// Create delete request
-	response := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	response := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check status code get request
 	require.Equal(t, http.StatusNoContent, response.StatusCode)
@@ -2370,18 +2377,18 @@ func Test__weaviate_things_delete_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Create delete request
-	responseAlreadyDeleted := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	responseAlreadyDeleted := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
 	// Check status code already deleted
 	require.Equal(t, http.StatusNotFound, responseAlreadyDeleted.StatusCode)
 
 	// Create get request with non-existing ID, check its responsecode
-	responseNotFound := doRequest("/things/"+fakeID, "DELETE", "application/json", nil, apiKeyCmdLine)
+	responseNotFound := doRequest("/things/"+fakeID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 
 	// Test whether all actions are deleted
 	for _, deletedActionID := range actionIDs {
-		responseDeletedByObjectThing := doRequest("/actions/"+deletedActionID, "GET", "application/json", nil, apiKeyCmdLine)
+		responseDeletedByObjectThing := doRequest("/actions/"+deletedActionID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 		require.Equal(t, http.StatusNotFound, responseDeletedByObjectThing.StatusCode)
 	}
 }
