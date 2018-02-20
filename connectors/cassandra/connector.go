@@ -409,7 +409,7 @@ func (f *Cassandra) Init() error {
 	// has_execute_access_to set<uuid>,
 	err := f.client.Query(`
 		CREATE TABLE IF NOT EXISTS ` + tableKeys + ` (
-			` + colKeyToken + ` uuid,
+			` + colKeyToken + ` text,
 			` + colKeyUUID + ` uuid,
 			` + colKeyParent + ` uuid,
 			` + colKeyRoot + ` boolean,
@@ -1089,7 +1089,7 @@ func (f *Cassandra) DeleteAction(action *models.Action, UUID strfmt.UUID) error 
 // AddKey adds a key to the Cassandra database with the given UUID and token.
 // UUID  = reference to the key
 // token = is the actual access token used in the API's header
-func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error {
+func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token string) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("AddKey: %s", UUID))
 
@@ -1107,7 +1107,7 @@ func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID)
 	// Add the key to the database
 	query := f.client.Query(
 		insertKeyStatement,
-		f.convUUIDtoCQLUUID(token),
+		token,
 		f.convUUIDtoCQLUUID(UUID),
 		parent,
 		isRoot,
@@ -1125,12 +1125,12 @@ func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID)
 }
 
 // ValidateToken validates/gets a key to the Cassandra database with the given token (=UUID)
-func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
+func (f *Cassandra) ValidateToken(token string, keyResponse *models.KeyGetResponse) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("ValidateToken: %s", token))
 
 	// Do the query to get the key from the database based on access-token and get the iterator
-	iter := f.client.Query(selectKeyByTokenStatement, f.convUUIDtoCQLUUID(token)).Consistency(gocql.One).Iter()
+	iter := f.client.Query(selectKeyByTokenStatement, token).Consistency(gocql.One).Iter()
 
 	// Initialize the 'found' variable
 	found := false
@@ -1166,8 +1166,8 @@ func (f *Cassandra) ValidateToken(token strfmt.UUID, keyResponse *models.KeyToke
 	return nil
 }
 
-// GetKey fills the given KeyTokenGetResponse with the values from the database, based on the given UUID.
-func (f *Cassandra) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
+// GetKey fills the given KeyGetResponse with the values from the database, based on the given UUID.
+func (f *Cassandra) GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetKey: %s", UUID))
 
@@ -1229,8 +1229,8 @@ func (f *Cassandra) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
 	return nil
 }
 
-// GetKeyChildren fills the given KeyTokenGetResponse array with the values from the database, based on the given UUID.
-func (f *Cassandra) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error {
+// GetKeyChildren fills the given KeyGetResponse array with the values from the database, based on the given UUID.
+func (f *Cassandra) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetKeyChildren: %s", UUID))
 
@@ -1248,7 +1248,7 @@ func (f *Cassandra) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyToke
 		}
 
 		// Fill the response with the row
-		keyResponse := models.KeyTokenGetResponse{}
+		keyResponse := models.KeyGetResponse{}
 		f.fillKeyResponseWithRow(m, &keyResponse)
 
 		// Add the thing to the list in the response
@@ -1324,7 +1324,7 @@ func (f *Cassandra) createPropertyCallback(properties *map[string]string, cqlUUI
 }
 
 // fillKeyResponseWithRow fills a keyResponse object with data from a single map-row from the database
-func (f *Cassandra) fillKeyResponseWithRow(row map[string]interface{}, keyResponse *models.KeyTokenGetResponse) error {
+func (f *Cassandra) fillKeyResponseWithRow(row map[string]interface{}, keyResponse *models.KeyGetResponse) error {
 	// Fill all values of the response
 	keyResponse.KeyID = f.convCQLUUIDtoUUID(row[colKeyUUID].(gocql.UUID))
 	keyResponse.Delete = row[colKeyAllowD].(bool)
@@ -1334,7 +1334,6 @@ func (f *Cassandra) fillKeyResponseWithRow(row map[string]interface{}, keyRespon
 	keyResponse.KeyExpiresUnix = connutils.MakeUnixMillisecond(row[colKeyExpiryTime].(time.Time))
 	keyResponse.Read = row[colKeyAllowR].(bool)
 	keyResponse.Write = row[colKeyAllowW].(bool)
-	keyResponse.Token = f.convCQLUUIDtoUUID(row[colKeyToken].(gocql.UUID))
 
 	// Determine the parent and add it as an cref
 	isRoot := row[colKeyRoot].(bool)

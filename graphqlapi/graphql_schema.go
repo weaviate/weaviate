@@ -39,7 +39,7 @@ type GraphQLSchema struct {
 	serverConfig          *config.WeaviateConfig
 	serverSchema          *schema.WeaviateSchema
 	dbConnector           dbconnector.DatabaseConnector
-	usedKey               models.KeyTokenGetResponse
+	usedKey               models.KeyGetResponse
 	messaging             *messages.Messaging
 	thingsDataLoader      *dataloader.Loader
 	context               context.Context
@@ -96,7 +96,7 @@ func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverCon
 var thingType *graphql.Object
 
 // SetKey sets the key that is used for the latest request
-func (f *GraphQLSchema) SetKey(key models.KeyTokenGetResponse) {
+func (f *GraphQLSchema) SetKey(key models.KeyGetResponse) {
 	f.usedKey = key
 }
 
@@ -177,27 +177,8 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The id of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.KeyID, nil
-					}
-					return nil, nil
-				},
-			},
-			"token": &graphql.Field{
-				Type:        graphql.String,
-				Description: "The token of the key.",
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
-						// Return incl token if it is own key, otherwise do not return
-						if f.usedKey.Token != key.Token {
-							return nil, graphql.NewLocatedError(
-								errors.New("the asked token is not accessible for the given API-token"),
-								graphql.FieldASTsToNodeASTs(p.Info.FieldASTs),
-							)
-						}
-
-						return key.Token, nil
 					}
 					return nil, nil
 				},
@@ -207,7 +188,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The email of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.Email, nil
 					}
 					return nil, nil
@@ -218,7 +199,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The allowed ip-origins of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.IPOrigin, nil
 					}
 					return []string{}, nil
@@ -229,7 +210,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The unix timestamp of when the key expires.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return float64(key.KeyExpiresUnix), nil
 					}
 					return nil, nil
@@ -240,7 +221,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has read-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.Read, nil
 					}
 					return nil, nil
@@ -251,7 +232,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has execute-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.Execute, nil
 					}
 					return nil, nil
@@ -262,7 +243,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has write-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.Write, nil
 					}
 					return nil, nil
@@ -273,7 +254,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has delete-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.Delete, nil
 					}
 					return nil, nil
@@ -298,9 +279,9 @@ func (f *GraphQLSchema) InitSchema() error {
 		Description: "Get all children of this key.",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			// Resolve the data from the Key Response
-			if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+			if key, ok := p.Source.(*models.KeyGetResponse); ok {
 				// Init the respons as an array of keys
-				children := []*models.KeyTokenGetResponse{}
+				children := []*models.KeyGetResponse{}
 
 				// Get the key-ID from the object
 				keyUUID := key.KeyID
@@ -385,7 +366,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        keyType,
 				Description: "The key which is the owner of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					keyResponse := &models.KeyTokenGetResponse{}
+					keyResponse := &models.KeyGetResponse{}
 					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 						// If no UUID is given, just return nil
 						if thing.Key.NrDollarCref == "" {
@@ -581,7 +562,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        keyType,
 				Description: "The key which is the owner of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					keyResponse := &models.KeyTokenGetResponse{}
+					keyResponse := &models.KeyGetResponse{}
 					if action, ok := p.Source.(*models.ActionGetResponse); ok {
 						// If no UUID is given, just return nil
 						if action.Key.NrDollarCref == "" {
@@ -946,7 +927,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Initialize the key response
-					keyResponse := &models.KeyTokenGetResponse{}
+					keyResponse := &models.KeyGetResponse{}
 
 					// Get the ID from the arguments
 					UUID := strfmt.UUID(p.Args["uuid"].(string))
@@ -954,7 +935,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					// Do a request on the database to get the Key
 					err := f.dbConnector.GetKey(UUID, keyResponse)
 					if err != nil {
-						return &models.KeyTokenGetResponse{}, err
+						return &models.KeyGetResponse{}, err
 					}
 
 					return keyResponse, nil
@@ -1159,7 +1140,7 @@ func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.Single
 	} else if cref.Type == "Action" {
 		err = f.dbConnector.GetAction(cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
 	} else if cref.Type == "Key" {
-		err = f.dbConnector.GetKey(cref.NrDollarCref, objectLoaded.(*models.KeyTokenGetResponse))
+		err = f.dbConnector.GetKey(cref.NrDollarCref, objectLoaded.(*models.KeyGetResponse))
 	} else {
 		err = fmt.Errorf("can't resolve the given type '%s'", cref.Type)
 	}

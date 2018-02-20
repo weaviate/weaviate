@@ -105,7 +105,7 @@ func getPage(paramPage *int64) int {
 }
 
 // isOwnKeyOrLowerInTree returns whether a key is his own or in his children
-func isOwnKeyOrLowerInTree(currentKey models.KeyTokenGetResponse, userKeyID strfmt.UUID, databaseConnector dbconnector.DatabaseConnector) bool {
+func isOwnKeyOrLowerInTree(currentKey models.KeyGetResponse, userKeyID strfmt.UUID, databaseConnector dbconnector.DatabaseConnector) bool {
 	// If is own key, return true
 	if strings.EqualFold(string(userKeyID), string(currentKey.KeyID)) {
 		return true
@@ -139,7 +139,7 @@ func GetKeyChildrenUUIDs(databaseConnector dbconnector.DatabaseConnector, parent
 	}
 
 	// Init children var
-	children := []*models.KeyTokenGetResponse{}
+	children := []*models.KeyGetResponse{}
 
 	// Get children from the db-connector
 	err := databaseConnector.GetKeyChildren(parentUUID, &children)
@@ -191,7 +191,7 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 	// Delete for every child
 	for _, keyID := range allIDs {
 		// Initialize response
-		keyResponse := models.KeyTokenGetResponse{}
+		keyResponse := models.KeyGetResponse{}
 
 		// Get the key to delete
 		dbConnector.GetKey(keyID, &keyResponse)
@@ -255,7 +255,7 @@ func CreateDatabaseConnector(env *config.Environment) dbconnector.DatabaseConnec
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
 func ActionsAllowed(actions []string, validateObject interface{}, databaseConnector dbconnector.DatabaseConnector, objectOwnerUUID interface{}) (bool, error) {
 	// Get the user by the given principal
-	keyObject := validateObject.(models.KeyTokenGetResponse)
+	keyObject := validateObject.(models.KeyGetResponse)
 
 	// Check whether the given owner of the object is in the children, if the ownerID is given
 	correctChild := false
@@ -364,10 +364,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	// Applies when the "X-API-KEY" header is set
 	api.APIKeyAuth = func(token string) (interface{}, error) {
 		// Create key
-		validatedKey := models.KeyTokenGetResponse{}
+		validatedKey := models.KeyGetResponse{}
 
 		// Check if the user has access, true if yes
-		err := dbConnector.ValidateToken(strfmt.UUID(token), &validatedKey)
+		err := dbConnector.ValidateToken(connutils.TokenHasher(strfmt.UUID(token)), &validatedKey)
 
 		// Error printing
 		if err != nil {
@@ -509,7 +509,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		url := serverConfig.GetHostAddress()
 		keyRef := &models.SingleRef{
 			LocationURL:  &url,
-			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
+			NrDollarCref: principal.(models.KeyGetResponse).KeyID,
 			Type:         connutils.RefTypeKey,
 		}
 
@@ -569,7 +569,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
 		// Create current User object from principal
-		key := principal.(models.KeyTokenGetResponse)
+		key := principal.(models.KeyGetResponse)
 
 		// Fill the new User object
 		url := serverConfig.GetHostAddress()
@@ -578,7 +578,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		newKey.Token = connutils.GenerateUUID()
 		newKey.Parent = &models.SingleRef{
 			LocationURL:  &url,
-			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
+			NrDollarCref: principal.(models.KeyGetResponse).KeyID,
 			Type:         connutils.RefTypeKey,
 		}
 		newKey.KeyCreate = *params.Body
@@ -595,7 +595,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := dbConnector.AddKey(&newKey.Key, newKey.KeyID, newKey.Token)
+		insertErr := dbConnector.AddKey(&newKey.Key, newKey.KeyID, connutils.TokenHasher(newKey.Token))
 		if insertErr != nil {
 			messaging.ErrorMessage(insertErr)
 		}
@@ -605,7 +605,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
 		// Initialize response
-		keyResponse := models.KeyTokenGetResponse{}
+		keyResponse := models.KeyGetResponse{}
 
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
 		errGet := dbConnector.GetKey(params.KeyID, &keyResponse)
@@ -616,7 +616,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Check on permissions
-		keyObject, _ := principal.(models.KeyTokenGetResponse)
+		keyObject, _ := principal.(models.KeyGetResponse)
 		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysChildrenGetForbidden()
 		}
@@ -634,7 +634,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
 		// Initialize response
-		keyResponse := models.KeyTokenGetResponse{}
+		keyResponse := models.KeyGetResponse{}
 
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
 		errGet := dbConnector.GetKey(params.KeyID, &keyResponse)
@@ -645,7 +645,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Check on permissions, only delete allowed if lower in tree (not own key)
-		keyObject, _ := principal.(models.KeyTokenGetResponse)
+		keyObject, _ := principal.(models.KeyGetResponse)
 		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) || keyObject.KeyID == params.KeyID {
 			return keys.NewWeaviateKeysDeleteForbidden()
 		}
@@ -658,7 +658,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
 		// Initialize response
-		keyResponse := models.KeyTokenGetResponse{}
+		keyResponse := models.KeyGetResponse{}
 
 		// Get item from database
 		err := dbConnector.GetKey(params.KeyID, &keyResponse)
@@ -669,17 +669,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Check on permissions
-		keyObject, _ := principal.(models.KeyTokenGetResponse)
+		keyObject, _ := principal.(models.KeyGetResponse)
 		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysGetForbidden()
 		}
 
 		// Get is successful
-		return keys.NewWeaviateKeysGetOK().WithPayload(&keyResponse.KeyGetResponse)
+		return keys.NewWeaviateKeysGetOK().WithPayload(&keyResponse)
 	})
 	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		currentKey := principal.(models.KeyTokenGetResponse)
+		currentKey := principal.(models.KeyGetResponse)
 
 		// Get the children
 		childIDs := []strfmt.UUID{}
@@ -694,10 +694,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
 		// Initialize response object
-		tokenResponseObject := models.KeyTokenGetResponse{}
+		responseObject := models.KeyGetResponse{}
 
 		// Get item from database
-		err := dbConnector.GetKey(principal.(models.KeyTokenGetResponse).KeyID, &tokenResponseObject)
+		err := dbConnector.GetKey(principal.(models.KeyGetResponse).KeyID, &responseObject)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -705,7 +705,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get is successful
-		return keys.NewWeaviateKeysMeGetOK().WithPayload(&tokenResponseObject)
+		return keys.NewWeaviateKeysMeGetOK().WithPayload(&responseObject)
 	})
 	api.KeysWeaviateKeysRenewTokenHandler = keys.WeaviateKeysRenewTokenHandlerFunc(func(params keys.WeaviateKeysRenewTokenParams, principal interface{}) middleware.Responder {
 		return keys.NewWeaviateKeysRenewTokenNotImplemented()
@@ -733,7 +733,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		url := serverConfig.GetHostAddress()
 		keyRef := &models.SingleRef{
 			LocationURL:  &url,
-			NrDollarCref: principal.(models.KeyTokenGetResponse).KeyID,
+			NrDollarCref: principal.(models.KeyGetResponse).KeyID,
 			Type:         connutils.RefTypeKey,
 		}
 
@@ -839,7 +839,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		page := getPage(params.Page)
 
 		// Get user out of principal
-		keyID := principal.(models.KeyTokenGetResponse).KeyID
+		keyID := principal.(models.KeyGetResponse).KeyID
 
 		// Initialize response
 		thingsResponse := models.ThingsListResponse{}
@@ -990,10 +990,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		page := getPage(params.Page)
 
 		// Get key-object
-		keyToken := principal.(models.KeyTokenGetResponse)
+		keyObject := principal.(models.KeyGetResponse)
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, keyToken.KeyID); !allowed {
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, keyObject.KeyID); !allowed {
 			return things.NewWeaviateThingsActionsListForbidden()
 		}
 
@@ -1041,7 +1041,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get the results by doing a request with the given parameters and the initialized schema.
-		graphQLSchema.SetKey(principal.(models.KeyTokenGetResponse))
+		graphQLSchema.SetKey(principal.(models.KeyGetResponse))
 		gqlSchema, _ := graphQLSchema.GetGraphQLSchema()
 
 		// Do the request

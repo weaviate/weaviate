@@ -302,7 +302,7 @@ func (f *Foobar) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 // AddKey adds a key to the Foobar database with the given UUID and token.
 // UUID  = reference to the key
 // token = is the actual access token used in the API's header
-func (f *Foobar) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error {
+func (f *Foobar) AddKey(key *models.Key, UUID strfmt.UUID, token string) error {
 
 	// Key struct should be stored
 
@@ -311,9 +311,9 @@ func (f *Foobar) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) er
 }
 
 // ValidateToken validates/gets a key to the Foobar database with the given token (=UUID)
-func (f *Foobar) ValidateToken(token strfmt.UUID, key *models.KeyTokenGetResponse) error {
+func (f *Foobar) ValidateToken(token string, key *models.KeyGetResponse) error {
 
-	// key (= models.KeyTokenGetResponse) should be populated with the response that comes from the DB.
+	// key (= models.KeyGetResponse) should be populated with the response that comes from the DB.
 
 	// in case the key is not found, return an error like:
 	// return errors_.New("Key not found in database.")
@@ -322,8 +322,8 @@ func (f *Foobar) ValidateToken(token strfmt.UUID, key *models.KeyTokenGetRespons
 	return nil
 }
 
-// GetKey fills the given KeyTokenGetResponse with the values from the database, based on the given UUID.
-func (f *Foobar) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
+// GetKey fills the given KeyGetResponse with the values from the database, based on the given UUID.
+func (f *Foobar) GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
 
 	f.trace()
 	return nil
@@ -335,11 +335,11 @@ func (f *Foobar) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
 	return nil
 }
 
-// GetKeyChildren fills the given KeyTokenGetResponse array with the values from the database, based on the given UUID.
-func (f *Foobar) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error {
+// GetKeyChildren fills the given KeyGetResponse array with the values from the database, based on the given UUID.
+func (f *Foobar) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
 
 	// for examle: `children = [OBJECT-A, OBJECT-B, OBJECT-C]`
-	// Where an OBJECT = models.KeyTokenGetResponse
+	// Where an OBJECT = models.KeyGetResponse
 
 	return nil
 }

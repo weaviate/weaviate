@@ -217,42 +217,23 @@ func (f *KVCache) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 }
 
 // AddKey function
-func (f *KVCache) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error {
+func (f *KVCache) AddKey(key *models.Key, UUID strfmt.UUID, token string) error {
 	defer f.messaging.TimeTrack(time.Now())
 
 	return f.databaseConnector.AddKey(key, UUID, token)
 }
 
 // ValidateToken function
-func (f *KVCache) ValidateToken(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
+func (f *KVCache) ValidateToken(token string, keyResponse *models.KeyGetResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	// Create a cache key
-	ck := fmt.Sprintf("KeyToken#%s", UUID)
-
-	// Get the item from the cache
-	v, found := f.cache.Get(ck)
-
-	// If it is found in the cache, set the response pointer to the same key as in the cache is pointed to
-	if found {
-		*keyResponse = *v.(*models.KeyTokenGetResponse)
-
-		return nil
-	}
-
-	// If not found, get it from the DB
-	err := f.databaseConnector.ValidateToken(UUID, keyResponse)
-
-	// If no error is given, set the pointer in the cache on the created key
-	if err == nil {
-		f.cache.Set(ck, keyResponse, 0)
-	}
+	err := f.databaseConnector.ValidateToken(token, keyResponse)
 
 	return err
 }
 
 // GetKey function
-func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
+func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Create a cache key
@@ -263,7 +244,7 @@ func (f *KVCache) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetRespon
 
 	// If it is found in the cache, set the response pointer to the same key as in the cache is pointed to
 	if found {
-		*keyResponse = *v.(*models.KeyTokenGetResponse)
+		*keyResponse = *v.(*models.KeyGetResponse)
 
 		return nil
 	}
@@ -288,17 +269,14 @@ func (f *KVCache) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
 	f.cache.Delete(ck)
 
 	// Also remove the 'token'-cache, by loading the key first
-	keyResponse := &models.KeyTokenGetResponse{}
+	keyResponse := &models.KeyGetResponse{}
 	f.GetKey(UUID, keyResponse)
-
-	ctk := fmt.Sprintf("KeyToken#%s", keyResponse.Token)
-	f.cache.Delete(ctk)
 
 	return f.databaseConnector.DeleteKey(key, UUID)
 }
 
 // GetKeyChildren function
-func (f *KVCache) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error {
+func (f *KVCache) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
 
 	return f.databaseConnector.GetKeyChildren(UUID, children)

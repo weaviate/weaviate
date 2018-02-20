@@ -16,17 +16,17 @@ package connutils
 import (
 	"errors"
 	"fmt"
+	"log"
+	"net"
 	"regexp"
 	"runtime"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/go-openapi/strfmt"
-
-	"log"
-	"net"
-
 	gouuid "github.com/satori/go.uuid"
+	// "golang.org/x/crypto/bcrypt"
+
+	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // NewDatabaseObjectFromPrincipal creates a new object with default values, out of principle object
@@ -41,7 +41,7 @@ import (
 // }
 
 // CreateRootKeyObject creates a new user with new API key when none exists when starting server
-func CreateRootKeyObject(key *models.Key) strfmt.UUID {
+func CreateRootKeyObject(key *models.Key) string {
 	// Create key token
 	token := GenerateUUID()
 
@@ -85,7 +85,13 @@ func CreateRootKeyObject(key *models.Key) strfmt.UUID {
 	log.Println("INFO: Auto set allowed IPs to: ", key.IPOrigin)
 	log.Println("ROOTKEY=" + token)
 
-	return token
+	return TokenHasher(token)
+}
+
+// TokenHasher is the function used to hash the UUID token
+func TokenHasher(UUID strfmt.UUID) string {
+	// TODO: implement hasher
+	return string(UUID)
 }
 
 // Trace is used to display the running function in a connector

@@ -109,7 +109,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 					return fmt.Errorf("error finding the 'cref' to an Action in the database: %s", are)
 				}
 			} else if refType == connutils.RefTypeKey {
-				kr := &models.KeyTokenGetResponse{}
+				kr := &models.KeyGetResponse{}
 				kre := dbConnector.GetKey(crefu, kr)
 				if kre != nil {
 					return fmt.Errorf("error finding the 'cref' to a Key in the database: %s", kre)
