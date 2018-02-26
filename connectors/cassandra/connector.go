@@ -145,45 +145,37 @@ const selectThingStatement = `
 	SELECT *
 	FROM ` + tableThings + ` 
 	WHERE ` + colThingUUID + ` = ?
-	AND ` + colNodeDeleted + ` = ?
 `
 
 // listThingsSelectStatement is used to get a list of things form the database, based on owner and ordered by creationtime
-// TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listThingsSelectStatement = `
 	SELECT *
 	FROM %s  
 	WHERE ` + colNodeOwner + ` = ?
-	%s 
-	AND ` + colNodeDeleted + ` = false
+	%s
 	ORDER BY ` + colNodeCreationTime + ` DESC
 	LIMIT ?
-	ALLOW FILTERING
 `
 
 // listThingsCountStatement is used to count the total amount of things for a certain owner
-// TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listThingsCountStatement = `
 	SELECT COUNT(` + colThingUUID + `) AS thingsCount 
 	FROM %s  
 	WHERE ` + colNodeOwner + ` = ?
 	%s
-	AND ` + colNodeDeleted + ` = false
-	ALLOW FILTERING
 `
 
 // insertThingStatement is used to insert a single thing into the database
 const insertThingStatement = `
 	INSERT INTO ` + tableThings + ` (
 		` + colThingUUID + `,
-		` + colNodeOwner + `, 
-		` + colNodeDeleted + `, 
+		` + colNodeOwner + `,
 		` + colNodeCreationTime + `,
 		` + colNodeLastUpdateTime + `, 
 		` + colNodeClass + `, 
 		` + colNodeContext + `,
 		` + colNodeProperties + `) 
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 // insertThingHistoryStatement is used to insert a single thing's properties into the history-database
@@ -192,18 +184,17 @@ const insertThingHistoryStatement = `
 		` + colThingUUID + `, 
 		` + colNodeOwner + `, 
 		` + colNodeCreationTime + `, 
+		` + colNodeDeleted + `, 
 		` + colNodeProperties + ` ) 
-	VALUES (?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?)
 `
 
-// deleteThingStatement is used to delete a single thing from the database by updating the 'deleted' column to true
+// deleteThingStatement is used to delete a single thing from the database
 const deleteThingStatement = `
-	UPDATE ` + tableThings + ` SET 
-	` + colNodeDeleted + ` = true
+	DELETE FROM ` + tableThings + `
 	WHERE ` + colThingUUID + ` = ? 
 	AND ` + colNodeOwner + ` = ? 
 	AND ` + colNodeCreationTime + ` = ? 
-	IF EXISTS;
 `
 
 // Action statements
@@ -212,39 +203,31 @@ const selectActionStatement = `
 	SELECT *
 	FROM ` + tableActions + ` 
 	WHERE ` + colActionUUID + ` = ?
-	AND ` + colNodeDeleted + ` = ?
 `
 
 // listActionsSelectStatement is used to get a list of actions form the database, based on object-thing-id and ordered by creationtime
-// TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listActionsSelectStatement = `
 	SELECT *
 	FROM %s 
 	WHERE ` + colActionObjectUUID + ` = ?
-	%s 
-	AND ` + colNodeDeleted + ` = false
+	%s
 	ORDER BY ` + colNodeCreationTime + ` DESC 
 	LIMIT ?
-	ALLOW FILTERING
 `
 
 // listActionsCountStatement is used to count the total amount of actions for a certain object-thing-id
-// TODO: Fix in such way that ALLOW FILTERING is not needed anymore (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 const listActionsCountStatement = `
 	SELECT COUNT(` + colActionUUID + `) AS actionsCount 
 	FROM %s 
 	WHERE ` + colActionObjectUUID + ` = ?
 	%s 
-	AND ` + colNodeDeleted + ` = false
-	ALLOW FILTERING
 `
 
 // insertActionStatement is used to insert a single action into the database
 const insertActionStatement = `
 	INSERT INTO ` + tableActions + ` (
 		` + colActionUUID + `,
-		` + colNodeOwner + `, 
-		` + colNodeDeleted + `, 
+		` + colNodeOwner + `,
 		` + colNodeCreationTime + `,
 		` + colNodeLastUpdateTime + `, 
 		` + colNodeClass + `, 
@@ -254,7 +237,7 @@ const insertActionStatement = `
 		` + colActionSubjectLocation + `,
 		` + colActionObjectUUID + `,
 		` + colActionObjectLocation + `) 
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 // insertActionHistoryStatement is used to insert a single action's properties into the history-database
@@ -263,19 +246,18 @@ const insertActionHistoryStatement = `
 		` + colActionUUID + `, 
 		` + colNodeOwner + `, 
 		` + colNodeCreationTime + `, 
+		` + colNodeDeleted + `, 
 		` + colNodeProperties + ` ) 
-	VALUES (?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?)
 `
 
-// deleteActionStatement is used to delete a single action from the database by updating the 'deleted' column to true
+// deleteActionStatement is used to delete a single action from the database
 const deleteActionStatement = `
-	UPDATE ` + tableActions + ` SET 
-	` + colNodeDeleted + ` = true
+	DELETE FROM ` + tableActions + `
 	WHERE ` + colActionUUID + ` = ? 
 	AND ` + colNodeOwner + ` = ? 
 	AND ` + colNodeCreationTime + ` = ? 
-	AND ` + colActionObjectUUID + ` = ? 
-	IF EXISTS;
+	AND ` + colActionObjectUUID + ` = ?;
 `
 
 // Cassandra has some basic variables.
@@ -436,18 +418,6 @@ func (f *Cassandra) Init() error {
 		return err
 	}
 
-	// // Create a materialized view for querying on access-token
-	// err = f.client.Query(`
-	// 	CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableKeysToken + `
-	// 	AS SELECT *
-	// 	FROM ` + tableKeys + `
-	// 	WHERE ` + colKeyToken + ` IS NOT NULL AND ` + colKeyUUID + ` IS NOT NULL AND ` + colKeyRoot + ` IS NOT NULL
-	// 	PRIMARY KEY ((` + colKeyToken + `), ` + colKeyUUID + `, ` + colKeyRoot + `);`).Exec()
-
-	// if err != nil {
-	// 	return err
-	// }
-
 	// Create a materialized view for querying for children of a certain node
 	err = f.client.Query(`
 		CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableKeysParent + `
@@ -467,7 +437,6 @@ func (f *Cassandra) Init() error {
 		CREATE TABLE IF NOT EXISTS ` + tableThings + ` (
 			` + colNodeOwner + ` uuid,
 			` + colThingUUID + ` uuid,
-			` + colNodeDeleted + ` boolean,
 			` + colNodeCreationTime + ` timestamp,
 			` + colNodeLastUpdateTime + ` timestamp,
 			` + colNodeClass + ` text,
@@ -476,13 +445,6 @@ func (f *Cassandra) Init() error {
 			PRIMARY KEY ((` + colThingUUID + `), ` + colNodeOwner + `, ` + colNodeCreationTime + `)
 		) WITH CLUSTERING ORDER BY (` + colNodeOwner + ` ASC);
 	`).Exec()
-
-	if err != nil {
-		return err
-	}
-
-	// Add index on deleted column to enable filtering on deleted
-	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_deleted ON ` + tableThings + ` (` + colNodeDeleted + `);`).Exec()
 
 	if err != nil {
 		return err
@@ -501,6 +463,7 @@ func (f *Cassandra) Init() error {
 			` + colThingUUID + ` uuid,
 			` + colNodeOwner + ` uuid,
 			` + colNodeCreationTime + ` timestamp,
+			` + colNodeDeleted + ` boolean,
 			` + colNodeProperties + ` map<text, text>,
 			PRIMARY KEY ((` + colThingUUID + `), ` + colNodeCreationTime + `)
 		) WITH CLUSTERING ORDER BY (` + colNodeCreationTime + ` DESC);
@@ -511,7 +474,6 @@ func (f *Cassandra) Init() error {
 	}
 
 	// Create a view for list queries based on onwer-UUID and ordered by creation time
-	// TODO: Do something with 'deleted' column (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 	err = f.client.Query(`
 		CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableThingsList + `
 		AS SELECT *
@@ -566,7 +528,6 @@ func (f *Cassandra) Init() error {
 		CREATE TABLE IF NOT EXISTS ` + tableActions + ` (
 			` + colNodeOwner + ` uuid,
 			` + colActionUUID + ` uuid,
-			` + colNodeDeleted + ` boolean,
 			` + colNodeCreationTime + ` timestamp,
 			` + colNodeLastUpdateTime + ` timestamp,
 			` + colNodeClass + ` text,
@@ -579,13 +540,6 @@ func (f *Cassandra) Init() error {
 			PRIMARY KEY ((` + colActionUUID + `), ` + colActionObjectUUID + `, ` + colNodeOwner + `, ` + colNodeCreationTime + `)
 		) WITH CLUSTERING ORDER BY (` + colActionObjectUUID + ` ASC);
 	`).Exec()
-
-	if err != nil {
-		return err
-	}
-
-	// Add index on deleted column to enable filtering on deleted
-	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_deleted_actions ON ` + tableActions + ` (` + colNodeDeleted + `);`).Exec()
 
 	if err != nil {
 		return err
@@ -604,6 +558,7 @@ func (f *Cassandra) Init() error {
 			` + colActionUUID + ` uuid,
 			` + colNodeOwner + ` uuid,
 			` + colNodeCreationTime + ` timestamp,
+			` + colNodeDeleted + ` boolean,
 			` + colNodeProperties + ` map<text, text>,
 			PRIMARY KEY ((` + colActionUUID + `), ` + colNodeCreationTime + `)
 		) WITH CLUSTERING ORDER BY (` + colNodeCreationTime + ` DESC);
@@ -698,7 +653,7 @@ func (f *Cassandra) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("AddThing: %s", UUID))
 
 	// Run the query to add the thing based on its UUID.
-	err := f.addThingRow(thing, UUID, false)
+	err := f.addThingRow(thing, UUID)
 
 	// Also log the error message
 	if err != nil {
@@ -715,7 +670,7 @@ func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRes
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetThing: %s", UUID))
 
 	// Do the query to get the thing from the database and get the iterator
-	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID), false).Iter()
+	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
 
 	// Initialize the 'found' variable
 	found := false
@@ -839,8 +794,11 @@ func (f *Cassandra) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("UpdateThing: %s", UUID))
 
+	// Get the current thing from the database
+	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
+
 	// Move the current properties to the history
-	err := f.moveThingToHistory(UUID)
+	err := f.moveThingsToHistory(iter, false)
 
 	// If there is an error, add an error message and return
 	if err != nil {
@@ -850,7 +808,7 @@ func (f *Cassandra) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 
 	// Run the query to update the thing based on its UUID.
 	// TODO: Just update properties, no other like owner ID etc.?? (https://github.com/creativesoftwarefdn/weaviate/issues/310)
-	err = f.addThingRow(thing, UUID, false)
+	err = f.addThingRow(thing, UUID)
 
 	// If there is an error, add an error message
 	if err != nil {
@@ -867,31 +825,15 @@ func (f *Cassandra) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("DeleteThing: %s", UUID))
 
 	// Run the query to delete the thing based on its UUID.
-	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID), false).Iter()
+	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
 
-	// Put everyting in a for loop, allthough there is only one result in this case
-	for {
-		// Init the map for each row
-		m := map[string]interface{}{}
+	// Move the current properties to the history
+	err := f.moveThingsToHistory(iter, true)
 
-		// Fill the map with the current row in the iterator
-		if !iter.MapScan(m) {
-			break
-		}
-
-		// Update the 'deleted' row in the database
-		err := f.client.Query(
-			deleteThingStatement,
-			m[colThingUUID],
-			m[colNodeOwner],
-			m[colNodeCreationTime],
-		).Exec()
-
-		// If there is an error, add an error message and return
-		if err != nil {
-			f.messaging.ErrorMessage(err)
-			return err
-		}
+	// If there is an error, add an error message
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+		return err
 	}
 
 	// If success return nil, otherwise return the error
@@ -906,7 +848,7 @@ func (f *Cassandra) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("AddAction: %s", UUID))
 
 	// Run the query to add the thing based on its UUID.
-	err := f.addActionRow(action, UUID, false)
+	err := f.addActionRow(action, UUID)
 
 	// Also log the error message
 	if err != nil {
@@ -923,7 +865,7 @@ func (f *Cassandra) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGet
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetAction: %s", UUID))
 
 	// Do the query to get the action from the database and get the iterator
-	iter := f.client.Query(selectActionStatement, f.convUUIDtoCQLUUID(UUID), false).Iter()
+	iter := f.client.Query(selectActionStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
 
 	// Initialize the 'found' variable
 	found := false
@@ -1026,8 +968,11 @@ func (f *Cassandra) UpdateAction(action *models.Action, UUID strfmt.UUID) error 
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("UpdateAction: %s", UUID))
 
+	// Get the current action from the database
+	iter := f.client.Query(selectActionStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
+
 	// Move the current properties to the history
-	err := f.moveActionToHistory(UUID)
+	err := f.moveActionsToHistory(iter, false)
 
 	// If there is an error, add an error message and return
 	if err != nil {
@@ -1037,7 +982,7 @@ func (f *Cassandra) UpdateAction(action *models.Action, UUID strfmt.UUID) error 
 
 	// Run the query to update the action based on its UUID.
 	// TODO: Just update properties, no other like owner ID etc.?? (https://github.com/creativesoftwarefdn/weaviate/issues/310)
-	err = f.addActionRow(action, UUID, false)
+	err = f.addActionRow(action, UUID)
 
 	// If there is an error, add an error message
 	if err != nil {
@@ -1054,33 +999,15 @@ func (f *Cassandra) DeleteAction(action *models.Action, UUID strfmt.UUID) error 
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("DeleteAction: %s", UUID))
 
 	// Run the query to delete the action based on its UUID.
-	// TODO: Just do delete, don't query old ((https://github.com/creativesoftwarefdn/weaviate/issues/307)
-	iter := f.client.Query(selectActionStatement, f.convUUIDtoCQLUUID(UUID), false).Iter()
+	iter := f.client.Query(selectActionStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
 
-	// Put everyting in a for loop, allthough there is only one result in this case
-	for {
-		// Init the map for each row
-		m := map[string]interface{}{}
+	// Move the current properties to the history
+	err := f.moveActionsToHistory(iter, true)
 
-		// Fill the map with the current row in the iterator
-		if !iter.MapScan(m) {
-			break
-		}
-
-		// Update the 'deleted' row in the database
-		err := f.client.Query(
-			deleteActionStatement,
-			m[colActionUUID],
-			m[colNodeOwner],
-			m[colNodeCreationTime],
-			m[colActionObjectUUID],
-		).Exec()
-
-		// If there is an error, add an error message and return
-		if err != nil {
-			f.messaging.ErrorMessage(err)
-			return err
-		}
+	// If there is an error, add an error message
+	if err != nil {
+		f.messaging.ErrorMessage(err)
+		return err
 	}
 
 	// If success return nil, otherwise return the error
@@ -1556,7 +1483,7 @@ func (f *Cassandra) parseWhereFilters(wheres []*connutils.WhereQuery, useWhere b
 }
 
 // addThingRow adds a single thing row into the database for the given thing based on the given UUID
-func (f *Cassandra) addThingRow(thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
+func (f *Cassandra) addThingRow(thing *models.Thing, UUID strfmt.UUID) error {
 	// Parse UUID in Cassandra type
 	cqlUUID := f.convUUIDtoCQLUUID(UUID)
 
@@ -1585,7 +1512,6 @@ func (f *Cassandra) addThingRow(thing *models.Thing, UUID strfmt.UUID, deleted b
 		insertThingStatement,
 		cqlUUID,
 		f.convUUIDtoCQLUUID(thing.Key.NrDollarCref),
-		deleted,
 		thing.CreationTimeUnix,
 		lut,
 		thing.AtClass,
@@ -1597,12 +1523,9 @@ func (f *Cassandra) addThingRow(thing *models.Thing, UUID strfmt.UUID, deleted b
 	return query.Exec()
 }
 
-// moveThingToHistory moves the thing-properties to the history table based on a given UUID
+// moveThingsToHistory moves the thing-properties to the history table based on a given UUID
 // Note that the thing related to the UUID is not updated yet.
-func (f *Cassandra) moveThingToHistory(UUID strfmt.UUID) error {
-	// Get the current thing from the database
-	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID), false).Iter()
-
+func (f *Cassandra) moveThingsToHistory(iter *gocql.Iter, deleted bool) error {
 	// Put everyting in a for loop
 	for {
 		// Init the map for each row
@@ -1619,11 +1542,29 @@ func (f *Cassandra) moveThingToHistory(UUID strfmt.UUID) error {
 			m[colThingUUID],
 			m[colNodeOwner],
 			time.Now(),
+			deleted,
 			m[colNodeProperties],
 		).Exec()
 
 		if err != nil {
 			return err
+		}
+
+		// If deleted, delete from the things table
+		if deleted {
+			// Update the 'deleted' row in the database
+			err := f.client.Query(
+				deleteThingStatement,
+				m[colThingUUID],
+				m[colNodeOwner],
+				m[colNodeCreationTime],
+			).Exec()
+
+			// If there is an error, add an error message and return
+			if err != nil {
+				f.messaging.ErrorMessage(err)
+				return err
+			}
 		}
 	}
 
@@ -1632,7 +1573,7 @@ func (f *Cassandra) moveThingToHistory(UUID strfmt.UUID) error {
 }
 
 // addActionRow adds a single action row into the database for the given action based on the given UUID
-func (f *Cassandra) addActionRow(action *models.Action, UUID strfmt.UUID, deleted bool) error {
+func (f *Cassandra) addActionRow(action *models.Action, UUID strfmt.UUID) error {
 	// Parse UUID in Cassandra type
 	cqlUUID := f.convUUIDtoCQLUUID(UUID)
 
@@ -1661,7 +1602,6 @@ func (f *Cassandra) addActionRow(action *models.Action, UUID strfmt.UUID, delete
 		insertActionStatement,
 		cqlUUID,
 		f.convUUIDtoCQLUUID(action.Key.NrDollarCref),
-		deleted,
 		action.CreationTimeUnix,
 		lut,
 		action.AtClass,
@@ -1679,10 +1619,7 @@ func (f *Cassandra) addActionRow(action *models.Action, UUID strfmt.UUID, delete
 
 // moveActionToHistory moves the action-properties to the history table based on a given UUID
 // Note that the action related to the UUID is not updated yet.
-func (f *Cassandra) moveActionToHistory(UUID strfmt.UUID) error {
-	// Get the current action from the database
-	iter := f.client.Query(selectActionStatement, f.convUUIDtoCQLUUID(UUID), false).Iter()
-
+func (f *Cassandra) moveActionsToHistory(iter *gocql.Iter, deleted bool) error {
 	// Put everyting in a for loop
 	for {
 		// Init the map for each row
@@ -1699,11 +1636,30 @@ func (f *Cassandra) moveActionToHistory(UUID strfmt.UUID) error {
 			m[colActionUUID],
 			m[colNodeOwner],
 			time.Now(),
+			deleted,
 			m[colNodeProperties],
 		).Exec()
 
 		if err != nil {
 			return err
+		}
+
+		// If deleted, delete from the actions table
+		if deleted {
+			// Update the 'deleted' row in the database
+			err := f.client.Query(
+				deleteActionStatement,
+				m[colActionUUID],
+				m[colNodeOwner],
+				m[colNodeCreationTime],
+				m[colActionObjectUUID],
+			).Exec()
+
+			// If there is an error, add an error message and return
+			if err != nil {
+				f.messaging.ErrorMessage(err)
+				return err
+			}
 		}
 	}
 
