@@ -569,7 +569,6 @@ func (f *Cassandra) Init() error {
 	}
 
 	// Create a view for list queries based on object-thing-UUID and ordered by creation time
-	// TODO: Do something with 'deleted' column (https://github.com/creativesoftwarefdn/weaviate/issues/307)
 	err = f.client.Query(`
 		CREATE MATERIALIZED VIEW IF NOT EXISTS ` + tableActionsList + `
 		AS SELECT *
