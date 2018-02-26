@@ -337,6 +337,11 @@ func headerAPIKeyHandling(keyToken string) (*models.KeyGetResponse, error) {
 	kth := keyTokenHeader{}
 	json.Unmarshal([]byte(keyToken), &kth)
 
+	// Validate both headers
+	if kth.Key == "" || kth.Token == "" {
+		return nil, errors.New(401, "Please provide both X-API-KEY and X-API-TOKEN headers.")
+	}
+
 	// Create key
 	validatedKey := models.KeyGetResponse{}
 
