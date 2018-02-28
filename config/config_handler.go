@@ -43,13 +43,14 @@ type File struct {
 
 // Environment outline of the environment inside the config file
 type Environment struct {
-	Name        string   `json:"name"`
-	Database    Database `json:"database"`
-	Schemas     Schemas  `json:"schemas"`
-	MQTTEnabled bool     `json:"mqttEnabled"`
-	Cache       Cache    `json:"cache"`
-	Limit       int64    `json:"limit"`
-	Debug       bool     `json:"debug"`
+	Name        string      `json:"name"`
+	Database    Database    `json:"database"`
+	Schemas     Schemas     `json:"schemas"`
+	MQTTEnabled bool        `json:"mqttEnabled"`
+	Cache       Cache       `json:"cache"`
+	Limit       int64       `json:"limit"`
+	Debug       bool        `json:"debug"`
+	Development Development `json:"development"`
 }
 
 // Database is the outline of the database
@@ -67,6 +68,19 @@ type Schemas struct {
 // Cache is the outline of the cache-system
 type Cache struct {
 	Name string `json:"name"`
+}
+
+// Development is the outline of (temporary) config variables
+// Note: the purpose is that these variables will be moved somewhere else in time
+type Development struct {
+	ExternalInstances []Instance `json:"external_instances"`
+}
+
+// Instance is the outline for an external instance whereto crossreferences can be resolved
+type Instance struct {
+	URL      string `json:"url"`
+	APIKey   string `json:"api_key"`
+	APIToken string `json:"api_token"`
 }
 
 // GetConfigOptionGroup creates a option group for swagger
@@ -150,4 +164,22 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 	}
 
 	return nil
+}
+
+// GetInstance from config
+func (f *WeaviateConfig) GetInstance(hostname string) (instance Instance, err error) {
+	err = nil
+
+	// For each instance, check if hostname is the same
+	for _, v := range f.Environment.Development.ExternalInstances {
+		if hostname == v.URL {
+			instance = v
+			return
+		}
+	}
+
+	// Didn't find item in list
+	err = errors.New("can't find key for given instance")
+
+	return
 }
