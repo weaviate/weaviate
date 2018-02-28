@@ -14,10 +14,13 @@
 package connutils
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
 	"regexp"
 	"runtime"
 	"time"
@@ -26,6 +29,7 @@ import (
 	gouuid "github.com/satori/go.uuid"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
@@ -188,4 +192,51 @@ func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
 	}
 
 	return whereQuery, nil
+}
+
+// DoExternalRequest does a request to an external Weaviate Instance based on given parameters
+func DoExternalRequest(instance config.Instance, endpoint string, uuid strfmt.UUID) (response *http.Response, err error) {
+	// Create the transport and HTTP client
+	client := &http.Client{Transport: &http.Transport{
+		MaxIdleConns:       10,
+		IdleConnTimeout:    30 * time.Second,
+		DisableCompression: true,
+	}}
+
+	// Create the request with basic headers
+	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/weaviate/v1/%s/%s", instance.URL, endpoint, uuid), nil)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-API-KEY", instance.APIKey)
+	req.Header.Set("X-API-TOKEN", instance.APIToken)
+
+	// Do the request
+	response, err = client.Do(req)
+
+	// Check the status-code to determine existance
+	if response.StatusCode != 200 {
+		err = fmt.Errorf("status code is not 200, but %d with status '%s'", response.StatusCode, response.Status)
+	}
+
+	return
+}
+
+// ResolveExternalCrossRef resolves an object on an external instance using the given parameters and the Weaviate REST-API of the external instance
+func ResolveExternalCrossRef(instance config.Instance, endpoint string, uuid strfmt.UUID, responseObject interface{}) (err error) {
+	// Do the request
+	response, err := DoExternalRequest(instance, endpoint, uuid)
+
+	// Return error
+	if err != nil {
+		return
+	}
+
+	// Close the body on the end of the function
+	defer response.Body.Close()
+
+	// Read the body and fill the object with the data from the response
+	body, _ := ioutil.ReadAll(response.Body)
+	json.Unmarshal(body, responseObject)
+
+	return
 }

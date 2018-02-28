@@ -1066,7 +1066,7 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.
 							}
 							return nil, nil
 						} else if *dt == schema.DataTypeCRef {
-							// TODO: Cref is not always of type 'thing'
+							// TODO: Cref is not always of type 'thing', related to the scalar set for all CREF's, this == Thing
 							// Data type is not a value, but an cref object
 							thingResponse := &models.ThingGetResponse{}
 
@@ -1119,32 +1119,48 @@ func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.Single
 
 	var err error
 
-	// TODO enable
-	// if f.serverConfig.GetHostAddress() != *cref.LocationURL {
-	// 	// Return an error because you want to connect to other server. You need an license.
-	// 	err = errors.New("a license for connection to another Weaviate-instance is required in order to resolve this query further")
-	// } else {
-	// Check whether the request has to be done for key, thing or action types
-	if cref.Type == "Thing" {
-		// // DATALOADER TEST
-		// var result interface{}
-		// // StringKey is a convenience method that make wraps string to implement `Key` interface
-		// thunk := f.thingsDataLoader.Load(f.context, dataloader.StringKey(string(cref.NrDollarCref)))
-		// result, err = thunk()
+	// Check whether the instance URL is the same as the cross-reference URL
+	if f.serverConfig.GetHostAddress() != *cref.LocationURL {
+		// Search for key-information for resolving this part
+		instance, err := f.serverConfig.GetInstance(*cref.LocationURL)
 
-		// objectLoaded.(*models.ThingGetResponse).Thing = result.(*models.ThingGetResponse).Thing
-		// objectLoaded.(*models.ThingGetResponse).ThingID = result.(*models.ThingGetResponse).ThingID
-		// // END DATALOADER TEST
+		// Return an error because you want to connect to other server which is not set in the config.
+		if err != nil {
+			err = fmt.Errorf("a key for connection to another Weaviate-instance (with address '%s') is required in order to resolve this query further", *cref.LocationURL)
+		}
 
-		err = f.dbConnector.GetThing(cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
-	} else if cref.Type == "Action" {
-		err = f.dbConnector.GetAction(cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
-	} else if cref.Type == "Key" {
-		err = f.dbConnector.GetKey(cref.NrDollarCref, objectLoaded.(*models.KeyGetResponse))
+		// Get the thing from an external connection.
+		if cref.Type == "Thing" {
+			err = connutils.ResolveExternalCrossRef(instance, "things", cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
+		} else if cref.Type == "Action" {
+			err = connutils.ResolveExternalCrossRef(instance, "actions", cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
+		} else if cref.Type == "Key" {
+			err = connutils.ResolveExternalCrossRef(instance, "keys", cref.NrDollarCref, objectLoaded.(*models.KeyGetResponse))
+		} else {
+			err = fmt.Errorf("can't resolve the given type '%s'", cref.Type)
+		}
 	} else {
-		err = fmt.Errorf("can't resolve the given type '%s'", cref.Type)
+		// Check whether the request has to be done for key, thing or action types
+		if cref.Type == "Thing" {
+			// // DATALOADER TEST
+			// var result interface{}
+			// // StringKey is a convenience method that make wraps string to implement `Key` interface
+			// thunk := f.thingsDataLoader.Load(f.context, dataloader.StringKey(string(cref.NrDollarCref)))
+			// result, err = thunk()
+
+			// objectLoaded.(*models.ThingGetResponse).Thing = result.(*models.ThingGetResponse).Thing
+			// objectLoaded.(*models.ThingGetResponse).ThingID = result.(*models.ThingGetResponse).ThingID
+			// // END DATALOADER TEST
+
+			err = f.dbConnector.GetThing(cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
+		} else if cref.Type == "Action" {
+			err = f.dbConnector.GetAction(cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
+		} else if cref.Type == "Key" {
+			err = f.dbConnector.GetKey(cref.NrDollarCref, objectLoaded.(*models.KeyGetResponse))
+		} else {
+			err = fmt.Errorf("can't resolve the given type '%s'", cref.Type)
+		}
 	}
-	// }
 
 	if err != nil {
 		stack := err.Error()

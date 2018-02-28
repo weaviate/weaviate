@@ -193,6 +193,8 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 //  * KEY TESTS
 //  ******************/
 
+// TODO: TEST WRONG TOKEN / WRONG KEY COMBINATION IN HEADER
+
 // // weaviate.key.create
 // func Test__weaviate_key_create_JSON(t *testing.T) {
 // 	// Create create request
