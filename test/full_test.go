@@ -2071,31 +2071,31 @@ func Test__weaviate_graphql_thing_JSON(t *testing.T) {
 	// Test ID in the middle of the 3 results
 	require.Equal(t, actionIDs[1], string(resultActionsLimit[1].(map[string]interface{})["uuid"].(string)))
 
-	// // Set the graphQL body
-	// body = `{ thing(uuid:"%s") { actions(first:5, offset:5) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
-	// bodyObj = graphQLQueryObject{
-	// 	Query: fmt.Sprintf(body, thingID),
-	// }
+	// Set the graphQL body
+	body = `{ thing(uuid:"%s") { actions(first:5, offset:5) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
+	bodyObj = graphQLQueryObject{
+		Query: fmt.Sprintf(body, thingID),
+	}
 
-	// // Do the GraphQL request
-	// responseActionsLimitOffset, respObjectActionsLimitOffset := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
+	// Do the GraphQL request
+	responseActionsLimitOffset, respObjectActionsLimitOffset := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 
-	// // Check statuscode
-	// require.Equal(t, http.StatusOK, responseActionsLimitOffset.StatusCode)
+	// Check statuscode
+	require.Equal(t, http.StatusOK, responseActionsLimitOffset.StatusCode)
 
-	// // Test that the error in the responseActions is nil
-	// require.Nil(t, respObjectActionsLimitOffset.Errors)
+	// Test that the error in the responseActions is nil
+	require.Nil(t, respObjectActionsLimitOffset.Errors)
 
-	// // Test total results
-	// totalResultsLimitOffset := respObjectActionsLimitOffset.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["totalResults"].(float64)
-	// require.Conditionf(t, func() bool { return totalResultsLimitOffset >= 10 }, "Total results have to be higher or equal to 10.")
+	// Test total results
+	totalResultsLimitOffset := respObjectActionsLimitOffset.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["totalResults"].(float64)
+	require.Conditionf(t, func() bool { return totalResultsLimitOffset >= 10 }, "Total results have to be higher or equal to 10.")
 
-	// // Test amount in current responseActions
-	// resultActionsLimitOffset := respObjectActionsLimitOffset.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
-	// require.Len(t, resultActionsLimitOffset, 5)
+	// Test amount in current responseActions
+	resultActionsLimitOffset := respObjectActionsLimitOffset.Data["thing"].(map[string]interface{})["actions"].(map[string]interface{})["actions"].([]interface{})
+	require.Len(t, resultActionsLimitOffset, 5)
 
-	// // Test ID in the middle of the 3 results
-	// require.Equal(t, actionIDs[7], string(resultActionsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
+	// Test ID in the middle of the 3 results
+	require.Equal(t, actionIDs[7], string(resultActionsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
 
 	// Search class 'TestAction2', most recent should be the set actionID[0]
 	bodyObj = graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"TestAction2", first:1) { actions { uuid atClass } totalResults } } }`, thingID)}
@@ -2189,30 +2189,30 @@ func Test__weaviate_graphql_thing_list_JSON(t *testing.T) {
 	// Test ID in the middle of the 3 results
 	require.Equal(t, thingIDs[1], string(resultThingsLimit[1].(map[string]interface{})["uuid"].(string)))
 
-	// // Set the graphQL body
-	// bodyObj = graphQLQueryObject{
-	// 	Query: `{ listThings(first: 5, offset: 5) { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
-	// }
+	// Set the graphQL body
+	bodyObj = graphQLQueryObject{
+		Query: `{ listThings(first: 5, offset: 5) { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
+	}
 
-	// // Do the GraphQL request
-	// responseLimitOffset, respObjectLimitOffset := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
+	// Do the GraphQL request
+	responseLimitOffset, respObjectLimitOffset := doGraphQLRequest(bodyObj, apiKeyCmdLine, apiTokenCmdLine)
 
-	// // Check statuscode
-	// require.Equal(t, http.StatusOK, responseLimitOffset.StatusCode)
+	// Check statuscode
+	require.Equal(t, http.StatusOK, responseLimitOffset.StatusCode)
 
-	// // Test that the error in the response is nil
-	// require.Nil(t, respObjectLimitOffset.Errors)
+	// Test that the error in the response is nil
+	require.Nil(t, respObjectLimitOffset.Errors)
 
-	// // Test total results
-	// totalResultsLimitOffset := respObjectLimitOffset.Data["listThings"].(map[string]interface{})["totalResults"].(float64)
-	// require.Conditionf(t, func() bool { return totalResultsLimitOffset >= 10 }, "Total results have to be higher or equal to 10.")
+	// Test total results
+	totalResultsLimitOffset := respObjectLimitOffset.Data["listThings"].(map[string]interface{})["totalResults"].(float64)
+	require.Conditionf(t, func() bool { return totalResultsLimitOffset >= 10 }, "Total results have to be higher or equal to 10.")
 
-	// // Test amount in current response
-	// resultThingsLimitOffset := respObjectLimitOffset.Data["listThings"].(map[string]interface{})["things"].([]interface{})
-	// require.Len(t, resultThingsLimitOffset, 5)
+	// Test amount in current response
+	resultThingsLimitOffset := respObjectLimitOffset.Data["listThings"].(map[string]interface{})["things"].([]interface{})
+	require.Len(t, resultThingsLimitOffset, 5)
 
-	// // Test ID in the middle of the 3 results
-	// require.Equal(t, thingIDs[7], string(resultThingsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
+	// Test ID in the middle of the 3 results
+	require.Equal(t, thingIDs[7], string(resultThingsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
 
 	// Search class 'TestThing2', most recent should be the set thingIDsubject
 	bodyObj = graphQLQueryObject{Query: `{ listThings(class:"TestThing2", first:1) { things { uuid atClass } totalResults } }`}

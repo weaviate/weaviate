@@ -750,7 +750,10 @@ func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres 
 	}
 
 	// Do the query to get the thing from the database and get the iterator
-	iter := f.client.Query(query, f.convUUIDtoCQLUUID(keyID), first).Iter()
+	iter := f.client.Query(query, f.convUUIDtoCQLUUID(keyID), first+offset).Iter()
+
+	// Counter for offset
+	offsetCount := 0
 
 	// Put everyting in a for loop
 	for {
@@ -762,12 +765,21 @@ func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres 
 			break
 		}
 
+		// Update offset count
+		offsetCount = offsetCount + 1
+
+		// Continue when the offset isnt reached yet
+		if offset >= offsetCount {
+			continue
+		}
+
 		// Fill the response with the row
 		thingResponse := models.ThingGetResponse{}
 		f.fillThingResponseWithRow(m, &thingResponse)
 
 		// Add the thing to the list in the response
 		thingsResponse.Things = append(thingsResponse.Things, &thingResponse)
+
 	}
 
 	// Close the iterator to get errors
@@ -924,7 +936,10 @@ func (f *Cassandra) ListActions(UUID strfmt.UUID, first int, offset int, wheres 
 	}
 
 	// Do the query to get the action from the database and get the iterator
-	iter := f.client.Query(query, f.convUUIDtoCQLUUID(UUID), first).Iter()
+	iter := f.client.Query(query, f.convUUIDtoCQLUUID(UUID), first+offset).Iter()
+
+	// Counter for offset
+	offsetCount := 0
 
 	// Put everyting in a for loop
 	for {
@@ -934,6 +949,14 @@ func (f *Cassandra) ListActions(UUID strfmt.UUID, first int, offset int, wheres 
 		// Fill the map with the current row in the iterator
 		if !iter.MapScan(m) {
 			break
+		}
+
+		// Update offset count
+		offsetCount = offsetCount + 1
+
+		// Continue when the offset isnt reached yet
+		if offset >= offsetCount {
+			continue
 		}
 
 		// Fill the response with the row
