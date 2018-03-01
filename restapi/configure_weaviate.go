@@ -494,10 +494,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Update the database
-		insertErr := dbConnector.UpdateAction(action, UUID)
-		if insertErr != nil {
-			messaging.ErrorMessage(insertErr)
-		}
+		go dbConnector.UpdateAction(action, UUID)
 
 		// Create return Object
 		actionGetResponse.Action = *action
@@ -547,9 +544,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
 		go dbConnector.AddAction(action, UUID)
-		// if insertErr != nil {
-		// 	messaging.ErrorMessage(insertErr)
-		// }
 
 		// Initialize a response object
 		responseObject := &models.ActionGetResponse{}
@@ -769,10 +763,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thing.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		insertErr := dbConnector.AddThing(thing, UUID)
-		if insertErr != nil {
-			messaging.ErrorMessage(insertErr)
-		}
+		go dbConnector.AddThing(thing, UUID)
 
 		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
@@ -929,10 +920,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Update the database
-		insertErr := dbConnector.UpdateThing(thing, UUID)
-		if insertErr != nil {
-			messaging.ErrorMessage(insertErr)
-		}
+		go dbConnector.UpdateThing(thing, UUID)
 
 		// Create return Object
 		thingGetResponse.Thing = *thing
@@ -969,10 +957,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
 		params.Body.Key = thingGetResponse.Key
-		insertErr := dbConnector.UpdateThing(&params.Body.Thing, UUID)
-		if insertErr != nil {
-			messaging.ErrorMessage(insertErr)
-		}
+		go dbConnector.UpdateThing(&params.Body.Thing, UUID)
 
 		// Create object to return
 		responseObject := &models.ThingGetResponse{}
