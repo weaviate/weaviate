@@ -21,7 +21,7 @@ before_script:
 script:
 - curl -s -L -o "goreleaser.tar.gz" "https://github.com/goreleaser/goreleaser/releases/download/v0.58.0/goreleaser_$(uname -s)_$(uname -m).tar.gz"
 - tar -xzf goreleaser.tar.gz
-- ./goreleaser --rm-dist --snapshot --skip-validate
+- ./goreleaser --rm-dist --snapshot
 - rm goreleaser goreleaser.tar.gz
 - mv dist nightly
 deploy:
