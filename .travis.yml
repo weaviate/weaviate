@@ -3,8 +3,9 @@ language: go
 go:
   - 1.9
 branches:
-  except:
+  only:
   - master
+  - develop
 services:
 - docker
 before_script:
@@ -31,7 +32,5 @@ deploy:
   # local-dir: nightly
   skip_cleanup: true
   detect_encoding: true
-  on:
-    branch: develop
   secret_access_key:
     secure: EhYZQtPi22lksyksxWBRJxtqDcnld+CryI9L577cc+VoC8G57P9hWqrPByh22J/3X5iLf1ryNQww68RU2RJTTagPEM11O1eDwvWiso4LF2X+od6cZpwy4+FmQ0XUY7OD/65Ej0E/Hek4v0WL4B9OouWM/x5awO4iHm6ef9EniGw5wlPuqEM9cwiQWVxki8YUyKuJbWkI658eAGYl5xxj1LGQTJuCf/IiWfcQ/R9IV+PruXJ9Alh8DK4RMGDmaqbftTo5aKeidGgX+jef58yY3cgIWyDr5HAr5IFQ1hMpjHWbsl4Hhy1jc3HSS5x9BLbdD76JKHyUpTLk7t+DoM/Jks1bT2bjDBfBAtNK83JorjO95VGOZZs08FOuUylvcp+5dB49OqmAuyYiIAEe6rRK1lyQcaktIXYx30UIklTJnCVdIRu+HNbkzOadz1RlOpN3M7W2Nb5vDYzxLnfUMKJw4G1GCgUyBByNzAUUpTp2jjxR4tnVpHtbXVcWU+wVTCANV7SY41hqIFDTe5mnf8bxL9d2f1xjBsANXl1wONnVbgPZN2XaxNmHR/GvGx0h0dFO/BtYfzMu8LwrUbNKWzuxAa7VuyVfjg6wkJh1bmzP2jsZZiOWFVAlT0++1cWkq9c+oPh6tXYuvnHvvXPRigrf7AEiQss+NnGJJvitXDmo+5w=
