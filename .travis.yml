@@ -1,16 +1,13 @@
 sudo: required
 language: go
 go:
-- 1.9.2
+  - 1.9
+  - master
 branches:
   except:
   - master
 services:
 - docker
-before_install:
-- sudo apt-get update
-- sudo apt-get install jq
-- go get github.com/goreleaser/goreleaser
 before_script:
 ###
 # ADD TESTS!
@@ -22,6 +19,7 @@ before_script:
 #- ROOTKEY=$(docker exec -it weaviate cat /var/weaviate/first_run.log|grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
 #- RKNR=$(echo $ROOTKEY|sed 's/\r//')
 script:
+- go get github.com/goreleaser/goreleaser
 - goreleaser --rm-dist --snapshot --skip-validate
 - mv dist nightly
 deploy:
