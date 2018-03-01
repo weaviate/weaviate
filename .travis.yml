@@ -18,8 +18,10 @@ before_script:
 #- ROOTKEY=$(docker exec -it weaviate cat /var/weaviate/first_run.log|grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
 #- RKNR=$(echo $ROOTKEY|sed 's/\r//')
 script:
-- curl -sL http://git.io/goreleaser | bash
-- goreleaser --rm-dist --snapshot --skip-validate
+- curl -s -L -o "goreleaser.tar.gz" "https://github.com/goreleaser/goreleaser/releases/download/v0.58.0/goreleaser_$(uname -s)_$(uname -m).tar.gz"
+- tar -xzf goreleaser.tar.gz
+- ./goreleaser --rm-dist --snapshot --skip-validate
+- rm goreleaser goreleaser.tar.gz
 - mv dist nightly
 deploy:
   provider: gcs
