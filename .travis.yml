@@ -2,7 +2,6 @@ sudo: required
 language: go
 go:
   - 1.9
-  - master
 branches:
   except:
   - master
@@ -19,7 +18,7 @@ before_script:
 #- ROOTKEY=$(docker exec -it weaviate cat /var/weaviate/first_run.log|grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
 #- RKNR=$(echo $ROOTKEY|sed 's/\r//')
 script:
-- go get github.com/goreleaser/goreleaser
+- curl -sL http://git.io/goreleaser | bash
 - goreleaser --rm-dist --snapshot --skip-validate
 - mv dist nightly
 deploy:
