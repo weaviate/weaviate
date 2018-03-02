@@ -40,7 +40,7 @@ type WeaviateThingsActionsListParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request
 
-	/*The maximum number of items to be returned per page.
+	/*The maximum number of items to be returned per page. Default value is set in Weaviate config.
 	  In: query
 	*/
 	MaxResults *int64

@@ -43,7 +43,7 @@ func NewWeaviateActionsPatch(ctx *middleware.Context, handler WeaviateActionsPat
 
 Update an action based on its uuid (using patch semantics) related to this key.
 
-Updates an action. This method supports patch semantics.
+Updates an action. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 
 */
 type WeaviateActionsPatch struct {

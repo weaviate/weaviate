@@ -43,7 +43,7 @@ func NewWeaviateThingsUpdate(ctx *middleware.Context, handler WeaviateThingsUpda
 
 Update a thing based on its uuid related to this key.
 
-Updates a thing data.
+Updates a thing data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 
 */
 type WeaviateThingsUpdate struct {

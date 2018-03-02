@@ -20,24 +20,24 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ThingHistoryObject thing history object
-// swagger:model ThingHistoryObject
+// ActionHistoryObject action history object
+// swagger:model ActionHistoryObject
 
-type ThingHistoryObject struct {
-	ThingCreate
+type ActionHistoryObject struct {
+	ActionCreate
 
-	// Timestamp of creation of this thing history in milliseconds since epoch UTC.
+	// Timestamp of creation of this action history in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
-func (m *ThingHistoryObject) UnmarshalJSON(raw []byte) error {
+func (m *ActionHistoryObject) UnmarshalJSON(raw []byte) error {
 
-	var aO0 ThingCreate
+	var aO0 ActionCreate
 	if err := swag.ReadJSON(raw, &aO0); err != nil {
 		return err
 	}
-	m.ThingCreate = aO0
+	m.ActionCreate = aO0
 
 	var data struct {
 		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
@@ -52,10 +52,10 @@ func (m *ThingHistoryObject) UnmarshalJSON(raw []byte) error {
 }
 
 // MarshalJSON marshals this object to a JSON structure
-func (m ThingHistoryObject) MarshalJSON() ([]byte, error) {
+func (m ActionHistoryObject) MarshalJSON() ([]byte, error) {
 	var _parts [][]byte
 
-	aO0, err := swag.WriteJSON(m.ThingCreate)
+	aO0, err := swag.WriteJSON(m.ActionCreate)
 	if err != nil {
 		return nil, err
 	}
@@ -76,11 +76,11 @@ func (m ThingHistoryObject) MarshalJSON() ([]byte, error) {
 	return swag.ConcatJSON(_parts...), nil
 }
 
-// Validate validates this thing history object
-func (m *ThingHistoryObject) Validate(formats strfmt.Registry) error {
+// Validate validates this action history object
+func (m *ActionHistoryObject) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.ThingCreate.Validate(formats); err != nil {
+	if err := m.ActionCreate.Validate(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -91,7 +91,7 @@ func (m *ThingHistoryObject) Validate(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *ThingHistoryObject) MarshalBinary() ([]byte, error) {
+func (m *ActionHistoryObject) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -99,8 +99,8 @@ func (m *ThingHistoryObject) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *ThingHistoryObject) UnmarshalBinary(b []byte) error {
-	var res ThingHistoryObject
+func (m *ActionHistoryObject) UnmarshalBinary(b []byte) error {
+	var res ActionHistoryObject
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

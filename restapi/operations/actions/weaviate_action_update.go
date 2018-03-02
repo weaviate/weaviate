@@ -43,7 +43,7 @@ func NewWeaviateActionUpdate(ctx *middleware.Context, handler WeaviateActionUpda
 
 Update an action based on its uuid related to this key.
 
-Updates an action's data.
+Updates an action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 
 */
 type WeaviateActionUpdate struct {

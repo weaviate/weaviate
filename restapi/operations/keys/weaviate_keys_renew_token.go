@@ -43,7 +43,7 @@ func NewWeaviateKeysRenewToken(ctx *middleware.Context, handler WeaviateKeysRene
 
 Renews a key based on the key given in the query string.
 
-Renews the related key.
+Renews the related key. Validates being lower in tree than given key. Can not renew itself, unless being parent.
 
 */
 type WeaviateKeysRenewToken struct {

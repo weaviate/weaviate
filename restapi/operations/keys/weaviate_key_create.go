@@ -43,7 +43,7 @@ func NewWeaviateKeyCreate(ctx *middleware.Context, handler WeaviateKeyCreateHand
 
 Create a new key related to this key.
 
-Creates a new key.
+Creates a new key. Input expiration date is validated on being in the future and not longer than parent expiration date.
 
 */
 type WeaviateKeyCreate struct {

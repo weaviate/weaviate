@@ -11,7 +11,7 @@
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
-package things
+package actions
 
 // Editing this file might prove futile when you re-run the generate command
 
@@ -21,42 +21,42 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-// WeaviateThingsPatchHandlerFunc turns a function with the right signature into a weaviate things patch handler
-type WeaviateThingsPatchHandlerFunc func(WeaviateThingsPatchParams, interface{}) middleware.Responder
+// WeaviateActionHistoryGetHandlerFunc turns a function with the right signature into a weaviate action history get handler
+type WeaviateActionHistoryGetHandlerFunc func(WeaviateActionHistoryGetParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsPatchHandlerFunc) Handle(params WeaviateThingsPatchParams, principal interface{}) middleware.Responder {
+func (fn WeaviateActionHistoryGetHandlerFunc) Handle(params WeaviateActionHistoryGetParams, principal interface{}) middleware.Responder {
 	return fn(params, principal)
 }
 
-// WeaviateThingsPatchHandler interface for that can handle valid weaviate things patch params
-type WeaviateThingsPatchHandler interface {
-	Handle(WeaviateThingsPatchParams, interface{}) middleware.Responder
+// WeaviateActionHistoryGetHandler interface for that can handle valid weaviate action history get params
+type WeaviateActionHistoryGetHandler interface {
+	Handle(WeaviateActionHistoryGetParams, interface{}) middleware.Responder
 }
 
-// NewWeaviateThingsPatch creates a new http.Handler for the weaviate things patch operation
-func NewWeaviateThingsPatch(ctx *middleware.Context, handler WeaviateThingsPatchHandler) *WeaviateThingsPatch {
-	return &WeaviateThingsPatch{Context: ctx, Handler: handler}
+// NewWeaviateActionHistoryGet creates a new http.Handler for the weaviate action history get operation
+func NewWeaviateActionHistoryGet(ctx *middleware.Context, handler WeaviateActionHistoryGetHandler) *WeaviateActionHistoryGet {
+	return &WeaviateActionHistoryGet{Context: ctx, Handler: handler}
 }
 
-/*WeaviateThingsPatch swagger:route PATCH /things/{thingId} things weaviateThingsPatch
+/*WeaviateActionHistoryGet swagger:route GET /actions/{actionId}/history actions weaviateActionHistoryGet
 
-Update a thing based on its uuid (using patch semantics) related to this key.
+Get a action's history based on its uuid related to this key.
 
-Updates a thing data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Returns a particular action history.
 
 */
-type WeaviateThingsPatch struct {
+type WeaviateActionHistoryGet struct {
 	Context *middleware.Context
-	Handler WeaviateThingsPatchHandler
+	Handler WeaviateActionHistoryGetHandler
 }
 
-func (o *WeaviateThingsPatch) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *WeaviateActionHistoryGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewWeaviateThingsPatchParams()
+	var Params = NewWeaviateActionHistoryGetParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {

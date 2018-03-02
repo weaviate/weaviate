@@ -43,7 +43,7 @@ func NewWeaviateActionsCreate(ctx *middleware.Context, handler WeaviateActionsCr
 
 Create actions between two things (object and subject).
 
-Create action.
+Registers a new action. Given meta-data and schema values are validated.
 
 */
 type WeaviateActionsCreate struct {

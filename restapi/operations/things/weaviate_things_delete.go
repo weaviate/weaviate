@@ -43,7 +43,7 @@ func NewWeaviateThingsDelete(ctx *middleware.Context, handler WeaviateThingsDele
 
 Delete a thing based on its uuid related to this key.
 
-Deletes a thing from the system.
+Deletes a thing from the system. All actions pointing to this thing, where the thing is the object of the action, are also being deleted.
 
 */
 type WeaviateThingsDelete struct {

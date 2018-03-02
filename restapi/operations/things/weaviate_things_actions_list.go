@@ -43,7 +43,7 @@ func NewWeaviateThingsActionsList(ctx *middleware.Context, handler WeaviateThing
 
 Get a thing based on its uuid related to this thing. Also available as Websocket.
 
-Returns the actions of a thing in a list.
+Lists all actions in reverse order of creation, related to the thing that belongs to the used thingId.
 
 */
 type WeaviateThingsActionsList struct {
