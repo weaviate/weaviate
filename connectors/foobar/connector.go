@@ -343,3 +343,8 @@ func (f *Foobar) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetResp
 
 	return nil
 }
+
+// UpdateKey updates the Key in the DB at the given UUID.
+func (f *Foobar) UpdateKey(key *models.Key, UUID strfmt.UUID, token string) error {
+	return nil
+}

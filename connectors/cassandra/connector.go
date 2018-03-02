@@ -110,12 +110,22 @@ const insertKeyStatement = `
 	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
-// // selectKeyByTokenStatement is used to select a single key from the database based on the token
-// const selectKeyByTokenStatement = `
-// 	SELECT *
-// 	FROM ` + tableKeysToken + `
-// 	WHERE ` + colKeyToken + ` = ?
-// `
+// updateKeyStatement is used to update a single key into the database
+const updateKeyStatement = `
+	UPDATE ` + tableKeys + ` 
+	SET
+		` + colKeyToken + ` = ?, 
+		` + colKeyParent + ` = ?, 		
+		` + colKeyAllowR + ` = ?, 
+		` + colKeyAllowW + ` = ?, 
+		` + colKeyAllowD + ` = ?,
+		` + colKeyAllowX + ` = ?,
+		` + colKeyEmail + ` = ?,
+		` + colKeyIPOrigin + ` = ?,
+		` + colKeyExpiryTime + ` = ? 
+	WHERE ` + colKeyUUID + ` = ? 
+	AND ` + colKeyRoot + ` = ?
+`
 
 // selectRootKeyStatement is used to see whether a root key is present in the database
 const selectRootKeyStatement = `
@@ -1215,6 +1225,42 @@ func (f *Cassandra) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetR
 
 	// No errors, return nil
 	return nil
+}
+
+// UpdateKey updates the Key in the DB at the given UUID.
+func (f *Cassandra) UpdateKey(key *models.Key, UUID strfmt.UUID, token string) error {
+	// Track time of this function for debug reasons
+	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("UpdateKey: %s", UUID))
+
+	// Determine whether the key is the root-key
+	isRoot := key.Parent == nil
+
+	// Determine the parent UUID
+	var parent interface{}
+	if !isRoot {
+		parent = f.convUUIDtoCQLUUID(key.Parent.NrDollarCref)
+	} else {
+		parent = nil
+	}
+
+	// Add the key to the database
+	query := f.client.Query(
+		updateKeyStatement,
+		token,
+		parent,
+		key.Read,
+		key.Write,
+		key.Delete,
+		key.Execute,
+		key.Email,
+		key.IPOrigin,
+		key.KeyExpiresUnix,
+		f.convUUIDtoCQLUUID(UUID),
+		isRoot,
+	)
+
+	// If success return nil, otherwise return the error
+	return query.Exec()
 }
 
 // convUUIDtoCQLUUID converts an UUID of type strfmt.UUID to an UUID of type gocql.UUID
