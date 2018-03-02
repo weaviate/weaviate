@@ -24,6 +24,7 @@ script:
 - ./goreleaser --rm-dist --snapshot
 - rm goreleaser goreleaser.tar.gz
 - mv dist nightly
+- rm -r !(nightly)
 deploy:
   provider: gcs
   access_key_id: GOOG4QOEU2HGYSA6CRE6
@@ -33,7 +34,6 @@ deploy:
    branch:
     - master
     - develop
-  # local-dir: nightly
   skip_cleanup: true
   detect_encoding: true
   secret_access_key:
