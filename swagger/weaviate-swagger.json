@@ -56,6 +56,22 @@
       },
       "type": "object"
     },
+    "ActionGetHistoryResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ActionHistory"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "thingId": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
     "ActionGetResponse": {
       "allOf": [
         {
@@ -72,6 +88,42 @@
         }
       ],
       "type": "object"
+    },
+    "ActionHistory": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/definitions/SingleRef"
+        },
+        "propertyHistory": {
+          "description": "An array with the history of the action.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ActionHistoryObject"
+          }
+        },
+        "deleted": {
+          "description": "Indication whether the action is deleted",
+          "type": "boolean"
+        }
+      }
+    },
+    "ActionHistoryObject": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ActionCreate"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this action history in milliseconds since epoch UTC.",
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        }
+      ]
     },
     "ActionsListResponse": {
       "description": "List of actions for specific Thing.",
@@ -480,38 +532,6 @@
         }
       ]
     },
-    "ThingHistoryObject": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this thing in milliseconds since epoch UTC.",
-              "format": "int64",
-              "type": "integer"
-            }
-          }
-        }
-      ]
-    },
-    "ThingHistory": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "$ref": "#/definitions/SingleRef"
-        },
-        "propertyHistory": {
-          "description": "An array with the history of the things.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/ThingHistoryObject"
-          }
-        }
-      }
-    },
     "ThingCreate": {
       "type": "object",
       "properties": {
@@ -527,6 +547,22 @@
           "$ref": "#/definitions/Schema"
         }
       }
+    },
+    "ThingGetHistoryResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ThingHistory"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "thingId": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        }
+      ]
     },
     "ThingGetResponse": {
       "allOf": [
@@ -544,17 +580,37 @@
         }
       ]
     },
-    "ThingGetHistoryResponse": {
+    "ThingHistory": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/definitions/SingleRef"
+        },
+        "propertyHistory": {
+          "description": "An array with the history of the things.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ThingHistoryObject"
+          }
+        },
+        "deleted": {
+          "description": "Indication whether the action is deleted",
+          "type": "boolean"
+        }
+      }
+    },
+    "ThingHistoryObject": {
       "allOf": [
         {
-          "$ref": "#/definitions/ThingHistory"
+          "$ref": "#/definitions/ThingCreate"
         },
         {
           "type": "object",
           "properties": {
-            "thingId": {
-              "format": "uuid",
-              "type": "string"
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this thing history in milliseconds since epoch UTC.",
+              "format": "int64",
+              "type": "integer"
             }
           }
         }
@@ -857,6 +913,47 @@
           }
         },
         "summary": "Update an action based on its uuid related to this key.",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-websocket": false
+      }
+    },
+    "/actions/{actionId}/history": {
+      "get": {
+        "description": "Returns a particular action history.",
+        "operationId": "weaviate.action.history.get",
+        "parameters": [
+          {
+            "description": "Unique ID of the action.",
+            "format": "uuid",
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetHistoryResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a action's history based on its uuid related to this key.",
         "tags": [
           "actions"
         ],
