@@ -886,33 +886,33 @@ func Test__weaviate_things_list_JSON(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, thingIDs[0])
 	require.Equal(t, thingIDs[0], string(respObject.Things[0].ThingID))
 
-	// // Query whole list just created
-	// listResponse := doRequest("/things?maxResults=3", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
-	// listResponseObject := &models.ThingsListResponse{}
-	// json.Unmarshal(getResponseBody(listResponse), listResponseObject)
+	// Query whole list just created
+	listResponse := doRequest("/things?maxResults=3", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
+	listResponseObject := &models.ThingsListResponse{}
+	json.Unmarshal(getResponseBody(listResponse), listResponseObject)
 
-	// // Test total results
-	// require.Conditionf(t, func() bool { return listResponseObject.TotalResults >= 10 }, "Total results have to be higher or equal to 10.")
+	// Test total results
+	require.Conditionf(t, func() bool { return listResponseObject.TotalResults >= 10 }, "Total results have to be higher or equal to 10.")
 
-	// // Test amount in current response
-	// require.Len(t, listResponseObject.Things, 3)
+	// Test amount in current response
+	require.Len(t, listResponseObject.Things, 3)
 
-	// // Test ID in the middle of the 3 results
-	// require.Equal(t, thingIDs[1], string(listResponseObject.Things[1].ThingID))
+	// Test ID in the middle of the 3 results
+	require.Equal(t, thingIDs[1], string(listResponseObject.Things[1].ThingID))
 
-	// // Query whole list just created
-	// listResponse2 := doRequest("/things?maxResults=5&page=2", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
-	// listResponseObject2 := &models.ThingsListResponse{}
-	// json.Unmarshal(getResponseBody(listResponse2), listResponseObject2)
+	// Query whole list just created
+	listResponse2 := doRequest("/things?maxResults=5&page=2", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
+	listResponseObject2 := &models.ThingsListResponse{}
+	json.Unmarshal(getResponseBody(listResponse2), listResponseObject2)
 
-	// // Test total results
-	// require.Conditionf(t, func() bool { return listResponseObject2.TotalResults >= 10 }, "Total results have to be higher or equal to 10.")
+	// Test total results
+	require.Conditionf(t, func() bool { return listResponseObject2.TotalResults >= 10 }, "Total results have to be higher or equal to 10.")
 
-	// // Test amount in current response
-	// require.Len(t, listResponseObject2.Things, 5)
+	// Test amount in current response
+	require.Len(t, listResponseObject2.Things, 5)
 
-	// // Test ID in the middle
-	// require.Equal(t, thingIDs[7], string(listResponseObject2.Things[2].ThingID))
+	// Test ID in the middle
+	require.Equal(t, thingIDs[7], string(listResponseObject2.Things[2].ThingID))
 }
 
 // weaviate.thing.get
@@ -1750,33 +1750,33 @@ func Test__weaviate_things_actions_list_JSON(t *testing.T) {
 	// Check there are ten actions
 	require.Len(t, respObject.Actions, 10)
 
-	// // Query whole list just created
-	// listResponse := doRequest("/things/"+thingID+"/actions?maxResults=3", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
-	// listResponseObject := &models.ActionsListResponse{}
-	// json.Unmarshal(getResponseBody(listResponse), listResponseObject)
+	// Query whole list just created
+	listResponse := doRequest("/things/"+thingID+"/actions?maxResults=3", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
+	listResponseObject := &models.ActionsListResponse{}
+	json.Unmarshal(getResponseBody(listResponse), listResponseObject)
 
-	// // Test total results
-	// require.Conditionf(t, func() bool { return listResponseObject.TotalResults == 10 }, "Total results have to be equal to 10.")
+	// Test total results
+	require.Conditionf(t, func() bool { return listResponseObject.TotalResults == 10 }, "Total results have to be equal to 10.")
 
-	// // Test amount in current response
-	// require.Len(t, listResponseObject.Actions, 3)
+	// Test amount in current response
+	require.Len(t, listResponseObject.Actions, 3)
 
-	// // Test ID in the middle of the 3 results
-	// require.Equal(t, actionIDs[1], string(listResponseObject.Actions[1].ActionID))
+	// Test ID in the middle of the 3 results
+	require.Equal(t, actionIDs[1], string(listResponseObject.Actions[1].ActionID))
 
-	// // Query whole list just created
-	// listResponse2 := doRequest("/things/"+thingID+"/actions?maxResults=5&page=2", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
-	// listResponseObject2 := &models.ActionsListResponse{}
-	// json.Unmarshal(getResponseBody(listResponse2), listResponseObject2)
+	// Query whole list just created
+	listResponse2 := doRequest("/things/"+thingID+"/actions?maxResults=5&page=2", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
+	listResponseObject2 := &models.ActionsListResponse{}
+	json.Unmarshal(getResponseBody(listResponse2), listResponseObject2)
 
-	// // Test total results
-	// require.Conditionf(t, func() bool { return listResponseObject2.TotalResults == 10 }, "Total results have to be equal to 10.")
+	// Test total results
+	require.Conditionf(t, func() bool { return listResponseObject2.TotalResults == 10 }, "Total results have to be equal to 10.")
 
-	// // Test amount in current response
-	// require.Len(t, listResponseObject2.Actions, 5)
+	// Test amount in current response
+	require.Len(t, listResponseObject2.Actions, 5)
 
-	// // Test ID in the middle
-	// require.Equal(t, actionIDs[7], string(listResponseObject2.Actions[2].ActionID))
+	// Test ID in the middle
+	require.Equal(t, actionIDs[7], string(listResponseObject2.Actions[2].ActionID))
 }
 
 // weaviate.action.get
@@ -1818,6 +1818,103 @@ func Test__weaviate_actions_get_JSON(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+}
+
+// weaviate.action.update
+func Test__weaviate_actions_update_JSON(t *testing.T) {
+	// Create update request
+	newValue := "New string updated!"
+	// Create create request
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://schema.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s",
+			"testInt": %d,
+			"testBoolean": %t,
+			"testNumber": %f,
+			"testDateTime": "%s",
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, newValue, actionTestInt, actionTestBoolean, actionTestNumber, actionTestDate, thingID, getWeaviateURL(), thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+	response := doRequest("/actions/"+actionID, "PUT", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
+
+	body := getResponseBody(response)
+
+	respObject := &models.ActionGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check status code
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Check action ID is same
+	require.Regexp(t, strfmt.UUIDPattern, respObject.ActionID)
+	require.Regexp(t, strfmt.UUIDPattern, actionID)
+	require.Equal(t, actionID, string(respObject.ActionID))
+
+	// Check thing is set to known ThingID
+	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Object.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, string(respObject.Things.Object.NrDollarCref))
+
+	// Check thing is set to known ThingIDSubject
+	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Subject.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
+	require.Equal(t, thingIDsubject, string(respObject.Things.Subject.NrDollarCref))
+
+	// Check whether the returned information is the same as the data updated
+	require.Equal(t, newValue, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, actionTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, actionTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, actionTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, actionTestDate, respObject.Schema.(map[string]interface{})["testDateTime"].(string))
+
+	// Check given update time is after now, but not in the future
+	now := connutils.NowUnix()
+	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix > now) }, "LastUpdateTimeUnix is incorrect, it was set in the future.")
+	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix < now-2000) }, "LastUpdateTimeUnix is incorrect, it was set to far back.")
+
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
+
+	// Check if update is also applied on object when using a new GET request on same object
+	responseGet := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
+
+	bodyGet := getResponseBody(responseGet)
+
+	// Test response obj
+	respObjectGet := &models.ActionGetResponse{}
+	json.Unmarshal(bodyGet, respObjectGet)
+
+	// Check whether the returned information is the same as the data updated
+	require.Equal(t, newValue, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, actionTestInt, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, actionTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
+	require.Equal(t, actionTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
+	require.Equal(t, actionTestDate, respObjectGet.Schema.(map[string]interface{})["testDateTime"].(string))
+
+	// Create get request with non-existing ID, check its responsecode
+	responseNotFound := doRequest("/actions/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+
+	// Check validation with invalid requests
+	performInvalidActionRequests(t, "/actions/"+actionID, "PUT")
 }
 
 // weaviate.action.patch

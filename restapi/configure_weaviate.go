@@ -501,6 +501,46 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
 	})
+	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal interface{}) middleware.Responder {
+		// Initialize response
+		actionGetResponse := models.ActionGetResponse{}
+		actionGetResponse.Schema = map[string]models.JSONObject{}
+
+		// Get item from database
+		UUID := params.ActionID
+		errGet := dbConnector.GetAction(UUID, &actionGetResponse)
+
+		// If there are no results, there is an error
+		if errGet != nil {
+			// Object not found response.
+			return actions.NewWeaviateActionUpdateNotFound()
+		}
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+			return actions.NewWeaviateActionUpdateForbidden()
+		}
+
+		// Validate schema given in body with the weaviate schema
+		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector)
+		if validatedErr != nil {
+			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
+		}
+
+		// Update the database
+		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
+		params.Body.CreationTimeUnix = actionGetResponse.CreationTimeUnix
+		params.Body.Key = actionGetResponse.Key
+		go dbConnector.UpdateAction(&params.Body.Action, UUID)
+
+		// Create object to return
+		responseObject := &models.ActionGetResponse{}
+		responseObject.Action = params.Body.Action
+		responseObject.ActionID = UUID
+
+		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
+		return actions.NewWeaviateActionUpdateOK().WithPayload(responseObject)
+	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 		// Validate schema given in body with the weaviate schema
 		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector)
