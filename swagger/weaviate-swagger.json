@@ -56,6 +56,22 @@
       },
       "type": "object"
     },
+    "ActionGetHistoryResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ActionHistory"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "thingId": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
     "ActionGetResponse": {
       "allOf": [
         {
@@ -72,6 +88,42 @@
         }
       ],
       "type": "object"
+    },
+    "ActionHistory": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/definitions/SingleRef"
+        },
+        "propertyHistory": {
+          "description": "An array with the history of the action.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ActionHistoryObject"
+          }
+        },
+        "deleted": {
+          "description": "Indication whether the action is deleted",
+          "type": "boolean"
+        }
+      }
+    },
+    "ActionHistoryObject": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ActionCreate"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this action history in milliseconds since epoch UTC.",
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        }
+      ]
     },
     "ActionsListResponse": {
       "description": "List of actions for specific Thing.",
@@ -480,38 +532,6 @@
         }
       ]
     },
-    "ThingHistoryObject": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/ThingCreate"
-        },
-        {
-          "type": "object",
-          "properties": {
-            "creationTimeUnix": {
-              "description": "Timestamp of creation of this thing in milliseconds since epoch UTC.",
-              "format": "int64",
-              "type": "integer"
-            }
-          }
-        }
-      ]
-    },
-    "ThingHistory": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "$ref": "#/definitions/SingleRef"
-        },
-        "propertyHistory": {
-          "description": "An array with the history of the things.",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/ThingHistoryObject"
-          }
-        }
-      }
-    },
     "ThingCreate": {
       "type": "object",
       "properties": {
@@ -527,6 +547,22 @@
           "$ref": "#/definitions/Schema"
         }
       }
+    },
+    "ThingGetHistoryResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ThingHistory"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "thingId": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        }
+      ]
     },
     "ThingGetResponse": {
       "allOf": [
@@ -544,17 +580,37 @@
         }
       ]
     },
-    "ThingGetHistoryResponse": {
+    "ThingHistory": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/definitions/SingleRef"
+        },
+        "propertyHistory": {
+          "description": "An array with the history of the things.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ThingHistoryObject"
+          }
+        },
+        "deleted": {
+          "description": "Indication whether the action is deleted",
+          "type": "boolean"
+        }
+      }
+    },
+    "ThingHistoryObject": {
       "allOf": [
         {
-          "$ref": "#/definitions/ThingHistory"
+          "$ref": "#/definitions/ThingCreate"
         },
         {
           "type": "object",
           "properties": {
-            "thingId": {
-              "format": "uuid",
-              "type": "string"
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this thing history in milliseconds since epoch UTC.",
+              "format": "int64",
+              "type": "integer"
             }
           }
         }
@@ -621,7 +677,7 @@
     },
     "CommonMaxResultsParameterQuery": {
       "name": "maxResults",
-      "description": "The maximum number of items to be returned per page.",
+      "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "format": "int64",
       "type": "integer",
       "in": "query",
@@ -631,7 +687,7 @@
   "paths": {
     "/actions": {
       "post": {
-        "description": "Create action.",
+        "description": "Registers a new action. Given meta-data and schema values are validated.",
         "operationId": "weaviate.actions.create",
         "parameters": [
           {
@@ -750,7 +806,7 @@
         "x-available-in-websocket": false
       },
       "patch": {
-        "description": "Updates an action. This method supports patch semantics.",
+        "description": "Updates an action. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "weaviate.actions.patch",
         "parameters": [
           {
@@ -775,8 +831,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful updated.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -810,7 +866,7 @@
         "x-available-in-websocket": false
       },
       "put": {
-        "description": "Updates an action's data.",
+        "description": "Updates an action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "weaviate.action.update",
         "parameters": [
           {
@@ -831,8 +887,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful update.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -863,9 +919,50 @@
         "x-available-in-websocket": false
       }
     },
+    "/actions/{actionId}/history": {
+      "get": {
+        "description": "Returns a particular action history.",
+        "operationId": "weaviate.action.history.get",
+        "parameters": [
+          {
+            "description": "Unique ID of the action.",
+            "format": "uuid",
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetHistoryResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a action's history based on its uuid related to this key.",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-websocket": false
+      }
+    },
     "/actions/validate": {
       "post": {
-        "description": "Validate an action object. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
+        "description": "Validate an action's schema and meta-data. It has to be based on a schema, which is related to the given action to be accepted by this validation.",
         "operationId": "weaviate.actions.validate",
         "parameters": [
           {
@@ -951,7 +1048,7 @@
     },
     "/keys": {
       "post": {
-        "description": "Creates a new key.",
+        "description": "Creates a new key. Input expiration date is validated on being in the future and not longer than parent expiration date.",
         "operationId": "weaviate.key.create",
         "parameters": [
           {
@@ -992,7 +1089,7 @@
     },
     "/keys/{keyId}": {
       "delete": {
-        "description": "Deletes a key. Only parent or self is allowed to delete key.",
+        "description": "Deletes a key. Only parent or self is allowed to delete key. When you delete a key, all its children will be deleted as well.",
         "operationId": "weaviate.keys.delete",
         "parameters": [
           {
@@ -1110,7 +1207,7 @@
     },
     "/keys/{keyId}/renew-token": {
       "put": {
-        "description": "Renews the related key.",
+        "description": "Renews the related key. Validates being lower in tree than given key. Can not renew itself, unless being parent.",
         "operationId": "weaviate.keys.renew.token",
         "parameters": [
           {
@@ -1278,7 +1375,7 @@
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Registers a new thing. This method may be used only by aggregator things or adapters.",
+        "description": "Registers a new thing. Given meta-data and schema values are validated.",
         "operationId": "weaviate.things.create",
         "parameters": [
           {
@@ -1322,7 +1419,7 @@
     },
     "/things/validate": {
       "post": {
-        "description": "Validate thing.",
+        "description": "Validate a thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
         "operationId": "weaviate.things.validate",
         "parameters": [
           {
@@ -1363,7 +1460,7 @@
     },
     "/things/{thingId}": {
       "delete": {
-        "description": "Deletes a thing from the system.",
+        "description": "Deletes a thing from the system. All actions pointing to this thing, where the thing is the object of the action, are also being deleted.",
         "operationId": "weaviate.things.delete",
         "parameters": [
           {
@@ -1438,7 +1535,7 @@
         "x-available-in-websocket": false
       },
       "patch": {
-        "description": "Updates a thing data. This method supports patch semantics.",
+        "description": "Updates a thing data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "weaviate.things.patch",
         "parameters": [
           {
@@ -1463,8 +1560,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful update.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ThingGetResponse"
             }
@@ -1498,7 +1595,7 @@
         "x-available-in-websocket": false
       },
       "put": {
-        "description": "Updates a thing data.",
+        "description": "Updates a thing data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "operationId": "weaviate.things.update",
         "parameters": [
           {
@@ -1519,8 +1616,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful update.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ThingGetResponse"
             }
@@ -1594,7 +1691,7 @@
     },
     "/things/{thingId}/actions": {
       "get": {
-        "description": "Returns the actions of a thing in a list.",
+        "description": "Lists all actions in reverse order of creation, related to the thing that belongs to the used thingId.",
         "operationId": "weaviate.things.actions.list",
         "parameters": [
           {

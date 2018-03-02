@@ -947,7 +947,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        keyType,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Get the ID from the class' variables
-					return &f.usedKey, nil
+					return f.usedKey, nil
 				},
 			},
 		},

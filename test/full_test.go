@@ -1909,6 +1909,16 @@ func Test__weaviate_actions_update_JSON(t *testing.T) {
 	require.Equal(t, actionTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
 	require.Equal(t, actionTestDate, respObjectGet.Schema.(map[string]interface{})["testDateTime"].(string))
 
+	// Check thing is set to known ThingID
+	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Object.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, string(respObject.Things.Object.NrDollarCref))
+
+	// Check thing is set to known ThingIDSubject
+	require.Regexp(t, strfmt.UUIDPattern, respObject.Things.Subject.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
+	require.Equal(t, thingIDsubject, string(respObject.Things.Subject.NrDollarCref))
+
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
