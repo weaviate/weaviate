@@ -43,7 +43,7 @@ func NewWeaviateThingsValidate(ctx *middleware.Context, handler WeaviateThingsVa
 
 Validate Things schema.
 
-Validate thing.
+Validate a thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.
 
 */
 type WeaviateThingsValidate struct {

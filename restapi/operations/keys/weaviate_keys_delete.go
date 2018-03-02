@@ -43,7 +43,7 @@ func NewWeaviateKeysDelete(ctx *middleware.Context, handler WeaviateKeysDeleteHa
 
 Delete a key based on its uuid related to this key.
 
-Deletes a key. Only parent or self is allowed to delete key.
+Deletes a key. Only parent or self is allowed to delete key. When you delete a key, all its children will be deleted as well.
 
 */
 type WeaviateKeysDelete struct {

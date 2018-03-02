@@ -22,10 +22,10 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ThingHistory thing history
-// swagger:model ThingHistory
+// ActionHistory action history
+// swagger:model ActionHistory
 
-type ThingHistory struct {
+type ActionHistory struct {
 
 	// Indication whether the action is deleted
 	Deleted bool `json:"deleted,omitempty"`
@@ -33,18 +33,18 @@ type ThingHistory struct {
 	// key
 	Key *SingleRef `json:"key,omitempty"`
 
-	// An array with the history of the things.
-	PropertyHistory []*ThingHistoryObject `json:"propertyHistory"`
+	// An array with the history of the action.
+	PropertyHistory []*ActionHistoryObject `json:"propertyHistory"`
 }
 
-/* polymorph ThingHistory deleted false */
+/* polymorph ActionHistory deleted false */
 
-/* polymorph ThingHistory key false */
+/* polymorph ActionHistory key false */
 
-/* polymorph ThingHistory propertyHistory false */
+/* polymorph ActionHistory propertyHistory false */
 
-// Validate validates this thing history
-func (m *ThingHistory) Validate(formats strfmt.Registry) error {
+// Validate validates this action history
+func (m *ActionHistory) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateKey(formats); err != nil {
@@ -63,7 +63,7 @@ func (m *ThingHistory) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *ThingHistory) validateKey(formats strfmt.Registry) error {
+func (m *ActionHistory) validateKey(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Key) { // not required
 		return nil
@@ -82,7 +82,7 @@ func (m *ThingHistory) validateKey(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *ThingHistory) validatePropertyHistory(formats strfmt.Registry) error {
+func (m *ActionHistory) validatePropertyHistory(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.PropertyHistory) { // not required
 		return nil
@@ -110,7 +110,7 @@ func (m *ThingHistory) validatePropertyHistory(formats strfmt.Registry) error {
 }
 
 // MarshalBinary interface implementation
-func (m *ThingHistory) MarshalBinary() ([]byte, error) {
+func (m *ActionHistory) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -118,8 +118,8 @@ func (m *ThingHistory) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *ThingHistory) UnmarshalBinary(b []byte) error {
-	var res ThingHistory
+func (m *ActionHistory) UnmarshalBinary(b []byte) error {
+	var res ActionHistory
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

@@ -499,7 +499,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Create return Object
 		actionGetResponse.Action = *action
 
-		return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
+		// Returns accepted so a Go routine can process in the background
+		return actions.NewWeaviateActionsPatchAccepted().WithPayload(&actionGetResponse)
 	})
 	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal interface{}) middleware.Responder {
 		// Initialize response
@@ -539,7 +540,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.ActionID = UUID
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
-		return actions.NewWeaviateActionUpdateOK().WithPayload(responseObject)
+		return actions.NewWeaviateActionUpdateAccepted().WithPayload(responseObject)
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 		// Validate schema given in body with the weaviate schema
@@ -1045,7 +1046,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Create return Object
 		thingGetResponse.Thing = *thing
 
-		return things.NewWeaviateThingsPatchOK().WithPayload(&thingGetResponse)
+		// Returns accepted so a Go routine can process in the background
+		return things.NewWeaviateThingsPatchAccepted().WithPayload(&thingGetResponse)
 	})
 	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
 		// Initialize response
@@ -1085,7 +1087,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.ThingID = UUID
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
-		return things.NewWeaviateThingsUpdateOK().WithPayload(responseObject)
+		return things.NewWeaviateThingsUpdateAccepted().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
 		// Validate schema given in body with the weaviate schema

@@ -21,14 +21,14 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
-// WeaviateThingsPatchOKCode is the HTTP code returned for type WeaviateThingsPatchOK
-const WeaviateThingsPatchOKCode int = 200
+// WeaviateThingsPatchAcceptedCode is the HTTP code returned for type WeaviateThingsPatchAccepted
+const WeaviateThingsPatchAcceptedCode int = 202
 
-/*WeaviateThingsPatchOK Successful update.
+/*WeaviateThingsPatchAccepted Successfully received.
 
-swagger:response weaviateThingsPatchOK
+swagger:response weaviateThingsPatchAccepted
 */
-type WeaviateThingsPatchOK struct {
+type WeaviateThingsPatchAccepted struct {
 
 	/*
 	  In: Body
@@ -36,26 +36,26 @@ type WeaviateThingsPatchOK struct {
 	Payload *models.ThingGetResponse `json:"body,omitempty"`
 }
 
-// NewWeaviateThingsPatchOK creates WeaviateThingsPatchOK with default headers values
-func NewWeaviateThingsPatchOK() *WeaviateThingsPatchOK {
-	return &WeaviateThingsPatchOK{}
+// NewWeaviateThingsPatchAccepted creates WeaviateThingsPatchAccepted with default headers values
+func NewWeaviateThingsPatchAccepted() *WeaviateThingsPatchAccepted {
+	return &WeaviateThingsPatchAccepted{}
 }
 
-// WithPayload adds the payload to the weaviate things patch o k response
-func (o *WeaviateThingsPatchOK) WithPayload(payload *models.ThingGetResponse) *WeaviateThingsPatchOK {
+// WithPayload adds the payload to the weaviate things patch accepted response
+func (o *WeaviateThingsPatchAccepted) WithPayload(payload *models.ThingGetResponse) *WeaviateThingsPatchAccepted {
 	o.Payload = payload
 	return o
 }
 
-// SetPayload sets the payload to the weaviate things patch o k response
-func (o *WeaviateThingsPatchOK) SetPayload(payload *models.ThingGetResponse) {
+// SetPayload sets the payload to the weaviate things patch accepted response
+func (o *WeaviateThingsPatchAccepted) SetPayload(payload *models.ThingGetResponse) {
 	o.Payload = payload
 }
 
 // WriteResponse to the client
-func (o *WeaviateThingsPatchOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateThingsPatchAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(200)
+	rw.WriteHeader(202)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

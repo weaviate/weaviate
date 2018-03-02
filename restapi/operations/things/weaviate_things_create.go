@@ -43,7 +43,7 @@ func NewWeaviateThingsCreate(ctx *middleware.Context, handler WeaviateThingsCrea
 
 Create a new thing based on a thing template related to this key.
 
-Registers a new thing. This method may be used only by aggregator things or adapters.
+Registers a new thing. Given meta-data and schema values are validated.
 
 */
 type WeaviateThingsCreate struct {

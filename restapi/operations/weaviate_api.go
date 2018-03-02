@@ -62,6 +62,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		XMLProducer:           runtime.XMLProducer(),
 		MultipartformProducer: runtime.DiscardProducer,
 		TxtProducer:           runtime.TextProducer(),
+		ActionsWeaviateActionHistoryGetHandler: actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ActionsWeaviateActionHistoryGet has not yet been implemented")
+		}),
 		ActionsWeaviateActionUpdateHandler: actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionUpdate has not yet been implemented")
 		}),
@@ -169,7 +172,7 @@ type WeaviateAPI struct {
 	// It has a default implemention in the security package, however you can replace it for your particular usage.
 	BearerAuthenticator func(string, security.ScopedTokenAuthentication) runtime.Authenticator
 
-	// JSONConsumer registers a consumer for a "application/json-patch+json" mime type
+	// JSONConsumer registers a consumer for a "application/json" mime type
 	JSONConsumer runtime.Consumer
 	// BinConsumer registers a consumer for a "application/octet-stream" mime type
 	BinConsumer runtime.Consumer
@@ -210,6 +213,8 @@ type WeaviateAPI struct {
 	// APIAuthorizer provides access control (ACL/RBAC/ABAC) by providing access to the request and authenticated principal
 	APIAuthorizer runtime.Authorizer
 
+	// ActionsWeaviateActionHistoryGetHandler sets the operation handler for the weaviate action history get operation
+	ActionsWeaviateActionHistoryGetHandler actions.WeaviateActionHistoryGetHandler
 	// ActionsWeaviateActionUpdateHandler sets the operation handler for the weaviate action update operation
 	ActionsWeaviateActionUpdateHandler actions.WeaviateActionUpdateHandler
 	// ActionsWeaviateActionsCreateHandler sets the operation handler for the weaviate actions create operation
@@ -375,6 +380,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.APITokenAuth == nil {
 		unregistered = append(unregistered, "XAPITOKENAuth")
+	}
+
+	if o.ActionsWeaviateActionHistoryGetHandler == nil {
+		unregistered = append(unregistered, "actions.WeaviateActionHistoryGetHandler")
 	}
 
 	if o.ActionsWeaviateActionUpdateHandler == nil {
@@ -615,6 +624,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers == nil {
 		o.handlers = make(map[string]map[string]http.Handler)
 	}
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/actions/{actionId}/history"] = actions.NewWeaviateActionHistoryGet(o.context, o.ActionsWeaviateActionHistoryGetHandler)
 
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)
