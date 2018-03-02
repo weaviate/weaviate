@@ -12,7 +12,7 @@
  */
 
 // Package restapi with all rest API functions.
-package restapi 
+package restapi
 
 import (
 	"crypto/tls"
@@ -657,8 +657,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			messaging.ErrorMessage(insertErr)
 		}
 
-		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return keys.NewWeaviateKeyCreateOK().WithPayload(newKey) 
+		// Return SUCCESS
+		return keys.NewWeaviateKeyCreateOK().WithPayload(newKey)
 
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
