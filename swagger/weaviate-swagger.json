@@ -775,8 +775,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful updated.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -1463,8 +1463,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful update.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ThingGetResponse"
             }
