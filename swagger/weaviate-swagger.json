@@ -608,7 +608,7 @@
     },
     "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
     "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
-    "version": "0.7.7"
+    "version": "0.7.8"
   },
   "parameters": {
     "CommonPageParameterQuery": {
@@ -964,8 +964,8 @@
           }
         ],
         "responses": {
-          "202": {
-            "description": "Successfully received.",
+          "200": {
+            "description": "Successfully created.",
             "schema": {
               "$ref": "#/definitions/KeyTokenGetResponse"
             }
