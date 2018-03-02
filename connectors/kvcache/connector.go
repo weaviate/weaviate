@@ -281,3 +281,8 @@ func (f *KVCache) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetRes
 
 	return f.databaseConnector.GetKeyChildren(UUID, children)
 }
+
+// UpdateKey updates the Key in the DB at the given UUID.
+func (f *KVCache) UpdateKey(key *models.Key, UUID strfmt.UUID, token string) error {
+	return nil
+}

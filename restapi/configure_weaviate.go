@@ -12,7 +12,7 @@
  */
 
 // Package restapi with all rest API functions.
-package restapi 
+package restapi
 
 import (
 	"crypto/tls"
@@ -655,10 +655,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		insertErr := dbConnector.AddKey(&newKey.Key, newKey.KeyID, connutils.TokenHasher(newKey.Token))
 		if insertErr != nil {
 			messaging.ErrorMessage(insertErr)
+			return keys.NewWeaviateKeyCreateUnprocessableEntity().WithPayload(createErrorResponseObject(insertErr.Error()))
 		}
 
-		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return keys.NewWeaviateKeyCreateOK().WithPayload(newKey) 
+		// Return SUCCESS
+		return keys.NewWeaviateKeyCreateOK().WithPayload(newKey)
 
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
@@ -766,7 +767,44 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysMeGetOK().WithPayload(&responseObject)
 	})
 	api.KeysWeaviateKeysRenewTokenHandler = keys.WeaviateKeysRenewTokenHandlerFunc(func(params keys.WeaviateKeysRenewTokenParams, principal interface{}) middleware.Responder {
-		return keys.NewWeaviateKeysRenewTokenNotImplemented()
+		// Initialize response
+		keyResponse := models.KeyGetResponse{}
+
+		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
+		errGet := dbConnector.GetKey(params.KeyID, &keyResponse)
+
+		// Not found
+		if errGet != nil {
+			return keys.NewWeaviateKeysRenewTokenNotFound()
+		}
+
+		// Check on permissions
+		keyObject, _ := principal.(*models.KeyGetResponse)
+		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
+			return keys.NewWeaviateKeysRenewTokenForbidden()
+		}
+
+		// Can't renew own unless root
+		if keyObject.KeyID == params.KeyID && keyObject.Parent != nil {
+			return keys.NewWeaviateKeysRenewTokenForbidden()
+		}
+
+		// Generate new token
+		newToken := connutils.GenerateUUID()
+
+		// Update the key in the database
+		insertErr := dbConnector.UpdateKey(&keyResponse.Key, keyResponse.KeyID, connutils.TokenHasher(newToken))
+		if insertErr != nil {
+			messaging.ErrorMessage(insertErr)
+			return keys.NewWeaviateKeysRenewTokenUnprocessableEntity().WithPayload(createErrorResponseObject(insertErr.Error()))
+		}
+
+		// Build new token response object
+		renewObject := &models.KeyTokenGetResponse{}
+		renewObject.KeyGetResponse = keyResponse
+		renewObject.Token = newToken
+
+		return keys.NewWeaviateKeysRenewTokenOK().WithPayload(renewObject)
 	})
 
 	/*

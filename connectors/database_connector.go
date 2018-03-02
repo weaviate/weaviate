@@ -51,6 +51,7 @@ type DatabaseConnector interface {
 	GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error
 	DeleteKey(key *models.Key, UUID strfmt.UUID) error
 	GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetResponse) error
+	UpdateKey(key *models.Key, UUID strfmt.UUID, token string) error
 }
 
 // CacheConnector is the interface that all cache-connectors should have
