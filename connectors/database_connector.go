@@ -39,6 +39,7 @@ type DatabaseConnector interface {
 	ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
 	UpdateThing(thing *models.Thing, UUID strfmt.UUID) error
 	DeleteThing(thing *models.Thing, UUID strfmt.UUID) error
+	HistoryThing(UUID strfmt.UUID, history *models.ThingHistory) error
 
 	AddAction(action *models.Action, UUID strfmt.UUID) error
 	GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error

@@ -256,6 +256,11 @@ func (f *Foobar) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 	return nil
 }
 
+// HistoryThing fills the history of a thing based on its UUID
+func (f *Foobar) HistoryThing(UUID strfmt.UUID, history *models.ThingHistory) error {
+	return nil
+}
+
 // AddAction adds an action to the Foobar database with the given UUID.
 // Takes the action and a UUID as input.
 // Action is already validated against the ontology

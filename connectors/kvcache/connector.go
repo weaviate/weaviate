@@ -152,6 +152,11 @@ func (f *KVCache) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 	return f.databaseConnector.DeleteThing(thing, UUID)
 }
 
+// HistoryThing fills the history of a thing based on its UUID
+func (f *KVCache) HistoryThing(UUID strfmt.UUID, history *models.ThingHistory) error {
+	return f.databaseConnector.HistoryThing(UUID, history)
+}
+
 // AddAction function
 func (f *KVCache) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
@@ -284,5 +289,5 @@ func (f *KVCache) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetRes
 
 // UpdateKey updates the Key in the DB at the given UUID.
 func (f *KVCache) UpdateKey(key *models.Key, UUID strfmt.UUID, token string) error {
-	return nil
+	return f.databaseConnector.UpdateKey(key, UUID, token)
 }

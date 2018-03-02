@@ -62,7 +62,7 @@ const pageOverride int = 1
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
 var databaseSchema schema.WeaviateSchema
-var serverConfig config.WeaviateConfig
+var serverConfig *config.WeaviateConfig
 var dbConnector dbconnector.DatabaseConnector
 var graphQLSchema *graphqlapi.GraphQLSchema
 var messaging *messages.Messaging
@@ -488,7 +488,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &action)
 
 		// Validate schema made after patching with the weaviate schema
-		validatedErr := validation.ValidateActionBody(&action.ActionCreate, databaseSchema, dbConnector)
+		validatedErr := validation.ValidateActionBody(&action.ActionCreate, databaseSchema, dbConnector, serverConfig)
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -522,7 +522,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector)
+		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig)
 		if validatedErr != nil {
 			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -543,7 +543,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector)
+		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig)
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -560,7 +560,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateActionBody(params.Body, databaseSchema, dbConnector)
+		validatedErr := validation.ValidateActionBody(params.Body, databaseSchema, dbConnector, serverConfig)
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -820,7 +820,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector)
+		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -918,7 +918,48 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.ThingsWeaviateThingHistoryGetHandler = things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal interface{}) middleware.Responder {
-		return things.NewWeaviateThingHistoryGetNotImplemented()
+		// This is a read function, validate if allowed to read?
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, nil); !allowed {
+			return things.NewWeaviateThingHistoryGetForbidden()
+		}
+
+		// Initialize response
+		responseObject := models.ThingGetResponse{}
+		responseObject.Schema = map[string]models.JSONObject{}
+
+		// Set UUID var for easy usage
+		UUID := strfmt.UUID(params.ThingID)
+
+		// Get item from database
+		errGet := dbConnector.GetThing(UUID, &responseObject)
+
+		// Init the response variables
+		historyResponse := &models.ThingGetHistoryResponse{}
+		historyResponse.PropertyHistory = []*models.ThingHistoryObject{}
+		historyResponse.ThingID = UUID
+
+		// Set the key in the response
+		url := serverConfig.GetHostAddress()
+		historyResponse.Key = &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: principal.(*models.KeyGetResponse).KeyID,
+			Type:         connutils.RefTypeKey,
+		}
+
+		// Fill the history for these objects
+		errHist := dbConnector.HistoryThing(UUID, &historyResponse.ThingHistory)
+
+		// Check whether dont exist (both give an error) to return a not found
+		if errGet != nil && (errHist != nil || len(historyResponse.PropertyHistory) == 0) {
+			messaging.ErrorMessage(errGet)
+			messaging.ErrorMessage(errHist)
+			return things.NewWeaviateThingHistoryGetNotFound()
+		}
+
+		// Thing is deleted when we have an get error and no history error
+		// historyResponse.Deleted = errGet != nil && errHist == nil && len(historyResponse.PropertyHistory) != 0
+
+		return things.NewWeaviateThingHistoryGetOK().WithPayload(historyResponse)
 	})
 
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
@@ -993,7 +1034,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &thing)
 
 		// Validate schema made after patching with the weaviate schema
-		validatedErr := validation.ValidateThingBody(&thing.ThingCreate, databaseSchema, dbConnector)
+		validatedErr := validation.ValidateThingBody(&thing.ThingCreate, databaseSchema, dbConnector, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1027,7 +1068,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateThingBody(&params.Body.ThingCreate, databaseSchema, dbConnector)
+		validatedErr := validation.ValidateThingBody(&params.Body.ThingCreate, databaseSchema, dbConnector, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1048,7 +1089,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector)
+		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1181,7 +1222,7 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 	messaging = &messages.Messaging{}
 
 	// Load the config using the flags
-	serverConfig = config.WeaviateConfig{}
+	serverConfig = &config.WeaviateConfig{}
 	err := serverConfig.LoadConfig(connectorOptionGroup, messaging)
 
 	// Add properties to the config
@@ -1244,7 +1285,7 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 	}
 
 	// Init the GraphQL schema
-	graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, &serverConfig, &databaseSchema, messaging)
+	graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, serverConfig, &databaseSchema, messaging)
 
 	// Error init
 	errInitGQL := graphQLSchema.InitSchema()

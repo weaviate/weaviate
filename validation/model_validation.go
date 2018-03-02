@@ -16,6 +16,7 @@ package validation
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -23,7 +24,7 @@ import (
 )
 
 // ValidateThingBody Validates a thing body using the 'ThingCreate' object.
-func ValidateThingBody(thing *models.ThingCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector) error {
+func ValidateThingBody(thing *models.ThingCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) error {
 	// Validate the body
 	bve := validateBody(thing.AtClass, thing.AtContext)
 
@@ -33,13 +34,13 @@ func ValidateThingBody(thing *models.ThingCreate, databaseSchema schema.Weaviate
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(databaseSchema.ThingSchema.Schema, &thing.Schema, thing.AtClass, dbConnector)
+	sve := ValidateSchemaInBody(databaseSchema.ThingSchema.Schema, &thing.Schema, thing.AtClass, dbConnector, serverConfig)
 
 	return sve
 }
 
 // ValidateActionBody Validates a action body using the 'ActionCreate' object.
-func ValidateActionBody(action *models.ActionCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector) error {
+func ValidateActionBody(action *models.ActionCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) error {
 	// Validate the body
 	bve := validateBody(action.AtClass, action.AtContext)
 
@@ -103,24 +104,52 @@ func ValidateActionBody(action *models.ActionCreate, databaseSchema schema.Weavi
 		)
 	}
 
-	// Check whether the given object exists in the DB
-	// TODO: Use location URL to check CREF
-	ot := &models.ThingGetResponse{}
-	ote := dbConnector.GetThing(action.Things.Object.NrDollarCref, ot)
-	if ote != nil {
-		return fmt.Errorf("error finding the 'object'-thing in the database: %s", ote)
+	// Check existance of Thing, external or internal
+	if serverConfig.GetHostAddress() != *action.Things.Object.LocationURL {
+		// Search for key-information for resolving this part. Dont validate if not exists
+		instance, err := serverConfig.GetInstance(*action.Things.Object.LocationURL)
+		if err != nil {
+			return fmt.Errorf("no credentials available for the Weaviate instance for %s given in the subject-thing", *action.Things.Object.LocationURL)
+		}
+
+		// Check wheter the Object's location URL is pointing to a existing Weaviate instance
+		response, err := connutils.DoExternalRequest(instance, "things", action.Things.Object.NrDollarCref)
+		if err != nil {
+			return fmt.Errorf("given statuscode of '%s' is '%d', but 200 was expected for LocationURL given in the subject-thing", *action.Things.Object.LocationURL, response.StatusCode)
+		}
+	} else {
+		// Check whether the given Object exists in the DB
+		ot := &models.ThingGetResponse{}
+		ote := dbConnector.GetThing(action.Things.Object.NrDollarCref, ot)
+		if ote != nil {
+			return fmt.Errorf("error finding the 'Object'-thing in the database: %s", ote)
+		}
 	}
 
-	// Check whether the given subject exist in the DB
-	// TODO: Use location URL to check CREF
-	st := &models.ThingGetResponse{}
-	ste := dbConnector.GetThing(action.Things.Subject.NrDollarCref, st)
-	if ste != nil {
-		return fmt.Errorf("error finding the 'subject'-thing in the database: %s", ste)
+	// Check existance of Thing, external or internal
+	if serverConfig.GetHostAddress() != *action.Things.Subject.LocationURL {
+		// Search for key-information for resolving this part. Dont validate if not exists
+		instance, err := serverConfig.GetInstance(*action.Things.Subject.LocationURL)
+		if err != nil {
+			return fmt.Errorf("no credentials available for the Weaviate instance for %s given in the subject-thing", *action.Things.Subject.LocationURL)
+		}
+
+		// Check wheter the Subject's location URL is pointing to a existing Weaviate instance
+		response, err := connutils.DoExternalRequest(instance, "things", action.Things.Subject.NrDollarCref)
+		if err != nil {
+			return fmt.Errorf("given statuscode of '%s' is '%d', but 200 was expected for LocationURL given in the subject-thing", *action.Things.Subject.LocationURL, response.StatusCode)
+		}
+	} else {
+		// Check whether the given Subject exists in the DB
+		ot := &models.ThingGetResponse{}
+		ote := dbConnector.GetThing(action.Things.Subject.NrDollarCref, ot)
+		if ote != nil {
+			return fmt.Errorf("error finding the 'Subject'-thing in the database: %s", ote)
+		}
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(databaseSchema.ActionSchema.Schema, &action.Schema, action.AtClass, dbConnector)
+	sve := ValidateSchemaInBody(databaseSchema.ActionSchema.Schema, &action.Schema, action.AtClass, dbConnector, serverConfig)
 
 	return sve
 }
