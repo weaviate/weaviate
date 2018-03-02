@@ -29,6 +29,10 @@ deploy:
   access_key_id: GOOG4QOEU2HGYSA6CRE6
   bucket: weaviate-dist
   acl: public-read
+  on:
+   branch:
+    - master
+    - develop
   # local-dir: nightly
   skip_cleanup: true
   detect_encoding: true
