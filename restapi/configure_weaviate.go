@@ -6,13 +6,13 @@
  *
  * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @ CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 // Package restapi with all rest API functions.
-package restapi
+package restapi 
 
 import (
 	"crypto/tls"
@@ -658,7 +658,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return keys.NewWeaviateKeyCreateAccepted().WithPayload(newKey)
+		return keys.NewWeaviateKeyCreateOK().WithPayload(newKey) 
+
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
 		// Initialize response

@@ -4,11 +4,11 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2018 - 2018 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 package keys
@@ -21,14 +21,14 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
-// WeaviateKeyCreateAcceptedCode is the HTTP code returned for type WeaviateKeyCreateAccepted
-const WeaviateKeyCreateAcceptedCode int = 202
+// WeaviateKeyCreateOKCode is the HTTP code returned for type WeaviateKeyCreateOK
+const WeaviateKeyCreateOKCode int = 200
 
-/*WeaviateKeyCreateAccepted Successfully received.
+/*WeaviateKeyCreateOK Successfully created.
 
-swagger:response weaviateKeyCreateAccepted
+swagger:response weaviateKeyCreateOK
 */
-type WeaviateKeyCreateAccepted struct {
+type WeaviateKeyCreateOK struct {
 
 	/*
 	  In: Body
@@ -36,26 +36,26 @@ type WeaviateKeyCreateAccepted struct {
 	Payload *models.KeyTokenGetResponse `json:"body,omitempty"`
 }
 
-// NewWeaviateKeyCreateAccepted creates WeaviateKeyCreateAccepted with default headers values
-func NewWeaviateKeyCreateAccepted() *WeaviateKeyCreateAccepted {
-	return &WeaviateKeyCreateAccepted{}
+// NewWeaviateKeyCreateOK creates WeaviateKeyCreateOK with default headers values
+func NewWeaviateKeyCreateOK() *WeaviateKeyCreateOK {
+	return &WeaviateKeyCreateOK{}
 }
 
-// WithPayload adds the payload to the weaviate key create accepted response
-func (o *WeaviateKeyCreateAccepted) WithPayload(payload *models.KeyTokenGetResponse) *WeaviateKeyCreateAccepted {
+// WithPayload adds the payload to the weaviate key create o k response
+func (o *WeaviateKeyCreateOK) WithPayload(payload *models.KeyTokenGetResponse) *WeaviateKeyCreateOK {
 	o.Payload = payload
 	return o
 }
 
-// SetPayload sets the payload to the weaviate key create accepted response
-func (o *WeaviateKeyCreateAccepted) SetPayload(payload *models.KeyTokenGetResponse) {
+// SetPayload sets the payload to the weaviate key create o k response
+func (o *WeaviateKeyCreateOK) SetPayload(payload *models.KeyTokenGetResponse) {
 	o.Payload = payload
 }
 
 // WriteResponse to the client
-func (o *WeaviateKeyCreateAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *WeaviateKeyCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(202)
+	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

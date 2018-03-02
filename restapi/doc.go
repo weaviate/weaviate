@@ -4,11 +4,11 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2018 - 2018 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 /*
@@ -20,11 +20,11 @@ Weaviate - Semantic Graphql, RESTful Web of Things platform.
       https
     Host: localhost
     BasePath: /weaviate/v1
-    Version: 0.7.7
+    Version: 0.7.8
     Contact: Weaviate<hello@creativesoftwarefdn.org> http://www.creativesoftwarefdn.org
 
     Consumes:
-    - application/json
+    - application/json-patch+json
     - application/octet-stream
     - application/x-www-form-urlencoded
     - application/x-yaml
