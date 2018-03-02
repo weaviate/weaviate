@@ -21,13 +21,13 @@
                 "external_instances": [
                     {
                         "url": "http://localhost:8070",
-                        "api_key": "b508b10f-7951-423e-9c4f-a34ef4ee4238",
-                        "api_token": "4ab7e5cc-37e3-4b5a-b16d-35126ac9efe2"
+                        "api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
+                        "api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
                     },
                     {
                         "url": "http://127.0.0.1:8070",
-                        "api_key": "b508b10f-7951-423e-9c4f-a34ef4ee4238",
-                        "api_token": "4ab7e5cc-37e3-4b5a-b16d-35126ac9efe2"
+                        "api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
+                        "api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
                     }
                 ]
             }

@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"time"
 
+	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -26,7 +27,7 @@ import (
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
-func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *models.Schema, className string, dbConnector dbconnector.DatabaseConnector) error {
+func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *models.Schema, className string, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) error {
 	// Validate whether the class exists in the given schema
 	// Get the class by its name
 	class, err := schema.GetClassByName(weaviateSchema, className)
