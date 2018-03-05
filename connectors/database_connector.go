@@ -46,6 +46,7 @@ type DatabaseConnector interface {
 	ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error
 	UpdateAction(action *models.Action, UUID strfmt.UUID) error
 	DeleteAction(action *models.Action, UUID strfmt.UUID) error
+	HistoryAction(UUID strfmt.UUID, history *models.ActionHistory) error
 
 	AddKey(key *models.Key, UUID strfmt.UUID, token string) error
 	ValidateToken(UUID strfmt.UUID, key *models.KeyGetResponse) (token string, err error)
