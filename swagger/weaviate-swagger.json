@@ -64,7 +64,7 @@
         {
           "type": "object",
           "properties": {
-            "thingId": {
+            "actionId": {
               "format": "uuid",
               "type": "string"
             }
