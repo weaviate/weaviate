@@ -304,6 +304,11 @@ func (f *Foobar) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 	return nil
 }
 
+// HistoryAction fills the history of a Action based on its UUID
+func (f *Foobar) HistoryAction(UUID strfmt.UUID, history *models.ActionHistory) error {
+	return nil
+}
+
 // AddKey adds a key to the Foobar database with the given UUID and token.
 // UUID  = reference to the key
 // token = is the actual access token used in the API's header
