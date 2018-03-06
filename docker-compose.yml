@@ -1,0 +1,25 @@
+version: '3.2'
+services:
+  db:
+    image: cassandra:3
+    volumes: 
+      - ~/cassandra:/var/lib/cassandra
+    ports: 
+      - 7000:7000
+      - 9042:9042
+    environment: 
+      CASSANDRA_START_RPC: "true"
+  weaviate:
+    build:
+      context: .
+      args:
+        config_file: ./weaviate.conf.json
+        action_schema: ./schema/test-action-schema.json
+        thing_schema: ./schema/test-thing-schema.json
+        release: nightly
+        platform: linux
+        architecture: amd64
+    depends_on:
+      - "db"
+    environment:
+      - WEAVIATE_CASSANDRA_DB_HOST=db
