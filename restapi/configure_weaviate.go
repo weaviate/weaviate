@@ -441,6 +441,51 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get is successful
 		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
+	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams, principal interface{}) middleware.Responder {
+		// This is a read function, validate if allowed to read?
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, nil); !allowed {
+			return actions.NewWeaviateActionHistoryGetForbidden()
+		}
+
+		// Initialize response
+		responseObject := models.ActionGetResponse{}
+		responseObject.Schema = map[string]models.JSONObject{}
+
+		// Set UUID var for easy usage
+		UUID := strfmt.UUID(params.ActionID)
+
+		// Get item from database
+		errGet := dbConnector.GetAction(UUID, &responseObject)
+
+		// Init the response variables
+		historyResponse := &models.ActionGetHistoryResponse{}
+		historyResponse.PropertyHistory = []*models.ActionHistoryObject{}
+		// TODO: Rename to ActionID when issue 329 is done (https://github.com/creativesoftwarefdn/weaviate/issues/329)
+		historyResponse.ThingID = UUID
+
+		// Set the key in the response
+		url := serverConfig.GetHostAddress()
+		historyResponse.Key = &models.SingleRef{
+			LocationURL:  &url,
+			NrDollarCref: principal.(*models.KeyGetResponse).KeyID,
+			Type:         connutils.RefTypeKey,
+		}
+
+		// Fill the history for these objects
+		errHist := dbConnector.HistoryAction(UUID, &historyResponse.ActionHistory)
+
+		// Check whether dont exist (both give an error) to return a not found
+		if errGet != nil && (errHist != nil || len(historyResponse.PropertyHistory) == 0) {
+			messaging.ErrorMessage(errGet)
+			messaging.ErrorMessage(errHist)
+			return actions.NewWeaviateActionHistoryGetNotFound()
+		}
+
+		// Action is deleted when we have an get error and no history error
+		historyResponse.Deleted = errGet != nil && errHist == nil && len(historyResponse.PropertyHistory) != 0
+
+		return actions.NewWeaviateActionHistoryGetOK().WithPayload(historyResponse)
+	})
 	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal interface{}) middleware.Responder {
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
@@ -958,7 +1003,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Thing is deleted when we have an get error and no history error
-		// historyResponse.Deleted = errGet != nil && errHist == nil && len(historyResponse.PropertyHistory) != 0
+		historyResponse.Deleted = errGet != nil && errHist == nil && len(historyResponse.PropertyHistory) != 0
 
 		return things.NewWeaviateThingHistoryGetOK().WithPayload(historyResponse)
 	})

@@ -209,7 +209,7 @@ const deleteThingStatement = `
 	AND ` + colNodeCreationTime + ` = ? 
 `
 
-// selectThingHistoryStatement is used to get a single thing form the database
+// selectThingHistoryStatement is used to get the a thing history from the database
 const selectThingHistoryStatement = `
 	SELECT *
 	FROM ` + tableThingsHistory + ` 
@@ -268,8 +268,12 @@ const insertActionHistoryStatement = `
 		` + colNodeDeleted + `,
 		` + colNodeClass + `,
 		` + colNodeContext + `,
-		` + colNodeProperties + ` ) 
-	VALUES (?, ?, ?, ?, ?, ?, ?)
+		` + colNodeProperties + `,
+		` + colActionSubjectUUID + `,
+		` + colActionSubjectLocation + `,
+		` + colActionObjectUUID + `,
+		` + colActionObjectLocation + ` ) 
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 // deleteActionStatement is used to delete a single action from the database
@@ -279,6 +283,13 @@ const deleteActionStatement = `
 	AND ` + colNodeOwner + ` = ? 
 	AND ` + colNodeCreationTime + ` = ? 
 	AND ` + colActionObjectUUID + ` = ?;
+`
+
+// selectActionHistoryStatement is used to get the an action history from the database
+const selectActionHistoryStatement = `
+	SELECT *
+	FROM ` + tableActionsHistory + ` 
+	WHERE ` + colActionUUID + ` = ?
 `
 
 // Cassandra has some basic variables.
@@ -585,6 +596,10 @@ func (f *Cassandra) Init() error {
 			` + colNodeClass + ` text,
 			` + colNodeContext + ` text,
 			` + colNodeProperties + ` map<text, text>,
+			` + colActionSubjectUUID + ` uuid,
+			` + colActionSubjectLocation + ` text,
+			` + colActionObjectUUID + ` uuid,
+			` + colActionObjectLocation + ` text,
 			PRIMARY KEY ((` + colActionUUID + `), ` + colNodeCreationTime + `)
 		) WITH CLUSTERING ORDER BY (` + colNodeCreationTime + ` DESC);
 	`).Exec()
@@ -1121,6 +1136,85 @@ func (f *Cassandra) DeleteAction(action *models.Action, UUID strfmt.UUID) error 
 	}
 
 	// If success return nil, otherwise return the error
+	return nil
+}
+
+// HistoryAction fills the history of a action based on its UUID
+func (f *Cassandra) HistoryAction(UUID strfmt.UUID, history *models.ActionHistory) error {
+	// Track time of this function for debug reasons
+	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("HistoryAction: %s", UUID))
+
+	// Run the query to delete the action based on its UUID.
+	iter := f.client.Query(selectActionHistoryStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
+
+	// Initialize the 'found' variable
+	found := false
+
+	// Put everyting in a for loop, allthough there is only one result in this case
+	for {
+		// Init the map for each row
+		m := map[string]interface{}{}
+
+		// Fill the map with the current row in the iterator
+		if !iter.MapScan(m) {
+			break
+		}
+
+		// Update the 'found' variable
+		found = true
+
+		// Get the class from the map
+		class := m[colNodeClass].(string)
+
+		// Fill the response with the row
+		historyObject := &models.ActionHistoryObject{}
+		historyObject.AtClass = class
+		historyObject.AtContext = m[colNodeContext].(string)
+		historyObject.CreationTimeUnix = connutils.MakeUnixMillisecond(m[colNodeCreationTime].(time.Time))
+
+		historyObject.Things = &models.ObjectSubject{}
+
+		// Fill the things-object part of the response with a c-ref
+		historyObject.Things.Object = f.createCrefObject(
+			f.convCQLUUIDtoUUID(m[colActionObjectUUID].(gocql.UUID)),
+			m[colActionObjectLocation].(string),
+			connutils.RefTypeThing,
+		)
+
+		// Fill the things-object part of the response with a c-ref
+		historyObject.Things.Subject = f.createCrefObject(
+			f.convCQLUUIDtoUUID(m[colActionSubjectUUID].(gocql.UUID)),
+			m[colActionSubjectLocation].(string),
+			connutils.RefTypeThing,
+		)
+
+		// Initialize the schema in the response
+		responseSchema := make(map[string]interface{})
+
+		// Fill the response schema
+		err := f.fillResponseSchema(&responseSchema, m[colNodeProperties].(map[string]string), class, f.schema.ActionSchema.Schema)
+
+		// Return error if there is one
+		if err != nil {
+			return err
+		}
+
+		// Fill the schema in the response object
+		historyObject.Schema = responseSchema
+
+		history.PropertyHistory = append(history.PropertyHistory, historyObject)
+	}
+
+	// Close the iterator to get errors
+	if err := iter.Close(); err != nil {
+		return err
+	}
+
+	// If there is no history found, return an error
+	if !found {
+		return errors_.New("No history is not found in database")
+	}
+
 	return nil
 }
 
@@ -1788,6 +1882,10 @@ func (f *Cassandra) moveActionsToHistory(iter *gocql.Iter, deleted bool) error {
 			m[colNodeClass],
 			m[colNodeContext],
 			m[colNodeProperties],
+			m[colActionSubjectUUID],
+			m[colActionSubjectLocation],
+			m[colActionObjectUUID],
+			m[colActionObjectLocation],
 		).Exec()
 
 		if err != nil {

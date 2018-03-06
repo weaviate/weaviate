@@ -221,6 +221,11 @@ func (f *KVCache) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 	return f.databaseConnector.DeleteAction(action, UUID)
 }
 
+// HistoryAction fills the history of a Action based on its UUID
+func (f *KVCache) HistoryAction(UUID strfmt.UUID, history *models.ActionHistory) error {
+	return f.databaseConnector.HistoryAction(UUID, history)
+}
+
 // AddKey function
 func (f *KVCache) AddKey(key *models.Key, UUID strfmt.UUID, token string) error {
 	defer f.messaging.TimeTrack(time.Now())
