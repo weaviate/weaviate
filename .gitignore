@@ -11,6 +11,9 @@ dist
 # Do not include dist tmp
 dist_tmp
 
+# No weaviate bins
+./weaviate
+
 # Logs
 logs
 *.log

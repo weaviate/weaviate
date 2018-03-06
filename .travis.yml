@@ -1,40 +1,49 @@
-sudo: required
-language: go
-go:
-  - 1.9
-branches:
-  only:
-  - master
-  - develop
-services:
-- docker
-before_script:
-###
-# ADD TESTS!
-### 
-#- curl https://git.io/vdwgr -sL | sudo bash
-#- sudo docker ps -a
-#- sudo docker exec -it weaviate cat /var/weaviate/first_run.log
-#- cd -
-#- ROOTKEY=$(docker exec -it weaviate cat /var/weaviate/first_run.log|grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
-#- RKNR=$(echo $ROOTKEY|sed 's/\r//')
-script:
-- curl -s -L -o "goreleaser.tar.gz" "https://github.com/goreleaser/goreleaser/releases/download/v0.58.0/goreleaser_$(uname -s)_$(uname -m).tar.gz"
-- tar -xzf goreleaser.tar.gz
-- ./goreleaser --rm-dist --snapshot
-- rm goreleaser goreleaser.tar.gz
-- mv dist nightly
-- rm -r !(nightly)
-deploy:
-  provider: gcs
-  access_key_id: GOOG4QOEU2HGYSA6CRE6
-  bucket: weaviate-dist
-  acl: public-read
-  on:
-   branch:
+before_script: ~
+branches: 
+  only: 
     - master
     - develop
-  skip_cleanup: true
+deploy: 
+  access_key_id: GOOG4QOEU2HGYSA6CRE6
+  acl: public-read
+  bucket: weaviate-dist
   detect_encoding: true
-  secret_access_key:
+  provider: gcs
+  secret_access_key: 
     secure: EhYZQtPi22lksyksxWBRJxtqDcnld+CryI9L577cc+VoC8G57P9hWqrPByh22J/3X5iLf1ryNQww68RU2RJTTagPEM11O1eDwvWiso4LF2X+od6cZpwy4+FmQ0XUY7OD/65Ej0E/Hek4v0WL4B9OouWM/x5awO4iHm6ef9EniGw5wlPuqEM9cwiQWVxki8YUyKuJbWkI658eAGYl5xxj1LGQTJuCf/IiWfcQ/R9IV+PruXJ9Alh8DK4RMGDmaqbftTo5aKeidGgX+jef58yY3cgIWyDr5HAr5IFQ1hMpjHWbsl4Hhy1jc3HSS5x9BLbdD76JKHyUpTLk7t+DoM/Jks1bT2bjDBfBAtNK83JorjO95VGOZZs08FOuUylvcp+5dB49OqmAuyYiIAEe6rRK1lyQcaktIXYx30UIklTJnCVdIRu+HNbkzOadz1RlOpN3M7W2Nb5vDYzxLnfUMKJw4G1GCgUyBByNzAUUpTp2jjxR4tnVpHtbXVcWU+wVTCANV7SY41hqIFDTe5mnf8bxL9d2f1xjBsANXl1wONnVbgPZN2XaxNmHR/GvGx0h0dFO/BtYfzMu8LwrUbNKWzuxAa7VuyVfjg6wkJh1bmzP2jsZZiOWFVAlT0++1cWkq9c+oPh6tXYuvnHvvXPRigrf7AEiQss+NnGJJvitXDmo+5w=
+  skip_cleanup: true
+  true: 
+    branch: 
+      - master
+      - develop
+go: 
+  - 1.9
+language: go
+script: 
+  - |
+      if [ $TRAVIS_PULL_REQUEST = "false" ]; then
+          # Get latest goreleaser
+          curl -s -L -o "goreleaser.tar.gz" "https://github.com/goreleaser/goreleaser/releases/download/v0.58.0/goreleaser_$(uname -s)_$(uname -m).tar.gz"
+          tar -xzf goreleaser.tar.gz
+          ./goreleaser --rm-dist --snapshot
+          rm goreleaser goreleaser.tar.gz
+          # if master, upload version nr otherwise nightly
+          if [ $TRAVIS_BRANCH = "master" ]; then
+              # If the folder exsists, it will fail
+              if [ -e $(cat swagger/weaviate-swagger.json | jq '.info.version') ]
+              then
+                  # fail the script, can't overwrite an old version
+                  echo "Fail, can't overwrite an old version."
+                  exit 1
+              fi
+              mv dist $(cat swagger/weaviate-swagger.json | jq '.info.version')
+              rm -r !($(cat swagger/weaviate-swagger.json | jq '.info.version'))
+          else
+              # if master, upload version nr
+              mv dist nightly
+              rm -r !(nightly)
+          fi
+      fi
+services: 
+  - docker
+sudo: required
