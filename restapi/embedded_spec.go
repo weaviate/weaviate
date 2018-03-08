@@ -1804,7 +1804,7 @@ func init() {
     }
   ],
   "externalDocs": {
-    "url": "https://weaviate.com"
+    "url": "creativesoftwarefdn.org/weaviate"
   }
 }`))
 }
