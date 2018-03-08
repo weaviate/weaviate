@@ -105,27 +105,15 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 				)
 			}
 
-			// TODO: https://github.com/creativesoftwarefdn/weaviate/issues/237 Validate using / existing locationURL?
 			// Validate whether reference exists based on given Type
-			crefu := strfmt.UUID(pvcr["$cref"].(string))
-			if refType == connutils.RefTypeAction {
-				ar := &models.ActionGetResponse{}
-				are := dbConnector.GetAction(crefu, ar)
-				if are != nil {
-					return fmt.Errorf("error finding the 'cref' to an Action in the database: %s", are)
-				}
-			} else if refType == connutils.RefTypeKey {
-				kr := &models.KeyGetResponse{}
-				kre := dbConnector.GetKey(crefu, kr)
-				if kre != nil {
-					return fmt.Errorf("error finding the 'cref' to a Key in the database: %s", kre)
-				}
-			} else if refType == connutils.RefTypeThing {
-				tr := &models.ThingGetResponse{}
-				tre := dbConnector.GetThing(crefu, tr)
-				if tre != nil {
-					return fmt.Errorf("error finding the 'cref' to a Thing in the database: %s", tre)
-				}
+			cref := &models.SingleRef{}
+			cref.Type = refType
+			locationURL := pvcr["locationUrl"].(string)
+			cref.LocationURL = &locationURL
+			cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
+			err = ValidateSingleRef(serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk))
+			if err != nil {
+				return err
 			}
 		} else if *dt == schema.DataTypeString {
 			// Return error when the input can not be casted to a string
