@@ -32,7 +32,7 @@ type Messaging struct {
 func (f *Messaging) ExitError(code int, message interface{}) {
 	// Print Error
 	f.ErrorMessage(message.(string))
-	log.Println("ERROR: This error needs to be resolved. For more info, check https://weaviate.com/. Exiting now...")
+	log.Println("ERROR: This error needs to be resolved. For more info, check creativesoftwarefdn.org/weaviate. Exiting now...")
 
 	// Exit with code
 	os.Exit(code)
