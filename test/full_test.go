@@ -712,7 +712,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`, fakeID, getWeaviateURL())))
 	responseInvalid7b := doRequest(uri, method, "application/json", jsonStrInvalid7b, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7b.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid7b)), "error finding the 'cref' to a Thing in the database:")
+	require.Contains(t, string(getResponseBody(responseInvalid7b)), "is not found in database")
 
 	// Test invalid property string
 	jsonStrInvalid8 := bytes.NewBuffer([]byte(`{
@@ -969,7 +969,7 @@ func Test__weaviate_things_update_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check status code
-	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Equal(t, http.StatusAccepted, response.StatusCode)
 
 	// Check thing ID is same
 	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
@@ -1029,7 +1029,7 @@ func Test__weaviate_things_patch_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check status code
-	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Equal(t, http.StatusAccepted, response.StatusCode)
 
 	// Check ID is the same
 	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
@@ -1311,8 +1311,8 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 		}
 	}`, thingTestString, fakeID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
 	responseInvalidThings7 := doRequest(uri, method, "application/json", jsonStrInvalidThings7, apiKeyCmdLine, apiTokenCmdLine)
-	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings7.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings7)), "error finding the 'object'-thing in the database")
+	require.Contains(t, []int{http.StatusUnprocessableEntity, http.StatusAccepted}, responseInvalidThings7.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings7)), "'Thing is not found in database' at Object-Thing")
 
 	// Test missing things-subject locationUrl
 	jsonStrInvalidThings8 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1408,7 +1408,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, thingID, getWeaviateURL(), fakeID, getWeaviateURL())))
 	responseInvalidThings11 := doRequest(uri, method, "application/json", jsonStrInvalidThings11, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings11.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings11)), "error finding the 'subject'-thing in the database")
+	require.Contains(t, string(getResponseBody(responseInvalidThings11)), "'Thing is not found in database' at Subject-Thing")
 
 	// Correct connected things
 	actionThingsJSON := fmt.Sprintf(`,
@@ -1532,7 +1532,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, fakeID, getWeaviateURL(), actionThingsJSON)))
 	responseInvalid7b := doRequest(uri, method, "application/json", jsonStrInvalid7b, apiKeyCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7b.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid7b)), "error finding the 'cref' to a Thing in the database:")
+	require.Contains(t, string(getResponseBody(responseInvalid7b)), "Thing is not found in database' at 'cref' Thing TestAction:testCref")
 
 	// Test invalid property string
 	jsonStrInvalid8 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1861,7 +1861,7 @@ func Test__weaviate_actions_update_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check status code
-	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Equal(t, http.StatusAccepted, response.StatusCode)
 
 	// Check action ID is same
 	require.Regexp(t, strfmt.UUIDPattern, respObject.ActionID)
@@ -1943,7 +1943,7 @@ func Test__weaviate_actions_patch_JSON(t *testing.T) {
 	json.Unmarshal(body, respObject)
 
 	// Check status code
-	require.Equal(t, http.StatusOK, response.StatusCode)
+	require.Equal(t, http.StatusAccepted, response.StatusCode)
 
 	// Check ID is the same
 	require.Regexp(t, strfmt.UUIDPattern, respObject.ActionID)

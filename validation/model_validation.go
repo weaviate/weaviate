@@ -105,47 +105,13 @@ func ValidateActionBody(action *models.ActionCreate, databaseSchema schema.Weavi
 	}
 
 	// Check existance of Thing, external or internal
-	if serverConfig.GetHostAddress() != *action.Things.Object.LocationURL {
-		// Search for key-information for resolving this part. Dont validate if not exists
-		instance, err := serverConfig.GetInstance(*action.Things.Object.LocationURL)
-		if err != nil {
-			return fmt.Errorf("no credentials available for the Weaviate instance for %s given in the subject-thing", *action.Things.Object.LocationURL)
-		}
-
-		// Check wheter the Object's location URL is pointing to a existing Weaviate instance
-		response, err := connutils.DoExternalRequest(instance, "things", action.Things.Object.NrDollarCref)
-		if err != nil {
-			return fmt.Errorf("given statuscode of '%s' is '%d', but 200 was expected for LocationURL given in the subject-thing", *action.Things.Object.LocationURL, response.StatusCode)
-		}
-	} else {
-		// Check whether the given Object exists in the DB
-		ot := &models.ThingGetResponse{}
-		ote := dbConnector.GetThing(action.Things.Object.NrDollarCref, ot)
-		if ote != nil {
-			return fmt.Errorf("error finding the 'Object'-thing in the database: %s", ote)
-		}
+	if err := ValidateSingleRef(serverConfig, action.Things.Object, dbConnector, "Object-Thing"); err != nil {
+		return err
 	}
 
 	// Check existance of Thing, external or internal
-	if serverConfig.GetHostAddress() != *action.Things.Subject.LocationURL {
-		// Search for key-information for resolving this part. Dont validate if not exists
-		instance, err := serverConfig.GetInstance(*action.Things.Subject.LocationURL)
-		if err != nil {
-			return fmt.Errorf("no credentials available for the Weaviate instance for %s given in the subject-thing", *action.Things.Subject.LocationURL)
-		}
-
-		// Check wheter the Subject's location URL is pointing to a existing Weaviate instance
-		response, err := connutils.DoExternalRequest(instance, "things", action.Things.Subject.NrDollarCref)
-		if err != nil {
-			return fmt.Errorf("given statuscode of '%s' is '%d', but 200 was expected for LocationURL given in the subject-thing", *action.Things.Subject.LocationURL, response.StatusCode)
-		}
-	} else {
-		// Check whether the given Subject exists in the DB
-		ot := &models.ThingGetResponse{}
-		ote := dbConnector.GetThing(action.Things.Subject.NrDollarCref, ot)
-		if ote != nil {
-			return fmt.Errorf("error finding the 'Subject'-thing in the database: %s", ote)
-		}
+	if err := ValidateSingleRef(serverConfig, action.Things.Subject, dbConnector, "Subject-Thing"); err != nil {
+		return err
 	}
 
 	// Return the schema validation error
@@ -173,4 +139,53 @@ func validateBody(class string, context string) error {
 // validateRefType validates the reference type with one of the existing reference types
 func validateRefType(s string) bool {
 	return (s == connutils.RefTypeAction || s == connutils.RefTypeThing || s == connutils.RefTypeKey)
+}
+
+// ValidateSingleRef validates a single ref based on location URL and existance of the object in the database
+func ValidateSingleRef(serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, errorVal string) error {
+	// Check existance of Object, external or internal
+	if serverConfig.GetHostAddress() != *cref.LocationURL {
+		// Search for key-information for resolving this part. Dont validate if not exists
+		instance, err := serverConfig.GetInstance(*cref.LocationURL)
+		if err != nil {
+			return fmt.Errorf("no credentials available for the Weaviate instance for %s given in the %s", *cref.LocationURL, errorVal)
+		}
+
+		// Set endpoint
+		endpoint := ""
+		if cref.Type == connutils.RefTypeThing {
+			endpoint = "things"
+		} else if cref.Type == connutils.RefTypeAction {
+			endpoint = "actions"
+		} else if cref.Type == connutils.RefTypeKey {
+			endpoint = "keys"
+		}
+
+		// Check wheter the Object's location URL is pointing to a existing Weaviate instance
+		response, err := connutils.DoExternalRequest(instance, endpoint, cref.NrDollarCref)
+		if err != nil {
+			return fmt.Errorf("given statuscode of '%s' is '%d', but 200 was expected for LocationURL given in the %s", *cref.LocationURL, response.StatusCode, errorVal)
+		}
+	} else {
+		// Check whether the given Object exists in the DB
+		var err error
+		if cref.Type == connutils.RefTypeThing {
+			obj := &models.ThingGetResponse{}
+			err = dbConnector.GetThing(cref.NrDollarCref, obj)
+		} else if cref.Type == connutils.RefTypeAction {
+			obj := &models.ActionGetResponse{}
+			err = dbConnector.GetAction(cref.NrDollarCref, obj)
+		} else if cref.Type == connutils.RefTypeKey {
+			obj := &models.KeyGetResponse{}
+			err = dbConnector.GetKey(cref.NrDollarCref, obj)
+		} else {
+			return fmt.Errorf("'cref' type '%s' does not exists", cref.Type)
+		}
+
+		if err != nil {
+			return fmt.Errorf("error finding the '%s' in the database: '%s' at %s", cref.Type, err, errorVal)
+		}
+	}
+
+	return nil
 }
