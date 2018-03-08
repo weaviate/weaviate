@@ -21,6 +21,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -94,8 +95,8 @@ var serverScheme string
 
 var actionID string
 var actionIDs [10]string
-var expiredKey string
-var expiredID string
+var expiredToken string
+var expiredKeyID string
 var fakeID string
 var headToken string
 var headID string
@@ -106,7 +107,6 @@ var newSubAPIKeyID string
 var thingID string
 var thingIDs [10]string
 var thingIDsubject string
-var rootID string
 var unixTimeExpire int64
 
 var thingTestString string
@@ -189,197 +189,203 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 	}
 }
 
-// /******************
-//  * KEY TESTS
-//  ******************/
+/******************
+ * META TESTS
+ ******************/
 
-// TODO: TEST WRONG TOKEN / WRONG KEY COMBINATION IN HEADER
+func Test__weaviate_meta_get_JSON(t *testing.T) {
+	response := doRequest("/meta", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
-// // weaviate.key.create
-// func Test__weaviate_key_create_JSON(t *testing.T) {
-// 	// Create create request
-// 	jsonStr := bytes.NewBuffer([]byte(`{
-// 		"delete": true,
-// 		"email": "string",
-// 		"ipOrigin": ["127.0.0.*", "*"],
-// 		"keyExpiresUnix": -1,
-// 		"read": false,
-// 		"write": false,
-// 		"execute": true
-// 	}`))
-// 	response := doRequest("/keys", "POST", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
+	// Check status code of create
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
-// 	// Check status code of create
-// 	require.Equal(t, http.StatusAccepted, response.StatusCode)
+	body := getResponseBody(response)
 
-// 	body := getResponseBody(response)
+	respObject := &models.Meta{}
+	json.Unmarshal(body, respObject)
 
-// 	respObject := &models.KeyTokenGetResponse{}
-// 	json.Unmarshal(body, respObject)
+	// Check whether the returned information is the same as the data added
+	require.Equal(t, getWeaviateURL(), respObject.Hostname)
+}
 
-// 	// Check kind
-// 	testKind(t, string(*respObject.Kind), "weaviate#keyTokenGetResponse")
+/******************
+ * KEY TESTS
+ ******************/
 
-// 	// Test Rights
-// 	testBooleanValues(t, true, respObject.Delete)
-// 	testBooleanValues(t, true, respObject.Execute)
-// 	testBooleanValues(t, false, respObject.Read)
-// 	testBooleanValues(t, false, respObject.Write)
+// weaviate.key.create
+func Test__weaviate_key_create_JSON(t *testing.T) {
+	// Create create request
+	jsonStr := bytes.NewBuffer([]byte(`{
+		"delete": true,
+		"email": "string",
+		"ipOrigin": ["127.0.0.*", "*"],
+		"keyExpiresUnix": -1,
+		"read": false,
+		"write": false,
+		"execute": true
+	}`))
+	response := doRequest("/keys", "POST", "application/json", jsonStr, apiKeyCmdLine, apiTokenCmdLine)
 
-// 	// Test given Token
-// 	newAPIToken = string(respObject.Key)
-// 	testIDFormat(t, newAPIToken)
+	// Check status code of create
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	body := getResponseBody(response)
+	respObject := &models.KeyTokenGetResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	// Check whether generated UUID is added
-// 	newAPIKeyID = string(respObject.KeyID)
-// 	testIDFormat(t, newAPIKeyID)
+	// Test Rights
+	require.Equal(t, true, respObject.Delete)
+	require.Equal(t, true, respObject.Execute)
+	require.Equal(t, false, respObject.Read)
+	require.Equal(t, false, respObject.Write)
 
-// 	// Test is faster than adding to DB.
-// 	time.Sleep(1 * time.Second)
+	// Test given Token
+	newAPIToken = string(respObject.Token)
+	newAPIKeyID = string(respObject.KeyID)
 
-// 	// Create request
-// 	jsonStrNewKey := bytes.NewBuffer([]byte(`{
-// 		"delete": false,
-// 		"email": "string",
-// 		"ipOrigin": ["127.0.0.*", "*"],
-// 		"keyExpiresUnix": -1,
-// 		"read": true,
-// 		"write": true,
-// 		"execute": false
-// 	}`))
-// 	responseNewToken := doRequest("/keys", "POST", "application/json", jsonStrNewKey, newAPIToken)
+	// Check UUID-format
+	require.Regexp(t, strfmt.UUIDPattern, newAPIToken)
+	require.Regexp(t, strfmt.UUIDPattern, newAPIKeyID)
 
-// 	// Test second statuscode
-// 	testStatusCode(t, responseNewToken.StatusCode, http.StatusAccepted)
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 
-// 	// Process response
-// 	bodyNewToken := getResponseBody(responseNewToken)
-// 	respObjectNewToken := &models.KeyTokenGetResponse{}
-// 	json.Unmarshal(bodyNewToken, respObjectNewToken)
+	// ADD NEW KEY
+	// Create Sub API-Key
+	jsonStrNewKey := bytes.NewBuffer([]byte(`{
+		"delete": false,
+		"email": "string",
+		"ipOrigin": ["127.0.0.*", "*"],
+		"keyExpiresUnix": -1,
+		"read": true,
+		"write": true,
+		"execute": false
+	}`))
+	responseNewToken := doRequest("/keys", "POST", "application/json", jsonStrNewKey, newAPIKeyID, newAPIToken)
 
-// 	// Test key ID parent is correct
-// 	testID(t, respObjectNewToken.Parent, newAPIKeyID)
+	// Test second statuscode
+	require.Equal(t, http.StatusOK, responseNewToken.StatusCode)
 
-// 	// Test given Token
-// 	newSubAPIToken = string(respObjectNewToken.Key)
-// 	testIDFormat(t, newAPIToken)
+	// Process response
+	bodyNewToken := getResponseBody(responseNewToken)
+	respObjectNewToken := &models.KeyTokenGetResponse{}
+	json.Unmarshal(bodyNewToken, respObjectNewToken)
 
-// 	// Test given ID
-// 	newSubAPIKeyID = string(respObjectNewToken.KeyID)
-// 	testIDFormat(t, newAPIKeyID)
+	// Test key ID parent is correct
+	require.Equal(t, newAPIKeyID, string(respObjectNewToken.Parent.NrDollarCref))
 
-// 	// Test expiration set
-// 	testIntegerValues(t, -1, int(respObjectNewToken.KeyExpiresUnix))
+	// Test given Token
+	newSubAPIToken = string(respObject.Token)
+	newSubAPIKeyID = string(respObject.KeyID)
 
-// 	// Test Rights
-// 	testBooleanValues(t, false, respObjectNewToken.Delete)
-// 	testBooleanValues(t, false, respObjectNewToken.Execute)
-// 	testBooleanValues(t, true, respObjectNewToken.Read)
-// 	testBooleanValues(t, true, respObjectNewToken.Write)
+	// Check UUID-format
+	require.Regexp(t, strfmt.UUIDPattern, newSubAPIToken)
+	require.Regexp(t, strfmt.UUIDPattern, newSubAPIKeyID)
 
-// 	// Test is faster than adding to DB.
-// 	time.Sleep(1 * time.Second)
+	// Test expiration set
+	require.Equal(t, int64(-1), respObjectNewToken.KeyExpiresUnix)
 
-// 	// Create create request with a key that will expire soon
-// 	unixTimeExpire = connutils.NowUnix()
-// 	jsonStrNewKeySoonExpire := bytes.NewBuffer([]byte(`{
-// 		"delete": false,
-// 		"email": "expiredkey",
-// 		"ipOrigin": ["127.0.0.*", "*"],
-// 		"keyExpiresUnix": ` + strconv.FormatInt(unixTimeExpire+2000, 10) + `,
-// 		"read": true,
-// 		"write": true,
-// 		"execute": false
-// 	}`))
-// 	responseNewTokenSoonExpire := doRequest("/keys", "POST", "application/json", jsonStrNewKeySoonExpire, apiKeyCmdLine, apiTokenCmdLine)
+	// Test Rights
+	require.Equal(t, false, respObjectNewToken.Delete)
+	require.Equal(t, false, respObjectNewToken.Execute)
+	require.Equal(t, true, respObjectNewToken.Read)
+	require.Equal(t, true, respObjectNewToken.Write)
 
-// 	// Test second statuscode
-// 	testStatusCode(t, responseNewTokenSoonExpire.StatusCode, http.StatusAccepted)
+	// Test is faster than adding to DB.
+	time.Sleep(1 * time.Second)
 
-// 	bodyExpireSoon := getResponseBody(responseNewTokenSoonExpire)
-// 	respObjectExpireSoon := &models.KeyTokenGetResponse{}
-// 	json.Unmarshal(bodyExpireSoon, respObjectExpireSoon)
-// 	expiredKey = respObjectExpireSoon.Key
-// 	expiredID = string(respObjectExpireSoon.KeyID)
+	// ADD NEW KEY
+	// Create create request with a key that will expire soon
+	unixTimeExpire = connutils.NowUnix()
+	jsonStrNewKeySoonExpire := bytes.NewBuffer([]byte(`{
+		"delete": false,
+		"email": "expiredkey",
+		"ipOrigin": ["127.0.0.*", "*"],
+		"keyExpiresUnix": ` + strconv.FormatInt(unixTimeExpire+2000, 10) + `,
+		"read": true,
+		"write": true,
+		"execute": false
+	}`))
+	responseNewTokenSoonExpire := doRequest("/keys", "POST", "application/json", jsonStrNewKeySoonExpire, apiKeyCmdLine, apiTokenCmdLine)
 
-// 	time.Sleep(1 * time.Second)
+	// Test second statuscode
+	require.Equal(t, http.StatusOK, responseNewTokenSoonExpire.StatusCode)
 
-// 	// Create request that is invalid because time is lower then parent time
-// 	jsonStrNewKeyInvalid := bytes.NewBuffer([]byte(`{
-// 		"delete": false,
-// 		"email": "string",
-// 		"ipOrigin": ["127.0.0.*", "*"],
-// 		"keyExpiresUnix": ` + strconv.FormatInt(unixTimeExpire+3000, 10) + `,
-// 		"read": true,
-// 		"write": true,
-// 		"execute": false
-// 	}`))
-// 	responseNewTokenInvalid := doRequest("/keys", "POST", "application/json", jsonStrNewKeyInvalid, expiredKey)
+	bodyExpireSoon := getResponseBody(responseNewTokenSoonExpire)
+	respObjectExpireSoon := &models.KeyTokenGetResponse{}
+	json.Unmarshal(bodyExpireSoon, respObjectExpireSoon)
 
-// 	testStatusCode(t, responseNewTokenInvalid.StatusCode, http.StatusUnprocessableEntity)
-// }
+	// Set global keys
+	expiredToken = string(respObjectExpireSoon.Token)
+	expiredKeyID = string(respObjectExpireSoon.KeyID)
 
-// // weaviate.key.me.get
-// func Test__weaviate_key_me_get_JSON(t *testing.T) {
-// 	// Create get request
-// 	response := doRequest("/keys/me", "GET", "application/json", nil, newAPIToken)
+	time.Sleep(1 * time.Second)
 
-// 	// Check status code get requestsOK
-// require.Equal(t, http.StatusOK, response.StatusCode)
+	// Create request that is invalid because time is lower then parent time
+	jsonStrNewKeyInvalid := bytes.NewBuffer([]byte(`{
+		"delete": false,
+		"email": "string",
+		"ipOrigin": ["127.0.0.*", "*"],
+		"keyExpiresUnix": ` + strconv.FormatInt(unixTimeExpire+3000, 10) + `,
+		"read": true,
+		"write": true,
+		"execute": false
+	}`))
+	responseNewTokenInvalid := doRequest("/keys", "POST", "application/json", jsonStrNewKeyInvalid, expiredKeyID, expiredToken)
 
-// 	body := getResponseBody(response)
+	require.Equal(t, http.StatusUnprocessableEntity, responseNewTokenInvalid.StatusCode)
+}
 
-// 	respObject := &models.KeyTokenGetResponse{}
-// 	json.Unmarshal(body, respObject)
+// weaviate.key.me.get
+func Test__weaviate_key_me_get_JSON(t *testing.T) {
+	// Create get request
+	response := doRequest("/keys/me", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
-// 	// Add general User ID
-// 	rootID = string(respObject.Parent)
+	// Check status code get requestsOK
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
-// 	// Check ID of object
-// 	testID(t, string(respObject.KeyID), newAPIKeyID)
+	body := getResponseBody(response)
+	respObject := &models.KeyTokenGetResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	// Check kind
-// 	testKind(t, string(*respObject.Kind), "weaviate#keyTokenGetResponse")
+	// Check ID of object
+	require.Equal(t, newAPIKeyID, string(respObject.KeyID))
 
-// 	// Wait until key is expired
-// 	time.Sleep(3 * time.Second)
+	// Wait until key is expired
+	time.Sleep(3 * time.Second)
 
-// 	// Create get request with key that is expired
-// 	responseExpired := doRequest("/keys/me", "GET", "application/json", nil, expiredKey)
+	// Create get request with key that is expired
+	responseExpired := doRequest("/keys/me", "GET", "application/json", nil, expiredKeyID, expiredToken)
 
-// 	// Check status code get request
-// 	testStatusCode(t, responseExpired.StatusCode, http.StatusUnauthorized)
+	// Check status code get request
+	require.Equal(t, responseExpired.StatusCode, http.StatusUnauthorized)
+}
 
-// }
+// weaviate.key.get
+func Test__weaviate_key_get_JSON(t *testing.T) {
+	// Create get request
+	response := doRequest("/keys/"+newAPIKeyID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
 
-// // weaviate.key.get
-// func Test__weaviate_key_get_JSON(t *testing.T) {
-// 	// Create get request
-// 	response := doRequest("/keys/"+newAPIKeyID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
+	// Check status code get requestsOK)
+	require.Equal(t, http.StatusOK, response.StatusCode)
 
-// 	// Check status code get requestsOK)
-// require.Equal(t, http.StatusOK, response.StatusCode)
+	body := getResponseBody(response)
 
-// 	body := getResponseBody(response)
+	respObject := &models.KeyGetResponse{}
+	json.Unmarshal(body, respObject)
 
-// 	respObject := &models.KeyGetResponse{}
-// 	json.Unmarshal(body, respObject)
+	// Check ID of object
+	require.Equal(t, newAPIKeyID, string(respObject.KeyID))
 
-// 	// Check ID of object
-// 	testID(t, string(respObject.KeyID), newAPIKeyID)
+	// Create get request
+	responseForbidden := doRequest("/keys/"+apiKeyCmdLine, "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
-// 	// Check kind
-// 	testKind(t, string(*respObject.Kind), "weaviate#keyGetResponse")
+	// Check status code forbidden request
+	require.Equal(t, responseForbidden.StatusCode, http.StatusForbidden)
 
-// 	// Create get request
-// 	responseForbidden := doRequest("/keys/"+rootID, "GET", "application/json", nil, newAPIToken)
-
-// 	// Check status code forbidden request
-// 	testStatusCode(t, responseForbidden.StatusCode, http.StatusForbidden)
-
-// 	// Create get request with non-existing ID, check its responsecode
-// 	testNotExistsRequest(t, "/keys", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
-// }
+	// Create get request with non-existing ID, check its responsecode
+	responseNotFound := doRequest("/keys/"+fakeID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+}
 
 // // weaviate.key.children.get
 // func Test__weaviate_key_children_get_JSON(t *testing.T) {
@@ -394,7 +400,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 // 		"execute": true
 // 	}`))
 // 	responseHead := doRequest("/keys", "POST", "application/json", jsonStrKeyHead, newAPIToken)
-// 	testStatusCode(t, responseHead.StatusCode, http.StatusAccepted)
+// 	require.Equal(t, responseHead.StatusCode, http.StatusAccepted)
 // 	bodyHead := getResponseBody(responseHead)
 // 	respObjectHead := &models.KeyTokenGetResponse{}
 // 	json.Unmarshal(bodyHead, respObjectHead)
@@ -442,7 +448,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 // 	responseForbidden := doRequest("/keys/"+rootID+"/children", "GET", "application/json", nil, newAPIToken)
 
 // 	// Check status code forbidden request
-// 	testStatusCode(t, responseForbidden.StatusCode, http.StatusForbidden)
+// 	require.Equal(t, responseForbidden.StatusCode, http.StatusForbidden)
 
 // 	// Create get request with non-existing ID, check its responsecode
 // 	responseNotFound := doRequest("keys/"+fakeID+"/children", "GET", "application/json", nil, newAPIToken)
@@ -502,7 +508,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 // 		"execute": true
 // 	}`))
 // 	responseSub1 := doRequest("/keys", "POST", "application/json", jsonStrKeySub1, headToken)
-// 	testStatusCode(t, responseSub1.StatusCode, http.StatusAccepted)
+// 	require.Equal(t, responseSub1.StatusCode, http.StatusAccepted)
 // 	bodySub1 := getResponseBody(responseSub1)
 // 	respObjectSub1 := &models.KeyTokenGetResponse{}
 // 	json.Unmarshal(bodySub1, respObjectSub1)
@@ -525,7 +531,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 // 		"execute": true
 // 	}`))
 // 	responseSub2 := doRequest("/keys", "POST", "application/json", jsonStrKeySub2, headToken)
-// 	testStatusCode(t, responseSub2.StatusCode, http.StatusAccepted)
+// 	require.Equal(t, responseSub2.StatusCode, http.StatusAccepted)
 // 	bodySub2 := getResponseBody(responseSub2)
 // 	respObjectSub2 := &models.KeyTokenGetResponse{}
 // 	json.Unmarshal(bodySub2, respObjectSub2)
@@ -539,65 +545,44 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 
 // 	// Delete head with sub2, which is not allowed
 // 	responseDelHeadWithSub := doRequest("/keys/"+headID, "DELETE", "application/json", nil, sub2Token)
-// 	testStatusCode(t, responseDelHeadWithSub.StatusCode, http.StatusForbidden)
+// 	require.Equal(t, responseDelHeadWithSub.StatusCode, http.StatusForbidden)
 // 	time.Sleep(2 * time.Second)
 
 // 	// Delete sub1, check status and delay for faster check then request
 // 	responseDelSub1 := doRequest("/keys/"+sub1ID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
-// 	testStatusCode(t, responseDelSub1.StatusCode, http.StatusNoContent)
+// 	require.Equal(t, responseDelSub1.StatusCode, http.StatusNoContent)
 // 	time.Sleep(2 * time.Second)
 
 // 	// Check sub1 removed and check its statuscode (404)
 // 	responseSub1Deleted := doRequest("/keys/"+sub1ID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
-// 	testStatusCode(t, responseSub1Deleted.StatusCode, http.StatusNotFound)
+// 	require.Equal(t, responseSub1Deleted.StatusCode, http.StatusNotFound)
 // 	time.Sleep(2 * time.Second)
 
 // 	// Check sub2 exists, check positive status code
 // 	responseSub2Exists := doRequest("/keys/"+sub2ID, "GET", "application/json", nil, sub2Token)
-// 	testStatusCode(t, responseSub2Exists.StatusCode, http.StatusOK)
+// 	require.Equal(t, responseSub2Exists.StatusCode, http.StatusOK)
 // 	time.Sleep(2 * time.Second)
 
 // 	// Delete head, check status and delay for faster check then request
 // 	responseDelHead := doRequest("/keys/"+headID, "DELETE", "application/json", nil, headToken)
-// 	testStatusCode(t, responseDelHead.StatusCode, http.StatusNoContent)
+// 	require.Equal(t, responseDelHead.StatusCode, http.StatusNoContent)
 // 	time.Sleep(2 * time.Second)
 
 // 	// Check sub2 removed and check its statuscode (404)
 // 	responseSub2Deleted := doRequest("/keys/"+sub2ID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
-// 	testStatusCode(t, responseSub2Deleted.StatusCode, http.StatusNotFound)
+// 	require.Equal(t, responseSub2Deleted.StatusCode, http.StatusNotFound)
 // 	time.Sleep(2 * time.Second)
 
 // 	// Check head removed and check its statuscode (404)
 // 	responseHeadDeleted := doRequest("/keys/"+headID, "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
-// 	testStatusCode(t, responseHeadDeleted.StatusCode, http.StatusNotFound)
+// 	require.Equal(t, responseHeadDeleted.StatusCode, http.StatusNotFound)
 // 	time.Sleep(2 * time.Second)
 
 // 	// Delete key that is expired
-// 	responseExpiredDeleted := doRequest("/keys/"+expiredID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
-// 	testStatusCode(t, responseExpiredDeleted.StatusCode, http.StatusNoContent)
+// 	responseExpiredDeleted := doRequest("/keys/"+expiredKeyID, "DELETE", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
+// 	require.Equal(t, responseExpiredDeleted.StatusCode, http.StatusNoContent)
 // 	time.Sleep(2 * time.Second)
 // }
-
-/******************
- * META TESTS
- ******************/
-
-func Test__weaviate_meta_get_JSON(t *testing.T) {
-	response := doRequest("/meta", "GET", "application/json", nil, apiKeyCmdLine, apiTokenCmdLine)
-
-	// Check status code of create
-	require.Equal(t, http.StatusOK, response.StatusCode)
-
-	body := getResponseBody(response)
-
-	respObject := &models.Meta{}
-	json.Unmarshal(body, respObject)
-
-	// Check whether the returned information is the same as the data added
-	require.Equal(t, getWeaviateURL(), respObject.Hostname)
-
-	// TODO: https://github.com/creativesoftwarefdn/weaviate/issues/210
-}
 
 /******************
  * THING TESTS
@@ -2437,7 +2422,7 @@ func Test__weaviate_graphql_key_JSON(t *testing.T) {
 // func Test__weaviate_key_me_delete_JSON(t *testing.T) {
 // 	// Delete keyID from database
 // 	responseKeyIDDeleted := doRequest("/keys/me", "DELETE", "application/json", nil, newAPIToken)
-// 	testStatusCode(t, responseKeyIDDeleted.StatusCode, http.StatusNoContent)
+// 	require.Equal(t, responseKeyIDDeleted.StatusCode, http.StatusNoContent)
 //  TODO: test token in response at right time
 // }
 
