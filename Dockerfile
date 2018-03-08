@@ -16,8 +16,8 @@ FROM ubuntu:16.04
 
 # Set config args
 ARG config_file=./weaviate.conf.json 
-ARG action_schema=./schema/test-action-schema.json
-ARG thing_schema=./schema/test-thing-schema.json
+ARG action_schema=./test/schema/test-action-schema.json
+ARG thing_schema=./test/schema/test-thing-schema.json
 
 # Set parametrase build args
 ARG release=nightly
@@ -41,9 +41,9 @@ RUN apt-get -qq update && apt-get -qq install -y jq curl zip wget python-pip && 
 EXPOSE 80
 
 # Copying config files with using args
-COPY $config_file /var/weaviate/
-COPY $action_schema /var/weaviate/schema/
-COPY $thing_schema /var/weaviate/schema/
+COPY $config_file /var/weaviate/$config_file
+COPY $action_schema /var/weaviate/$action_schema
+COPY $thing_schema /var/weaviate/$thing_schema
 
 # Copy script in container
 COPY ./weaviate-entrypoint.sh /var/weaviate/weaviate-entrypoint.sh
