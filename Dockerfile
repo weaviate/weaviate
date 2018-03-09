@@ -35,6 +35,7 @@ RUN apt-get -qq update && apt-get -qq install -y jq curl zip wget python-pip && 
     cd /var/weaviate && unzip -o -q -j /var/weaviate/weaviate.zip && \
     rm /var/weaviate/weaviate.zip && \
     chmod +x /var/weaviate/weaviate && \
+    pip install --upgrade pip && \
     pip install cqlsh
     
 # Expose dgraph ports
