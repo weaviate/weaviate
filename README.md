@@ -1,5 +1,12 @@
 # Weaviate [![Build Status](https://travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=develop)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
 
+| Branch | Status        |
+| ------ |:-------------:|
+Master   | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=master)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
+Develop  | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=develop)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
+
+
+
 **A decentralised semantic, graph based Internet of Things platform based on web-semantics, GraphQL and RESTful API's.**
 
 *Important Note:
