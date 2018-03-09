@@ -20,6 +20,14 @@ go:
   - 1.9
 language: go
 script: 
+  # Running Weaviate deamon
+  - sudo docker-compose up -d
+  # Find the correct key and token
+  - ROOTTOKEN=$(sudo docker-compose logs weaviate|grep -s ROOTTOKEN|sed 's/.*ROOTTOKEN=//')
+  - ROOTKEY=$(sudo docker-compose logs weaviate|grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
+  # Run the tests
+  - go test -v ./test -args -api-key=${ROOTKEY} -api-token=${ROOTTOKEN} -server-host=127.0.0.1 -server-port=80 -server-scheme=http
+  # Install goreleaser and create build dirs
   - |
       if [ $TRAVIS_PULL_REQUEST = "false" ]; then
           # Get latest goreleaser
