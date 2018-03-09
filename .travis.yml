@@ -17,16 +17,23 @@ deploy:
       - master
       - develop
 go: 
-  - 1.9
+  # Always ONLY use latest Go version
+  - "1.10"
 language: go
+before_script:
+  - sudo apt-get -qq -y update
+  - sudo apt-get -qq -y install jq
 script: 
   # Running Weaviate deamon
   - sudo docker-compose up -d
-  # Find the correct key and token
+  # Find the correct ip, key and token
+  - WEAVAITEIP=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' weaviate_weaviate_1)
   - ROOTTOKEN=$(sudo docker-compose logs weaviate|grep -s ROOTTOKEN|sed 's/.*ROOTTOKEN=//')
   - ROOTKEY=$(sudo docker-compose logs weaviate|grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
   # Run the tests
-  - go test -v ./test -args -api-key=${ROOTKEY} -api-token=${ROOTTOKEN} -server-host=127.0.0.1 -server-port=80 -server-scheme=http
+  - |
+      set -e
+      go test -v ./test -args -api-key=${ROOTKEY} -api-token=${ROOTTOKEN} -server-host=${WEAVAITEIP} -server-port=80 -server-scheme=http
   # Install goreleaser and create build dirs
   - |
       if [ $TRAVIS_PULL_REQUEST = "false" ]; then
