@@ -20,6 +20,8 @@ go:
   # Always ONLY use latest Go version
   - "1.10"
 language: go
+install:
+  - go get -t ./...
 before_script:
   - sudo apt-get -qq -y update
   - sudo apt-get -qq -y install jq
