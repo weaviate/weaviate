@@ -17,12 +17,12 @@
 WEAVIATE_SCHEME=${WEAVIATE_SCHEME:-http}
 WEAVIATE_PORT=${WEAVIATE_PORT:-80}
 WEAVIATE_HOST=${WEAVIATE_HOST:-0.0.0.0}
-#WEAVIATE_CONFIG=${WEAVIATE_CONFIG:-cassandra_docker}
+WEAVIATE_CONFIG=${WEAVIATE_CONFIG:-cassandra_docker}
 WEAVIATE_CONFIG_FILE=${WEAVIATE_CONFIG_FILE:-./weaviate.conf.json}
 CQLVERSION=${CQLVERSION:-3.4.4}
 
 # Loop for checking connection to cassandra DB
-#if [ "$WEAVIATE_CONFIG" == "cassandra_docker" ]; then
+if [ "$WEAVIATE_CONFIG" == "cassandra_docker" ]; then
   counter=1
   until cqlsh --cqlversion=$CQLVERSION "$WEAVIATE_CASSANDRA_DB_HOST" -e exit; do
     >&2 echo "Cassandra is unavailable - sleeping"
@@ -33,9 +33,12 @@ CQLVERSION=${CQLVERSION:-3.4.4}
       break 
     fi
   done
-#else
-#  echo "DB is not cassandra"
-#fi
+else
+  echo "DB is not cassandra"
+fi
+
+# Starting message
+echo "STARTING: ${WEAVIATE_CONFIG}"
 
 # Starting main process of container
-exec ./weaviate --scheme=${WEAVIATE_SCHEME} --port=${WEAVIATE_PORT} --host=${WEAVIATE_HOST} --config="cassandra_docker" --config-file=${WEAVIATE_CONFIG_FILE}
+exec ./weaviate --scheme=${WEAVIATE_SCHEME} --port=${WEAVIATE_PORT} --host=${WEAVIATE_HOST} --config=${WEAVIATE_CONFIG} --config-file=${WEAVIATE_CONFIG_FILE}
