@@ -33,5 +33,8 @@ services:
         architecture: amd64
     depends_on:
       - "db"
+    ports: 
+      - 80:80
+      - 443:443
     environment:
       - WEAVIATE_CASSANDRA_DB_HOST=db
