@@ -32,7 +32,11 @@ script:
   - ROOTKEY=$(sudo docker-compose logs weaviate|grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
   # Run the tests
   - |
+      # On error, quit
       set -e
+      # Sleep to make sure is all up and running
+      sleep 15
+      # Test!
       go test -v ./test -args -api-key=${ROOTKEY} -api-token=${ROOTTOKEN} -server-host=${WEAVAITEIP} -server-port=80 -server-scheme=http
   # Install goreleaser and create build dirs
   - |
