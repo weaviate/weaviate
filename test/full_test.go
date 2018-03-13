@@ -495,6 +495,49 @@ func Test__weaviate_key_me_children_get_JSON(t *testing.T) {
 	require.Equal(t, checkIDs[1], responseChildren[1])
 }
 
+// weaviate.key.renew.token
+func Test__weaviate_key_renew_token_JSON(t *testing.T) {
+	// Create renew request
+	response := doRequest("/keys/"+headKeyID+"/renew-token", "PUT", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
+
+	// Check status code get requestsOK
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Translate body
+	body := getResponseBody(response)
+	respObject := &models.KeyTokenGetResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Update headtoken
+	headToken = string(respObject.Token)
+
+	// Create get request with this token and key of changed key
+	responseAfterRenew := doRequest("/keys/me", "GET", "application/json", nil, headKeyID, headToken)
+
+	// Check status code get requestsOK
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Translate body
+	bodyAfterRenew := getResponseBody(responseAfterRenew)
+	respObjectAfterRenew := &models.KeyGetResponse{}
+	json.Unmarshal(bodyAfterRenew, respObjectAfterRenew)
+
+	// Check ID of object
+	require.Equal(t, headKeyID, string(respObjectAfterRenew.KeyID))
+
+	// Create renew request for higher in tree, this is forbidden
+	responseForbidden := doRequest("/keys/"+newAPIKeyID+"/renew-token", "PUT", "application/json", nil, headKeyID, headToken)
+	require.Equal(t, responseForbidden.StatusCode, http.StatusForbidden)
+
+	// Create renew request for own key, this is forbidden
+	responseForbidden2 := doRequest("/keys/"+headKeyID+"/renew-token", "PUT", "application/json", nil, headKeyID, headToken)
+	require.Equal(t, responseForbidden2.StatusCode, http.StatusForbidden)
+
+	// Create get request with non-existing ID, check its responsecode
+	responseNotFound := doRequest("/keys/"+fakeID+"/renew-token", "PUT", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+}
+
 /******************
  * THING TESTS
  ******************/
