@@ -34,7 +34,7 @@
 			"database": {
 				"name": "cassandra",
 				"database_config": {
-					"host": "db",
+					"host": "db_cassandra",
 					"port": 7000,
 					"keyspace": "weaviate"
 				}
