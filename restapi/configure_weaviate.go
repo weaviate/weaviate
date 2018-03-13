@@ -201,7 +201,7 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 		// Get the key to delete
 		dbConnector.GetKey(keyID, &keyResponse)
 
-		go databaseConnector.DeleteKey(&keyResponse.Key, keyID)
+		databaseConnector.DeleteKey(&keyResponse.Key, keyID)
 	}
 }
 
