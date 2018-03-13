@@ -918,6 +918,9 @@ func (f *Cassandra) HistoryThing(UUID strfmt.UUID, history *models.ThingHistory)
 		// Get the class from the map
 		class := m[colNodeClass].(string)
 
+		// Set the key in the response
+		history.Key = f.createCrefObject(f.convCQLUUIDtoUUID(m[colNodeOwner].(gocql.UUID)), f.serverAddress, connutils.RefTypeKey)
+
 		// Fill the response with the row
 		historyObject := &models.ThingHistoryObject{}
 		historyObject.AtClass = class
@@ -1165,6 +1168,9 @@ func (f *Cassandra) HistoryAction(UUID strfmt.UUID, history *models.ActionHistor
 
 		// Get the class from the map
 		class := m[colNodeClass].(string)
+
+		// Set the key in the response
+		history.Key = f.createCrefObject(f.convCQLUUIDtoUUID(m[colNodeOwner].(gocql.UUID)), f.serverAddress, connutils.RefTypeKey)
 
 		// Fill the response with the row
 		historyObject := &models.ActionHistoryObject{}

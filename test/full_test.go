@@ -142,6 +142,13 @@ var actionTestBoolean bool
 var actionTestNumber float64
 var actionTestDate string
 
+const (
+	newStringValue  string = "new_value"
+	newStringValue2 string = "new_value_2"
+	newIntValue     int64  = 12345
+	newIntValue2    int64  = 67890
+)
+
 var messaging *messages.Messaging
 
 func init() {
@@ -214,7 +221,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
  * META TESTS
  ******************/
 
-func Test__weaviate_PUT_meta_JSON(t *testing.T) {
+func Test__weaviate_GET_meta_JSON(t *testing.T) {
 	response := doRequest("/meta", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
 	// Check status code of create
@@ -233,8 +240,7 @@ func Test__weaviate_PUT_meta_JSON(t *testing.T) {
  * KEY TESTS
  ******************/
 
-// weaviate.key.create
-func Test__weaviate_POST_key_JSON_root_child(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_root_child(t *testing.T) {
 	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(`{
 		"delete": true,
@@ -268,7 +274,7 @@ func Test__weaviate_POST_key_JSON_root_child(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, newAPIKeyID)
 }
 
-func Test__weaviate_POST_key_JSON_root_child_child(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_root_child_child(t *testing.T) {
 	// ADD NEW KEY
 	// Create Sub API-Key
 	jsonStrNewKey := bytes.NewBuffer([]byte(`{
@@ -311,7 +317,7 @@ func Test__weaviate_POST_key_JSON_root_child_child(t *testing.T) {
 	require.Equal(t, true, respObjectNewToken.Write)
 }
 
-func Test__weaviate_POST_key_JSON_root_child_child_2(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_root_child_child_2(t *testing.T) {
 	// HEAD: Create create request tree-head and process request, for further tests
 	jsonStrKeyHead := bytes.NewBuffer([]byte(`{
 		"delete": true,
@@ -337,7 +343,7 @@ func Test__weaviate_POST_key_JSON_root_child_child_2(t *testing.T) {
 	headKeyID = string(respObjectHead.KeyID)
 }
 
-func Test__weaviate_POST_key_JSON_root_child_child_child_1(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_root_child_child_child_1(t *testing.T) {
 	// SUB1: Create create request and process request
 	jsonStrKeySub1 := bytes.NewBuffer([]byte(`{
 		"delete": true,
@@ -362,7 +368,7 @@ func Test__weaviate_POST_key_JSON_root_child_child_child_1(t *testing.T) {
 	sub1Token = string(respObjectSub1.Token)
 	sub1KeyID = string(respObjectSub1.KeyID)
 }
-func Test__weaviate_POST_key_JSON_root_child_child_child_2(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_root_child_child_child_2(t *testing.T) {
 	// SUB2: Create create request and process request
 	jsonStrKeySub2 := bytes.NewBuffer([]byte(`{
 		"delete": true,
@@ -388,7 +394,7 @@ func Test__weaviate_POST_key_JSON_root_child_child_child_2(t *testing.T) {
 	sub2KeyID = string(respObjectSub2.KeyID)
 }
 
-func Test__weaviate_POST_key_JSON_expire_soon(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_expire_soon(t *testing.T) {
 	// Create create request with a key that will expire soon
 	unixTimeExpire = connutils.NowUnix()
 	jsonStrNewKeySoonExpire := bytes.NewBuffer([]byte(`{
@@ -414,7 +420,7 @@ func Test__weaviate_POST_key_JSON_expire_soon(t *testing.T) {
 	expiredKeyID = string(respObjectExpireSoon.KeyID)
 }
 
-func Test__weaviate_POST_key_JSON_invalid_expiry_time(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_invalid_expiry_time(t *testing.T) {
 	// Create request that is invalid because time is lower then parent time
 	jsonStrNewKeyInvalid := bytes.NewBuffer([]byte(`{
 		"delete": false,
@@ -430,8 +436,7 @@ func Test__weaviate_POST_key_JSON_invalid_expiry_time(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity, responseNewTokenInvalid.StatusCode)
 }
 
-// weaviate.key.me.get
-func Test__weaviate_GET_key_me_JSON(t *testing.T) {
+func Test__weaviate_GET_keys_me_JSON(t *testing.T) {
 	// Create get request
 	response := doRequest("/keys/me", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
@@ -446,7 +451,7 @@ func Test__weaviate_GET_key_me_JSON(t *testing.T) {
 	require.Equal(t, newAPIKeyID, string(respObject.KeyID))
 }
 
-func Test__weaviate_GET_key_me_JSON_expired(t *testing.T) {
+func Test__weaviate_GET_keys_me_JSON_expired(t *testing.T) {
 	// Create get request with key that is not yet expired
 	responseNotYetExpired := doRequest("/keys/me", "GET", "application/json", nil, expiredKeyID, expiredToken)
 	require.Equal(t, http.StatusOK, responseNotYetExpired.StatusCode)
@@ -459,8 +464,7 @@ func Test__weaviate_GET_key_me_JSON_expired(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, responseExpired.StatusCode)
 }
 
-// weaviate.key.get
-func Test__weaviate_GET_key_id_JSON(t *testing.T) {
+func Test__weaviate_GET_keys_id_JSON(t *testing.T) {
 	// Create get request
 	response := doRequest("/keys/"+newAPIKeyID, "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
@@ -476,7 +480,7 @@ func Test__weaviate_GET_key_id_JSON(t *testing.T) {
 	require.Equal(t, newAPIKeyID, string(respObject.KeyID))
 }
 
-func Test__weaviate_GET_key_id_JSON_forbidden(t *testing.T) {
+func Test__weaviate_GET_keys_id_JSON_forbidden(t *testing.T) {
 	// Create get request
 	responseForbidden := doRequest("/keys/"+apiKeyIDCmdLine, "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
@@ -488,8 +492,7 @@ func Test__weaviate_GET_key_id_JSON_forbidden(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-// weaviate.key.children.get
-func Test__weaviate_GET_key_id_children_JSON(t *testing.T) {
+func Test__weaviate_GET_keys_id_children_JSON(t *testing.T) {
 
 	// Create get request
 	response := doRequest("/keys/"+newAPIKeyID+"/children", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -525,20 +528,19 @@ func Test__weaviate_GET_key_id_children_JSON(t *testing.T) {
 	require.Equal(t, checkIDs[1], responseChildren[1])
 }
 
-func Test__weaviate_GET_key_id_children_JSON_forbidden(t *testing.T) {
+func Test__weaviate_GET_keys_id_children_JSON_forbidden(t *testing.T) {
 	// Create get forbidden request, check response code
 	responseForbidden := doRequest("/keys/"+apiKeyIDCmdLine+"/children", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 	require.Equal(t, http.StatusForbidden, responseForbidden.StatusCode)
 }
 
-func Test__weaviate_GET_key_id_children_JSON_not_found(t *testing.T) {
+func Test__weaviate_GET_keys_id_children_JSON_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/keys/"+fakeID+"/children", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-// weaviate.key.me.children.get
-func Test__weaviate_GET_key_me_children_JSON_(t *testing.T) {
+func Test__weaviate_GET_keys_me_children_JSON_(t *testing.T) {
 	// Create get request
 	response := doRequest("/keys/me/children", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
@@ -573,8 +575,7 @@ func Test__weaviate_GET_key_me_children_JSON_(t *testing.T) {
 	require.Equal(t, checkIDs[1], responseChildren[1])
 }
 
-// weaviate.key.renew.token
-func Test__weaviate_PUT_key_id_renew_token_JSON(t *testing.T) {
+func Test__weaviate_PUT_keys_id_renew_token_JSON(t *testing.T) {
 	// Create renew request
 	response := doRequest("/keys/"+headKeyID+"/renew-token", "PUT", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
@@ -604,19 +605,19 @@ func Test__weaviate_PUT_key_id_renew_token_JSON(t *testing.T) {
 	require.Equal(t, headKeyID, string(respObjectAfterRenew.KeyID))
 }
 
-func Test__weaviate_PUT_key_id_renew_token_JSON_forbidden_parent(t *testing.T) {
+func Test__weaviate_PUT_keys_id_renew_token_JSON_forbidden_parent(t *testing.T) {
 	// Create renew request for higher in tree, this is forbidden
 	responseForbidden := doRequest("/keys/"+newAPIKeyID+"/renew-token", "PUT", "application/json", nil, headKeyID, headToken)
 	require.Equal(t, responseForbidden.StatusCode, http.StatusForbidden)
 }
 
-func Test__weaviate_PUT_key_id_renew_token_JSON_forbidden_own(t *testing.T) {
+func Test__weaviate_PUT_keys_id_renew_token_JSON_forbidden_own(t *testing.T) {
 	// Create renew request for own key, this is forbidden
 	responseForbidden2 := doRequest("/keys/"+headKeyID+"/renew-token", "PUT", "application/json", nil, headKeyID, headToken)
 	require.Equal(t, responseForbidden2.StatusCode, http.StatusForbidden)
 }
 
-func Test__weaviate_PUT_key_id_renew_token_JSON_not_found(t *testing.T) {
+func Test__weaviate_PUT_keys_id_renew_token_JSON_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/keys/"+fakeID+"/renew-token", "PUT", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
@@ -798,7 +799,6 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	require.Contains(t, string(getResponseBody(responseInvalid12)), "requires a string with a RFC3339 formatted date. The given value is")
 }
 
-// weaviate.thing.create
 func Test__weaviate_POST_things_JSON(t *testing.T) {
 	// Set all thing values to compare
 	thingTestString = "Test string"
@@ -894,7 +894,6 @@ func Test__weaviate_POST_things_JSON_invalid(t *testing.T) {
 	performInvalidThingRequests(t, "/things", "POST")
 }
 
-// weaviate.thing.list
 func Test__weaviate_GET_things_JSON(t *testing.T) {
 	// Create list request
 	response := doRequest("/things", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -945,7 +944,6 @@ func Test__weaviate_GET_things_JSON_limit_offset(t *testing.T) {
 	require.Equal(t, thingIDs[7], string(listResponseObject2.Things[2].ThingID))
 }
 
-// weaviate.thing.get
 func Test__weaviate_GET_things_id_JSON(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingIDs[0], "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -978,10 +976,27 @@ func Test__weaviate_GET_things_id_JSON_not_found(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-// weaviate.thing.update
+func Test__weaviate_GET_things_id_history_JSON_no_updates_yet(t *testing.T) {
+	// Create patch request
+	response := doRequest("/things/"+thingID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
+
+	// Translate body
+	body := getResponseBody(response)
+	respObject := &models.ThingGetHistoryResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check status code
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Check length = 0
+	require.Len(t, respObject.PropertyHistory, 0)
+
+	// Check deleted is false
+	require.Equal(t, false, respObject.Deleted)
+}
+
 func Test__weaviate_PUT_things_id_JSON(t *testing.T) {
 	// Create update request
-	newValue := "New string updated!"
 	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 		"@context": "http://example.org",
 		"@class": "TestThing",
@@ -992,7 +1007,7 @@ func Test__weaviate_PUT_things_id_JSON(t *testing.T) {
 			"testNumber": %f,
 			"testDateTime": "%s"
 		}
-	}`, newValue, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate)))
+	}`, newStringValue, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate)))
 	response := doRequest("/things/"+thingID, "PUT", "application/json", jsonStr, apiKeyIDCmdLine, apiTokenCmdLine)
 
 	body := getResponseBody(response)
@@ -1009,7 +1024,7 @@ func Test__weaviate_PUT_things_id_JSON(t *testing.T) {
 	require.Equal(t, thingID, string(respObject.ThingID))
 
 	// Check whether the returned information is the same as the data updated
-	require.Equal(t, newValue, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newStringValue, respObject.Schema.(map[string]interface{})["testString"].(string))
 	require.Equal(t, thingTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, thingTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, thingTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
@@ -1033,7 +1048,7 @@ func Test__weaviate_PUT_things_id_JSON(t *testing.T) {
 	json.Unmarshal(bodyGet, respObjectGet)
 
 	// Check whether the returned information is the same as the data updated
-	require.Equal(t, newValue, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newStringValue, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
 	require.Equal(t, thingTestInt, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, thingTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, thingTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
@@ -1051,12 +1066,9 @@ func Test__weaviate_PUT_things_id_JSON_not_found(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-// weaviate.thing.patch
 func Test__weaviate_PATCH_things_id_JSON(t *testing.T) {
 	// Create patch request
-	newValue := "New string patched!"
-
-	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testString", "value": "` + newValue + `"}]`))
+	jsonStr := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testString", "value": "` + newStringValue2 + `"}]`))
 	response := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStr, apiKeyIDCmdLine, apiTokenCmdLine)
 
 	body := getResponseBody(response)
@@ -1073,7 +1085,7 @@ func Test__weaviate_PATCH_things_id_JSON(t *testing.T) {
 	require.Equal(t, thingID, string(respObject.ThingID))
 
 	// Check whether the returned information is the same as the data updated
-	require.Equal(t, newValue, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newStringValue2, respObject.Schema.(map[string]interface{})["testString"].(string))
 	require.Equal(t, thingTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, thingTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, thingTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
@@ -1097,7 +1109,7 @@ func Test__weaviate_PATCH_things_id_JSON(t *testing.T) {
 	json.Unmarshal(bodyGet, respObjectGet)
 
 	// Check whether the returned information is the same as the data updated
-	require.Equal(t, newValue, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newStringValue2, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
 	require.Equal(t, thingTestInt, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, thingTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, thingTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
@@ -1175,6 +1187,53 @@ func Test__weaviate_PATCH_things_id_JSON_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+}
+
+func Test__weaviate_GET_things_id_history_JSON(t *testing.T) {
+	// Create patch request
+	response := doRequest("/things/"+thingID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
+
+	// Translate body
+	body := getResponseBody(response)
+	respObject := &models.ThingGetHistoryResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check status code
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Check ID is the same
+	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, string(respObject.ThingID))
+
+	// Check deleted
+	require.Equal(t, false, respObject.Deleted)
+
+	// Check key
+	require.Equal(t, apiKeyIDCmdLine, string(respObject.Key.NrDollarCref))
+
+	// Check whether the returned information is the same as the data updated
+	require.Len(t, respObject.PropertyHistory, 2)
+	require.Equal(t, "TestThing", respObject.PropertyHistory[0].AtClass)
+	require.Equal(t, thingTestString, respObject.PropertyHistory[1].Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newStringValue, respObject.PropertyHistory[0].Schema.(map[string]interface{})["testString"].(string))
+
+	// Check creation time
+	now := connutils.NowUnix()
+	require.Conditionf(t, func() bool { return !(respObject.PropertyHistory[0].CreationTimeUnix > now) }, "CreationTimeUnix is incorrect, it was set in the future.")
+	require.Conditionf(t, func() bool { return !(respObject.PropertyHistory[0].CreationTimeUnix < now-20000) }, "CreationTimeUnix is incorrect, it was set to far back.")
+}
+
+func Test__weaviate_GET_things_id_history_JSON_forbidden(t *testing.T) {
+	// Create patch request
+	response := doRequest("/things/"+thingID+"/history", "GET", "application/json", nil, headKeyID, headToken)
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
+func Test__weaviate_GET_things_id_history_JSON_not_found(t *testing.T) {
+	// Create patch request
+	response := doRequest("/things/"+fakeID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusNotFound, response.StatusCode)
 }
 
 func Test__weaviate_POST_things_validate_JSON(t *testing.T) {
@@ -1637,7 +1696,6 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	require.Contains(t, string(getResponseBody(responseInvalid12)), "requires a string with a RFC3339 formatted date. The given value is")
 }
 
-// weaviate.actions.create
 func Test__weaviate_POST_actions_JSON(t *testing.T) {
 	// Set all thing values to compare
 	actionTestString = "Test string 2"
@@ -1775,7 +1833,6 @@ func Test__weaviate_POST_actions_JSON_invalid(t *testing.T) {
 	time.Sleep(1 * time.Second)
 }
 
-// weaviate.things.actions.list
 func Test__weaviate_GET_things_id_actions_JSON(t *testing.T) {
 	// Create list request
 	response := doRequest("/things/"+thingID+"/actions", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -1828,7 +1885,6 @@ func Test__weaviate_GET_things_id_actions_JSON_limit_offset(t *testing.T) {
 	require.Equal(t, actionIDs[7], string(listResponseObject2.Actions[2].ActionID))
 }
 
-// weaviate.action.get
 func Test__weaviate_GET_actions_id_JSON(t *testing.T) {
 	// Create get request
 	response := doRequest("/actions/"+actionID, "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -1871,10 +1927,26 @@ func Test__weaviate_GET_actions_id_JSON_not_found(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-// weaviate.action.update
+func Test__weaviate_GET_actions_id_history_JSON_no_updates_yet(t *testing.T) {
+	// Create patch request
+	response := doRequest("/actions/"+actionID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
+
+	// Translate body
+	body := getResponseBody(response)
+	respObject := &models.ActionGetHistoryResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check status code
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Check length = 0
+	require.Len(t, respObject.PropertyHistory, 0)
+
+	// Check deleted is false
+	require.Equal(t, false, respObject.Deleted)
+}
+
 func Test__weaviate_PUT_actions_id_JSON(t *testing.T) {
-	// Create update request
-	newValue := "New string updated!"
 	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 		"@context": "http://schema.org",
@@ -1903,7 +1975,7 @@ func Test__weaviate_PUT_actions_id_JSON(t *testing.T) {
 				"type": "Thing"
 			}
 		}
-	}`, newValue, actionTestInt, actionTestBoolean, actionTestNumber, actionTestDate, thingID, getWeaviateURL(), thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
+	}`, newStringValue, actionTestInt, actionTestBoolean, actionTestNumber, actionTestDate, thingID, getWeaviateURL(), thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
 	response := doRequest("/actions/"+actionID, "PUT", "application/json", jsonStr, apiKeyIDCmdLine, apiTokenCmdLine)
 
 	body := getResponseBody(response)
@@ -1930,7 +2002,7 @@ func Test__weaviate_PUT_actions_id_JSON(t *testing.T) {
 	require.Equal(t, thingIDsubject, string(respObject.Things.Subject.NrDollarCref))
 
 	// Check whether the returned information is the same as the data updated
-	require.Equal(t, newValue, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newStringValue, respObject.Schema.(map[string]interface{})["testString"].(string))
 	require.Equal(t, actionTestInt, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, actionTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, actionTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
@@ -1954,7 +2026,7 @@ func Test__weaviate_PUT_actions_id_JSON(t *testing.T) {
 	json.Unmarshal(bodyGet, respObjectGet)
 
 	// Check whether the returned information is the same as the data updated
-	require.Equal(t, newValue, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newStringValue, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
 	require.Equal(t, actionTestInt, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, actionTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, actionTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
@@ -1980,14 +2052,9 @@ func Test__weaviate_PUT_actions_id_JSON_not_found(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-// weaviate.action.patch
 func Test__weaviate_PATCH_actions_id_JSON(t *testing.T) {
-	// Create patch request
-	newValue := int64(1337)
-	newValueStr := "New string patched!"
-
 	// Create JSON and do the request
-	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testInt", "value": %d}, { "op": "replace", "path": "/schema/testString", "value": "%s"}]`, newValue, newValueStr)))
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testInt", "value": %d}, { "op": "replace", "path": "/schema/testString", "value": "%s"}]`, newIntValue, newStringValue2)))
 	response := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStr, apiKeyIDCmdLine, apiTokenCmdLine)
 
 	body := getResponseBody(response)
@@ -2004,8 +2071,8 @@ func Test__weaviate_PATCH_actions_id_JSON(t *testing.T) {
 	require.Equal(t, actionID, string(respObject.ActionID))
 
 	// Check whether the returned information is the same as the data updated
-	require.Equal(t, newValueStr, respObject.Schema.(map[string]interface{})["testString"].(string))
-	require.Equal(t, newValue, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, newStringValue2, respObject.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newIntValue, int64(respObject.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, actionTestBoolean, respObject.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, actionTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
 	require.Equal(t, actionTestDate, respObject.Schema.(map[string]interface{})["testDateTime"].(string))
@@ -2029,8 +2096,8 @@ func Test__weaviate_PATCH_actions_id_JSON(t *testing.T) {
 	json.Unmarshal(bodyGet, respObjectGet)
 
 	// Check whether the returned information is the same as the data updated
-	require.Equal(t, newValueStr, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
-	require.Equal(t, newValue, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
+	require.Equal(t, newStringValue2, respObjectGet.Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newIntValue, int64(respObjectGet.Schema.(map[string]interface{})["testInt"].(float64)))
 	require.Equal(t, actionTestBoolean, respObjectGet.Schema.(map[string]interface{})["testBoolean"].(bool))
 	require.Equal(t, actionTestNumber, respObjectGet.Schema.(map[string]interface{})["testNumber"].(float64))
 	require.Equal(t, actionTestDate, respObjectGet.Schema.(map[string]interface{})["testDateTime"].(string))
@@ -2048,6 +2115,74 @@ func Test__weaviate_PATCH_actions_id_JSON_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+}
+
+func Test__weaviate_GET_actions_id_history_JSON(t *testing.T) {
+	// Create patch request
+	response := doRequest("/actions/"+actionID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
+
+	// Translate body
+	body := getResponseBody(response)
+	respObject := &models.ActionGetHistoryResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check status code
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Check ID is the same
+	// TODO: Rename to ActionID when issue 329 is done (https://github.com/creativesoftwarefdn/weaviate/issues/329)
+	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
+	require.Regexp(t, strfmt.UUIDPattern, actionID)
+	require.Equal(t, actionID, string(respObject.ThingID))
+
+	// Check deleted
+	require.Equal(t, false, respObject.Deleted)
+
+	// Check key
+	require.Equal(t, apiKeyIDCmdLine, string(respObject.Key.NrDollarCref))
+
+	// Check whether the returned information is the same as the data updated
+	require.Len(t, respObject.PropertyHistory, 2)
+	require.Equal(t, "TestAction", respObject.PropertyHistory[0].AtClass)
+	require.Equal(t, actionTestString, respObject.PropertyHistory[1].Schema.(map[string]interface{})["testString"].(string))
+	require.Equal(t, newStringValue, respObject.PropertyHistory[0].Schema.(map[string]interface{})["testString"].(string))
+
+	// Check thing is set to known ThingID
+	require.Regexp(t, strfmt.UUIDPattern, respObject.PropertyHistory[0].Things.Object.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, string(respObject.PropertyHistory[0].Things.Object.NrDollarCref))
+
+	// Check thing is set to known ThingIDSubject
+	require.Regexp(t, strfmt.UUIDPattern, respObject.PropertyHistory[0].Things.Subject.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
+	require.Equal(t, thingIDsubject, string(respObject.PropertyHistory[0].Things.Subject.NrDollarCref))
+
+	// Check thing is set to known ThingID
+	require.Regexp(t, strfmt.UUIDPattern, respObject.PropertyHistory[1].Things.Object.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingID)
+	require.Equal(t, thingID, string(respObject.PropertyHistory[1].Things.Object.NrDollarCref))
+
+	// Check thing is set to known ThingIDSubject
+	require.Regexp(t, strfmt.UUIDPattern, respObject.PropertyHistory[1].Things.Subject.NrDollarCref)
+	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
+	require.Equal(t, thingIDsubject, string(respObject.PropertyHistory[1].Things.Subject.NrDollarCref))
+
+	// Check creation time
+	now := connutils.NowUnix()
+	require.Conditionf(t, func() bool { return !(respObject.PropertyHistory[0].CreationTimeUnix > now) }, "CreationTimeUnix is incorrect, it was set in the future.")
+	require.Conditionf(t, func() bool { return !(respObject.PropertyHistory[0].CreationTimeUnix < now-20000) }, "CreationTimeUnix is incorrect, it was set to far back.")
+}
+
+func Test__weaviate_GET_actions_id_history_JSON_forbidden(t *testing.T) {
+	// Create patch request
+	response := doRequest("/actions/"+actionID+"/history", "GET", "application/json", nil, headKeyID, headToken)
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
+func Test__weaviate_GET_actions_id_history_JSON_not_found(t *testing.T) {
+	// Create patch request
+	response := doRequest("/actions/"+fakeID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusNotFound, response.StatusCode)
 }
 
 func Test__weaviate_POST_actions_validate_JSON(t *testing.T) {
@@ -2503,8 +2638,7 @@ func Test__weaviate_POST_graphql_JSON_key(t *testing.T) {
  * REMOVE TESTS
  ******************/
 
-// weaviate.key.delete
-func Test__weaviate_DELETE_keys_JSON(t *testing.T) {
+func Test__weaviate_DELETE_keys_id_JSON(t *testing.T) {
 	// Delete sub1, check status
 	responseDelSub1 := doRequest("/keys/"+sub1KeyID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNoContent, responseDelSub1.StatusCode)
@@ -2514,7 +2648,7 @@ func Test__weaviate_DELETE_keys_JSON(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseSub1Deleted.StatusCode)
 }
 
-func Test__weaviate_DELETE_keys_JSON_forbidden_parent(t *testing.T) {
+func Test__weaviate_DELETE_keys_id_JSON_forbidden_parent(t *testing.T) {
 	// Delete head with sub2, which is not allowed
 	responseDelHeadWithSub := doRequest("/keys/"+headKeyID, "DELETE", "application/json", nil, sub2KeyID, sub2Token)
 	require.Equal(t, http.StatusForbidden, responseDelHeadWithSub.StatusCode)
@@ -2524,13 +2658,13 @@ func Test__weaviate_DELETE_keys_JSON_forbidden_parent(t *testing.T) {
 	require.Equal(t, http.StatusOK, responseSub2Exists.StatusCode)
 }
 
-func Test__weaviate_DELETE_keys_JSON_forbidden_own(t *testing.T) {
+func Test__weaviate_DELETE_keys_id_JSON_forbidden_own(t *testing.T) {
 	// Delete head with own key, not allowed
 	responseDelHeadForbidden := doRequest("/keys/"+headKeyID, "DELETE", "application/json", nil, headKeyID, headToken)
 	require.Equal(t, http.StatusForbidden, responseDelHeadForbidden.StatusCode)
 }
 
-func Test__weaviate_DELETE_keys_JSON_with_child(t *testing.T) {
+func Test__weaviate_DELETE_keys_id_JSON_with_child(t *testing.T) {
 	// Delete head with its parent key, allowed
 	responseDelHead := doRequest("/keys/"+headKeyID, "DELETE", "application/json", nil, newAPIKeyID, newAPIToken)
 	require.Equal(t, http.StatusNoContent, responseDelHead.StatusCode)
@@ -2544,7 +2678,7 @@ func Test__weaviate_DELETE_keys_JSON_with_child(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseHeadDeleted.StatusCode)
 }
 
-func Test__weaviate_DELETE_keys_JSON_root_child_clean_up(t *testing.T) {
+func Test__weaviate_DELETE_keys_id_JSON_root_child_clean_up(t *testing.T) {
 	// Delete key that is expired
 	responseExpiredDeleted := doRequest("/keys/"+expiredKeyID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNoContent, responseExpiredDeleted.StatusCode)
@@ -2554,8 +2688,7 @@ func Test__weaviate_DELETE_keys_JSON_root_child_clean_up(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, responseKeyIDDeleted.StatusCode)
 }
 
-// weaviate.action.delete
-func Test__weaviate_DELETE_actions_JSON(t *testing.T) {
+func Test__weaviate_DELETE_actions_id_JSON(t *testing.T) {
 	// Create delete request
 	response := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
@@ -2566,7 +2699,7 @@ func Test__weaviate_DELETE_actions_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 }
 
-func Test__weaviate_DELETE_actions_JSON_not_found_already_deleted(t *testing.T) {
+func Test__weaviate_DELETE_actions_id_JSON_not_found_already_deleted(t *testing.T) {
 	// Create delete request
 	responseAlreadyDeleted := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
@@ -2574,14 +2707,32 @@ func Test__weaviate_DELETE_actions_JSON_not_found_already_deleted(t *testing.T) 
 	require.Equal(t, http.StatusNotFound, responseAlreadyDeleted.StatusCode)
 }
 
-func Test__weaviate_DELETE_actions_JSON_not_found(t *testing.T) {
+func Test__weaviate_DELETE_actions_id_JSON_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-// weaviate.thing.delete
-func Test__weaviate_DELETE_things_JSON(t *testing.T) {
+func Test__weaviate_GET_actions_id_history_JSON_after_delete(t *testing.T) {
+	// Create patch request
+	response := doRequest("/actions/"+actionID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
+
+	// Translate body
+	body := getResponseBody(response)
+	respObject := &models.ActionGetHistoryResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check status code
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Check length = 3 (put, patch, delete)
+	require.Len(t, respObject.PropertyHistory, 3)
+
+	// Check deleted is true
+	require.Equal(t, true, respObject.Deleted)
+}
+
+func Test__weaviate_DELETE_things_id_JSON(t *testing.T) {
 	// Test whether all actions aren't deleted yet
 	for _, deletedActionID := range actionIDs {
 		// Skip the action ID that is deleted with the previous function
@@ -2603,7 +2754,7 @@ func Test__weaviate_DELETE_things_JSON(t *testing.T) {
 	time.Sleep(1 * time.Second)
 }
 
-func Test__weaviate_DELETE_things_JSON_not_found_already_deleted(t *testing.T) {
+func Test__weaviate_DELETE_things_id_JSON_not_found_already_deleted(t *testing.T) {
 	// Create delete request
 	responseAlreadyDeleted := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
@@ -2611,16 +2762,35 @@ func Test__weaviate_DELETE_things_JSON_not_found_already_deleted(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseAlreadyDeleted.StatusCode)
 }
 
-func Test__weaviate_DELETE_things_JSON_not_found(t *testing.T) {
+func Test__weaviate_DELETE_things_id_JSON_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-func Test__weaviate_DELETE_things_JSON_actions_deleted(t *testing.T) {
+func Test__weaviate_DELETE_things_id_JSON_actions_deleted(t *testing.T) {
 	// Test whether all actions are deleted
 	for _, deletedActionID := range actionIDs {
 		responseDeletedByObjectThing := doRequest("/actions/"+deletedActionID, "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 		require.Equal(t, http.StatusNotFound, responseDeletedByObjectThing.StatusCode)
 	}
+}
+
+func Test__weaviate_GET_things_id_history_JSON_after_delete(t *testing.T) {
+	// Create patch request
+	response := doRequest("/things/"+thingID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
+
+	// Translate body
+	body := getResponseBody(response)
+	respObject := &models.ThingGetHistoryResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check status code
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Check length = 3 (put, patch, delete)
+	require.Len(t, respObject.PropertyHistory, 3)
+
+	// Check deleted is true
+	require.Equal(t, true, respObject.Deleted)
 }

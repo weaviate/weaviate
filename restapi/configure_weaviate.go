@@ -442,11 +442,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
 	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams, principal interface{}) middleware.Responder {
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, nil); !allowed {
-			return actions.NewWeaviateActionHistoryGetForbidden()
-		}
-
 		// Initialize response
 		responseObject := models.ActionGetResponse{}
 		responseObject.Schema = map[string]models.JSONObject{}
@@ -463,14 +458,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// TODO: Rename to ActionID when issue 329 is done (https://github.com/creativesoftwarefdn/weaviate/issues/329)
 		historyResponse.ThingID = UUID
 
-		// Set the key in the response
-		url := serverConfig.GetHostAddress()
-		historyResponse.Key = &models.SingleRef{
-			LocationURL:  &url,
-			NrDollarCref: principal.(*models.KeyGetResponse).KeyID,
-			Type:         connutils.RefTypeKey,
-		}
-
 		// Fill the history for these objects
 		errHist := dbConnector.HistoryAction(UUID, &historyResponse.ActionHistory)
 
@@ -479,6 +466,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			messaging.ErrorMessage(errGet)
 			messaging.ErrorMessage(errHist)
 			return actions.NewWeaviateActionHistoryGetNotFound()
+		}
+
+		if errHist == nil {
+			if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
+				return actions.NewWeaviateActionHistoryGetForbidden()
+			}
+		} else if errGet == nil {
+			if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
+				return actions.NewWeaviateActionHistoryGetForbidden()
+			}
 		}
 
 		// Action is deleted when we have an get error and no history error
@@ -964,11 +961,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.ThingsWeaviateThingHistoryGetHandler = things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal interface{}) middleware.Responder {
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, nil); !allowed {
-			return things.NewWeaviateThingHistoryGetForbidden()
-		}
-
 		// Initialize response
 		responseObject := models.ThingGetResponse{}
 		responseObject.Schema = map[string]models.JSONObject{}
@@ -984,14 +976,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		historyResponse.PropertyHistory = []*models.ThingHistoryObject{}
 		historyResponse.ThingID = UUID
 
-		// Set the key in the response
-		url := serverConfig.GetHostAddress()
-		historyResponse.Key = &models.SingleRef{
-			LocationURL:  &url,
-			NrDollarCref: principal.(*models.KeyGetResponse).KeyID,
-			Type:         connutils.RefTypeKey,
-		}
-
 		// Fill the history for these objects
 		errHist := dbConnector.HistoryThing(UUID, &historyResponse.ThingHistory)
 
@@ -1000,6 +984,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			messaging.ErrorMessage(errGet)
 			messaging.ErrorMessage(errHist)
 			return things.NewWeaviateThingHistoryGetNotFound()
+		}
+
+		// This is a read function, validate if allowed to read?
+		if errHist == nil {
+			if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
+				return things.NewWeaviateThingHistoryGetForbidden()
+			}
+		} else if errGet == nil {
+			if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
+				return things.NewWeaviateThingHistoryGetForbidden()
+			}
 		}
 
 		// Thing is deleted when we have an get error and no history error
