@@ -492,6 +492,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get and transform object
 		UUID := strfmt.UUID(params.ActionID)
 		errGet := dbConnector.GetAction(UUID, &actionGetResponse)
+
+		// Save the old-aciton in a variable
+		oldAction := actionGetResponse
+
 		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Return error if UUID is not found.
@@ -535,6 +539,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
+		// Move the current properties to the history
+		go dbConnector.MoveToHistoryAction(&oldAction.Action, params.ActionID, false)
+
 		// Update the database
 		go dbConnector.UpdateAction(action, UUID)
 
@@ -553,6 +560,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := params.ActionID
 		errGet := dbConnector.GetAction(UUID, &actionGetResponse)
 
+		// Save the old-aciton in a variable
+		oldAction := actionGetResponse
+
 		// If there are no results, there is an error
 		if errGet != nil {
 			// Object not found response.
@@ -569,6 +579,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if validatedErr != nil {
 			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
+
+		// Move the current properties to the history
+		go dbConnector.MoveToHistoryAction(&oldAction.Action, params.ActionID, false)
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
@@ -645,6 +658,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get item from database
 		errGet := dbConnector.GetAction(params.ActionID, &actionGetResponse)
 
+		// Save the old-aciton in a variable
+		oldAction := actionGetResponse
+
 		// Not found
 		if errGet != nil {
 			return actions.NewWeaviateActionsDeleteNotFound()
@@ -656,6 +672,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
+
+		// Move the current properties to the history
+		go dbConnector.MoveToHistoryAction(&oldAction.Action, params.ActionID, false)
 
 		// Add new row as GO-routine
 		go dbConnector.DeleteAction(&actionGetResponse.Action, params.ActionID)
@@ -903,6 +922,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get item from database
 		errGet := dbConnector.GetThing(params.ThingID, &thingGetResponse)
 
+		// Save the old-thing in a variable
+		oldThing := thingGetResponse
+
 		// Not found
 		if errGet != nil {
 			return things.NewWeaviateThingsDeleteNotFound()
@@ -930,6 +952,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
+
+		// Move the current properties to the history
+		go dbConnector.MoveToHistoryThing(&oldThing.Thing, params.ThingID, true)
 
 		// Add new row as GO-routine
 		go dbConnector.DeleteThing(&thingGetResponse.Thing, params.ThingID)
@@ -1037,6 +1062,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get and transform object
 		UUID := strfmt.UUID(params.ThingID)
 		errGet := dbConnector.GetThing(UUID, &thingGetResponse)
+
+		// Save the old-thing in a variable
+		oldThing := thingGetResponse
+
+		// Add update time
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Return error if UUID is not found.
@@ -1080,6 +1110,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
+		// Move the current properties to the history
+		go dbConnector.MoveToHistoryThing(&oldThing.Thing, UUID, false)
+
 		// Update the database
 		go dbConnector.UpdateThing(thing, UUID)
 
@@ -1098,6 +1131,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := params.ThingID
 		errGet := dbConnector.GetThing(UUID, &thingGetResponse)
 
+		// Save the old-thing in a variable
+		oldThing := thingGetResponse
+
 		// If there are no results, there is an error
 		if errGet != nil {
 			// Object not found response.
@@ -1114,6 +1150,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if validatedErr != nil {
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
+
+		// Move the current properties to the history
+		go dbConnector.MoveToHistoryThing(&oldThing.Thing, UUID, false)
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()

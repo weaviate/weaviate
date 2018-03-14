@@ -845,21 +845,8 @@ func (f *Cassandra) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("UpdateThing: %s", UUID))
 
-	// Get the current thing from the database
-	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
-
-	// Move the current properties to the history
-	err := f.moveThingsToHistory(iter, false)
-
-	// If there is an error, add an error message and return
-	if err != nil {
-		f.messaging.ErrorMessage(err)
-		return err
-	}
-
 	// Run the query to update the thing based on its UUID.
-	// TODO: Just update properties, no other like owner ID etc.?? (https://github.com/creativesoftwarefdn/weaviate/issues/310)
-	err = f.addThingRow(thing, UUID)
+	err := f.addThingRow(thing, UUID)
 
 	// If there is an error, add an error message
 	if err != nil {
@@ -875,19 +862,20 @@ func (f *Cassandra) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("DeleteThing: %s", UUID))
 
-	// Run the query to delete the thing based on its UUID.
-	iter := f.client.Query(selectThingStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
+	// Delete the row in the database
+	err := f.client.Query(
+		deleteThingStatement,
+		f.convUUIDtoCQLUUID(UUID),
+		f.convUUIDtoCQLUUID(thing.Key.NrDollarCref),
+		thing.CreationTimeUnix,
+	).Exec()
 
-	// Move the current properties to the history
-	err := f.moveThingsToHistory(iter, true)
-
-	// If there is an error, add an error message
+	// If there is an error, add an error message and return
 	if err != nil {
 		f.messaging.ErrorMessage(err)
 		return err
 	}
 
-	// If success return nil, otherwise return the error
 	return nil
 }
 
@@ -954,6 +942,45 @@ func (f *Cassandra) HistoryThing(UUID strfmt.UUID, history *models.ThingHistory)
 		return errors_.New("No history is not found in database")
 	}
 
+	return nil
+}
+
+// MoveToHistoryThing moves the thing-properties to the history table based on a given UUID
+// Note that the thing related to the UUID is not updated yet.
+func (f *Cassandra) MoveToHistoryThing(thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
+	// Convert UUID
+	cqlUUID := f.convUUIDtoCQLUUID(UUID)
+
+	// Initialize the properties map to add into the database
+	properties := map[string]string{}
+
+	// Add Object properties using a callback.
+	// The callback is needed because it may differ for every connector. Similar code is put into
+	// the schema#UpdateObjectSchemaProperties function.
+	callback := f.createPropertyCallback(&properties, cqlUUID, thing.AtClass)
+	err := schema.UpdateObjectSchemaProperties(connutils.RefTypeThing, thing, thing.Schema, f.schema, callback)
+
+	if err != nil {
+		return err
+	}
+
+	// Add the thing properties to the history
+	err = f.client.Query(
+		insertThingHistoryStatement,
+		cqlUUID,
+		f.convUUIDtoCQLUUID(thing.Key.NrDollarCref),
+		time.Now(),
+		deleted,
+		thing.AtClass,
+		thing.AtContext,
+		properties,
+	).Exec()
+
+	if err != nil {
+		return err
+	}
+
+	// No errors, return nil
 	return nil
 }
 
@@ -1096,21 +1123,8 @@ func (f *Cassandra) UpdateAction(action *models.Action, UUID strfmt.UUID) error 
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("UpdateAction: %s", UUID))
 
-	// Get the current action from the database
-	iter := f.client.Query(selectActionStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
-
-	// Move the current properties to the history
-	err := f.moveActionsToHistory(iter, false)
-
-	// If there is an error, add an error message and return
-	if err != nil {
-		f.messaging.ErrorMessage(err)
-		return err
-	}
-
 	// Run the query to update the action based on its UUID.
-	// TODO: Just update properties, no other like owner ID etc.?? (https://github.com/creativesoftwarefdn/weaviate/issues/310)
-	err = f.addActionRow(action, UUID)
+	err := f.addActionRow(action, UUID)
 
 	// If there is an error, add an error message
 	if err != nil {
@@ -1126,13 +1140,16 @@ func (f *Cassandra) DeleteAction(action *models.Action, UUID strfmt.UUID) error 
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("DeleteAction: %s", UUID))
 
-	// Run the query to delete the action based on its UUID.
-	iter := f.client.Query(selectActionStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
+	// Delete the row in the database
+	err := f.client.Query(
+		deleteActionStatement,
+		f.convUUIDtoCQLUUID(UUID),
+		f.convUUIDtoCQLUUID(action.Key.NrDollarCref),
+		action.CreationTimeUnix,
+		f.convUUIDtoCQLUUID(action.Things.Object.NrDollarCref),
+	).Exec()
 
-	// Move the current properties to the history
-	err := f.moveActionsToHistory(iter, true)
-
-	// If there is an error, add an error message
+	// If there is an error, add an error message and return
 	if err != nil {
 		f.messaging.ErrorMessage(err)
 		return err
@@ -1221,6 +1238,49 @@ func (f *Cassandra) HistoryAction(UUID strfmt.UUID, history *models.ActionHistor
 		return errors_.New("No history is not found in database")
 	}
 
+	return nil
+}
+
+// MoveToHistoryAction moves the action-properties to the history table based on a given UUID
+// Note that the action related to the UUID is not updated yet.
+func (f *Cassandra) MoveToHistoryAction(action *models.Action, UUID strfmt.UUID, deleted bool) error {
+	// Convert UUID
+	cqlUUID := f.convUUIDtoCQLUUID(UUID)
+
+	// Initialize the properties map to add into the database
+	properties := map[string]string{}
+
+	// Add Object properties using a callback.
+	// The callback is needed because it may differ for every connector. Similar code is put into
+	// the schema#UpdateObjectSchemaProperties function.
+	callback := f.createPropertyCallback(&properties, cqlUUID, action.AtClass)
+	err := schema.UpdateObjectSchemaProperties(connutils.RefTypeAction, action, action.Schema, f.schema, callback)
+
+	if err != nil {
+		return err
+	}
+
+	// Add the action properties to the history
+	err = f.client.Query(
+		insertActionHistoryStatement,
+		cqlUUID,
+		f.convUUIDtoCQLUUID(action.Key.NrDollarCref),
+		time.Now(),
+		deleted,
+		action.AtClass,
+		action.AtContext,
+		properties,
+		f.convUUIDtoCQLUUID(action.Things.Subject.NrDollarCref),
+		action.Things.Subject.LocationURL,
+		f.convUUIDtoCQLUUID(action.Things.Object.NrDollarCref),
+		action.Things.Object.LocationURL,
+	).Exec()
+
+	if err != nil {
+		return err
+	}
+
+	// No errors, return nil
 	return nil
 }
 
@@ -1769,57 +1829,6 @@ func (f *Cassandra) addThingRow(thing *models.Thing, UUID strfmt.UUID) error {
 	return query.Exec()
 }
 
-// moveThingsToHistory moves the thing-properties to the history table based on a given UUID
-// Note that the thing related to the UUID is not updated yet.
-func (f *Cassandra) moveThingsToHistory(iter *gocql.Iter, deleted bool) error {
-	// Put everyting in a for loop
-	for {
-		// Init the map for each row
-		m := map[string]interface{}{}
-
-		// Fill the map with the current row in the iterator
-		if !iter.MapScan(m) {
-			break
-		}
-
-		// Add the thing properties to the history
-		err := f.client.Query(
-			insertThingHistoryStatement,
-			m[colThingUUID],
-			m[colNodeOwner],
-			time.Now(),
-			deleted,
-			m[colNodeClass],
-			m[colNodeContext],
-			m[colNodeProperties],
-		).Exec()
-
-		if err != nil {
-			return err
-		}
-
-		// If deleted, delete from the things table
-		if deleted {
-			// Delete the row in the database
-			err := f.client.Query(
-				deleteThingStatement,
-				m[colThingUUID],
-				m[colNodeOwner],
-				m[colNodeCreationTime],
-			).Exec()
-
-			// If there is an error, add an error message and return
-			if err != nil {
-				f.messaging.ErrorMessage(err)
-				return err
-			}
-		}
-	}
-
-	// No errors, return nil
-	return nil
-}
-
 // addActionRow adds a single action row into the database for the given action based on the given UUID
 func (f *Cassandra) addActionRow(action *models.Action, UUID strfmt.UUID) error {
 	// Parse UUID in Cassandra type
@@ -1863,60 +1872,4 @@ func (f *Cassandra) addActionRow(action *models.Action, UUID strfmt.UUID) error 
 
 	// Run the query, return the error
 	return query.Exec()
-}
-
-// moveActionToHistory moves the action-properties to the history table based on a given UUID
-// Note that the action related to the UUID is not updated yet.
-func (f *Cassandra) moveActionsToHistory(iter *gocql.Iter, deleted bool) error {
-	// Put everyting in a for loop
-	for {
-		// Init the map for each row
-		m := map[string]interface{}{}
-
-		// Fill the map with the current row in the iterator
-		if !iter.MapScan(m) {
-			break
-		}
-
-		// Add the action properties to the history
-		err := f.client.Query(
-			insertActionHistoryStatement,
-			m[colActionUUID],
-			m[colNodeOwner],
-			time.Now(),
-			deleted,
-			m[colNodeClass],
-			m[colNodeContext],
-			m[colNodeProperties],
-			m[colActionSubjectUUID],
-			m[colActionSubjectLocation],
-			m[colActionObjectUUID],
-			m[colActionObjectLocation],
-		).Exec()
-
-		if err != nil {
-			return err
-		}
-
-		// If deleted, delete from the actions table
-		if deleted {
-			// Delete the row in the database
-			err := f.client.Query(
-				deleteActionStatement,
-				m[colActionUUID],
-				m[colNodeOwner],
-				m[colNodeCreationTime],
-				m[colActionObjectUUID],
-			).Exec()
-
-			// If there is an error, add an error message and return
-			if err != nil {
-				f.messaging.ErrorMessage(err)
-				return err
-			}
-		}
-	}
-
-	// No errors, return nil
-	return nil
 }

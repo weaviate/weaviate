@@ -261,6 +261,11 @@ func (f *Foobar) HistoryThing(UUID strfmt.UUID, history *models.ThingHistory) er
 	return nil
 }
 
+// MoveToHistoryThing moves a thing to history
+func (f *Foobar) MoveToHistoryThing(thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
+	return nil
+}
+
 // AddAction adds an action to the Foobar database with the given UUID.
 // Takes the action and a UUID as input.
 // Action is already validated against the ontology
@@ -306,6 +311,11 @@ func (f *Foobar) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 
 // HistoryAction fills the history of a Action based on its UUID
 func (f *Foobar) HistoryAction(UUID strfmt.UUID, history *models.ActionHistory) error {
+	return nil
+}
+
+// MoveToHistoryAction moves an action to history
+func (f *Foobar) MoveToHistoryAction(action *models.Action, UUID strfmt.UUID, deleted bool) error {
 	return nil
 }
 
