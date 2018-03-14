@@ -236,10 +236,25 @@ func Test__weaviate_GET_meta_JSON(t *testing.T) {
 	require.Equal(t, getWeaviateURL(), respObject.Hostname)
 }
 
+func Test__weaviate_GET_meta_JSON_missing_headers(t *testing.T) {
+	// Missing token in request
+	responseMissingToken := doRequest("/meta", "GET", "application/json", nil, apiKeyIDCmdLine, "")
+
+	// Check status code and message of error
+	require.Equal(t, http.StatusUnauthorized, responseMissingToken.StatusCode)
+	require.Contains(t, string(getResponseBody(responseMissingToken)), "Please provide both X-API-KEY and X-API-TOKEN headers.")
+
+	// Missing key in request
+	responseMissingKey := doRequest("/meta", "GET", "application/json", nil, "", apiTokenCmdLine)
+
+	// Check status code and message of error
+	require.Equal(t, http.StatusUnauthorized, responseMissingKey.StatusCode)
+	require.Contains(t, string(getResponseBody(responseMissingKey)), "Please provide both X-API-KEY and X-API-TOKEN headers.")
+}
+
 /******************
  * KEY TESTS
  ******************/
-
 func Test__weaviate_POST_keys_JSON_root_child(t *testing.T) {
 	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(`{
