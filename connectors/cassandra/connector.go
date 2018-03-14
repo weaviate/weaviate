@@ -1695,7 +1695,7 @@ func (f *Cassandra) fillResponseSchema(responseSchema *map[string]interface{}, p
 				if err != nil {
 					return err
 				}
-				(*responseSchema)[propKey] = t
+				(*responseSchema)[propKey] = t.Format(time.RFC3339)
 			} else if *dataType == schema.DataTypeInt {
 				// Parse the integer value
 				(*responseSchema)[propKey] = connutils.Must(strconv.ParseInt(value, 10, 64)).(int64)
@@ -1710,11 +1710,11 @@ func (f *Cassandra) fillResponseSchema(responseSchema *map[string]interface{}, p
 				// Just use the first found propkey to fill the c-ref.
 				if (*responseSchema)[propKey] == nil {
 					prefix := schema.SchemaPrefix + propKey + "."
-					(*responseSchema)[propKey] = f.createCrefObject(
-						strfmt.UUID(p[prefix+"cref"]),
-						p[prefix+"location_url"],
-						p[prefix+"type"],
-					)
+					(*responseSchema)[propKey] = map[string]interface{}{
+						"$cref":       p[prefix+"cref"],
+						"locationUrl": p[prefix+"location_url"],
+						"type":        p[prefix+"type"],
+					}
 				}
 			}
 		}
