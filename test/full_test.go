@@ -248,7 +248,8 @@ func Test__weaviate_GET_meta_JSON_missing_headers(t *testing.T) {
 	// Check status code and message of error
 	require.Equal(t, http.StatusUnauthorized, responseMissingKey.StatusCode)
 	require.Contains(t, string(getResponseBody(responseMissingKey)), "Please provide both X-API-KEY and X-API-TOKEN headers.")
-
+}
+func Test__weaviate_GET_meta_JSON_invalid_headers(t *testing.T) {
 	// Invalid token in request
 	responseInvalidToken := doRequest("/meta", "GET", "application/json", nil, apiKeyIDCmdLine, fakeID)
 
