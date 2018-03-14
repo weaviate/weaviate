@@ -766,6 +766,38 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7b.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid7b)), "is not found in database")
 
+	// Test invalid property cref5: invalid LocationURL
+	jsonStrInvalid7c := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingID, "http://example.org/")))
+	responseInvalid7c := doRequest(uri, method, "application/json", jsonStrInvalid7c, apiKeyIDCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7c.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid7c)), "no credentials available for the Weaviate instance for http://example.org/ given in the 'cref' Thing TestThing:testCref")
+
+	// Test invalid property cref6: valid locationURL, invalid ThingID
+	jsonStrInvalid7d := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, fakeID, "http://localhost:8070")))
+	responseInvalid7d := doRequest(uri, method, "application/json", jsonStrInvalid7d, apiKeyIDCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7d.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid7d)), "but 200 was expected for LocationURL given in the")
+
 	// Test invalid property string
 	jsonStrInvalid8 := bytes.NewBuffer([]byte(`{
 		"@context": "http://example.org",
@@ -1555,6 +1587,102 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings11.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalidThings11)), "'Thing is not found in database' at Subject-Thing")
 
+	// Test non-existing object-thing location
+	jsonStrInvalidThings12 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, thingID, "http://example.org", thingIDsubject, getWeaviateURL())))
+	responseInvalidThings12 := doRequest(uri, method, "application/json", jsonStrInvalidThings12, apiKeyIDCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings12.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings12)), "no credentials available")
+
+	// Test non-existing object-thing in existing location
+	jsonStrInvalidThings13 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, fakeID, "http://localhost:8070", thingIDsubject, getWeaviateURL())))
+	responseInvalidThings13 := doRequest(uri, method, "application/json", jsonStrInvalidThings13, apiKeyIDCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings13.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings13)), "but 200 was expected for LocationURL given")
+
+	// Test non-existing object-thing location
+	jsonStrInvalidThings14 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, "http://example.org")))
+	responseInvalidThings14 := doRequest(uri, method, "application/json", jsonStrInvalidThings14, apiKeyIDCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings14.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings14)), "no credentials available")
+
+	// Test non-existing object-thing in existing location
+	jsonStrInvalidThings15 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s"
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, thingTestString, thingID, getWeaviateURL(), fakeID, "http://localhost:8070")))
+	responseInvalidThings15 := doRequest(uri, method, "application/json", jsonStrInvalidThings15, apiKeyIDCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings15.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidThings15)), "but 200 was expected for LocationURL given")
+
 	// Correct connected things
 	actionThingsJSON := fmt.Sprintf(`,
 		"things": {
@@ -1678,6 +1806,38 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	responseInvalid7b := doRequest(uri, method, "application/json", jsonStrInvalid7b, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7b.StatusCode)
 	require.Contains(t, string(getResponseBody(responseInvalid7b)), "Thing is not found in database' at 'cref' Thing TestAction:testCref")
+
+	// Test invalid property cref5: invalid LocationURL
+	jsonStrInvalid7c := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}%s
+	}`, thingID, "http://example.org/", actionThingsJSON)))
+	responseInvalid7c := doRequest(uri, method, "application/json", jsonStrInvalid7c, apiKeyIDCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7c.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid7c)), "no credentials available for the Weaviate instance for http://example.org/ given in the 'cref' Thing TestAction:testCref")
+
+	// Test invalid property cref6: valid locationURL, invalid ThingID
+	jsonStrInvalid7d := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestAction",
+		"schema": {
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}%s
+	}`, fakeID, "http://localhost:8070", actionThingsJSON)))
+	responseInvalid7d := doRequest(uri, method, "application/json", jsonStrInvalid7d, apiKeyIDCmdLine, apiTokenCmdLine)
+	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7d.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalid7d)), "but 200 was expected for LocationURL given in the")
 
 	// Test invalid property string
 	jsonStrInvalid8 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
