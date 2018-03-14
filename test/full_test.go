@@ -124,7 +124,6 @@ var sub2KeyID string
 
 var actionID string
 var actionIDs [10]string
-var fakeID string
 var thingID string
 var thingIDs [10]string
 var thingIDsubject string
@@ -147,6 +146,7 @@ const (
 	newStringValue2 string = "new_value_2"
 	newIntValue     int64  = 12345
 	newIntValue2    int64  = 67890
+	fakeID          string = "11111111-1111-1111-1111-111111111111"
 )
 
 var messaging *messages.Messaging
@@ -162,8 +162,6 @@ func init() {
 	if serverScheme == "" {
 		serverScheme = "http"
 	}
-
-	fakeID = "11111111-1111-1111-1111-111111111111"
 
 	messaging = &messages.Messaging{
 		Debug: true,
@@ -250,6 +248,20 @@ func Test__weaviate_GET_meta_JSON_missing_headers(t *testing.T) {
 	// Check status code and message of error
 	require.Equal(t, http.StatusUnauthorized, responseMissingKey.StatusCode)
 	require.Contains(t, string(getResponseBody(responseMissingKey)), "Please provide both X-API-KEY and X-API-TOKEN headers.")
+
+	// Invalid token in request
+	responseInvalidToken := doRequest("/meta", "GET", "application/json", nil, apiKeyIDCmdLine, fakeID)
+
+	// Check status code and message of error
+	require.Equal(t, http.StatusUnauthorized, responseInvalidToken.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidToken)), "Provided token is invalid")
+
+	// Invalid key in request
+	responseInvalidKey := doRequest("/meta", "GET", "application/json", nil, fakeID, apiTokenCmdLine)
+
+	// Check status code and message of error
+	require.Equal(t, http.StatusUnauthorized, responseInvalidKey.StatusCode)
+	require.Contains(t, string(getResponseBody(responseInvalidKey)), "Key is not found in database")
 }
 
 /******************
