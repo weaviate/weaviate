@@ -931,13 +931,29 @@ func Test__weaviate_GET_things_JSON(t *testing.T) {
 
 	body := getResponseBody(response)
 
-	respObject := &models.ThingsListResponse{}
-	json.Unmarshal(body, respObject)
+	listResponseObject := &models.ThingsListResponse{}
+	json.Unmarshal(body, listResponseObject)
 
 	// Check most recent
-	require.Regexp(t, strfmt.UUIDPattern, respObject.Things[0].ThingID)
+	require.Regexp(t, strfmt.UUIDPattern, listResponseObject.Things[0].ThingID)
 	require.Regexp(t, strfmt.UUIDPattern, thingIDs[0])
-	require.Equal(t, thingIDs[0], string(respObject.Things[0].ThingID))
+	require.Equal(t, thingIDs[0], string(listResponseObject.Things[0].ThingID))
+}
+
+func Test__weaviate_GET_things_JSON_nothing(t *testing.T) {
+	// Create list request
+	response := doRequest("/things", "GET", "application/json", nil, headKeyID, headToken)
+
+	// Check status code of list
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	body := getResponseBody(response)
+
+	listResponseObject := &models.ThingsListResponse{}
+	json.Unmarshal(body, listResponseObject)
+
+	// Check most recent
+	require.Len(t, listResponseObject.Things, 0)
 }
 
 func Test__weaviate_GET_things_JSON_limit(t *testing.T) {
@@ -1881,6 +1897,23 @@ func Test__weaviate_GET_things_id_actions_JSON(t *testing.T) {
 	// Check there are ten actions
 	require.Len(t, respObject.Actions, 10)
 }
+
+func Test__weaviate_GET_things_id_actions_JSON_nothing(t *testing.T) {
+	// Create list request
+	response := doRequest("/things/"+thingIDs[3]+"/actions", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
+
+	// Check status code of list
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	body := getResponseBody(response)
+
+	respObject := &models.ActionsListResponse{}
+	json.Unmarshal(body, respObject)
+
+	// Check there are ten actions
+	require.Len(t, respObject.Actions, 0)
+}
+
 func Test__weaviate_GET_things_id_actions_JSON_limit(t *testing.T) {
 	// Query whole list just created
 	listResponse := doRequest("/things/"+thingID+"/actions?maxResults=3", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
