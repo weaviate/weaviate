@@ -157,6 +157,11 @@ func (f *KVCache) HistoryThing(UUID strfmt.UUID, history *models.ThingHistory) e
 	return f.databaseConnector.HistoryThing(UUID, history)
 }
 
+// MoveToHistoryThing moves a thing to history
+func (f *KVCache) MoveToHistoryThing(thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
+	return f.databaseConnector.MoveToHistoryThing(thing, UUID, deleted)
+}
+
 // AddAction function
 func (f *KVCache) AddAction(action *models.Action, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
@@ -224,6 +229,11 @@ func (f *KVCache) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
 // HistoryAction fills the history of a Action based on its UUID
 func (f *KVCache) HistoryAction(UUID strfmt.UUID, history *models.ActionHistory) error {
 	return f.databaseConnector.HistoryAction(UUID, history)
+}
+
+// MoveToHistoryAction moves a action to history
+func (f *KVCache) MoveToHistoryAction(action *models.Action, UUID strfmt.UUID, deleted bool) error {
+	return f.databaseConnector.MoveToHistoryAction(action, UUID, deleted)
 }
 
 // AddKey function

@@ -40,6 +40,7 @@ type DatabaseConnector interface {
 	UpdateThing(thing *models.Thing, UUID strfmt.UUID) error
 	DeleteThing(thing *models.Thing, UUID strfmt.UUID) error
 	HistoryThing(UUID strfmt.UUID, history *models.ThingHistory) error
+	MoveToHistoryThing(thing *models.Thing, UUID strfmt.UUID, deleted bool) error
 
 	AddAction(action *models.Action, UUID strfmt.UUID) error
 	GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error
@@ -47,6 +48,7 @@ type DatabaseConnector interface {
 	UpdateAction(action *models.Action, UUID strfmt.UUID) error
 	DeleteAction(action *models.Action, UUID strfmt.UUID) error
 	HistoryAction(UUID strfmt.UUID, history *models.ActionHistory) error
+	MoveToHistoryAction(action *models.Action, UUID strfmt.UUID, deleted bool) error
 
 	AddKey(key *models.Key, UUID strfmt.UUID, token string) error
 	ValidateToken(UUID strfmt.UUID, key *models.KeyGetResponse) (token string, err error)
