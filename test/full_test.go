@@ -234,6 +234,12 @@ func Test__weaviate_GET_meta_JSON(t *testing.T) {
 
 	// Check whether the returned information is the same as the data added
 	require.Equal(t, getWeaviateURL(), respObject.Hostname)
+
+	// Check both ontologies are added
+	require.NotNil(t, respObject.ActionsSchema)
+	require.IsType(t, &models.SemanticSchema{}, respObject.ActionsSchema)
+	require.NotNil(t, respObject.ThingsSchema)
+	require.IsType(t, &models.SemanticSchema{}, respObject.ThingsSchema)
 }
 
 func Test__weaviate_GET_meta_JSON_missing_headers(t *testing.T) {
