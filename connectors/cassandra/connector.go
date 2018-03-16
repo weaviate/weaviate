@@ -1526,7 +1526,7 @@ func (f *Cassandra) createPropertyCallback(properties *map[string]string, cqlUUI
 			dataValue = strconv.FormatBool(propValue.(bool))
 		} else if *dataType == schema.DataTypeDate {
 			// Parse the time value as string
-			dataValue = propValue.(string)
+			dataValue = propValue.(time.Time).Format(time.RFC3339)
 		} else if *dataType == schema.DataTypeInt {
 			// Parse the integer value as string
 			switch propValue.(type) {
@@ -1544,10 +1544,10 @@ func (f *Cassandra) createPropertyCallback(properties *map[string]string, cqlUUI
 		} else if *dataType == schema.DataTypeCRef {
 			// Parse the c-ref value, based on three values in the raw-properties
 			// Just use the first found propkey to fill the c-ref.
-			values := propValue.(map[string]interface{})
-			(*properties)[schema.SchemaPrefix+propKey+".location_url"] = values["locationUrl"].(string)
-			(*properties)[schema.SchemaPrefix+propKey+".type"] = values["type"].(string)
-			(*properties)[schema.SchemaPrefix+propKey+".cref"] = values["$cref"].(string)
+			cref := propValue.(*models.SingleRef)
+			(*properties)[schema.SchemaPrefix+propKey+".location_url"] = *cref.LocationURL
+			(*properties)[schema.SchemaPrefix+propKey+".type"] = cref.Type
+			(*properties)[schema.SchemaPrefix+propKey+".cref"] = string(cref.NrDollarCref)
 		}
 
 		// Set the value parsed above
@@ -1695,7 +1695,7 @@ func (f *Cassandra) fillResponseSchema(responseSchema *map[string]interface{}, p
 				if err != nil {
 					return err
 				}
-				(*responseSchema)[propKey] = t.Format(time.RFC3339)
+				(*responseSchema)[propKey] = t
 			} else if *dataType == schema.DataTypeInt {
 				// Parse the integer value
 				(*responseSchema)[propKey] = connutils.Must(strconv.ParseInt(value, 10, 64)).(int64)
@@ -1710,11 +1710,11 @@ func (f *Cassandra) fillResponseSchema(responseSchema *map[string]interface{}, p
 				// Just use the first found propkey to fill the c-ref.
 				if (*responseSchema)[propKey] == nil {
 					prefix := schema.SchemaPrefix + propKey + "."
-					(*responseSchema)[propKey] = map[string]interface{}{
-						"$cref":       p[prefix+"cref"],
-						"locationUrl": p[prefix+"location_url"],
-						"type":        p[prefix+"type"],
-					}
+					(*responseSchema)[propKey] = f.createCrefObject(
+						strfmt.UUID(p[prefix+"cref"]),
+						p[prefix+"location_url"],
+						p[prefix+"type"],
+					)
 				}
 			}
 		}

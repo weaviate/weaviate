@@ -132,7 +132,7 @@ func GenerateUUID() strfmt.UUID {
 	return strfmt.UUID(fmt.Sprintf("%v", gouuid.NewV4()))
 }
 
-// Must panics if error, otherwise retunr value
+// Must panics if error, otherwise returns value
 func Must(i interface{}, err error) interface{} {
 	if err != nil {
 		panic(err)
