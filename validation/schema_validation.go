@@ -27,7 +27,20 @@ import (
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
-func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *models.Schema, className string, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) error {
+func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interface{}, refType string, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) error {
+	// Initialize class object
+	var isp interface{}
+	var className string
+	if refType == connutils.RefTypeAction {
+		className = object.(*models.ActionCreate).AtClass
+		isp = object.(*models.ActionCreate).Schema
+	} else if refType == connutils.RefTypeThing {
+		className = object.(*models.ThingCreate).AtClass
+		isp = object.(*models.ThingCreate).Schema
+	} else {
+		return fmt.Errorf("given ref type is not valid")
+	}
+
 	// Validate whether the class exists in the given schema
 	// Get the class by its name
 	class, err := schema.GetClassByName(weaviateSchema, className)
@@ -39,13 +52,14 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 
 	// Validate whether the properties exist in the given schema
 	// Get the input properties from the bodySchema in readable format
-	isp := *bodySchema
-
 	if isp == nil {
 		return nil
 	}
 
 	inputSchema := isp.(map[string]interface{})
+
+	// Init variable for schema-data to put back in the object
+	returnSchema := map[string]interface{}{}
 
 	// For each property in the input schema
 	for pk, pv := range inputSchema {
@@ -56,6 +70,8 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 		if err != nil {
 			return err
 		}
+
+		var data interface{}
 
 		// Check whether the datatypes are correct
 		if *dt == schema.DataTypeCRef {
@@ -115,9 +131,13 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 			if err != nil {
 				return err
 			}
+
+			data = cref
 		} else if *dt == schema.DataTypeString {
 			// Return error when the input can not be casted to a string
-			if _, ok := pv.(string); !ok {
+			var ok bool
+			data, ok = pv.(string)
+			if !ok {
 				return fmt.Errorf(
 					"class '%s' with property '%s' requires a string. The given value is '%v'",
 					class.Class,
@@ -126,14 +146,15 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 				)
 			}
 		} else if *dt == schema.DataTypeInt {
+			var ok bool
 			// Return error when the input can not be casted to json.Number
-			if _, ok := pv.(json.Number); !ok {
+			if data, ok = pv.(json.Number); !ok {
 				// If value is not a json.Number, it could be an int, which is fine
-				if _, ok := pv.(int64); !ok {
+				if data, ok = pv.(int64); !ok {
 					// If value is not a json.Number, it could be an int, which is fine when the float does not contain a decimal
-					if vFloat, ok := pv.(float64); ok {
+					if data, ok = pv.(float64); ok {
 						// Check whether the float is containing a decimal
-						if vFloat != float64(int64(vFloat)) {
+						if data != float64(int64(data.(float64))) {
 							return fmt.Errorf(
 								"class '%s' with property '%s' requires an integer. The given value is '%v'",
 								class.Class,
@@ -151,7 +172,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 						)
 					}
 				}
-			} else if _, err := pv.(json.Number).Int64(); err != nil {
+			} else if data, err = pv.(json.Number).Int64(); err != nil {
 				// Return error when the input can not be converted to an int
 				return fmt.Errorf(
 					"class '%s' with property '%s' requires an integer, the JSON number could not be converted to an int. The given value is '%v'",
@@ -162,9 +183,10 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 			}
 
 		} else if *dt == schema.DataTypeNumber {
+			var ok bool
 			// Return error when the input can not be casted to json.Number
-			if _, ok := pv.(json.Number); !ok {
-				if _, ok := pv.(float64); !ok {
+			if data, ok = pv.(json.Number); !ok {
+				if data, ok = pv.(float64); !ok {
 					return fmt.Errorf(
 						"class '%s' with property '%s' requires a float. The given value is '%v'",
 						class.Class,
@@ -172,7 +194,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 						pv,
 					)
 				}
-			} else if _, err := pv.(json.Number).Float64(); err != nil {
+			} else if data, err = pv.(json.Number).Float64(); err != nil {
 				// Return error when the input can not be converted to a float
 				return fmt.Errorf(
 					"class '%s' with property '%s' requires a float, the JSON number could not be converted to a float. The given value is '%v'",
@@ -182,8 +204,9 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 				)
 			}
 		} else if *dt == schema.DataTypeBoolean {
+			var ok bool
 			// Return error when the input can not be casted to a boolean
-			if _, ok := pv.(bool); !ok {
+			if data, ok = pv.(bool); !ok {
 				return fmt.Errorf(
 					"class '%s' with property '%s' requires a bool. The given value is '%v'",
 					class.Class,
@@ -192,8 +215,9 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 				)
 			}
 		} else if *dt == schema.DataTypeDate {
+			var ok bool
 			// Return error when the input can not be casted to a string
-			if _, ok := pv.(string); !ok {
+			if data, ok = pv.(string); !ok {
 				return fmt.Errorf(
 					"class '%s' with property '%s' requires a string with a RFC3339 formatted date. The given value is '%v'",
 					class.Class,
@@ -203,7 +227,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 			}
 
 			// Parse the time as this has to be correct
-			_, err := time.Parse(time.RFC3339, pv.(string))
+			data, err = time.Parse(time.RFC3339, pv.(string))
 
 			// Return if there is an error while parsing
 			if err != nil {
@@ -215,6 +239,17 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, bodySchema *mod
 				)
 			}
 		}
+		// Put the right and validated types into the schema.
+		returnSchema[pk] = data
+	}
+
+	// Put the right and validated types into the object-schema.
+	if refType == connutils.RefTypeAction {
+		object.(*models.ActionCreate).Schema = returnSchema
+	} else if refType == connutils.RefTypeThing {
+		object.(*models.ThingCreate).Schema = returnSchema
+	} else {
+		return fmt.Errorf("given ref type is not valid")
 	}
 
 	return nil

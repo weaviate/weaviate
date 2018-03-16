@@ -630,10 +630,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Make Action-Object
-		actionCreateJSON, _ := json.Marshal(params.Body)
 		action := &models.Action{}
-		json.Unmarshal([]byte(actionCreateJSON), action)
-
+		action.AtClass = params.Body.AtClass
+		action.AtContext = params.Body.AtContext
+		action.Schema = params.Body.Schema
+		action.Things = params.Body.Things
 		action.CreationTimeUnix = connutils.NowUnix()
 		action.LastUpdateTimeUnix = 0
 		action.Key = keyRef
@@ -896,9 +897,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Make Thing-Object
-		thingCreateJSON, _ := json.Marshal(params.Body)
 		thing := &models.Thing{}
-		json.Unmarshal([]byte(thingCreateJSON), thing)
+		thing.Schema = params.Body.Schema
+		thing.AtClass = params.Body.AtClass
+		thing.AtContext = params.Body.AtContext
 		thing.CreationTimeUnix = connutils.NowUnix()
 		thing.LastUpdateTimeUnix = 0
 		thing.Key = keyRef
