@@ -26,7 +26,7 @@ if [ "$WEAVIATE_CONFIG" == "cassandra_docker" ]; then
   counter=1
   until cqlsh --cqlversion=$CQLVERSION "$WEAVIATE_CASSANDRA_DB_HOST" -e exit; do
     >&2 echo "Cassandra is unavailable - sleeping"
-    sleep 3
+    sleep 10
     ((counter++))
     if [ $counter -gt 10 ]; then
       echo "cassandra is not available trying to start without cassandra"

@@ -21,6 +21,11 @@ services:
       - 9042:9042
     environment: 
       CASSANDRA_START_RPC: "true"
+  weaviate-broker:
+    image: creativesoftwarefdn/weaviate-broker:latest
+    ports:
+      - 1883:1883
+      - 8888:8888
   weaviate:
     build:
       context: .
@@ -33,6 +38,7 @@ services:
         architecture: amd64
     depends_on:
       - "db"
+      - "weaviate-broker"
     ports: 
       - 80:80
       - 443:443
