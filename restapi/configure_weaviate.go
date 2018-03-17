@@ -41,6 +41,7 @@ import (
 	graceful "github.com/tylerb/graceful"
 	"google.golang.org/grpc/grpclog"
 
+	"github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors"
 	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra"
@@ -593,6 +594,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.Action = params.Body.Action
 		responseObject.ActionID = UUID
 
+		// broadcast to MQTT
+		mqttJson, _ := json.Marshal(responseObject)
+		weaviateBroker.Publish("/actions/"+string(responseObject.ActionID), string(mqttJson[:]))
+
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return actions.NewWeaviateActionUpdateAccepted().WithPayload(responseObject)
 	})
@@ -817,6 +822,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response object
 		responseObject := models.KeyGetResponse{}
 
+		*responseObject.Key.IsRoot = false
+
 		// Get item from database
 		err := dbConnector.GetKey(principal.(*models.KeyGetResponse).KeyID, &responseObject)
 
@@ -1030,6 +1037,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
+
 		// This is a read function, validate if allowed to read?
 		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, nil); !allowed {
 			return things.NewWeaviateThingsListForbidden()
@@ -1166,6 +1174,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.Thing = params.Body.Thing
 		responseObject.ThingID = UUID
 
+		// broadcast to MQTT
+		mqttJson, _ := json.Marshal(responseObject)
+		weaviateBroker.Publish("/things/"+string(responseObject.ThingID), string(mqttJson[:]))
+
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return things.NewWeaviateThingsUpdateAccepted().WithPayload(responseObject)
 	})
@@ -1300,6 +1312,7 @@ func configureTLS(tlsConfig *tls.Config) {
 // This function can be called multiple times, depending on the number of serving schemes.
 // scheme value will be set accordingly: "http", "https" or "unix"
 func configureServer(s *graceful.Server, scheme, addr string) {
+
 	// Create message service
 	messaging = &messages.Messaging{}
 
@@ -1324,6 +1337,9 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 	if err != nil {
 		messaging.ExitError(78, err.Error())
 	}
+
+	// Connect to MQTT via Broker
+	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
 
 	// Create the database connector usint the config
 	dbConnector = CreateDatabaseConnector(&serverConfig.Environment)

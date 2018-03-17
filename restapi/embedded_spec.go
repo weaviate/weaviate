@@ -53,7 +53,7 @@ func init() {
       "url": "http://www.creativesoftwarefdn.org",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.7.10"
+    "version": "0.7.11"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -1412,6 +1412,11 @@ func init() {
             "type": "string"
           }
         },
+        "isRoot": {
+          "description": "Shows if key is root key",
+          "type": "boolean",
+          "default": false
+        },
         "keyExpiresUnix": {
           "description": "Time as Unix timestamp that the key expires. Set to 0 for never.",
           "type": "integer",
@@ -1829,7 +1834,7 @@ func init() {
     }
   ],
   "externalDocs": {
-    "url": "http://creativesoftwarefdn.org/weaviate"
+    "url": "http://www.creativesoftwarefdn.org/weaviate"
   }
 }`))
 }

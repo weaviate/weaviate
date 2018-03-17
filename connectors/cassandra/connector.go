@@ -1570,6 +1570,7 @@ func (f *Cassandra) fillKeyResponseWithRow(row map[string]interface{}, keyRespon
 	keyResponse.KeyExpiresUnix = connutils.MakeUnixMillisecond(row[colKeyExpiryTime].(time.Time))
 	keyResponse.Read = row[colKeyAllowR].(bool)
 	keyResponse.Write = row[colKeyAllowW].(bool)
+	*keyResponse.IsRoot = row[colKeyRoot].(bool)
 
 	// Determine the parent and add it as an cref
 	isRoot := row[colKeyRoot].(bool)

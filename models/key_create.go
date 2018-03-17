@@ -37,6 +37,9 @@ type KeyCreate struct {
 	// Origin of the IP using CIDR notation.
 	IPOrigin []string `json:"ipOrigin"`
 
+	// Shows if key is root key
+	IsRoot *bool `json:"isRoot,omitempty"`
+
 	// Time as Unix timestamp that the key expires. Set to 0 for never.
 	KeyExpiresUnix int64 `json:"keyExpiresUnix,omitempty"`
 
@@ -54,6 +57,8 @@ type KeyCreate struct {
 /* polymorph KeyCreate execute false */
 
 /* polymorph KeyCreate ipOrigin false */
+
+/* polymorph KeyCreate isRoot false */
 
 /* polymorph KeyCreate keyExpiresUnix false */
 

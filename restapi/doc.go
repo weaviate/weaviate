@@ -20,11 +20,11 @@ Weaviate - Semantic Graphql, RESTful Web of Things platform.
       https
     Host: localhost
     BasePath: /weaviate/v1
-    Version: 0.7.10
+    Version: 0.7.11
     Contact: Weaviate<hello@creativesoftwarefdn.org> http://www.creativesoftwarefdn.org
 
     Consumes:
-    - application/json
+    - application/json-patch+json
     - application/octet-stream
     - application/x-www-form-urlencoded
     - application/x-yaml

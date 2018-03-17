@@ -46,11 +46,17 @@ type Environment struct {
 	Name        string      `json:"name"`
 	Database    Database    `json:"database"`
 	Schemas     Schemas     `json:"schemas"`
-	MQTTEnabled bool        `json:"mqttEnabled"`
+	Broker      Broker      `json:"broker"`
 	Cache       Cache       `json:"cache"`
 	Limit       int64       `json:"limit"`
 	Debug       bool        `json:"debug"`
 	Development Development `json:"development"`
+}
+
+// Broker checks if broker details are set
+type Broker struct {
+	Host string `json:"host"`
+	Port int32  `json:"port"`
 }
 
 // Database is the outline of the database
@@ -86,7 +92,7 @@ type Instance struct {
 // GetConfigOptionGroup creates a option group for swagger
 func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 	commandLineOptionsGroup := swag.CommandLineOptionsGroup{
-		ShortDescription: "Connector config usage",
+		ShortDescription: "Connector config & MQTT config",
 		LongDescription:  "",
 		Options:          &Flags{},
 	}
