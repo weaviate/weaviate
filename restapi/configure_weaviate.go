@@ -455,8 +455,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Init the response variables
 		historyResponse := &models.ActionGetHistoryResponse{}
 		historyResponse.PropertyHistory = []*models.ActionHistoryObject{}
-		// TODO: Rename to ActionID when issue 329 is done (https://github.com/creativesoftwarefdn/weaviate/issues/329)
-		historyResponse.ThingID = UUID
+		historyResponse.ActionID = UUID
 
 		// Fill the history for these objects
 		errHist := dbConnector.HistoryAction(UUID, &historyResponse.ActionHistory)
