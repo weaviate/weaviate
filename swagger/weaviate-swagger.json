@@ -454,7 +454,7 @@ definitions:
         type: integer
     type: object
 externalDocs: 
-  url: creativesoftwarefdn.org/weaviate
+  url: http://creativesoftwarefdn.org/weaviate
 info: 
   contact: 
     email: hello@creativesoftwarefdn.org

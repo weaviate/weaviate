@@ -26,8 +26,8 @@ import (
 type ActionGetHistoryResponse struct {
 	ActionHistory
 
-	// thing Id
-	ThingID strfmt.UUID `json:"thingId,omitempty"`
+	// action Id
+	ActionID strfmt.UUID `json:"actionId,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -40,13 +40,13 @@ func (m *ActionGetHistoryResponse) UnmarshalJSON(raw []byte) error {
 	m.ActionHistory = aO0
 
 	var data struct {
-		ThingID strfmt.UUID `json:"thingId,omitempty"`
+		ActionID strfmt.UUID `json:"actionId,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &data); err != nil {
 		return err
 	}
 
-	m.ThingID = data.ThingID
+	m.ActionID = data.ActionID
 
 	return nil
 }
@@ -62,10 +62,10 @@ func (m ActionGetHistoryResponse) MarshalJSON() ([]byte, error) {
 	_parts = append(_parts, aO0)
 
 	var data struct {
-		ThingID strfmt.UUID `json:"thingId,omitempty"`
+		ActionID strfmt.UUID `json:"actionId,omitempty"`
 	}
 
-	data.ThingID = m.ThingID
+	data.ActionID = m.ActionID
 
 	jsonData, err := swag.WriteJSON(data)
 	if err != nil {
