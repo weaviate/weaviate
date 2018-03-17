@@ -13,7 +13,10 @@
 				"Thing": "./test/schema/test-thing-schema.json",
 				"Action": "./test/schema/test-action-schema.json"
 			},
-			"mqttEnabled": false,
+			"broker": {
+				"host": "localhost",
+				"port": 1883
+			},
 			"limit": 100,
 			"debug": true,
 			"development": {
@@ -43,7 +46,10 @@
 				"Thing": "./test/schema/test-thing-schema.json",
 				"Action": "./test/schema/test-action-schema.json"
 			},
-			"mqttEnabled": false,
+			"broker": {
+				"host": "localhost",
+				"port": 1883
+			},
 			"limit": 100,
 			"debug": true,
 			"development": {
