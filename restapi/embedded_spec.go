@@ -53,7 +53,7 @@ func init() {
       "url": "http://www.creativesoftwarefdn.org",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.7.8"
+    "version": "0.7.10"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -98,6 +98,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -139,6 +140,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -180,6 +182,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "put": {
@@ -233,6 +236,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
@@ -269,7 +273,8 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-websocket": false
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true
       },
       "patch": {
         "description": "Updates an action. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
@@ -329,6 +334,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -370,6 +376,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -415,6 +422,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -456,6 +464,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -484,6 +493,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -512,6 +522,7 @@ func init() {
             "description": "Not (yet) implemented"
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -553,6 +564,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
@@ -589,6 +601,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -630,6 +643,7 @@ func init() {
             "description": "Not (yet) implemented"
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -677,6 +691,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -705,6 +720,7 @@ func init() {
             "description": "Not (yet) implemented"
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -744,6 +760,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "post": {
@@ -786,6 +803,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -827,6 +845,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -868,6 +887,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "put": {
@@ -921,6 +941,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
@@ -957,7 +978,8 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-websocket": false
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true
       },
       "patch": {
         "description": "Updates a thing data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
@@ -1017,6 +1039,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -1064,7 +1087,8 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-websocket": true
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
       }
     },
     "/things/{thingId}/history": {
@@ -1105,6 +1129,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     }
@@ -1163,7 +1188,7 @@ func init() {
         {
           "type": "object",
           "properties": {
-            "thingId": {
+            "actionId": {
               "type": "string",
               "format": "uuid"
             }
@@ -1804,7 +1829,7 @@ func init() {
     }
   ],
   "externalDocs": {
-    "url": "creativesoftwarefdn.org/weaviate"
+    "url": "http://creativesoftwarefdn.org/weaviate"
   }
 }`))
 }
