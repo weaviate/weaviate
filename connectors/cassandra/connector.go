@@ -1570,10 +1570,10 @@ func (f *Cassandra) fillKeyResponseWithRow(row map[string]interface{}, keyRespon
 	keyResponse.KeyExpiresUnix = connutils.MakeUnixMillisecond(row[colKeyExpiryTime].(time.Time))
 	keyResponse.Read = row[colKeyAllowR].(bool)
 	keyResponse.Write = row[colKeyAllowW].(bool)
-	*keyResponse.IsRoot = row[colKeyRoot].(bool)
+	isRoot := row[colKeyRoot].(bool)
+	keyResponse.IsRoot = &isRoot
 
 	// Determine the parent and add it as an cref
-	isRoot := row[colKeyRoot].(bool)
 	if !isRoot {
 		keyResponse.Parent = f.createCrefObject(f.convCQLUUIDtoUUID(row[colKeyParent].(gocql.UUID)), f.serverAddress, connutils.RefTypeKey)
 	}

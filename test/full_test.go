@@ -2636,7 +2636,6 @@ func Test__weaviate_GET_actions_id_history_JSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	// Check ID is the same
-	// TODO: Rename to ActionID when issue 329 is done (https://github.com/creativesoftwarefdn/weaviate/issues/329)
 	require.Regexp(t, strfmt.UUIDPattern, respObject.ActionID)
 	require.Regexp(t, strfmt.UUIDPattern, actionID)
 	require.Equal(t, actionID, string(respObject.ActionID))

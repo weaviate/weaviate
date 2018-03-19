@@ -822,7 +822,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response object
 		responseObject := models.KeyGetResponse{}
 
-		*responseObject.Key.IsRoot = false
+		isRoot := false
+		responseObject.Key.IsRoot = &isRoot
 
 		// Get item from database
 		err := dbConnector.GetKey(principal.(*models.KeyGetResponse).KeyID, &responseObject)
