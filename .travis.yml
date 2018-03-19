@@ -20,17 +20,17 @@ go:
   # Always ONLY use latest Go version
   - "1.10"
 language: go
-install:
+install:  
   - go get -t ./...
 before_script:
   - sudo apt-get -qq -y update
-  - sudo apt-get -qq -y install jq
+  - sudo apt-get -qq -y install jq coreutils
 script: 
   # Running Cassandra deamon
   - docker run -it --name weaviate_db_1_travis -e CASSANDRA_BROADCAST_ADDRESS=127.0.0.1 -p 7000:7000 -p 9042:9042 -v ~/cassandra:/var/lib/cassandra -d cassandra:3
   - sleep 26
   # Running Weaviate as deamon
-  - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=80 --host=localhost --config="cassandra" --config-file="./weaviate.conf.json"
+  - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=80 --host=localhost --config="cassandra" --config-file="./weaviate.conf.json" &
   # Sleep to make sure all is up and running
   - sleep 26
   # Find the correct ip, key and token
@@ -57,7 +57,7 @@ script:
               if [ -e $(cat swagger/weaviate-swagger.json | jq '.info.version') ]
               then
                   # fail the script, can't overwrite an old version
-                  echo "Fail, can't overwrite an old version."
+                  echo "Fail, can't overwrite an old version. Update the version in the Swagger file."
                   exit 1
               fi
               mv dist $(cat swagger/weaviate-swagger.json | jq '.info.version')
