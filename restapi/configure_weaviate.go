@@ -718,7 +718,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return keys.NewWeaviateKeyCreateUnprocessableEntity().WithPayload(createErrorResponseObject("Key expiry time is later than the expiry time of parent."))
 		}
 
-		// Save to DB, this needs to be a Go routine because we will return an accepted
+		// Save to DB
 		insertErr := dbConnector.AddKey(&newKey.Key, newKey.KeyID, connutils.TokenHasher(newKey.Token))
 		if insertErr != nil {
 			messaging.ErrorMessage(insertErr)
@@ -1037,18 +1037,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
-
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, nil); !allowed {
-			return things.NewWeaviateThingsListForbidden()
-		}
-
 		// Get limit and page
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
 		// Get user out of principal
 		keyID := principal.(*models.KeyGetResponse).KeyID
+
+		// This is a read function, validate if allowed to read?
+		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, keyID); !allowed {
+			return things.NewWeaviateThingsListForbidden()
+		}
 
 		// Initialize response
 		thingsResponse := models.ThingsListResponse{}
@@ -1202,11 +1201,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
 	})
 	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, nil); !allowed {
-			return things.NewWeaviateThingsActionsListForbidden()
-		}
-
 		// Get limit and page
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
