@@ -456,7 +456,7 @@ func Test__weaviate_POST_keys_JSON_expire_soon(t *testing.T) {
 	expiredKeyID = string(respObjectExpireSoon.KeyID)
 }
 
-func Test__weaviate_POST_keys_JSON_invalid_expiry_time(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_expires_later_than_parent(t *testing.T) {
 	// Create request that is invalid because time is lower then parent time
 	jsonStrNewKeyInvalid := bytes.NewBuffer([]byte(`{
 		"delete": false,
@@ -470,6 +470,24 @@ func Test__weaviate_POST_keys_JSON_invalid_expiry_time(t *testing.T) {
 	responseNewTokenInvalid := doRequest("/keys", "POST", "application/json", jsonStrNewKeyInvalid, expiredKeyID, expiredToken)
 
 	require.Equal(t, http.StatusUnprocessableEntity, responseNewTokenInvalid.StatusCode)
+	require.Contains(t, string(getResponseBody(responseNewTokenInvalid)), "Key expiry time is later than the expiry time of parent.")
+}
+
+func Test__weaviate_POST_keys_JSON_expires_in_past(t *testing.T) {
+	// Create request that is invalid because time is lower then parent time
+	jsonStrNewKeyInvalid := bytes.NewBuffer([]byte(`{
+		"delete": false,
+		"email": "string",
+		"ipOrigin": ["127.0.0.*", "*"],
+		"keyExpiresUnix": ` + strconv.FormatInt(connutils.NowUnix()-1000, 10) + `,
+		"read": true,
+		"write": true,
+		"execute": false
+	}`))
+	responseNewTokenInvalid := doRequest("/keys", "POST", "application/json", jsonStrNewKeyInvalid, expiredKeyID, expiredToken)
+
+	require.Equal(t, http.StatusUnprocessableEntity, responseNewTokenInvalid.StatusCode)
+	require.Contains(t, string(getResponseBody(responseNewTokenInvalid)), "Key expiry time is in the past.")
 }
 
 func Test__weaviate_GET_keys_me_JSON(t *testing.T) {
@@ -498,6 +516,7 @@ func Test__weaviate_GET_keys_me_JSON_expired(t *testing.T) {
 	// Create get request with key that is expired (same as above)
 	responseExpired := doRequest("/keys/me", "GET", "application/json", nil, expiredKeyID, expiredToken)
 	require.Equal(t, http.StatusUnauthorized, responseExpired.StatusCode)
+	require.Contains(t, string(getResponseBody(responseExpired)), "expired")
 }
 
 func Test__weaviate_GET_keys_id_JSON(t *testing.T) {
@@ -522,7 +541,9 @@ func Test__weaviate_GET_keys_id_JSON_forbidden(t *testing.T) {
 
 	// Check status code forbidden request
 	require.Equal(t, responseForbidden.StatusCode, http.StatusForbidden)
+}
 
+func Test__weaviate_GET_keys_id_JSON_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/keys/"+fakeID, "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
@@ -996,6 +1017,25 @@ func Test__weaviate_POST_things_JSON_invalid(t *testing.T) {
 	performInvalidThingRequests(t, "/things", "POST")
 }
 
+func Test__weaviate_POST_things_JSON_forbidden(t *testing.T) {
+	// Create forbidden requests
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://example.org",
+		"@class": "TestThing",
+		"schema": {
+			"testString": "%s",
+			"testInt": %d,
+			"testBoolean": %t,
+			"testNumber": %f,
+			"testDateTime": "%s"
+		}
+	}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate)))
+	response := doRequest("/things", "POST", "application/json", jsonStr, newAPIKeyID, newAPIToken)
+
+	// Check status code of create
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
 func Test__weaviate_GET_things_JSON(t *testing.T) {
 	// Create list request
 	response := doRequest("/things", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -1012,6 +1052,14 @@ func Test__weaviate_GET_things_JSON(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, listResponseObject.Things[0].ThingID)
 	require.Regexp(t, strfmt.UUIDPattern, thingIDs[0])
 	require.Equal(t, thingIDs[0], string(listResponseObject.Things[0].ThingID))
+}
+
+func Test__weaviate_GET_things_JSON_forbidden_read(t *testing.T) {
+	// Create list request
+	response := doRequest("/things", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
+
+	// Check status code of list
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
 func Test__weaviate_GET_things_JSON_nothing(t *testing.T) {
@@ -1086,6 +1134,22 @@ func Test__weaviate_GET_things_id_JSON(t *testing.T) {
 	require.Equal(t, thingTestNumber, respObject.Schema.(map[string]interface{})["testNumber"].(float64))
 	require.Equal(t, thingTestDate, respObject.Schema.(map[string]interface{})["testDateTime"].(string))
 	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
+}
+
+func Test__weaviate_GET_things_id_JSON_forbidden_read(t *testing.T) {
+	// Create get request
+	response := doRequest("/things/"+thingIDs[0], "GET", "application/json", nil, newAPIKeyID, newAPIToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
+func Test__weaviate_GET_things_id_JSON_forbidden_not_owned(t *testing.T) {
+	// Create get request
+	response := doRequest("/things/"+thingIDs[0], "GET", "application/json", nil, headKeyID, headToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
 func Test__weaviate_GET_things_id_JSON_not_found(t *testing.T) {
@@ -1182,6 +1246,22 @@ func Test__weaviate_PUT_things_id_JSON_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
+}
+
+func Test__weaviate_PUT_things_id_JSON_forbidden_write(t *testing.T) {
+	// Create get request
+	response := doRequest("/things/"+thingIDs[0], "PUT", "application/json", getEmptyJSON(), newAPIKeyID, newAPIToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
+func Test__weaviate_PUT_things_id_JSON_forbidden_not_owned(t *testing.T) {
+	// Create get request
+	response := doRequest("/things/"+thingIDs[0], "PUT", "application/json", getEmptyJSON(), headKeyID, headToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
 func Test__weaviate_PATCH_things_id_JSON(t *testing.T) {
@@ -1307,6 +1387,22 @@ func Test__weaviate_PATCH_things_id_JSON_not_found(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
+func Test__weaviate_PATCH_things_id_JSON_forbidden_write(t *testing.T) {
+	// Create get request
+	response := doRequest("/things/"+thingIDs[0], "PATCH", "application/json", getEmptyPatchJSON(), newAPIKeyID, newAPIToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
+func Test__weaviate_PATCH_things_id_JSON_forbidden_not_owned(t *testing.T) {
+	// Create get request
+	response := doRequest("/things/"+thingIDs[0], "PATCH", "application/json", getEmptyPatchJSON(), headKeyID, headToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
 func Test__weaviate_GET_things_id_history_JSON(t *testing.T) {
 	// Create patch request
 	response := doRequest("/things/"+thingID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -1342,9 +1438,19 @@ func Test__weaviate_GET_things_id_history_JSON(t *testing.T) {
 	require.Conditionf(t, func() bool { return !(respObject.PropertyHistory[0].CreationTimeUnix < now-20000) }, "CreationTimeUnix is incorrect, it was set to far back.")
 }
 
-func Test__weaviate_GET_things_id_history_JSON_forbidden(t *testing.T) {
-	// Create patch request
-	response := doRequest("/things/"+thingID+"/history", "GET", "application/json", nil, headKeyID, headToken)
+func Test__weaviate_GET_things_id_history_JSON_forbidden_read(t *testing.T) {
+	// Create get request
+	response := doRequest("/things/"+thingIDs[0]+"/history", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
+func Test__weaviate_GET_things_id_history_JSON_forbidden_not_owned(t *testing.T) {
+	// Create get request
+	response := doRequest("/things/"+thingIDs[0]+"/history", "GET", "application/json", nil, headKeyID, headToken)
+
+	// Check status code get request
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
@@ -2116,7 +2222,6 @@ func Test__weaviate_POST_actions_JSON_multiple(t *testing.T) {
 		actionIDs[i] = string(respObject.ActionID)
 		time.Sleep(1000 * time.Millisecond)
 	}
-
 }
 func Test__weaviate_POST_actions_JSON_invalid(t *testing.T) {
 	// Create invalid requests
@@ -2124,6 +2229,42 @@ func Test__weaviate_POST_actions_JSON_invalid(t *testing.T) {
 
 	// Test is faster than adding to DB.
 	time.Sleep(1000 * time.Millisecond)
+}
+
+func Test__weaviate_POST_actions_JSON_forbidden_write(t *testing.T) {
+	// Create create request
+	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
+		"@context": "http://schema.org",
+		"@class": "TestAction",
+		"schema": {
+			"testString": "%s",
+			"testInt": %d,
+			"testBoolean": %t,
+			"testNumber": %f,
+			"testDateTime": "%s",
+			"testCref": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		},
+		"things": {
+			"object": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			},
+			"subject": {
+				"$cref": "%s",
+				"locationUrl": "%s",
+				"type": "Thing"
+			}
+		}
+	}`, actionTestString, actionTestInt, actionTestBoolean, actionTestNumber, actionTestDate, thingID, "http://localhost:8070", thingID, "http://localhost:8070", thingIDsubject, "http://localhost:8070")))
+	response := doRequest("/actions", "POST", "application/json", jsonStr, newAPIKeyID, newAPIToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
 func Test__weaviate_GET_things_id_actions_JSON(t *testing.T) {
@@ -2145,6 +2286,14 @@ func Test__weaviate_GET_things_id_actions_JSON(t *testing.T) {
 
 	// Check there are 11 actions
 	require.Len(t, respObject.Actions, 11)
+}
+
+func Test__weaviate_GET_things_id_actions_JSON_forbidden_read(t *testing.T) {
+	// Create get request
+	response := doRequest("/things/"+thingID+"/actions", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
 func Test__weaviate_GET_things_id_actions_JSON_nothing(t *testing.T) {
@@ -2231,6 +2380,21 @@ func Test__weaviate_GET_actions_id_JSON(t *testing.T) {
 	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 }
 
+func Test__weaviate_GET_actions_id_JSON_forbidden_read(t *testing.T) {
+	// Create get request
+	response := doRequest("/actions/"+actionIDs[0], "GET", "application/json", nil, newAPIKeyID, newAPIToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
+func Test__weaviate_GET_actions_id_JSON_forbidden_not_owned(t *testing.T) {
+	// Create get request
+	response := doRequest("/actions/"+actionIDs[0], "GET", "application/json", nil, headKeyID, headToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
 func Test__weaviate_GET_actions_id_JSON_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -2356,6 +2520,22 @@ func Test__weaviate_PUT_actions_id_JSON_invalid(t *testing.T) {
 	// Check validation with invalid requests
 	performInvalidActionRequests(t, "/actions/"+actionID, "PUT")
 }
+func Test__weaviate_PUT_actions_id_JSON_forbidden_write(t *testing.T) {
+	// Create get request
+	response := doRequest("/actions/"+actionID, "PUT", "application/json", getEmptyJSON(), newAPIKeyID, newAPIToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
+func Test__weaviate_PUT_actions_id_JSON_forbidden_not_owned(t *testing.T) {
+	// Create get request
+	response := doRequest("/actions/"+actionID, "PUT", "application/json", getEmptyJSON(), headKeyID, headToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
 func Test__weaviate_PUT_actions_id_JSON_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyIDCmdLine, apiTokenCmdLine)
@@ -2421,6 +2601,22 @@ func Test__weaviate_PATCH_actions_id_JSON_invalid(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, responseError.StatusCode)
 }
 
+func Test__weaviate_PATCH_actions_id_JSON_forbidden_write(t *testing.T) {
+	// Create get request
+	response := doRequest("/actions/"+actionID, "PATCH", "application/json", getEmptyPatchJSON(), newAPIKeyID, newAPIToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
+func Test__weaviate_PATCH_actions_id_JSON_forbidden_not_owned(t *testing.T) {
+	// Create get request
+	response := doRequest("/actions/"+actionID, "PATCH", "application/json", getEmptyPatchJSON(), headKeyID, headToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
 func Test__weaviate_PATCH_actions_id_JSON_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyIDCmdLine, apiTokenCmdLine)
@@ -2440,10 +2636,9 @@ func Test__weaviate_GET_actions_id_history_JSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	// Check ID is the same
-	// TODO: Rename to ActionID when issue 329 is done (https://github.com/creativesoftwarefdn/weaviate/issues/329)
-	require.Regexp(t, strfmt.UUIDPattern, respObject.ThingID)
+	require.Regexp(t, strfmt.UUIDPattern, respObject.ActionID)
 	require.Regexp(t, strfmt.UUIDPattern, actionID)
-	require.Equal(t, actionID, string(respObject.ThingID))
+	require.Equal(t, actionID, string(respObject.ActionID))
 
 	// Check deleted
 	require.Equal(t, false, respObject.Deleted)
@@ -2483,9 +2678,19 @@ func Test__weaviate_GET_actions_id_history_JSON(t *testing.T) {
 	require.Conditionf(t, func() bool { return !(respObject.PropertyHistory[0].CreationTimeUnix < now-20000) }, "CreationTimeUnix is incorrect, it was set to far back.")
 }
 
-func Test__weaviate_GET_actions_id_history_JSON_forbidden(t *testing.T) {
-	// Create patch request
+func Test__weaviate_GET_actions_id_history_JSON_forbidden_read(t *testing.T) {
+	// Create get request
+	response := doRequest("/actions/"+actionID+"/history", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
+
+	// Check status code get request
+	require.Equal(t, http.StatusForbidden, response.StatusCode)
+}
+
+func Test__weaviate_GET_actions_id_history_JSON_forbidden_not_owned(t *testing.T) {
+	// Create get request
 	response := doRequest("/actions/"+actionID+"/history", "GET", "application/json", nil, headKeyID, headToken)
+
+	// Check status code get request
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
