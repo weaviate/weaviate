@@ -27,7 +27,7 @@ import (
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
-func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interface{}, refType string, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) error {
+func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interface{}, refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) error {
 	// Initialize class object
 	var isp interface{}
 	var className string
@@ -111,7 +111,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 
 			// Return error if type is not right, when it is not one of the 3 possible types
 			refType := pvcr["type"].(string)
-			if !validateRefType(refType) {
+			if !validateRefType(connutils.RefType(refType)) {
 				return fmt.Errorf(
 					"class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s' or '%s'",
 					class.Class, pk,

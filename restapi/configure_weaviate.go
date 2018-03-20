@@ -177,7 +177,7 @@ func generateMultipleRefObject(keyIDs []strfmt.UUID) models.MultipleRef {
 		refs = append(refs, &models.SingleRef{
 			LocationURL:  &url,
 			NrDollarCref: keyID,
-			Type:         connutils.RefTypeKey,
+			Type:         string(connutils.RefTypeKey),
 		})
 	}
 
@@ -630,7 +630,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyRef := &models.SingleRef{
 			LocationURL:  &url,
 			NrDollarCref: principal.(*models.KeyGetResponse).KeyID,
-			Type:         connutils.RefTypeKey,
+			Type:         string(connutils.RefTypeKey),
 		}
 
 		// Make Action-Object
@@ -703,7 +703,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		newKey.Parent = &models.SingleRef{
 			LocationURL:  &url,
 			NrDollarCref: principal.(*models.KeyGetResponse).KeyID,
-			Type:         connutils.RefTypeKey,
+			Type:         string(connutils.RefTypeKey),
 		}
 		newKey.KeyCreate = *params.Body
 
@@ -900,7 +900,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyRef := &models.SingleRef{
 			LocationURL:  &url,
 			NrDollarCref: principal.(*models.KeyGetResponse).KeyID,
-			Type:         connutils.RefTypeKey,
+			Type:         string(connutils.RefTypeKey),
 		}
 
 		// Make Thing-Object
