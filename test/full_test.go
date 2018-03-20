@@ -2848,6 +2848,42 @@ func Test__weaviate_POST_graphql_JSON_thing(t *testing.T) {
 	require.Equal(t, actionIDs[0], string(respActionsUUID))
 }
 
+func Test__weaviate_POST_graphql_JSON_thing_forbidden_read(t *testing.T) {
+	// Set the graphQL body
+	body := `{ thing(uuid:"%s") { uuid atContext atClass creationTimeUnix key { uuid read } actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
+
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, thingID),
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, newAPIKeyID, newAPIToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.NotNil(t, respObject.Errors)
+}
+
+func Test__weaviate_POST_graphql_JSON_thing_forbidden_parent(t *testing.T) {
+	// Set the graphQL body
+	body := `{ thing(uuid:"%s") { uuid atContext atClass creationTimeUnix key { uuid read } actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
+
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, thingID),
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, headKeyID, headToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.NotNil(t, respObject.Errors)
+}
+
 func Test__weaviate_POST_graphql_JSON_thing_external(t *testing.T) {
 	// Set the graphQL body
 	body := `{ thing(uuid:"%s") { uuid schema { testCref { uuid } } } }`
@@ -3004,6 +3040,22 @@ func Test__weaviate_POST_graphql_JSON_listThings(t *testing.T) {
 	require.Equal(t, thingIDs[0], string(respUUID))
 }
 
+func Test__weaviate_POST_graphql_JSON_listThings_forbidden(t *testing.T) {
+	// Set the graphQL body
+	bodyObj := graphQLQueryObject{
+		Query: `{ listThings { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, newAPIKeyID, newAPIToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is not nil
+	require.NotNil(t, respObject.Errors)
+}
+
 func Test__weaviate_POST_graphql_JSON_listThings_limit(t *testing.T) {
 	// Set the graphQL body
 	bodyObj := graphQLQueryObject{
@@ -3134,6 +3186,39 @@ func Test__weaviate_POST_graphql_JSON_action(t *testing.T) {
 	require.Equal(t, thingIDsubject, respSubjectUUID)
 }
 
+func Test__weaviate_POST_graphql_JSON_action_forbidden_read(t *testing.T) {
+	// Set the graphQL body
+	body := `{ action(uuid:"%s") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }`
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, actionID),
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, newAPIKeyID, newAPIToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.NotNil(t, respObject.Errors)
+}
+
+func Test__weaviate_POST_graphql_JSON_action_forbidden_parent(t *testing.T) {
+	// Set the graphQL body
+	body := `{ action(uuid:"%s") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }`
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, actionID),
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, headKeyID, headToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.NotNil(t, respObject.Errors)
+}
 func Test__weaviate_POST_graphql_JSON_action_external(t *testing.T) {
 	// Set the graphQL body
 	body := `{ action(uuid:"%s") { uuid things { object { uuid } subject { uuid } } schema { testCref { uuid } } } }`
@@ -3218,6 +3303,68 @@ func Test__weaviate_POST_graphql_JSON_key(t *testing.T) {
 	// Check equality
 	require.Equal(t, checkIDs[0], responseIDs[0])
 	require.Equal(t, checkIDs[1], responseIDs[1])
+}
+
+func Test__weaviate_POST_graphql_JSON_myKey(t *testing.T) {
+	// Set the graphQL body
+	body := `{ myKey { uuid read write ipOrigin children { uuid read } } }`
+	bodyObj := graphQLQueryObject{
+		Query: body,
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, newAPIKeyID, newAPIToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.Nil(t, respObject.Errors)
+
+	// Test the given UUID in the response
+	respUUID := respObject.Data["myKey"].(map[string]interface{})["uuid"]
+	require.Regexp(t, strfmt.UUIDPattern, respUUID)
+	require.Regexp(t, strfmt.UUIDPattern, newAPIKeyID)
+	require.Equal(t, newAPIKeyID, respUUID)
+
+	// Test children
+	child1UUID := respObject.Data["myKey"].(map[string]interface{})["children"].([]interface{})[0].(map[string]interface{})["uuid"].(string)
+	child2UUID := respObject.Data["myKey"].(map[string]interface{})["children"].([]interface{})[1].(map[string]interface{})["uuid"].(string)
+
+	responseIDs := []string{
+		child1UUID,
+		child2UUID,
+	}
+
+	checkIDs := []string{
+		headKeyID,
+		newSubAPIKeyID,
+	}
+
+	// Sort keys
+	sort.Strings(responseIDs)
+	sort.Strings(checkIDs)
+
+	// Check equality
+	require.Equal(t, checkIDs[0], responseIDs[0])
+	require.Equal(t, checkIDs[1], responseIDs[1])
+}
+
+func Test__weaviate_POST_graphql_JSON_key_forbidden_parent(t *testing.T) {
+	// Set the graphQL body
+	body := `{ key(uuid:"%s") { uuid read write ipOrigin children { uuid read } } }`
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, newAPIKeyID),
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, headKeyID, headToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.NotNil(t, respObject.Errors)
 }
 
 /******************
