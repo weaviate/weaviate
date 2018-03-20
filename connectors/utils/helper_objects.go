@@ -13,19 +13,21 @@
 
 package connutils
 
-// RefTypeAction used for actions in DB and requests
-const RefTypeAction string = "Action"
-
-// RefTypeKey used for keys in DB and requests
-const RefTypeKey string = "Key"
-
-// RefTypeThing used for things in DB and requests
-const RefTypeThing string = "Thing"
-
-// Operator is a representation of the operator for queries
-type Operator uint16
+type (
+	// Operator is a representation of the operator for queries
+	Operator uint16
+	// RefType is used to have a common name for the kind of items in Weaviate
+	RefType string
+)
 
 const (
+	// RefTypeAction used for actions in DB and requests
+	RefTypeAction RefType = "Action"
+	// RefTypeKey used for keys in DB and requests
+	RefTypeKey RefType = "Key"
+	// RefTypeThing used for things in DB and requests
+	RefTypeThing RefType = "Thing"
+
 	// Equal represents an operator for an operation to be equal
 	Equal Operator = 1 << iota
 	// NotEqual represents an operator for an operation to be unequal

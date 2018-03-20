@@ -75,7 +75,7 @@ func ValidateActionBody(action *models.ActionCreate, databaseSchema schema.Weavi
 	}
 
 	// Check whether the Object reference type exists
-	if !validateRefType(action.Things.Object.Type) {
+	if !validateRefType(connutils.RefType(action.Things.Object.Type)) {
 		return fmt.Errorf(
 			"object-thing requires one of the following values in 'type': '%s', '%s' or '%s'",
 			connutils.RefTypeAction,
@@ -95,7 +95,7 @@ func ValidateActionBody(action *models.ActionCreate, databaseSchema schema.Weavi
 	}
 
 	// Check whether the Subject reference type exists
-	if !validateRefType(action.Things.Subject.Type) {
+	if !validateRefType(connutils.RefType(action.Things.Subject.Type)) {
 		return fmt.Errorf(
 			"subject-thing requires one of the following values in 'type': '%s', '%s' or '%s'",
 			connutils.RefTypeAction,
@@ -137,12 +137,15 @@ func validateBody(class string, context string) error {
 }
 
 // validateRefType validates the reference type with one of the existing reference types
-func validateRefType(s string) bool {
+func validateRefType(s connutils.RefType) bool {
 	return (s == connutils.RefTypeAction || s == connutils.RefTypeThing || s == connutils.RefTypeKey)
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existance of the object in the database
 func ValidateSingleRef(serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, errorVal string) error {
+	// Init reftype
+	refType := connutils.RefType(cref.Type)
+
 	// Check existance of Object, external or internal
 	if serverConfig.GetHostAddress() != *cref.LocationURL {
 		// Search for key-information for resolving this part. Dont validate if not exists
@@ -153,11 +156,12 @@ func ValidateSingleRef(serverConfig *config.WeaviateConfig, cref *models.SingleR
 
 		// Set endpoint
 		endpoint := ""
-		if cref.Type == connutils.RefTypeThing {
+
+		if refType == connutils.RefTypeThing {
 			endpoint = "things"
-		} else if cref.Type == connutils.RefTypeAction {
+		} else if refType == connutils.RefTypeAction {
 			endpoint = "actions"
-		} else if cref.Type == connutils.RefTypeKey {
+		} else if refType == connutils.RefTypeKey {
 			endpoint = "keys"
 		}
 
@@ -169,13 +173,13 @@ func ValidateSingleRef(serverConfig *config.WeaviateConfig, cref *models.SingleR
 	} else {
 		// Check whether the given Object exists in the DB
 		var err error
-		if cref.Type == connutils.RefTypeThing {
+		if refType == connutils.RefTypeThing {
 			obj := &models.ThingGetResponse{}
 			err = dbConnector.GetThing(cref.NrDollarCref, obj)
-		} else if cref.Type == connutils.RefTypeAction {
+		} else if refType == connutils.RefTypeAction {
 			obj := &models.ActionGetResponse{}
 			err = dbConnector.GetAction(cref.NrDollarCref, obj)
-		} else if cref.Type == connutils.RefTypeKey {
+		} else if refType == connutils.RefTypeKey {
 			obj := &models.KeyGetResponse{}
 			err = dbConnector.GetKey(cref.NrDollarCref, obj)
 		} else {

@@ -1714,7 +1714,7 @@ func (f *Cassandra) fillResponseSchema(responseSchema *map[string]interface{}, p
 					(*responseSchema)[propKey] = f.createCrefObject(
 						strfmt.UUID(p[prefix+"cref"]),
 						p[prefix+"location_url"],
-						p[prefix+"type"],
+						connutils.RefType(p[prefix+"type"]),
 					)
 				}
 			}
@@ -1725,13 +1725,13 @@ func (f *Cassandra) fillResponseSchema(responseSchema *map[string]interface{}, p
 }
 
 // createCrefObject is a helper function to create a cref-object. This function is used for Cassandra only.
-func (f *Cassandra) createCrefObject(UUID strfmt.UUID, location string, refType string) *models.SingleRef {
+func (f *Cassandra) createCrefObject(UUID strfmt.UUID, location string, refType connutils.RefType) *models.SingleRef {
 	// Create the 'cref'-node for the response.
 	crefObj := models.SingleRef{}
 
 	// Get the given node properties to generate response object
 	crefObj.NrDollarCref = UUID
-	crefObj.Type = refType
+	crefObj.Type = string(refType)
 	url := location
 	crefObj.LocationURL = &url
 

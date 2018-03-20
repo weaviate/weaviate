@@ -375,7 +375,7 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 
 // UpdateObjectSchemaProperties updates all the edges of the Object in 'schema', used with a new Object or to update/patch a Object using a connector specified callback.
 // This function is not part of connector utils because of the import cycle problem
-func UpdateObjectSchemaProperties(refType string, object interface{}, nodeSchema models.Schema, schemas *WeaviateSchema, callback func(string, interface{}, *DataType, string) error) error {
+func UpdateObjectSchemaProperties(refType connutils.RefType, object interface{}, nodeSchema models.Schema, schemas *WeaviateSchema, callback func(string, interface{}, *DataType, string) error) error {
 	// Init error var
 	var err error
 
