@@ -17,14 +17,12 @@ package restapi
 import (
 	"crypto/tls"
 	"encoding/json"
-	errors_ "errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"math"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
@@ -41,6 +39,7 @@ import (
 	graceful "github.com/tylerb/graceful"
 	"google.golang.org/grpc/grpclog"
 
+	"github.com/creativesoftwarefdn/weaviate/auth"
 	"github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors"
@@ -110,61 +109,6 @@ func getPage(paramPage *int64) int {
 	return int(page)
 }
 
-// isOwnKeyOrLowerInTree returns whether a key is his own or in his children
-func isOwnKeyOrLowerInTree(currentKey *models.KeyGetResponse, userKeyID strfmt.UUID, databaseConnector dbconnector.DatabaseConnector) bool {
-	// If is own key, return true
-	if strings.EqualFold(string(userKeyID), string(currentKey.KeyID)) {
-		return true
-	}
-
-	// Get all child id's
-	childIDs := []strfmt.UUID{}
-	childIDs, _ = GetKeyChildrenUUIDs(databaseConnector, currentKey.KeyID, true, childIDs, 0, 0)
-
-	// Check ID is in childIds
-	isChildID := false
-	for _, childID := range childIDs {
-		if childID == userKeyID {
-			isChildID = true
-		}
-	}
-
-	// If ID is in the child ID's, you are allowed to do the action
-	if isChildID {
-		return true
-	}
-
-	return false
-}
-
-// GetKeyChildrenUUIDs returns children recursivly based on its parameters.
-func GetKeyChildrenUUIDs(databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID, filterOutDeleted bool, allIDs []strfmt.UUID, maxDepth int, depth int) ([]strfmt.UUID, error) {
-	// Append on every depth
-	if depth > 0 {
-		allIDs = append(allIDs, parentUUID)
-	}
-
-	// Init children var
-	children := []*models.KeyGetResponse{}
-
-	// Get children from the db-connector
-	err := databaseConnector.GetKeyChildren(parentUUID, &children)
-
-	// Return error
-	if err != nil {
-		return allIDs, err
-	}
-
-	// For every depth, get the ID's
-	if maxDepth == 0 || depth < maxDepth {
-		for _, child := range children {
-			allIDs, err = GetKeyChildrenUUIDs(databaseConnector, child.KeyID, filterOutDeleted, allIDs, maxDepth, depth+1)
-		}
-	}
-
-	return allIDs, err
-}
-
 func generateMultipleRefObject(keyIDs []strfmt.UUID) models.MultipleRef {
 	// Init the response
 	refs := models.MultipleRef{}
@@ -189,7 +133,7 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 	var allIDs []strfmt.UUID
 
 	// Get all the children to remove
-	allIDs, _ = GetKeyChildrenUUIDs(databaseConnector, parentUUID, false, allIDs, 0, 0)
+	allIDs, _ = auth.GetKeyChildrenUUIDs(databaseConnector, parentUUID, false, allIDs, 0, 0)
 
 	// Append the children to the parent UUIDs to remove all
 	allIDs = append(allIDs, parentUUID)
@@ -256,60 +200,6 @@ func CreateDatabaseConnector(env *config.Environment) dbconnector.DatabaseConnec
 	}
 
 	return connector
-}
-
-// ActionsAllowed returns information whether an action is allowed based on given several input vars.
-func ActionsAllowed(actions []string, validateObject interface{}, databaseConnector dbconnector.DatabaseConnector, objectOwnerUUID interface{}) (bool, error) {
-	// Get the user by the given principal
-	keyObject := validateObject.(*models.KeyGetResponse)
-
-	// Check whether the given owner of the object is in the children, if the ownerID is given
-	correctChild := false
-	if objectOwnerUUID != nil {
-		correctChild = isOwnKeyOrLowerInTree(keyObject, objectOwnerUUID.(strfmt.UUID), databaseConnector)
-	} else {
-		correctChild = true
-	}
-
-	// Return false if the object's owner is not the logged in user or one of its childs.
-	if !correctChild {
-		return false, errors_.New("the object does not belong to the given token or to one of the token's children")
-	}
-
-	// All possible actions in a map to check it more easily
-	actionsToCheck := map[string]bool{
-		"read":    false,
-		"write":   false,
-		"execute": false,
-		"delete":  false,
-	}
-
-	// Add 'true' if an action has to be checked on its rights.
-	for _, action := range actions {
-		actionsToCheck[action] = true
-	}
-
-	// Check every action on its rights, if rights are needed and the key has not that kind of rights, return false.
-	if actionsToCheck["read"] && !keyObject.Read {
-		return false, errors_.New("read rights are needed to perform this action")
-	}
-
-	// Idem
-	if actionsToCheck["write"] && !keyObject.Write {
-		return false, errors_.New("write rights are needed to perform this action")
-	}
-
-	// Idem
-	if actionsToCheck["delete"] && !keyObject.Delete {
-		return false, errors_.New("delete rights are needed to perform this action")
-	}
-
-	// Idem
-	if actionsToCheck["execute"] && !keyObject.Execute {
-		return false, errors_.New("execute rights are needed to perform this action")
-	}
-
-	return true, nil
 }
 
 func configureFlags(api *operations.WeaviateAPI) {
@@ -435,7 +325,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return actions.NewWeaviateActionsGetForbidden()
 		}
 
@@ -469,11 +359,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		if errHist == nil {
-			if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
+			if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
 				return actions.NewWeaviateActionHistoryGetForbidden()
 			}
 		} else if errGet == nil {
-			if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
+			if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
 				return actions.NewWeaviateActionHistoryGetForbidden()
 			}
 		}
@@ -504,7 +394,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return actions.NewWeaviateActionsPatchForbidden()
 		}
 
@@ -570,7 +460,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return actions.NewWeaviateActionUpdateForbidden()
 		}
 
@@ -612,7 +502,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal interface{}) middleware.Responder {
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, nil); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, nil); !allowed {
 			return actions.NewWeaviateActionsCreateForbidden()
 		}
 
@@ -672,7 +562,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a delete function, validate if allowed to delete?
-		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"delete"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
@@ -743,13 +633,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions
 		keyObject, _ := principal.(*models.KeyGetResponse)
-		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
+		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysChildrenGetForbidden()
 		}
 
 		// Get the children
 		childIDs := []strfmt.UUID{}
-		childIDs, _ = GetKeyChildrenUUIDs(dbConnector, params.KeyID, true, childIDs, 1, 0)
+		childIDs, _ = auth.GetKeyChildrenUUIDs(dbConnector, params.KeyID, true, childIDs, 1, 0)
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
@@ -772,7 +662,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions, only delete allowed if lower in tree (not own key)
 		keyObject, _ := principal.(*models.KeyGetResponse)
-		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) || keyObject.KeyID == params.KeyID {
+		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) || keyObject.KeyID == params.KeyID {
 			return keys.NewWeaviateKeysDeleteForbidden()
 		}
 
@@ -796,7 +686,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions
 		keyObject, _ := principal.(*models.KeyGetResponse)
-		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
+		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysGetForbidden()
 		}
 
@@ -809,7 +699,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get the children
 		childIDs := []strfmt.UUID{}
-		childIDs, _ = GetKeyChildrenUUIDs(dbConnector, currentKey.KeyID, true, childIDs, 1, 0)
+		childIDs, _ = auth.GetKeyChildrenUUIDs(dbConnector, currentKey.KeyID, true, childIDs, 1, 0)
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
@@ -850,7 +740,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions
 		keyObject, _ := principal.(*models.KeyGetResponse)
-		if !isOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
+		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysRenewTokenForbidden()
 		}
 
@@ -882,7 +772,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, nil); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, nil); !allowed {
 			return things.NewWeaviateThingsCreateForbidden()
 		}
 
@@ -940,7 +830,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a delete function, validate if allowed to delete?
-		if allowed, _ := ActionsAllowed([]string{"delete"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"delete"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
@@ -986,7 +876,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsGetForbidden()
 		}
 
@@ -1022,11 +912,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// This is a read function, validate if allowed to read?
 		if errHist == nil {
-			if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
+			if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
 				return things.NewWeaviateThingHistoryGetForbidden()
 			}
 		} else if errGet == nil {
-			if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
+			if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
 				return things.NewWeaviateThingHistoryGetForbidden()
 			}
 		}
@@ -1046,7 +936,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyID := principal.(*models.KeyGetResponse).KeyID
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, keyID); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, keyID); !allowed {
 			return things.NewWeaviateThingsListForbidden()
 		}
 
@@ -1084,7 +974,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsPatchForbidden()
 		}
 
@@ -1150,7 +1040,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := ActionsAllowed([]string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsUpdateForbidden()
 		}
 
@@ -1210,7 +1100,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyObject := principal.(*models.KeyGetResponse)
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := ActionsAllowed([]string{"read"}, principal, dbConnector, keyObject.KeyID); !allowed {
+		if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, keyObject.KeyID); !allowed {
 			return things.NewWeaviateThingsActionsListForbidden()
 		}
 
