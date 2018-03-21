@@ -24,7 +24,7 @@ import (
 )
 
 // ValidateThingBody Validates a thing body using the 'ThingCreate' object.
-func ValidateThingBody(thing *models.ThingCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) error {
+func ValidateThingBody(thing *models.ThingCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
 	// Validate the body
 	bve := validateBody(thing.AtClass, thing.AtContext)
 
@@ -34,13 +34,13 @@ func ValidateThingBody(thing *models.ThingCreate, databaseSchema schema.Weaviate
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(databaseSchema.ThingSchema.Schema, thing, connutils.RefTypeThing, dbConnector, serverConfig)
+	sve := ValidateSchemaInBody(databaseSchema.ThingSchema.Schema, thing, connutils.RefTypeThing, dbConnector, serverConfig, keyToken)
 
 	return sve
 }
 
 // ValidateActionBody Validates a action body using the 'ActionCreate' object.
-func ValidateActionBody(action *models.ActionCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) error {
+func ValidateActionBody(action *models.ActionCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
 	// Validate the body
 	bve := validateBody(action.AtClass, action.AtContext)
 
@@ -105,17 +105,17 @@ func ValidateActionBody(action *models.ActionCreate, databaseSchema schema.Weavi
 	}
 
 	// Check existance of Thing, external or internal
-	if err := ValidateSingleRef(serverConfig, action.Things.Object, dbConnector, "Object-Thing"); err != nil {
+	if err := ValidateSingleRef(serverConfig, action.Things.Object, dbConnector, "Object-Thing", keyToken); err != nil {
 		return err
 	}
 
 	// Check existance of Thing, external or internal
-	if err := ValidateSingleRef(serverConfig, action.Things.Subject, dbConnector, "Subject-Thing"); err != nil {
+	if err := ValidateSingleRef(serverConfig, action.Things.Subject, dbConnector, "Subject-Thing", keyToken); err != nil {
 		return err
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(databaseSchema.ActionSchema.Schema, action, connutils.RefTypeAction, dbConnector, serverConfig)
+	sve := ValidateSchemaInBody(databaseSchema.ActionSchema.Schema, action, connutils.RefTypeAction, dbConnector, serverConfig, keyToken)
 
 	return sve
 }
@@ -142,14 +142,14 @@ func validateRefType(s connutils.RefType) bool {
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existance of the object in the database
-func ValidateSingleRef(serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, errorVal string) error {
+func ValidateSingleRef(serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, errorVal string, keyToken *models.KeyTokenGetResponse) error {
 	// Init reftype
 	refType := connutils.RefType(cref.Type)
 
 	// Check existance of Object, external or internal
 	if serverConfig.GetHostAddress() != *cref.LocationURL {
 		// Search for key-information for resolving this part. Dont validate if not exists
-		instance, err := serverConfig.GetInstance(*cref.LocationURL)
+		instance, err := serverConfig.GetInstance(*cref.LocationURL, keyToken)
 		if err != nil {
 			return fmt.Errorf("no credentials available for the Weaviate instance for %s given in the %s", *cref.LocationURL, errorVal)
 		}

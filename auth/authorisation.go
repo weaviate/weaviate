@@ -24,7 +24,7 @@ import (
 )
 
 // IsOwnKeyOrLowerInTree returns whether a key is his own or in his children
-func IsOwnKeyOrLowerInTree(currentKey *models.KeyGetResponse, userKeyID strfmt.UUID, databaseConnector dbconnector.DatabaseConnector) bool {
+func IsOwnKeyOrLowerInTree(currentKey *models.KeyTokenGetResponse, userKeyID strfmt.UUID, databaseConnector dbconnector.DatabaseConnector) bool {
 	// If is own key, return true
 	if strings.EqualFold(string(userKeyID), string(currentKey.KeyID)) {
 		return true
@@ -53,7 +53,7 @@ func IsOwnKeyOrLowerInTree(currentKey *models.KeyGetResponse, userKeyID strfmt.U
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
 func ActionsAllowed(actions []string, validateObject interface{}, databaseConnector dbconnector.DatabaseConnector, objectOwnerUUID interface{}) (bool, error) {
 	// Get the user by the given principal
-	keyObject := validateObject.(*models.KeyGetResponse)
+	keyObject := validateObject.(*models.KeyTokenGetResponse)
 
 	// Check whether the given owner of the object is in the children, if the ownerID is given
 	correctChild := false

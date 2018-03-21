@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"io/ioutil"
 
 	"github.com/go-openapi/swag"
@@ -173,19 +174,34 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 }
 
 // GetInstance from config
-func (f *WeaviateConfig) GetInstance(hostname string) (instance Instance, err error) {
+func (f *WeaviateConfig) GetInstance(hostname string, keyToken *models.KeyTokenGetResponse) (instance Instance, err error) {
 	err = nil
+
+	found := false
 
 	// For each instance, check if hostname is the same
 	for _, v := range f.Environment.Development.ExternalInstances {
 		if hostname == v.URL {
 			instance = v
-			return
+			found = true
+			break
 		}
 	}
 
-	// Didn't find item in list
-	err = errors.New("can't find key for given instance")
+	if !found {
+		// Didn't find item in list
+		err = errors.New("can't find key for given instance")
+		return
+	}
+
+	// If no key and token are given in the config, use the key and token used for the current request
+	if instance.APIKey == "" {
+		instance.APIKey = string(keyToken.KeyID)
+	}
+
+	if instance.APIToken == "" {
+		instance.APIToken = string(keyToken.Token)
+	}
 
 	return
 }

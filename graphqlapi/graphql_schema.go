@@ -41,6 +41,7 @@ type GraphQLSchema struct {
 	serverSchema          *schema.WeaviateSchema
 	dbConnector           dbconnector.DatabaseConnector
 	usedKey               *models.KeyGetResponse
+	usedKeyToken          *models.KeyTokenGetResponse
 	messaging             *messages.Messaging
 	thingsDataLoader      *dataloader.Loader
 	context               context.Context
@@ -97,8 +98,9 @@ func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverCon
 var thingType *graphql.Object
 
 // SetKey sets the key that is used for the latest request
-func (f *GraphQLSchema) SetKey(key *models.KeyGetResponse) {
-	f.usedKey = key
+func (f *GraphQLSchema) SetKey(key *models.KeyTokenGetResponse) {
+	f.usedKey = &key.KeyGetResponse
+	f.usedKeyToken = key
 }
 
 // GetGraphQLSchema returns the schema if it is set
@@ -288,7 +290,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				keyUUID := key.KeyID
 
 				// Check whether the logged in user is allowed to get data
-				if !auth.IsOwnKeyOrLowerInTree(f.usedKey, keyUUID, f.dbConnector) {
+				if !auth.IsOwnKeyOrLowerInTree(f.usedKeyToken, keyUUID, f.dbConnector) {
 					err := errors.New("forbidden to get child-data for this key")
 					return nil, gqlerrors.NewError(
 						err.Error(),
@@ -667,7 +669,7 @@ func (f *GraphQLSchema) InitSchema() error {
 			// Resolve the data from the Thing Response
 			if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 				// This is a read function, validate if allowed to read?
-				if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKey, f.dbConnector, f.usedKey.KeyID); !allowed {
+				if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKeyToken, f.dbConnector, f.usedKey.KeyID); !allowed {
 					err := errors.New("forbidden to get data for actions")
 					return nil, gqlerrors.NewError(
 						err.Error(),
@@ -829,7 +831,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					err := f.dbConnector.GetThing(UUID, thingResponse)
 
 					// This is a read function, validate if allowed to read?
-					if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKey, f.dbConnector, thingResponse.Key.NrDollarCref); !allowed {
+					if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKeyToken, f.dbConnector, thingResponse.Key.NrDollarCref); !allowed {
 						err := errors.New("forbidden to get data for this thing")
 						return nil, gqlerrors.NewError(
 							err.Error(),
@@ -875,7 +877,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					defer f.messaging.TimeTrack(time.Now())
 
 					// This is a read function, validate if allowed to read?
-					if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKey, f.dbConnector, f.usedKey.KeyID); !allowed {
+					if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKeyToken, f.dbConnector, f.usedKey.KeyID); !allowed {
 						err := errors.New("forbidden to get data for things")
 						return nil, gqlerrors.NewError(
 							err.Error(),
@@ -969,7 +971,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					}
 
 					// Return error when not allowed to read the data
-					if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKey, f.dbConnector, actionResponse.Key.NrDollarCref); !allowed {
+					if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKeyToken, f.dbConnector, actionResponse.Key.NrDollarCref); !allowed {
 						err := errors.New("forbidden to get data for this action")
 						return nil, gqlerrors.NewError(
 							err.Error(),
@@ -1002,7 +1004,7 @@ func (f *GraphQLSchema) InitSchema() error {
 					UUID := strfmt.UUID(p.Args["uuid"].(string))
 
 					// Check whether the logged in user is allowed to get data
-					if !auth.IsOwnKeyOrLowerInTree(f.usedKey, UUID, f.dbConnector) {
+					if !auth.IsOwnKeyOrLowerInTree(f.usedKeyToken, UUID, f.dbConnector) {
 						err := errors.New("forbidden to get data for this key")
 						return nil, gqlerrors.NewError(
 							err.Error(),
@@ -1204,7 +1206,7 @@ func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.Single
 	// Check whether the instance URL is the same as the cross-reference URL
 	if f.serverConfig.GetHostAddress() != *cref.LocationURL {
 		// Search for key-information for resolving this part
-		instance, err := f.serverConfig.GetInstance(*cref.LocationURL)
+		instance, err := f.serverConfig.GetInstance(*cref.LocationURL, f.usedKeyToken)
 
 		// Return an error because you want to connect to other server which is not set in the config.
 		if err != nil {
@@ -1238,7 +1240,7 @@ func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.Single
 
 			// Return error when not allowed to read the data
 			if err != nil {
-				if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKey, f.dbConnector, objectLoaded.(*models.ThingGetResponse).Key.NrDollarCref); !allowed {
+				if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKeyToken, f.dbConnector, objectLoaded.(*models.ThingGetResponse).Key.NrDollarCref); !allowed {
 					err = errors.New("forbidden to get data for this thing")
 				}
 			}
@@ -1247,7 +1249,7 @@ func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.Single
 
 			// Return error when not allowed to read the data
 			if err != nil {
-				if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKey, f.dbConnector, objectLoaded.(*models.ActionGetResponse).Key.NrDollarCref); !allowed {
+				if allowed, _ := auth.ActionsAllowed([]string{"read"}, f.usedKeyToken, f.dbConnector, objectLoaded.(*models.ActionGetResponse).Key.NrDollarCref); !allowed {
 					err = errors.New("forbidden to get data for this action")
 				}
 			}
@@ -1256,7 +1258,7 @@ func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.Single
 
 			// Return error when not allowed to read the data
 			if err != nil {
-				if !auth.IsOwnKeyOrLowerInTree(f.usedKey, cref.NrDollarCref, f.dbConnector) {
+				if !auth.IsOwnKeyOrLowerInTree(f.usedKeyToken, cref.NrDollarCref, f.dbConnector) {
 					err = errors.New("forbidden to get data for this key")
 				}
 			}

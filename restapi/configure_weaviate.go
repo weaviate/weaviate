@@ -223,7 +223,7 @@ func createErrorResponseObject(message string) *models.ErrorResponse {
 	return er
 }
 
-func headerAPIKeyHandling(keyToken string) (*models.KeyGetResponse, error) {
+func headerAPIKeyHandling(keyToken string) (*models.KeyTokenGetResponse, error) {
 	// Convert JSON string to struct
 	kth := keyTokenHeader{}
 	json.Unmarshal([]byte(keyToken), &kth)
@@ -256,8 +256,13 @@ func headerAPIKeyHandling(keyToken string) (*models.KeyGetResponse, error) {
 		return nil, errors.New(401, "Provided key has expired.")
 	}
 
+	// Init response object
+	validatedKeyToken := models.KeyTokenGetResponse{}
+	validatedKeyToken.KeyGetResponse = validatedKey
+	validatedKeyToken.Token = kth.Token
+
 	// key is valid, next step is allowing per Handler handling
-	return &validatedKey, nil
+	return &validatedKeyToken, nil
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
@@ -424,7 +429,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &action)
 
 		// Validate schema made after patching with the weaviate schema
-		validatedErr := validation.ValidateActionBody(&action.ActionCreate, databaseSchema, dbConnector, serverConfig)
+		validatedErr := validation.ValidateActionBody(&action.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -465,7 +470,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig)
+		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -493,7 +498,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig)
+		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -510,7 +515,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateActionBody(params.Body, databaseSchema, dbConnector, serverConfig)
+		validatedErr := validation.ValidateActionBody(params.Body, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -519,7 +524,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		url := serverConfig.GetHostAddress()
 		keyRef := &models.SingleRef{
 			LocationURL:  &url,
-			NrDollarCref: principal.(*models.KeyGetResponse).KeyID,
+			NrDollarCref: principal.(*models.KeyTokenGetResponse).KeyID,
 			Type:         string(connutils.RefTypeKey),
 		}
 
@@ -583,7 +588,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
 		// Create current User object from principal
-		key := principal.(*models.KeyGetResponse)
+		key := principal.(*models.KeyTokenGetResponse)
 
 		// Fill the new User object
 		url := serverConfig.GetHostAddress()
@@ -592,7 +597,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		newKey.Token = connutils.GenerateUUID()
 		newKey.Parent = &models.SingleRef{
 			LocationURL:  &url,
-			NrDollarCref: principal.(*models.KeyGetResponse).KeyID,
+			NrDollarCref: principal.(*models.KeyTokenGetResponse).KeyID,
 			Type:         string(connutils.RefTypeKey),
 		}
 		newKey.KeyCreate = *params.Body
@@ -632,7 +637,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Check on permissions
-		keyObject, _ := principal.(*models.KeyGetResponse)
+		keyObject, _ := principal.(*models.KeyTokenGetResponse)
 		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysChildrenGetForbidden()
 		}
@@ -661,7 +666,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Check on permissions, only delete allowed if lower in tree (not own key)
-		keyObject, _ := principal.(*models.KeyGetResponse)
+		keyObject, _ := principal.(*models.KeyTokenGetResponse)
 		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) || keyObject.KeyID == params.KeyID {
 			return keys.NewWeaviateKeysDeleteForbidden()
 		}
@@ -685,7 +690,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Check on permissions
-		keyObject, _ := principal.(*models.KeyGetResponse)
+		keyObject, _ := principal.(*models.KeyTokenGetResponse)
 		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysGetForbidden()
 		}
@@ -695,7 +700,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		currentKey := principal.(*models.KeyGetResponse)
+		currentKey := principal.(*models.KeyTokenGetResponse)
 
 		// Get the children
 		childIDs := []strfmt.UUID{}
@@ -716,7 +721,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.Key.IsRoot = &isRoot
 
 		// Get item from database
-		err := dbConnector.GetKey(principal.(*models.KeyGetResponse).KeyID, &responseObject)
+		err := dbConnector.GetKey(principal.(*models.KeyTokenGetResponse).KeyID, &responseObject)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -739,7 +744,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Check on permissions
-		keyObject, _ := principal.(*models.KeyGetResponse)
+		keyObject, _ := principal.(*models.KeyTokenGetResponse)
 		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysRenewTokenForbidden()
 		}
@@ -779,8 +784,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Generate UUID for the new object
 		UUID := connutils.GenerateUUID()
 
+		// Convert principal to object
+		keyToken := principal.(*models.KeyTokenGetResponse)
+
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector, serverConfig)
+		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -789,7 +797,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		url := serverConfig.GetHostAddress()
 		keyRef := &models.SingleRef{
 			LocationURL:  &url,
-			NrDollarCref: principal.(*models.KeyGetResponse).KeyID,
+			NrDollarCref: keyToken.KeyID,
 			Type:         string(connutils.RefTypeKey),
 		}
 
@@ -933,7 +941,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		page := getPage(params.Page)
 
 		// Get user out of principal
-		keyID := principal.(*models.KeyGetResponse).KeyID
+		keyID := principal.(*models.KeyTokenGetResponse).KeyID
 
 		// This is a read function, validate if allowed to read?
 		if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, keyID); !allowed {
@@ -1003,8 +1011,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thing := &models.Thing{}
 		json.Unmarshal([]byte(updatedJSON), &thing)
 
+		// Convert principal to object
+		keyToken := principal.(*models.KeyTokenGetResponse)
+
 		// Validate schema made after patching with the weaviate schema
-		validatedErr := validation.ValidateThingBody(&thing.ThingCreate, databaseSchema, dbConnector, serverConfig)
+		validatedErr := validation.ValidateThingBody(&thing.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1044,8 +1055,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsUpdateForbidden()
 		}
 
+		// Convert principal to object
+		keyToken := principal.(*models.KeyTokenGetResponse)
+
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateThingBody(&params.Body.ThingCreate, databaseSchema, dbConnector, serverConfig)
+		validatedErr := validation.ValidateThingBody(&params.Body.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1072,8 +1086,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsUpdateAccepted().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
+		// Convert principal to object
+		keyToken := principal.(*models.KeyTokenGetResponse)
+
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector, serverConfig)
+		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1097,7 +1114,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		page := getPage(params.Page)
 
 		// Get key-object
-		keyObject := principal.(*models.KeyGetResponse)
+		keyObject := principal.(*models.KeyTokenGetResponse)
 
 		// This is a read function, validate if allowed to read?
 		if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, keyObject.KeyID); !allowed {
@@ -1148,7 +1165,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Get the results by doing a request with the given parameters and the initialized schema.
-		graphQLSchema.SetKey(principal.(*models.KeyGetResponse))
+		graphQLSchema.SetKey(principal.(*models.KeyTokenGetResponse))
 		gqlSchema, _ := graphQLSchema.GetGraphQLSchema()
 
 		// Do the request
