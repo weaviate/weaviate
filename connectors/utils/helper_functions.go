@@ -213,6 +213,10 @@ func DoExternalRequest(instance config.Instance, endpoint string, uuid strfmt.UU
 	// Do the request
 	response, err = client.Do(req)
 
+	if err != nil {
+		return
+	}
+
 	// Check the status-code to determine existance
 	if response.StatusCode != 200 {
 		err = fmt.Errorf("status code is not 200, but %d with status '%s'", response.StatusCode, response.Status)
