@@ -14,6 +14,7 @@
 package cassandra
 
 import (
+	"context"
 	errors_ "errors"
 	"fmt"
 	"strconv"
@@ -155,6 +156,13 @@ const selectThingStatement = `
 	SELECT *
 	FROM ` + tableThings + ` 
 	WHERE ` + colThingUUID + ` = ?
+`
+
+// selectThingInStatement is used to get a things form the database
+const selectThingInStatement = `
+	SELECT *
+	FROM ` + tableThings + ` 
+	WHERE ` + colThingUUID + ` IN ?
 `
 
 // listThingsSelectStatement is used to get a list of things form the database, based on owner and ordered by creationtime
@@ -415,7 +423,7 @@ func (f *Cassandra) Connect() error {
 }
 
 // Init 1st initializes the schema in the database and 2nd creates a root key.
-func (f *Cassandra) Init() error {
+func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	// Add table for 'keys', based on querying it by UUID
 	// TODO: ADD SOMETHING LIKE:
 	// has_read_access_to set<uuid>,
@@ -440,14 +448,14 @@ func (f *Cassandra) Init() error {
 	`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Add index for the clustering part 'root' to enable fast filtering
 	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_root ON ` + tableKeys + ` (` + colKeyRoot + `);`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Create a materialized view for querying for children of a certain node
@@ -459,7 +467,7 @@ func (f *Cassandra) Init() error {
 		PRIMARY KEY ((` + colKeyParent + `), ` + colKeyUUID + `, ` + colKeyRoot + `);`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Add table for 'things', based on selects it by UUID, bear in mind:
@@ -479,14 +487,14 @@ func (f *Cassandra) Init() error {
 	`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Add index on owner_uuid column to enable filtering on owner_uuid
 	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_owner_uuid ON ` + tableThings + ` (` + colNodeOwner + `);`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Create a table for the history of properties with uuid as primary key and ordering/clustering on creation time
@@ -504,7 +512,7 @@ func (f *Cassandra) Init() error {
 	`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Create a view for list queries based on onwer-UUID and ordered by creation time
@@ -517,7 +525,7 @@ func (f *Cassandra) Init() error {
 	`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Create view for search on thing-class
@@ -530,7 +538,7 @@ func (f *Cassandra) Init() error {
 	`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Create view to search on property key and value
@@ -545,14 +553,14 @@ func (f *Cassandra) Init() error {
 	`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Add index to filter on property value
 	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_property_value ON ` + tableThingsValueSearch + ` (` + colNodePropValue + `);`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Add table for 'actions', based on selects it by UUID, bear in mind:
@@ -576,14 +584,14 @@ func (f *Cassandra) Init() error {
 	`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Add index on owner_uuid column to enable filtering on owner_uuid
 	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_owner_uuid_actions ON ` + tableActions + ` (` + colNodeOwner + `);`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Create a table for the history of properties with uuid as primary key and ordering/clustering on creation time
@@ -605,7 +613,7 @@ func (f *Cassandra) Init() error {
 	`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Create a view for list queries based on object-thing-UUID and ordered by creation time
@@ -618,7 +626,7 @@ func (f *Cassandra) Init() error {
 	`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Create view for search on action-class
@@ -631,7 +639,7 @@ func (f *Cassandra) Init() error {
 	`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Create view to search on property key and value
@@ -646,14 +654,14 @@ func (f *Cassandra) Init() error {
 	`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Add index to filter on property value
 	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_property_value_actions ON ` + tableActionsValueSearch + ` (` + colNodePropValue + `);`).Exec()
 
 	if err != nil {
-		return err
+		return ctx, err
 	}
 
 	// Add ROOT-key if not exists
@@ -661,12 +669,12 @@ func (f *Cassandra) Init() error {
 
 	// Search for Root key
 	if err := f.client.Query(selectRootKeyStatement).Scan(&rootCount); err != nil {
-		return err
+		return ctx, err
 	}
 
 	// If root-key is not found
 	if rootCount == 0 {
-		f.messaging.InfoMessage("No root-key found.")
+		f.messaging.InfoMessage(connutils.StaticNoRootKey)
 
 		// Create new object and fill it
 		keyObject := models.Key{}
@@ -676,12 +684,12 @@ func (f *Cassandra) Init() error {
 		err = f.AddKey(&keyObject, UUID, token)
 
 		if err != nil {
-			return err
+			return ctx, err
 		}
 	}
 
 	// If success return nil, otherwise return the error
-	return nil
+	return ctx, nil
 }
 
 // AddThing adds a thing to the Cassandra database with the given UUID.
@@ -704,7 +712,7 @@ func (f *Cassandra) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // GetThing fills the given ThingGetResponse with the values from the database, based on the given UUID.
-func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+func (f *Cassandra) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetThing: %s", UUID))
 
@@ -714,7 +722,7 @@ func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRes
 	// Initialize the 'found' variable
 	found := false
 
-	// Put everyting in a for loop, allthough there is only one result in this case
+	// Put everything in a for loop, although there is only one result in this case
 	for {
 		// Init the map for each row
 		m := map[string]interface{}{}
@@ -738,7 +746,7 @@ func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRes
 
 	// If there is no thing found, return an error
 	if !found {
-		return errors_.New("Thing is not found in database")
+		return errors_.New(connutils.StaticThingNotFound)
 	}
 
 	// No errors, return nil
@@ -746,23 +754,46 @@ func (f *Cassandra) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRes
 }
 
 // GetThings fills the given ThingGetResponse with the values from the database, based on the given UUID.
-func (f *Cassandra) GetThings(UUIDs []strfmt.UUID, thingsResponse *models.ThingsListResponse) error {
-	// f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
+func (f *Cassandra) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingsResponse *models.ThingsListResponse) error {
+	// Track time of this function for debug reasons
+	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetThings '%s'", UUIDs))
 
-	// cqlUUIDs := []gocql.UUID{}
+	cqlUUIDs := []gocql.UUID{}
 
-	// for _, UUID := range UUIDs {
-	// 	cqlUUIDs = append(cqlUUIDs, f.convUUIDtoCQLUUID(UUID))
-	// }
+	for _, UUID := range UUIDs {
+		cqlUUIDs = append(cqlUUIDs, f.convUUIDtoCQLUUID(UUID))
+	}
 
-	// query := f.client.Query(selectInStatement, cqlUUIDs)
-	// iter := query.Iter()
+	// Build the query
+	query := fmt.Sprintf(selectThingInStatement)
 
-	// err := f.fillResponseWithIter(iter, thingsResponse, connutils.RefTypeThing)
+	// Do the query to get the thing from the database and get the iterator
+	iter := f.client.Query(query, cqlUUIDs).Iter()
 
-	// // If success return nil, otherwise return the error
-	// return err
+	// Put everything in a for loop
+	for {
+		// Init the map for each row
+		m := map[string]interface{}{}
 
+		// Fill the map with the current row in the iterator
+		if !iter.MapScan(m) {
+			break
+		}
+
+		// Fill the response with the row
+		thingResponse := models.ThingGetResponse{}
+		f.fillThingResponseWithRow(m, &thingResponse)
+
+		// Add the thing to the list in the response
+		thingsResponse.Things = append(thingsResponse.Things, &thingResponse)
+	}
+
+	// Close the iterator to get errors
+	if err := iter.Close(); err != nil {
+		return err
+	}
+
+	// No errors, return nil
 	return nil
 }
 
@@ -795,7 +826,7 @@ func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres 
 	// Counter for offset
 	offsetCount := 0
 
-	// Put everyting in a for loop
+	// Put everything in a for loop
 	for {
 		// Init the map for each row
 		m := map[string]interface{}{}
@@ -890,7 +921,7 @@ func (f *Cassandra) HistoryThing(UUID strfmt.UUID, history *models.ThingHistory)
 	// Initialize the 'found' variable
 	found := false
 
-	// Put everyting in a for loop, allthough there is only one result in this case
+	// Put everything in a for loop, although there is only one result in this case
 	for {
 		// Init the map for each row
 		m := map[string]interface{}{}
@@ -939,7 +970,7 @@ func (f *Cassandra) HistoryThing(UUID strfmt.UUID, history *models.ThingHistory)
 
 	// If there is no history found, return an error
 	if !found {
-		return errors_.New("No history is not found in database")
+		return errors_.New(connutils.StaticNoHistoryFound)
 	}
 
 	return nil
@@ -1014,7 +1045,7 @@ func (f *Cassandra) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGet
 	// Initialize the 'found' variable
 	found := false
 
-	// Put everyting in a for loop, allthough there is only one result in this case
+	// Put everything in a for loop, although there is only one result in this case
 	for {
 		// Init the map for each row
 		m := map[string]interface{}{}
@@ -1038,7 +1069,7 @@ func (f *Cassandra) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGet
 
 	// If there is no action found, return an error
 	if !found {
-		return errors_.New("Action is not found in database")
+		return errors_.New(connutils.StaticActionNotFound)
 	}
 
 	// No errors, return nil
@@ -1074,7 +1105,7 @@ func (f *Cassandra) ListActions(UUID strfmt.UUID, first int, offset int, wheres 
 	// Counter for offset
 	offsetCount := 0
 
-	// Put everyting in a for loop
+	// Put everything in a for loop
 	for {
 		// Init the map for each row
 		m := map[string]interface{}{}
@@ -1170,7 +1201,7 @@ func (f *Cassandra) HistoryAction(UUID strfmt.UUID, history *models.ActionHistor
 	// Initialize the 'found' variable
 	found := false
 
-	// Put everyting in a for loop, allthough there is only one result in this case
+	// Put everything in a for loop, although there is only one result in this case
 	for {
 		// Init the map for each row
 		m := map[string]interface{}{}
@@ -1235,7 +1266,7 @@ func (f *Cassandra) HistoryAction(UUID strfmt.UUID, history *models.ActionHistor
 
 	// If there is no history found, return an error
 	if !found {
-		return errors_.New("No history is not found in database")
+		return errors_.New(connutils.StaticNoHistoryFound)
 	}
 
 	return nil
@@ -1333,7 +1364,7 @@ func (f *Cassandra) ValidateToken(UUID strfmt.UUID, keyResponse *models.KeyGetRe
 	// Initialize the 'found' variable
 	found := false
 
-	// Put everyting in a for loop, allthough there is only one result in this case
+	// Put everything in a for loop, although there is only one result in this case
 	for {
 		// Init the map for each row
 		m := map[string]interface{}{}
@@ -1359,7 +1390,7 @@ func (f *Cassandra) ValidateToken(UUID strfmt.UUID, keyResponse *models.KeyGetRe
 
 	// If there is no key found, return an error
 	if !found {
-		return token, errors_.New("Key is not found in database")
+		return token, errors_.New(connutils.StaticKeyNotFound)
 	}
 
 	// No errors, return nil
@@ -1377,7 +1408,7 @@ func (f *Cassandra) GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse)
 	// Initialize the 'found' variable
 	found := false
 
-	// Put everyting in a for loop, allthough there is only one result in this case
+	// Put everything in a for loop, although there is only one result in this case
 	for {
 		// Init the map for each row
 		m := map[string]interface{}{}
@@ -1401,7 +1432,7 @@ func (f *Cassandra) GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse)
 
 	// If there is no key found, return an error
 	if !found {
-		return errors_.New("Key is not found in database")
+		return errors_.New(connutils.StaticKeyNotFound)
 	}
 
 	// No errors, return nil
@@ -1437,7 +1468,7 @@ func (f *Cassandra) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetR
 	// Do the query to get the thing from the database and get the iterator
 	iter := f.client.Query(selectKeyChildrenStatement, f.convUUIDtoCQLUUID(UUID)).Iter()
 
-	// Put everyting in a for loop
+	// Put everything in a for loop
 	for {
 		// Init the map for each row
 		m := map[string]interface{}{}
