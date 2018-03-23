@@ -73,12 +73,12 @@ func getResponseBody(response *http.Response) []byte {
 	return body
 }
 
-// getEmptyJSON returns a buffer with emtpy JSON
+// getEmptyJSON returns a buffer with empty JSON
 func getEmptyJSON() io.Reader {
 	return bytes.NewBuffer([]byte(`{}`))
 }
 
-// getEmptyPatchJSON returns a buffer with emtpy Patch-JSON
+// getEmptyPatchJSON returns a buffer with empty Patch-JSON
 func getEmptyPatchJSON() io.Reader {
 	return bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/xxx", "value": "xxx"}]`))
 }
@@ -208,7 +208,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 
 		resp, err := client.Do(req)
 		if err != nil {
-			messaging.DebugMessage(fmt.Sprintf("Error in response occured during benchmark: %s", err.Error()))
+			messaging.DebugMessage(fmt.Sprintf("Error in response occurred during benchmark: %s", err.Error()))
 		}
 
 		resp.Body.Close()

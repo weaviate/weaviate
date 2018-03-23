@@ -14,6 +14,7 @@
 package validation
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/go-openapi/strfmt"
@@ -27,7 +28,7 @@ import (
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
-func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interface{}, refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{}, refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
 	// Initialize class object
 	var isp interface{}
 	var className string
@@ -127,7 +128,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 			locationURL := pvcr["locationUrl"].(string)
 			cref.LocationURL = &locationURL
 			cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
-			err = ValidateSingleRef(serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
+			err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
 			if err != nil {
 				return err
 			}

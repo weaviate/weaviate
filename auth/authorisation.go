@@ -104,7 +104,7 @@ func ActionsAllowed(actions []string, validateObject interface{}, databaseConnec
 	return true, nil
 }
 
-// GetKeyChildrenUUIDs returns children recursivly based on its parameters.
+// GetKeyChildrenUUIDs returns children recursively based on its parameters.
 func GetKeyChildrenUUIDs(databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID, filterOutDeleted bool, allIDs []strfmt.UUID, maxDepth int, depth int) ([]strfmt.UUID, error) {
 	// Append on every depth
 	if depth > 0 {

@@ -9,6 +9,7 @@
 					"keyspace": "weaviate"
 				}
 			},
+			
 			"schemas": {
 				"Thing": "./test/schema/test-thing-schema.json",
 				"Action": "./test/schema/test-action-schema.json"
@@ -21,10 +22,14 @@
 			"debug": true,
 			"development": {
 				"external_instances": [{
-						"url": "http://localhost:8070"
+						"url": "http://localhost:8070",
+						"api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
+						"api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
 					},
 					{
-						"url": "http://127.0.0.1:8070"
+						"url": "http://127.0.0.1:8070",
+						"api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
+						"api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
 					}
 				]
 			}
