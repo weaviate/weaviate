@@ -15,6 +15,7 @@
 package restapi
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -44,6 +45,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors"
 	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra"
+	"github.com/creativesoftwarefdn/weaviate/connectors/dataloader"
 	"github.com/creativesoftwarefdn/weaviate/connectors/foobar"
 	"github.com/creativesoftwarefdn/weaviate/connectors/kvcache"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
@@ -166,6 +168,7 @@ func GetAllCacheConnectors() []dbconnector.CacheConnector {
 	// Set all existing connectors
 	connectors := []dbconnector.CacheConnector{
 		&kvcache.KVCache{},
+		&dataloader.DataLoader{},
 	}
 
 	return connectors
@@ -325,7 +328,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		err := dbConnector.GetAction(params.ActionID, &actionGetResponse)
 
 		// Object is deleted
-		if err != nil {
+		if err != nil || actionGetResponse.Key == nil {
 			return actions.NewWeaviateActionsGetNotFound()
 		}
 
@@ -429,7 +432,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &action)
 
 		// Validate schema made after patching with the weaviate schema
-		validatedErr := validation.ValidateActionBody(&action.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &action.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -470,7 +473,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -498,7 +501,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateActionBody(&params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -515,7 +518,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateActionBody(params.Body, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), params.Body, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -788,7 +791,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector, serverConfig, keyToken)
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -827,7 +830,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingGetResponse.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
-		errGet := dbConnector.GetThing(params.ThingID, &thingGetResponse)
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
 
 		// Save the old-thing in a variable
 		oldThing := thingGetResponse
@@ -875,10 +878,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
-		err := dbConnector.GetThing(strfmt.UUID(params.ThingID), &responseObject)
+		err := dbConnector.GetThing(params.HTTPRequest.Context(), strfmt.UUID(params.ThingID), &responseObject)
 
 		// Object is not found
-		if err != nil {
+		if err != nil || responseObject.Key == nil {
 			messaging.ErrorMessage(err)
 			return things.NewWeaviateThingsGetNotFound()
 		}
@@ -901,7 +904,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := strfmt.UUID(params.ThingID)
 
 		// Get item from database
-		errGet := dbConnector.GetThing(UUID, &responseObject)
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &responseObject)
 
 		// Init the response variables
 		historyResponse := &models.ThingGetHistoryResponse{}
@@ -968,7 +971,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get and transform object
 		UUID := strfmt.UUID(params.ThingID)
-		errGet := dbConnector.GetThing(UUID, &thingGetResponse)
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
 
 		// Save the old-thing in a variable
 		oldThing := thingGetResponse
@@ -1015,7 +1018,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema made after patching with the weaviate schema
-		validatedErr := validation.ValidateThingBody(&thing.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &thing.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1039,7 +1042,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get item from database
 		UUID := params.ThingID
-		errGet := dbConnector.GetThing(UUID, &thingGetResponse)
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
 
 		// Save the old-thing in a variable
 		oldThing := thingGetResponse
@@ -1059,7 +1062,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateThingBody(&params.Body.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &params.Body.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1090,7 +1093,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateThingBody(params.Body, databaseSchema, dbConnector, serverConfig, keyToken)
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1124,7 +1127,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
-		errGet := dbConnector.GetThing(params.ThingID, &thingGetResponse)
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
 
 		// If there are no results, there is an error
 		if errGet != nil {
@@ -1214,7 +1217,6 @@ func configureTLS(tlsConfig *tls.Config) {
 // This function can be called multiple times, depending on the number of serving schemes.
 // scheme value will be set accordingly: "http", "https" or "unix"
 func configureServer(s *graceful.Server, scheme, addr string) {
-
 	// Create message service
 	messaging = &messages.Messaging{}
 
@@ -1271,28 +1273,6 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 	}
 
 	dbConnector.SetServerAddress(serverConfig.GetHostAddress())
-
-	// connect the database
-	errConnect := dbConnector.Connect()
-	if errConnect != nil {
-		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when connecting: "+errConnect.Error())
-	}
-
-	// init the database
-	errInit := dbConnector.Init()
-	if errInit != nil {
-		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
-	}
-
-	// Init the GraphQL schema
-	graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, serverConfig, &databaseSchema, messaging)
-
-	// Error init
-	errInitGQL := graphQLSchema.InitSchema()
-	if errInitGQL != nil {
-		messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+errInitGQL.Error())
-	}
-
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
@@ -1307,7 +1287,32 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 		jkth, _ := json.Marshal(kth)
 		r.Header.Set("X-API-KEY", string(jkth))
 		r.Header.Set("X-API-TOKEN", string(jkth))
-		handler.ServeHTTP(w, r)
+
+		ctx := context.Background()
+
+		// connect the database
+		errConnect := dbConnector.Connect()
+		if errConnect != nil {
+			messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when connecting: "+errConnect.Error())
+		}
+
+		// init the database
+		var errInit error
+		ctx, errInit = dbConnector.Init(ctx)
+		if errInit != nil {
+			messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
+		}
+
+		// Init the GraphQL schema
+		graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, serverConfig, &databaseSchema, messaging)
+
+		// Error init
+		errInitGQL := graphQLSchema.InitSchema()
+		if errInitGQL != nil {
+			messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+errInitGQL.Error())
+		}
+
+		handler.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

@@ -14,6 +14,8 @@
 package dbconnector
 
 import (
+	"context"
+
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/go-openapi/strfmt"
 
@@ -23,10 +25,10 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/schema"
 )
 
-// DatabaseConnector is the interface that all connectors should have
-type DatabaseConnector interface {
+// BaseConnector is the interface that all connectors should have, cache or DB
+type BaseConnector interface {
 	Connect() error
-	Init() error
+	Init(ctx context.Context) (context.Context, error)
 	GetName() string
 	SetServerAddress(serverAddress string)
 	SetConfig(configInput *config.Environment) error
@@ -34,8 +36,7 @@ type DatabaseConnector interface {
 	SetMessaging(m *messages.Messaging) error
 
 	AddThing(thing *models.Thing, UUID strfmt.UUID) error
-	GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
-	GetThings(UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error
+	GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
 	ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
 	UpdateThing(thing *models.Thing, UUID strfmt.UUID) error
 	DeleteThing(thing *models.Thing, UUID strfmt.UUID) error
@@ -56,6 +57,13 @@ type DatabaseConnector interface {
 	DeleteKey(key *models.Key, UUID strfmt.UUID) error
 	GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetResponse) error
 	UpdateKey(key *models.Key, UUID strfmt.UUID, token string) error
+}
+
+// DatabaseConnector is the interface that all DB-connectors should have
+type DatabaseConnector interface {
+	BaseConnector
+
+	GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error
 }
 
 // CacheConnector is the interface that all cache-connectors should have

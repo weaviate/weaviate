@@ -40,6 +40,17 @@ const (
 	LessThan
 	// LessThanEqual represents an operator for an operation to be less or equal than the value
 	LessThanEqual
+
+	// StaticNoRootKey message when no root key is found
+	StaticNoRootKey string = "No root-key found."
+	// StaticThingNotFound message when thing is not found
+	StaticThingNotFound string = "Thing is not found in database"
+	// StaticNoHistoryFound message for when no history is found
+	StaticNoHistoryFound string = "No history is not found in database"
+	// StaticActionNotFound message when action is not found
+	StaticActionNotFound string = "Action is not found in database"
+	// StaticKeyNotFound message when key is not found
+	StaticKeyNotFound string = "Key is not found in database"
 )
 
 // ValueType is the type representing the value in the query
