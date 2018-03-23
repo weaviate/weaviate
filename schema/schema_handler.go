@@ -320,7 +320,7 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 					prop.Name,
 					strings.Join(prop.AtDataType, ","),
 				))
-			} else {
+			} else if !hasCRef && !hasValue {
 				// Check whether a class-property contains no data types
 				return errors_.New(fmt.Sprintf(
 					"no value given to the data type in class '%s', at property '%s'",
