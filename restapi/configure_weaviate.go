@@ -233,7 +233,7 @@ func headerAPIKeyHandling(keyToken string) (*models.KeyTokenGetResponse, error) 
 
 	// Validate both headers
 	if kth.Key == "" || kth.Token == "" {
-		return nil, errors.New(401, "Please provide both X-API-KEY and X-API-TOKEN headers.")
+		return nil, errors.New(401, connutils.StaticMissingHeader)
 	}
 
 	// Create key
@@ -249,14 +249,14 @@ func headerAPIKeyHandling(keyToken string) (*models.KeyTokenGetResponse, error) 
 
 	// Check token
 	if !connutils.TokenHashCompare(hashed, kth.Token) {
-		return nil, errors.New(401, "Provided token is invalid.")
+		return nil, errors.New(401, connutils.StaticInvalidToken)
 	}
 
 	// Validate the key on expiry time
 	currentUnix := connutils.NowUnix()
 
 	if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
-		return nil, errors.New(401, "Provided key has expired.")
+		return nil, errors.New(401, connutils.StaticKeyExpired)
 	}
 
 	// Init response object
@@ -1273,6 +1273,30 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 	}
 
 	dbConnector.SetServerAddress(serverConfig.GetHostAddress())
+
+	ctx := context.Background()
+
+	// connect the database
+	errConnect := dbConnector.Connect()
+	if errConnect != nil {
+		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when connecting: "+errConnect.Error())
+	}
+
+	// init the database
+	var errInit error
+	ctx, errInit = dbConnector.Init(ctx)
+	if errInit != nil {
+		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
+	}
+
+	// Init the GraphQL schema
+	graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, serverConfig, &databaseSchema, messaging)
+
+	// Error init
+	errInitGQL := graphQLSchema.InitSchema()
+	if errInitGQL != nil {
+		messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+errInitGQL.Error())
+	}
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
@@ -1289,28 +1313,6 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 		r.Header.Set("X-API-TOKEN", string(jkth))
 
 		ctx := context.Background()
-
-		// connect the database
-		errConnect := dbConnector.Connect()
-		if errConnect != nil {
-			messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when connecting: "+errConnect.Error())
-		}
-
-		// init the database
-		var errInit error
-		ctx, errInit = dbConnector.Init(ctx)
-		if errInit != nil {
-			messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
-		}
-
-		// Init the GraphQL schema
-		graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, serverConfig, &databaseSchema, messaging)
-
-		// Error init
-		errInitGQL := graphQLSchema.InitSchema()
-		if errInitGQL != nil {
-			messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+errInitGQL.Error())
-		}
 
 		handler.ServeHTTP(w, r.WithContext(ctx))
 	})

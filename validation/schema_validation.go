@@ -28,8 +28,6 @@ import (
 )
 
 const (
-	// ErrorInvalidRefType message
-	ErrorInvalidRefType string = "given ref type is not valid"
 	// ErrorInvalidSingleRef message
 	ErrorInvalidSingleRef string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema"
 	// ErrorMissingSingleRefCRef message
@@ -45,11 +43,11 @@ const (
 	// ErrorInvalidInteger message
 	ErrorInvalidInteger string = "class '%s' with property '%s' requires an integer. The given value is '%v'"
 	// ErrorInvalidIntegerConvertion message
-	ErrorInvalidIntegerConvertion string = "class '%s' with property '%s' requires an integer, the JSON number could not be converted to an int. The given value is '%v'"
+	ErrorInvalidIntegerConvertion string = ErrorInvalidInteger + "The JSON number could not be converted to an int."
 	// ErrorInvalidFloat message
 	ErrorInvalidFloat string = "class '%s' with property '%s' requires a float. The given value is '%v'"
 	// ErrorInvalidFloatConvertion message
-	ErrorInvalidFloatConvertion string = "class '%s' with property '%s' requires a float, the JSON number could not be converted to a float. The given value is '%v'"
+	ErrorInvalidFloatConvertion string = ErrorInvalidFloat + "The JSON number could not be converted to a float."
 	// ErrorInvalidBool message
 	ErrorInvalidBool string = "class '%s' with property '%s' requires a bool. The given value is '%v'"
 	// ErrorInvalidDate message
@@ -68,7 +66,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 		className = object.(*models.ThingCreate).AtClass
 		isp = object.(*models.ThingCreate).Schema
 	} else {
-		return fmt.Errorf(ErrorInvalidRefType)
+		return fmt.Errorf(schema.ErrorInvalidRefType)
 	}
 
 	// Validate whether the class exists in the given schema
@@ -279,7 +277,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 	} else if refType == connutils.RefTypeThing {
 		object.(*models.ThingCreate).Schema = returnSchema
 	} else {
-		return fmt.Errorf(ErrorInvalidRefType)
+		return fmt.Errorf(schema.ErrorInvalidRefType)
 	}
 
 	return nil
