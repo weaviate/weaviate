@@ -138,12 +138,12 @@ func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databa
 		)
 	}
 
-	// Check existance of Thing, external or internal
+	// Check existence of Thing, external or internal
 	if err := ValidateSingleRef(ctx, serverConfig, action.Things.Object, dbConnector, "Object-Thing", keyToken); err != nil {
 		return err
 	}
 
-	// Check existance of Thing, external or internal
+	// Check existence of Thing, external or internal
 	if err := ValidateSingleRef(ctx, serverConfig, action.Things.Subject, dbConnector, "Subject-Thing", keyToken); err != nil {
 		return err
 	}
@@ -175,12 +175,12 @@ func validateRefType(s connutils.RefType) bool {
 	return (s == connutils.RefTypeAction || s == connutils.RefTypeThing || s == connutils.RefTypeKey)
 }
 
-// ValidateSingleRef validates a single ref based on location URL and existance of the object in the database
+// ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
 func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, errorVal string, keyToken *models.KeyTokenGetResponse) error {
 	// Init reftype
 	refType := connutils.RefType(cref.Type)
 
-	// Check existance of Object, external or internal
+	// Check existence of Object, external or internal
 	if serverConfig.GetHostAddress() != *cref.LocationURL {
 		// Search for key-information for resolving this part. Dont validate if not exists
 		instance, err := serverConfig.GetInstance(*cref.LocationURL, keyToken)
