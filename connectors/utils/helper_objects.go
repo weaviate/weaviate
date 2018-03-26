@@ -51,6 +51,13 @@ const (
 	StaticActionNotFound string = "Action is not found in database"
 	// StaticKeyNotFound message when key is not found
 	StaticKeyNotFound string = "Key is not found in database"
+
+	// StaticMissingHeader message
+	StaticMissingHeader string = "Please provide both X-API-KEY and X-API-TOKEN headers."
+	// StaticInvalidToken message
+	StaticInvalidToken string = "Provided token is invalid."
+	// StaticKeyExpired message
+	StaticKeyExpired string = "Provided key has expired."
 )
 
 // ValueType is the type representing the value in the query
