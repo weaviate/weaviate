@@ -14,6 +14,7 @@
 package auth
 
 import (
+	"context"
 	errors_ "errors"
 	"strings"
 
@@ -24,7 +25,7 @@ import (
 )
 
 // IsOwnKeyOrLowerInTree returns whether a key is his own or in his children
-func IsOwnKeyOrLowerInTree(currentKey *models.KeyTokenGetResponse, userKeyID strfmt.UUID, databaseConnector dbconnector.DatabaseConnector) bool {
+func IsOwnKeyOrLowerInTree(ctx context.Context, currentKey *models.KeyTokenGetResponse, userKeyID strfmt.UUID, databaseConnector dbconnector.DatabaseConnector) bool {
 	// If is own key, return true
 	if strings.EqualFold(string(userKeyID), string(currentKey.KeyID)) {
 		return true
@@ -32,7 +33,7 @@ func IsOwnKeyOrLowerInTree(currentKey *models.KeyTokenGetResponse, userKeyID str
 
 	// Get all child id's
 	childIDs := []strfmt.UUID{}
-	childIDs, _ = GetKeyChildrenUUIDs(databaseConnector, currentKey.KeyID, true, childIDs, 0, 0)
+	childIDs, _ = GetKeyChildrenUUIDs(ctx, databaseConnector, currentKey.KeyID, true, childIDs, 0, 0)
 
 	// Check ID is in childIds
 	isChildID := false
@@ -51,14 +52,14 @@ func IsOwnKeyOrLowerInTree(currentKey *models.KeyTokenGetResponse, userKeyID str
 }
 
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
-func ActionsAllowed(actions []string, validateObject interface{}, databaseConnector dbconnector.DatabaseConnector, objectOwnerUUID interface{}) (bool, error) {
+func ActionsAllowed(ctx context.Context, actions []string, validateObject interface{}, databaseConnector dbconnector.DatabaseConnector, objectOwnerUUID interface{}) (bool, error) {
 	// Get the user by the given principal
 	keyObject := validateObject.(*models.KeyTokenGetResponse)
 
 	// Check whether the given owner of the object is in the children, if the ownerID is given
 	correctChild := false
 	if objectOwnerUUID != nil {
-		correctChild = IsOwnKeyOrLowerInTree(keyObject, objectOwnerUUID.(strfmt.UUID), databaseConnector)
+		correctChild = IsOwnKeyOrLowerInTree(ctx, keyObject, objectOwnerUUID.(strfmt.UUID), databaseConnector)
 	} else {
 		correctChild = true
 	}
@@ -105,7 +106,7 @@ func ActionsAllowed(actions []string, validateObject interface{}, databaseConnec
 }
 
 // GetKeyChildrenUUIDs returns children recursively based on its parameters.
-func GetKeyChildrenUUIDs(databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID, filterOutDeleted bool, allIDs []strfmt.UUID, maxDepth int, depth int) ([]strfmt.UUID, error) {
+func GetKeyChildrenUUIDs(ctx context.Context, databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID, filterOutDeleted bool, allIDs []strfmt.UUID, maxDepth int, depth int) ([]strfmt.UUID, error) {
 	// Append on every depth
 	if depth > 0 {
 		allIDs = append(allIDs, parentUUID)
@@ -115,7 +116,7 @@ func GetKeyChildrenUUIDs(databaseConnector dbconnector.DatabaseConnector, parent
 	children := []*models.KeyGetResponse{}
 
 	// Get children from the db-connector
-	err := databaseConnector.GetKeyChildren(parentUUID, &children)
+	err := databaseConnector.GetKeyChildren(ctx, parentUUID, &children)
 
 	// Return error
 	if err != nil {
@@ -125,7 +126,7 @@ func GetKeyChildrenUUIDs(databaseConnector dbconnector.DatabaseConnector, parent
 	// For every depth, get the ID's
 	if maxDepth == 0 || depth < maxDepth {
 		for _, child := range children {
-			allIDs, err = GetKeyChildrenUUIDs(databaseConnector, child.KeyID, filterOutDeleted, allIDs, maxDepth, depth+1)
+			allIDs, err = GetKeyChildrenUUIDs(ctx, databaseConnector, child.KeyID, filterOutDeleted, allIDs, maxDepth, depth+1)
 		}
 	}
 

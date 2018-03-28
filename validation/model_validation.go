@@ -212,10 +212,10 @@ func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
 			err = dbConnector.GetThing(ctx, cref.NrDollarCref, obj)
 		} else if refType == connutils.RefTypeAction {
 			obj := &models.ActionGetResponse{}
-			err = dbConnector.GetAction(cref.NrDollarCref, obj)
+			err = dbConnector.GetAction(ctx, cref.NrDollarCref, obj)
 		} else if refType == connutils.RefTypeKey {
 			obj := &models.KeyGetResponse{}
-			err = dbConnector.GetKey(cref.NrDollarCref, obj)
+			err = dbConnector.GetKey(ctx, cref.NrDollarCref, obj)
 		} else {
 			return fmt.Errorf(ErrorInvalidCRefType, cref.Type)
 		}
