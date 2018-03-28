@@ -31,7 +31,7 @@ func ConnectToMqtt(Host string, Port int32) {
 		messaging.InfoMessage("Connecting to MQTT broker...")
 
 		opts := MQTT.NewClientOptions()
-		opts.AddBroker("tcp://localhost:1883")
+		opts.AddBroker("tcp://127.0.0.1:1883")
 		opts.SetUsername("b9b908ee-0039-4f6a-a2c0-b51ebbd982f1")
 		opts.SetPassword("05d64e63-e464-40ac-8e55-4ccedb0a60f7")
 		opts.SetClientID("WEAVIATE-SERVER")
