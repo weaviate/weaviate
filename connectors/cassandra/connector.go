@@ -423,7 +423,7 @@ func (f *Cassandra) Connect() error {
 }
 
 // Init 1st initializes the schema in the database and 2nd creates a root key.
-func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
+func (f *Cassandra) Init() error {
 	// Add table for 'keys', based on querying it by UUID
 	// TODO: ADD SOMETHING LIKE:
 	// has_read_access_to set<uuid>,
@@ -448,14 +448,14 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Add index for the clustering part 'root' to enable fast filtering
 	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_root ON ` + tableKeys + ` (` + colKeyRoot + `);`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Create a materialized view for querying for children of a certain node
@@ -467,7 +467,7 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 		PRIMARY KEY ((` + colKeyParent + `), ` + colKeyUUID + `, ` + colKeyRoot + `);`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Add table for 'things', based on selects it by UUID, bear in mind:
@@ -487,14 +487,14 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Add index on owner_uuid column to enable filtering on owner_uuid
 	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_owner_uuid ON ` + tableThings + ` (` + colNodeOwner + `);`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Create a table for the history of properties with uuid as primary key and ordering/clustering on creation time
@@ -512,7 +512,7 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Create a view for list queries based on onwer-UUID and ordered by creation time
@@ -525,7 +525,7 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Create view for search on thing-class
@@ -538,7 +538,7 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Create view to search on property key and value
@@ -553,14 +553,14 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Add index to filter on property value
 	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_property_value ON ` + tableThingsValueSearch + ` (` + colNodePropValue + `);`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Add table for 'actions', based on selects it by UUID, bear in mind:
@@ -584,14 +584,14 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Add index on owner_uuid column to enable filtering on owner_uuid
 	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_owner_uuid_actions ON ` + tableActions + ` (` + colNodeOwner + `);`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Create a table for the history of properties with uuid as primary key and ordering/clustering on creation time
@@ -613,7 +613,7 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Create a view for list queries based on object-thing-UUID and ordered by creation time
@@ -626,7 +626,7 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Create view for search on action-class
@@ -639,7 +639,7 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Create view to search on property key and value
@@ -654,14 +654,14 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 	`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Add index to filter on property value
 	err = f.client.Query(`CREATE INDEX IF NOT EXISTS i_property_value_actions ON ` + tableActionsValueSearch + ` (` + colNodePropValue + `);`).Exec()
 
 	if err != nil {
-		return ctx, err
+		return err
 	}
 
 	// Add ROOT-key if not exists
@@ -669,7 +669,7 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 
 	// Search for Root key
 	if err := f.client.Query(selectRootKeyStatement).Scan(&rootCount); err != nil {
-		return ctx, err
+		return err
 	}
 
 	// If root-key is not found
@@ -681,21 +681,27 @@ func (f *Cassandra) Init(ctx context.Context) (context.Context, error) {
 		token, UUID := connutils.CreateRootKeyObject(&keyObject)
 
 		// Add the root-key to the database
-		err = f.AddKey(&keyObject, UUID, token)
+		ctx := context.Background()
+		err = f.AddKey(ctx, &keyObject, UUID, token)
 
 		if err != nil {
-			return ctx, err
+			return err
 		}
 	}
 
 	// If success return nil, otherwise return the error
+	return nil
+}
+
+// Attach can attach something to the request-context
+func (f *Cassandra) Attach(ctx context.Context) (context.Context, error) {
 	return ctx, nil
 }
 
 // AddThing adds a thing to the Cassandra database with the given UUID.
 // Takes the thing and a UUID as input.
 // Thing is already validated against the ontology
-func (f *Cassandra) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
+func (f *Cassandra) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("AddThing: %s", UUID))
 
@@ -798,7 +804,7 @@ func (f *Cassandra) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingsRe
 }
 
 // ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
-func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
+func (f *Cassandra) ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now())
 
@@ -872,7 +878,7 @@ func (f *Cassandra) ListThings(first int, offset int, keyID strfmt.UUID, wheres 
 }
 
 // UpdateThing updates the Thing in the DB at the given UUID.
-func (f *Cassandra) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
+func (f *Cassandra) UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("UpdateThing: %s", UUID))
 
@@ -889,7 +895,7 @@ func (f *Cassandra) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // DeleteThing deletes the Thing in the DB at the given UUID.
-func (f *Cassandra) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
+func (f *Cassandra) DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("DeleteThing: %s", UUID))
 
@@ -911,7 +917,7 @@ func (f *Cassandra) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // HistoryThing fills the history of a thing based on its UUID
-func (f *Cassandra) HistoryThing(UUID strfmt.UUID, history *models.ThingHistory) error {
+func (f *Cassandra) HistoryThing(ctx context.Context, UUID strfmt.UUID, history *models.ThingHistory) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("HistoryThing: %s", UUID))
 
@@ -978,7 +984,7 @@ func (f *Cassandra) HistoryThing(UUID strfmt.UUID, history *models.ThingHistory)
 
 // MoveToHistoryThing moves the thing-properties to the history table based on a given UUID
 // Note that the thing related to the UUID is not updated yet.
-func (f *Cassandra) MoveToHistoryThing(thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
+func (f *Cassandra) MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
 	// Convert UUID
 	cqlUUID := f.convUUIDtoCQLUUID(UUID)
 
@@ -1018,7 +1024,7 @@ func (f *Cassandra) MoveToHistoryThing(thing *models.Thing, UUID strfmt.UUID, de
 // AddAction adds an action to the Cassandra database with the given UUID.
 // Takes the action and a UUID as input.
 // Action is already validated against the ontology
-func (f *Cassandra) AddAction(action *models.Action, UUID strfmt.UUID) error {
+func (f *Cassandra) AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("AddAction: %s", UUID))
 
@@ -1035,7 +1041,7 @@ func (f *Cassandra) AddAction(action *models.Action, UUID strfmt.UUID) error {
 }
 
 // GetAction fills the given ActionGetResponse with the values from the database, based on the given UUID.
-func (f *Cassandra) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
+func (f *Cassandra) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetAction: %s", UUID))
 
@@ -1077,7 +1083,7 @@ func (f *Cassandra) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGet
 }
 
 // ListActions fills the given ActionListResponse with the values from the database, based on the given parameters.
-func (f *Cassandra) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
+func (f *Cassandra) ListActions(ctx context.Context, UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now())
 
@@ -1150,7 +1156,7 @@ func (f *Cassandra) ListActions(UUID strfmt.UUID, first int, offset int, wheres 
 }
 
 // UpdateAction updates the Action in the DB at the given UUID.
-func (f *Cassandra) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
+func (f *Cassandra) UpdateAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("UpdateAction: %s", UUID))
 
@@ -1167,7 +1173,7 @@ func (f *Cassandra) UpdateAction(action *models.Action, UUID strfmt.UUID) error 
 }
 
 // DeleteAction deletes the Action in the DB at the given UUID.
-func (f *Cassandra) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
+func (f *Cassandra) DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("DeleteAction: %s", UUID))
 
@@ -1191,7 +1197,7 @@ func (f *Cassandra) DeleteAction(action *models.Action, UUID strfmt.UUID) error 
 }
 
 // HistoryAction fills the history of a action based on its UUID
-func (f *Cassandra) HistoryAction(UUID strfmt.UUID, history *models.ActionHistory) error {
+func (f *Cassandra) HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("HistoryAction: %s", UUID))
 
@@ -1274,7 +1280,7 @@ func (f *Cassandra) HistoryAction(UUID strfmt.UUID, history *models.ActionHistor
 
 // MoveToHistoryAction moves the action-properties to the history table based on a given UUID
 // Note that the action related to the UUID is not updated yet.
-func (f *Cassandra) MoveToHistoryAction(action *models.Action, UUID strfmt.UUID, deleted bool) error {
+func (f *Cassandra) MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error {
 	// Convert UUID
 	cqlUUID := f.convUUIDtoCQLUUID(UUID)
 
@@ -1318,7 +1324,7 @@ func (f *Cassandra) MoveToHistoryAction(action *models.Action, UUID strfmt.UUID,
 // AddKey adds a key to the Cassandra database with the given UUID and token.
 // UUID  = reference to the key
 // token = is the actual access token used in the API's header
-func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token string) error {
+func (f *Cassandra) AddKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("AddKey: %s", UUID))
 
@@ -1354,7 +1360,7 @@ func (f *Cassandra) AddKey(key *models.Key, UUID strfmt.UUID, token string) erro
 }
 
 // ValidateToken validates/gets a key to the Cassandra database with the given token (=UUID)
-func (f *Cassandra) ValidateToken(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
+func (f *Cassandra) ValidateToken(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("ValidateToken: %s", token))
 
@@ -1398,7 +1404,7 @@ func (f *Cassandra) ValidateToken(UUID strfmt.UUID, keyResponse *models.KeyGetRe
 }
 
 // GetKey fills the given KeyGetResponse with the values from the database, based on the given UUID.
-func (f *Cassandra) GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
+func (f *Cassandra) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetKey: %s", UUID))
 
@@ -1440,7 +1446,7 @@ func (f *Cassandra) GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse)
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
-func (f *Cassandra) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
+func (f *Cassandra) DeleteKey(ctx context.Context, key *models.Key, UUID strfmt.UUID) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("DeleteKey: %s", UUID))
 
@@ -1461,7 +1467,7 @@ func (f *Cassandra) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
 }
 
 // GetKeyChildren fills the given KeyGetResponse array with the values from the database, based on the given UUID.
-func (f *Cassandra) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
+func (f *Cassandra) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetKeyChildren: %s", UUID))
 
@@ -1497,7 +1503,7 @@ func (f *Cassandra) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetR
 }
 
 // UpdateKey updates the Key in the DB at the given UUID.
-func (f *Cassandra) UpdateKey(key *models.Key, UUID strfmt.UUID, token string) error {
+func (f *Cassandra) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
 	// Track time of this function for debug reasons
 	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("UpdateKey: %s", UUID))
 

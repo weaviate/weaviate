@@ -28,35 +28,37 @@ import (
 // BaseConnector is the interface that all connectors should have, cache or DB
 type BaseConnector interface {
 	Connect() error
-	Init(ctx context.Context) (context.Context, error)
+	Init() error
 	GetName() string
 	SetServerAddress(serverAddress string)
 	SetConfig(configInput *config.Environment) error
 	SetSchema(schemaInput *schema.WeaviateSchema) error
 	SetMessaging(m *messages.Messaging) error
 
-	AddThing(thing *models.Thing, UUID strfmt.UUID) error
+	Attach(ctx context.Context) (context.Context, error)
+
+	AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
 	GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
-	ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
-	UpdateThing(thing *models.Thing, UUID strfmt.UUID) error
-	DeleteThing(thing *models.Thing, UUID strfmt.UUID) error
-	HistoryThing(UUID strfmt.UUID, history *models.ThingHistory) error
-	MoveToHistoryThing(thing *models.Thing, UUID strfmt.UUID, deleted bool) error
+	ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
+	UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
+	DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
+	HistoryThing(ctx context.Context, UUID strfmt.UUID, history *models.ThingHistory) error
+	MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error
 
-	AddAction(action *models.Action, UUID strfmt.UUID) error
-	GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error
-	ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error
-	UpdateAction(action *models.Action, UUID strfmt.UUID) error
-	DeleteAction(action *models.Action, UUID strfmt.UUID) error
-	HistoryAction(UUID strfmt.UUID, history *models.ActionHistory) error
-	MoveToHistoryAction(action *models.Action, UUID strfmt.UUID, deleted bool) error
+	AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
+	GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error
+	ListActions(ctx context.Context, UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error
+	UpdateAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
+	DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
+	HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error
+	MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error
 
-	AddKey(key *models.Key, UUID strfmt.UUID, token string) error
-	ValidateToken(UUID strfmt.UUID, key *models.KeyGetResponse) (token string, err error)
-	GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error
-	DeleteKey(key *models.Key, UUID strfmt.UUID) error
-	GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetResponse) error
-	UpdateKey(key *models.Key, UUID strfmt.UUID, token string) error
+	AddKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error
+	ValidateToken(ctx context.Context, UUID strfmt.UUID, key *models.KeyGetResponse) (token string, err error)
+	GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error
+	DeleteKey(ctx context.Context, key *models.Key, UUID strfmt.UUID) error
+	GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children *[]*models.KeyGetResponse) error
+	UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error
 }
 
 // DatabaseConnector is the interface that all DB-connectors should have

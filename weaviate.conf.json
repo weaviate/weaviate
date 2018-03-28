@@ -9,7 +9,9 @@
 					"keyspace": "weaviate"
 				}
 			},
-			
+			"cache": {
+				"name": "dataloader"
+			},
 			"schemas": {
 				"Thing": "./test/schema/test-thing-schema.json",
 				"Action": "./test/schema/test-action-schema.json"

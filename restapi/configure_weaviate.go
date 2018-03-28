@@ -130,12 +130,12 @@ func generateMultipleRefObject(keyIDs []strfmt.UUID) models.MultipleRef {
 	return refs
 }
 
-func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID) {
+func deleteKey(ctx context.Context, databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID) {
 	// Find its children
 	var allIDs []strfmt.UUID
 
 	// Get all the children to remove
-	allIDs, _ = auth.GetKeyChildrenUUIDs(databaseConnector, parentUUID, false, allIDs, 0, 0)
+	allIDs, _ = auth.GetKeyChildrenUUIDs(ctx, databaseConnector, parentUUID, false, allIDs, 0, 0)
 
 	// Append the children to the parent UUIDs to remove all
 	allIDs = append(allIDs, parentUUID)
@@ -146,9 +146,9 @@ func deleteKey(databaseConnector dbconnector.DatabaseConnector, parentUUID strfm
 		keyResponse := models.KeyGetResponse{}
 
 		// Get the key to delete
-		dbConnector.GetKey(keyID, &keyResponse)
+		dbConnector.GetKey(ctx, keyID, &keyResponse)
 
-		databaseConnector.DeleteKey(&keyResponse.Key, keyID)
+		databaseConnector.DeleteKey(ctx, &keyResponse.Key, keyID)
 	}
 }
 
@@ -226,7 +226,7 @@ func createErrorResponseObject(message string) *models.ErrorResponse {
 	return er
 }
 
-func headerAPIKeyHandling(keyToken string) (*models.KeyTokenGetResponse, error) {
+func headerAPIKeyHandling(ctx context.Context, keyToken string) (*models.KeyTokenGetResponse, error) {
 	// Convert JSON string to struct
 	kth := keyTokenHeader{}
 	json.Unmarshal([]byte(keyToken), &kth)
@@ -240,7 +240,7 @@ func headerAPIKeyHandling(keyToken string) (*models.KeyTokenGetResponse, error) 
 	validatedKey := models.KeyGetResponse{}
 
 	// Check if the user has access, true if yes
-	hashed, err := dbConnector.ValidateToken(kth.Key, &validatedKey)
+	hashed, err := dbConnector.ValidateToken(ctx, kth.Key, &validatedKey)
 
 	// Error printing
 	if err != nil {
@@ -304,7 +304,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	// Applies when the "X-API-KEY" header is set
 	api.APIKeyAuth = func(token string) (interface{}, error) {
-		return headerAPIKeyHandling(token)
+		ctx := context.Background()
+		return headerAPIKeyHandling(ctx, token)
 	}
 
 	/*
@@ -312,7 +313,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 */
 	// Applies when the "X-API-TOKEN" header is set
 	api.APITokenAuth = func(token string) (interface{}, error) {
-		return headerAPIKeyHandling(token)
+		ctx := context.Background()
+		return headerAPIKeyHandling(ctx, token)
 	}
 
 	/*
@@ -324,8 +326,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionGetResponse.Schema = map[string]models.JSONObject{}
 		actionGetResponse.Things = &models.ObjectSubject{}
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// Get item from database
-		err := dbConnector.GetAction(params.ActionID, &actionGetResponse)
+		err := dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
 
 		// Object is deleted
 		if err != nil || actionGetResponse.Key == nil {
@@ -333,7 +338,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return actions.NewWeaviateActionsGetForbidden()
 		}
 
@@ -348,8 +353,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Set UUID var for easy usage
 		UUID := strfmt.UUID(params.ActionID)
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// Get item from database
-		errGet := dbConnector.GetAction(UUID, &responseObject)
+		errGet := dbConnector.GetAction(ctx, UUID, &responseObject)
 
 		// Init the response variables
 		historyResponse := &models.ActionGetHistoryResponse{}
@@ -357,7 +365,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		historyResponse.ActionID = UUID
 
 		// Fill the history for these objects
-		errHist := dbConnector.HistoryAction(UUID, &historyResponse.ActionHistory)
+		errHist := dbConnector.HistoryAction(ctx, UUID, &historyResponse.ActionHistory)
 
 		// Check whether dont exist (both give an error) to return a not found
 		if errGet != nil && (errHist != nil || len(historyResponse.PropertyHistory) == 0) {
@@ -367,11 +375,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		if errHist == nil {
-			if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
+			if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
 				return actions.NewWeaviateActionHistoryGetForbidden()
 			}
 		} else if errGet == nil {
-			if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
+			if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
 				return actions.NewWeaviateActionHistoryGetForbidden()
 			}
 		}
@@ -387,9 +395,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionGetResponse.Schema = map[string]models.JSONObject{}
 		actionGetResponse.Things = &models.ObjectSubject{}
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// Get and transform object
 		UUID := strfmt.UUID(params.ActionID)
-		errGet := dbConnector.GetAction(UUID, &actionGetResponse)
+		errGet := dbConnector.GetAction(ctx, UUID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
 		oldAction := actionGetResponse
@@ -402,7 +413,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return actions.NewWeaviateActionsPatchForbidden()
 		}
 
@@ -438,10 +449,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryAction(&oldAction.Action, params.ActionID, false)
+		go dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
 
 		// Update the database
-		go dbConnector.UpdateAction(action, UUID)
+		go dbConnector.UpdateAction(ctx, action, UUID)
 
 		// Create return Object
 		actionGetResponse.Action = *action
@@ -454,9 +465,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// Get item from database
 		UUID := params.ActionID
-		errGet := dbConnector.GetAction(UUID, &actionGetResponse)
+		errGet := dbConnector.GetAction(ctx, UUID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
 		oldAction := actionGetResponse
@@ -468,7 +482,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return actions.NewWeaviateActionUpdateForbidden()
 		}
 
@@ -479,13 +493,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryAction(&oldAction.Action, params.ActionID, false)
+		go dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = actionGetResponse.CreationTimeUnix
 		params.Body.Key = actionGetResponse.Key
-		go dbConnector.UpdateAction(&params.Body.Action, UUID)
+		go dbConnector.UpdateAction(ctx, &params.Body.Action, UUID)
 
 		// Create object to return
 		responseObject := &models.ActionGetResponse{}
@@ -500,8 +514,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionUpdateAccepted().WithPayload(responseObject)
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+		validatedErr := validation.ValidateActionBody(ctx, &params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -509,8 +526,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionsValidateOK()
 	})
 	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal interface{}) middleware.Responder {
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, nil); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, nil); !allowed {
 			return actions.NewWeaviateActionsCreateForbidden()
 		}
 
@@ -542,7 +562,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		action.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go dbConnector.AddAction(action, UUID)
+		go dbConnector.AddAction(ctx, action, UUID)
 
 		// Initialize a response object
 		responseObject := &models.ActionGetResponse{}
@@ -558,8 +578,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionGetResponse.Schema = map[string]models.JSONObject{}
 		actionGetResponse.Things = &models.ObjectSubject{}
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// Get item from database
-		errGet := dbConnector.GetAction(params.ActionID, &actionGetResponse)
+		errGet := dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
 		oldAction := actionGetResponse
@@ -570,17 +593,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a delete function, validate if allowed to delete?
-		if allowed, _ := auth.ActionsAllowed([]string{"delete"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"delete"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
 		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryAction(&oldAction.Action, params.ActionID, false)
+		go dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
 
 		// Add new row as GO-routine
-		go dbConnector.DeleteAction(&actionGetResponse.Action, params.ActionID)
+		go dbConnector.DeleteAction(ctx, &actionGetResponse.Action, params.ActionID)
 
 		// Return 'No Content'
 		return actions.NewWeaviateActionsDeleteNoContent()
@@ -605,6 +628,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 		newKey.KeyCreate = *params.Body
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// Key expiry time is in the past
 		currentUnix := connutils.NowUnix()
 		if newKey.KeyExpiresUnix != -1 && newKey.KeyExpiresUnix < currentUnix {
@@ -617,7 +643,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Save to DB
-		insertErr := dbConnector.AddKey(&newKey.Key, newKey.KeyID, connutils.TokenHasher(newKey.Token))
+		insertErr := dbConnector.AddKey(ctx, &newKey.Key, newKey.KeyID, connutils.TokenHasher(newKey.Token))
 		if insertErr != nil {
 			messaging.ErrorMessage(insertErr)
 			return keys.NewWeaviateKeyCreateUnprocessableEntity().WithPayload(createErrorResponseObject(insertErr.Error()))
@@ -631,8 +657,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		errGet := dbConnector.GetKey(params.KeyID, &keyResponse)
+		errGet := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -641,13 +670,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions
 		keyObject, _ := principal.(*models.KeyTokenGetResponse)
-		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
+		if !auth.IsOwnKeyOrLowerInTree(ctx, keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysChildrenGetForbidden()
 		}
 
 		// Get the children
 		childIDs := []strfmt.UUID{}
-		childIDs, _ = auth.GetKeyChildrenUUIDs(dbConnector, params.KeyID, true, childIDs, 1, 0)
+		childIDs, _ = auth.GetKeyChildrenUUIDs(ctx, dbConnector, params.KeyID, true, childIDs, 1, 0)
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
@@ -660,8 +689,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		errGet := dbConnector.GetKey(params.KeyID, &keyResponse)
+		errGet := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -670,12 +702,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions, only delete allowed if lower in tree (not own key)
 		keyObject, _ := principal.(*models.KeyTokenGetResponse)
-		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) || keyObject.KeyID == params.KeyID {
+		if !auth.IsOwnKeyOrLowerInTree(ctx, keyObject, params.KeyID, dbConnector) || keyObject.KeyID == params.KeyID {
 			return keys.NewWeaviateKeysDeleteForbidden()
 		}
 
 		// Remove key from database if found
-		deleteKey(dbConnector, params.KeyID)
+		deleteKey(ctx, dbConnector, params.KeyID)
 
 		// Return 'No Content'
 		return keys.NewWeaviateKeysDeleteNoContent()
@@ -684,8 +716,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// Get item from database
-		err := dbConnector.GetKey(params.KeyID, &keyResponse)
+		err := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -694,7 +729,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions
 		keyObject, _ := principal.(*models.KeyTokenGetResponse)
-		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
+		if !auth.IsOwnKeyOrLowerInTree(ctx, keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysGetForbidden()
 		}
 
@@ -705,9 +740,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
 		currentKey := principal.(*models.KeyTokenGetResponse)
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// Get the children
 		childIDs := []strfmt.UUID{}
-		childIDs, _ = auth.GetKeyChildrenUUIDs(dbConnector, currentKey.KeyID, true, childIDs, 1, 0)
+		childIDs, _ = auth.GetKeyChildrenUUIDs(ctx, dbConnector, currentKey.KeyID, true, childIDs, 1, 0)
 
 		// Initiate response object
 		responseObject := &models.KeyChildrenGetResponse{}
@@ -720,11 +758,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response object
 		responseObject := models.KeyGetResponse{}
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		isRoot := false
 		responseObject.Key.IsRoot = &isRoot
 
 		// Get item from database
-		err := dbConnector.GetKey(principal.(*models.KeyTokenGetResponse).KeyID, &responseObject)
+		err := dbConnector.GetKey(ctx, principal.(*models.KeyTokenGetResponse).KeyID, &responseObject)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -738,8 +779,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		errGet := dbConnector.GetKey(params.KeyID, &keyResponse)
+		errGet := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -748,7 +792,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Check on permissions
 		keyObject, _ := principal.(*models.KeyTokenGetResponse)
-		if !auth.IsOwnKeyOrLowerInTree(keyObject, params.KeyID, dbConnector) {
+		if !auth.IsOwnKeyOrLowerInTree(ctx, keyObject, params.KeyID, dbConnector) {
 			return keys.NewWeaviateKeysRenewTokenForbidden()
 		}
 
@@ -761,7 +805,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		newToken := connutils.GenerateUUID()
 
 		// Update the key in the database
-		insertErr := dbConnector.UpdateKey(&keyResponse.Key, keyResponse.KeyID, connutils.TokenHasher(newToken))
+		insertErr := dbConnector.UpdateKey(ctx, &keyResponse.Key, keyResponse.KeyID, connutils.TokenHasher(newToken))
 		if insertErr != nil {
 			messaging.ErrorMessage(insertErr)
 			return keys.NewWeaviateKeysRenewTokenUnprocessableEntity().WithPayload(createErrorResponseObject(insertErr.Error()))
@@ -779,8 +823,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE THINGS
 	 */
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, nil); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, nil); !allowed {
 			return things.NewWeaviateThingsCreateForbidden()
 		}
 
@@ -814,7 +861,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thing.Key = keyRef
 
 		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go dbConnector.AddThing(thing, UUID)
+		go dbConnector.AddThing(ctx, thing, UUID)
 
 		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
@@ -829,6 +876,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// Get item from database
 		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
 
@@ -841,7 +891,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a delete function, validate if allowed to delete?
-		if allowed, _ := auth.ActionsAllowed([]string{"delete"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"delete"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
@@ -851,9 +901,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		for actionsExist {
 			actions := models.ActionsListResponse{}
 			actions.Actions = []*models.ActionGetResponse{}
-			dbConnector.ListActions(params.ThingID, 50, 0, []*connutils.WhereQuery{}, &actions)
+			dbConnector.ListActions(ctx, params.ThingID, 50, 0, []*connutils.WhereQuery{}, &actions)
 			for _, v := range actions.Actions {
-				go dbConnector.DeleteAction(&v.Action, v.ActionID)
+				go dbConnector.DeleteAction(ctx, &v.Action, v.ActionID)
 			}
 
 			// Exit if total results are 0 or the total results are not lowering, then there is some kind of error
@@ -864,10 +914,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryThing(&oldThing.Thing, params.ThingID, true)
+		go dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, params.ThingID, true)
 
 		// Add new row as GO-routine
-		go dbConnector.DeleteThing(&thingGetResponse.Thing, params.ThingID)
+		go dbConnector.DeleteThing(ctx, &thingGetResponse.Thing, params.ThingID)
 
 		// Return 'No Content'
 		return things.NewWeaviateThingsDeleteNoContent()
@@ -877,8 +927,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject := models.ThingGetResponse{}
 		responseObject.Schema = map[string]models.JSONObject{}
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// Get item from database
-		err := dbConnector.GetThing(params.HTTPRequest.Context(), strfmt.UUID(params.ThingID), &responseObject)
+		err := dbConnector.GetThing(ctx, strfmt.UUID(params.ThingID), &responseObject)
 
 		// Object is not found
 		if err != nil || responseObject.Key == nil {
@@ -887,7 +940,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsGetForbidden()
 		}
 
@@ -899,6 +952,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		responseObject := models.ThingGetResponse{}
 		responseObject.Schema = map[string]models.JSONObject{}
+
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
 
 		// Set UUID var for easy usage
 		UUID := strfmt.UUID(params.ThingID)
@@ -912,7 +968,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		historyResponse.ThingID = UUID
 
 		// Fill the history for these objects
-		errHist := dbConnector.HistoryThing(UUID, &historyResponse.ThingHistory)
+		errHist := dbConnector.HistoryThing(ctx, UUID, &historyResponse.ThingHistory)
 
 		// Check whether dont exist (both give an error) to return a not found
 		if errGet != nil && (errHist != nil || len(historyResponse.PropertyHistory) == 0) {
@@ -923,11 +979,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// This is a read function, validate if allowed to read?
 		if errHist == nil {
-			if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
+			if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
 				return things.NewWeaviateThingHistoryGetForbidden()
 			}
 		} else if errGet == nil {
-			if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
+			if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
 				return things.NewWeaviateThingHistoryGetForbidden()
 			}
 		}
@@ -946,8 +1002,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get user out of principal
 		keyID := principal.(*models.KeyTokenGetResponse).KeyID
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, keyID); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, keyID); !allowed {
 			return things.NewWeaviateThingsListForbidden()
 		}
 
@@ -956,7 +1015,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingsResponse.Things = []*models.ThingGetResponse{}
 
 		// List all results
-		err := dbConnector.ListThings(limit, (page-1)*limit, keyID, []*connutils.WhereQuery{}, &thingsResponse)
+		err := dbConnector.ListThings(ctx, limit, (page-1)*limit, keyID, []*connutils.WhereQuery{}, &thingsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)
@@ -968,6 +1027,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
+
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
 
 		// Get and transform object
 		UUID := strfmt.UUID(params.ThingID)
@@ -985,7 +1047,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsPatchForbidden()
 		}
 
@@ -1024,10 +1086,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryThing(&oldThing.Thing, UUID, false)
+		go dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
 
 		// Update the database
-		go dbConnector.UpdateThing(thing, UUID)
+		go dbConnector.UpdateThing(ctx, thing, UUID)
 
 		// Create return Object
 		thingGetResponse.Thing = *thing
@@ -1039,6 +1101,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
+
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
 		UUID := params.ThingID
@@ -1054,7 +1119,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed([]string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsUpdateForbidden()
 		}
 
@@ -1068,13 +1133,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryThing(&oldThing.Thing, UUID, false)
+		go dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
 		params.Body.Key = thingGetResponse.Key
-		go dbConnector.UpdateThing(&params.Body.Thing, UUID)
+		go dbConnector.UpdateThing(ctx, &params.Body.Thing, UUID)
 
 		// Create object to return
 		responseObject := &models.ThingGetResponse{}
@@ -1119,8 +1184,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Get key-object
 		keyObject := principal.(*models.KeyTokenGetResponse)
 
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
 		// This is a read function, validate if allowed to read?
-		if allowed, _ := auth.ActionsAllowed([]string{"read"}, principal, dbConnector, keyObject.KeyID); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, keyObject.KeyID); !allowed {
 			return things.NewWeaviateThingsActionsListForbidden()
 		}
 
@@ -1140,7 +1208,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
-		err := dbConnector.ListActions(params.ThingID, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
+		err := dbConnector.ListActions(ctx, params.ThingID, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)
@@ -1177,6 +1245,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			RequestString:  query,
 			OperationName:  operationName,
 			VariableValues: variables,
+			Context:        params.HTTPRequest.Context(),
 		})
 
 		// Marshal the JSON
@@ -1274,8 +1343,6 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 
 	dbConnector.SetServerAddress(serverConfig.GetHostAddress())
 
-	ctx := context.Background()
-
 	// connect the database
 	errConnect := dbConnector.Connect()
 	if errConnect != nil {
@@ -1284,7 +1351,7 @@ func configureServer(s *graceful.Server, scheme, addr string) {
 
 	// init the database
 	var errInit error
-	ctx, errInit = dbConnector.Init(ctx)
+	errInit = dbConnector.Init()
 	if errInit != nil {
 		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
 	}
@@ -1312,7 +1379,14 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 		r.Header.Set("X-API-KEY", string(jkth))
 		r.Header.Set("X-API-TOKEN", string(jkth))
 
-		ctx := context.Background()
+		messaging.InfoMessage("generated both headers X-API-KEY and X-API-TOKEN")
+
+		ctx := r.Context()
+		ctx, err := dbConnector.Attach(ctx)
+
+		if err != nil {
+			messaging.ExitError(1, "database or cache gave an error when attaching context: "+err.Error())
+		}
 
 		handler.ServeHTTP(w, r.WithContext(ctx))
 	})

@@ -53,7 +53,12 @@ func (f *DataLoader) Connect() error {
 }
 
 // Init function
-func (f *DataLoader) Init(ctx context.Context) (context.Context, error) {
+func (f *DataLoader) Init() error {
+	return f.databaseConnector.Init()
+}
+
+// Attach function
+func (f *DataLoader) Attach(ctx context.Context) (context.Context, error) {
 	// setup batch function
 	batchFn := func(ctx context.Context, keys dataloader.Keys) []*dataloader.Result {
 		results := []*dataloader.Result{}
@@ -87,7 +92,7 @@ func (f *DataLoader) Init(ctx context.Context) (context.Context, error) {
 				}
 			}
 			if !found {
-				results = append(results, &dataloader.Result{Data: &models.ThingGetResponse{}, Error: fmt.Errorf("thing not found")})
+				results = append(results, &dataloader.Result{Data: &models.ThingGetResponse{}, Error: fmt.Errorf(connutils.StaticThingNotFound)})
 			}
 		}
 
@@ -95,13 +100,14 @@ func (f *DataLoader) Init(ctx context.Context) (context.Context, error) {
 	}
 
 	// create Loader with an in-memory cache
-	ctx = context.WithValue(ctx, thingsDataLoader, dataloader.NewBatchedLoader(
+	thingsLoader := dataloader.NewBatchedLoader(
 		batchFn,
 		dataloader.WithWait(50*time.Millisecond),
 		dataloader.WithBatchCapacity(100),
-	))
+	)
+	ctx = context.WithValue(ctx, thingsDataLoader, thingsLoader)
 
-	return f.databaseConnector.Init(ctx)
+	return f.databaseConnector.Attach(ctx)
 }
 
 // SetServerAddress function
@@ -128,162 +134,213 @@ func (f *DataLoader) SetSchema(schemaInput *schema.WeaviateSchema) error {
 }
 
 // AddThing function
-func (f *DataLoader) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
+func (f *DataLoader) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	return f.databaseConnector.AddThing(thing, UUID)
+	return f.databaseConnector.AddThing(ctx, thing, UUID)
 }
 
 // GetThing function
 func (f *DataLoader) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
-	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetThing '%s'", UUID))
+	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("DataLoader#GetThing: '%s'", UUID))
 
+	// Init varaibles used by data loader
 	var result interface{}
-	// StringKey is a convenience method that make wraps string to implement `Key` interface
-	loader, _ := ctx.Value(thingsDataLoader).(*dataloader.Loader)
+	var loader *dataloader.Loader
+	var ok bool
+
+	// Load the dataloader from the context
+	if loader, ok = ctx.Value(thingsDataLoader).(*dataloader.Loader); !ok {
+		return fmt.Errorf("dataloader not found in context")
+	}
+
+	// Use thunk function to load the data based on the dataloader
 	thunk := loader.Load(ctx, dataloader.StringKey(string(UUID)))
 	result, err := thunk()
 
+	// Fill the thing values retrieved from the thunk function.
 	if err == nil {
 		thingResponse.Thing = result.(*models.ThingGetResponse).Thing
 		thingResponse.ThingID = result.(*models.ThingGetResponse).ThingID
 	}
 
 	return err
-
-	// return f.databaseConnector.GetThing(UUID, thingResponse)
 }
 
 // GetThings funciton
 func (f *DataLoader) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error {
-	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetThings '%s'", UUIDs))
+	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("DataLoader#GetThings: '%s'", UUIDs))
 	return f.databaseConnector.GetThings(ctx, UUIDs, thingResponse)
 }
 
 // ListThings function
-func (f *DataLoader) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
+func (f *DataLoader) ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	return f.databaseConnector.ListThings(first, offset, keyID, wheres, thingsResponse)
+	return f.databaseConnector.ListThings(ctx, first, offset, keyID, wheres, thingsResponse)
 }
 
 // UpdateThing function
-func (f *DataLoader) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
+func (f *DataLoader) UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	// f.thingsDataLoader.Clear(f.context, dataloader.StringKey(string(UUID)))
+	// Init varaibles used by data loader
+	var loader *dataloader.Loader
+	var ok bool
 
-	return f.databaseConnector.UpdateThing(thing, UUID)
+	// Load the dataloader from the context
+	if loader, ok = ctx.Value(thingsDataLoader).(*dataloader.Loader); !ok {
+		return fmt.Errorf("dataloader not found in context")
+	}
+
+	// Clear the data from the thing-dataloader cache
+	loader.Clear(ctx, dataloader.StringKey(string(UUID)))
+
+	// Forward request to db-connector
+	return f.databaseConnector.UpdateThing(ctx, thing, UUID)
 }
 
 // DeleteThing function
-func (f *DataLoader) DeleteThing(thing *models.Thing, UUID strfmt.UUID) error {
+func (f *DataLoader) DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	// f.thingsDataLoader.Clear(f.context, dataloader.StringKey(string(UUID)))
+	// Init varaibles used by data loader
+	var loader *dataloader.Loader
+	var ok bool
 
-	return f.databaseConnector.DeleteThing(thing, UUID)
+	// Load the dataloader from the context
+	if loader, ok = ctx.Value(thingsDataLoader).(*dataloader.Loader); !ok {
+		return fmt.Errorf("dataloader not found in context")
+	}
+
+	// Clear the data from the thing-dataloader cache
+	loader.Clear(ctx, dataloader.StringKey(string(UUID)))
+
+	// Forward request to db-connector
+	return f.databaseConnector.DeleteThing(ctx, thing, UUID)
 }
 
 // HistoryThing fills the history of a thing based on its UUID
-func (f *DataLoader) HistoryThing(UUID strfmt.UUID, history *models.ThingHistory) error {
-	return f.databaseConnector.HistoryThing(UUID, history)
+func (f *DataLoader) HistoryThing(ctx context.Context, UUID strfmt.UUID, history *models.ThingHistory) error {
+	return f.databaseConnector.HistoryThing(ctx, UUID, history)
 }
 
 // MoveToHistoryThing moves a thing to history
-func (f *DataLoader) MoveToHistoryThing(thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
-	return f.databaseConnector.MoveToHistoryThing(thing, UUID, deleted)
+func (f *DataLoader) MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
+	return f.databaseConnector.MoveToHistoryThing(ctx, thing, UUID, deleted)
 }
 
 // AddAction function
-func (f *DataLoader) AddAction(action *models.Action, UUID strfmt.UUID) error {
+func (f *DataLoader) AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	return f.databaseConnector.AddAction(action, UUID)
+	return f.databaseConnector.AddAction(ctx, action, UUID)
 }
 
 // GetAction function
-func (f *DataLoader) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
+func (f *DataLoader) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	return f.databaseConnector.GetAction(UUID, actionResponse)
+	return f.databaseConnector.GetAction(ctx, UUID, actionResponse)
 }
 
 // ListActions function
-func (f *DataLoader) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
+func (f *DataLoader) ListActions(ctx context.Context, UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	return f.databaseConnector.ListActions(UUID, first, offset, wheres, actionsResponse)
+	return f.databaseConnector.ListActions(ctx, UUID, first, offset, wheres, actionsResponse)
 }
 
 // UpdateAction function
-func (f *DataLoader) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
+func (f *DataLoader) UpdateAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	// f.thingsDataLoader.Clear(f.context, dataloader.StringKey(string(action.Things.Subject.NrDollarCref)))
-	// f.thingsDataLoader.Clear(f.context, dataloader.StringKey(string(action.Things.Object.NrDollarCref)))
+	// Init varaibles used by data loader
+	var loader *dataloader.Loader
+	var ok bool
 
-	return f.databaseConnector.UpdateAction(action, UUID)
+	// Load the dataloader from the context
+	if loader, ok = ctx.Value(thingsDataLoader).(*dataloader.Loader); !ok {
+		return fmt.Errorf("dataloader not found in context")
+	}
+
+	// Clear the data from the thing-dataloader cache
+	loader.Clear(ctx, dataloader.StringKey(string(action.Things.Subject.NrDollarCref)))
+	loader.Clear(ctx, dataloader.StringKey(string(action.Things.Object.NrDollarCref)))
+
+	// Forward request to db-connector
+	return f.databaseConnector.UpdateAction(ctx, action, UUID)
 }
 
 // DeleteAction function
-func (f *DataLoader) DeleteAction(action *models.Action, UUID strfmt.UUID) error {
+func (f *DataLoader) DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	// f.thingsDataLoader.Clear(f.context, dataloader.StringKey(string(action.Things.Subject.NrDollarCref)))
-	// f.thingsDataLoader.Clear(f.context, dataloader.StringKey(string(action.Things.Object.NrDollarCref)))
+	// Init varaibles used by data loader
+	var loader *dataloader.Loader
+	var ok bool
 
-	return f.databaseConnector.DeleteAction(action, UUID)
+	// Load the dataloader from the context
+	if loader, ok = ctx.Value(thingsDataLoader).(*dataloader.Loader); !ok {
+		return fmt.Errorf("dataloader not found in context")
+	}
+
+	// Clear the data from the thing-dataloader cache
+	loader.Clear(ctx, dataloader.StringKey(string(action.Things.Subject.NrDollarCref)))
+	loader.Clear(ctx, dataloader.StringKey(string(action.Things.Object.NrDollarCref)))
+
+	// Forward request to db-connector
+	return f.databaseConnector.DeleteAction(ctx, action, UUID)
 }
 
 // HistoryAction fills the history of a Action based on its UUID
-func (f *DataLoader) HistoryAction(UUID strfmt.UUID, history *models.ActionHistory) error {
-	return f.databaseConnector.HistoryAction(UUID, history)
+func (f *DataLoader) HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error {
+	return f.databaseConnector.HistoryAction(ctx, UUID, history)
 }
 
 // MoveToHistoryAction moves a action to history
-func (f *DataLoader) MoveToHistoryAction(action *models.Action, UUID strfmt.UUID, deleted bool) error {
-	return f.databaseConnector.MoveToHistoryAction(action, UUID, deleted)
+func (f *DataLoader) MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error {
+	return f.databaseConnector.MoveToHistoryAction(ctx, action, UUID, deleted)
 }
 
 // AddKey function
-func (f *DataLoader) AddKey(key *models.Key, UUID strfmt.UUID, token string) error {
+func (f *DataLoader) AddKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	return f.databaseConnector.AddKey(key, UUID, token)
+	return f.databaseConnector.AddKey(ctx, key, UUID, token)
 }
 
 // ValidateToken function
-func (f *DataLoader) ValidateToken(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
+func (f *DataLoader) ValidateToken(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
 	defer f.messaging.TimeTrack(time.Now())
 
-	token, err = f.databaseConnector.ValidateToken(UUID, keyResponse)
+	token, err = f.databaseConnector.ValidateToken(ctx, UUID, keyResponse)
 
 	return token, err
 }
 
 // GetKey function
-func (f *DataLoader) GetKey(UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
+func (f *DataLoader) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	return f.databaseConnector.GetKey(UUID, keyResponse)
+	return f.databaseConnector.GetKey(ctx, UUID, keyResponse)
 }
 
 // DeleteKey function
-func (f *DataLoader) DeleteKey(key *models.Key, UUID strfmt.UUID) error {
+func (f *DataLoader) DeleteKey(ctx context.Context, key *models.Key, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	return f.databaseConnector.DeleteKey(key, UUID)
+	return f.databaseConnector.DeleteKey(ctx, key, UUID)
 }
 
 // GetKeyChildren function
-func (f *DataLoader) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
+func (f *DataLoader) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
 
-	return f.databaseConnector.GetKeyChildren(UUID, children)
+	return f.databaseConnector.GetKeyChildren(ctx, UUID, children)
 }
 
 // UpdateKey updates the Key in the DB at the given UUID.
-func (f *DataLoader) UpdateKey(key *models.Key, UUID strfmt.UUID, token string) error {
-	return f.databaseConnector.UpdateKey(key, UUID, token)
+func (f *DataLoader) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
+	return f.databaseConnector.UpdateKey(ctx, key, UUID, token)
 }
