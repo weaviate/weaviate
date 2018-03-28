@@ -14,6 +14,7 @@
 package validation
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/go-openapi/strfmt"
@@ -26,8 +27,35 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/schema"
 )
 
+const (
+	// ErrorInvalidSingleRef message
+	ErrorInvalidSingleRef string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema"
+	// ErrorMissingSingleRefCRef message
+	ErrorMissingSingleRefCRef string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. '$cref' is missing, check your input schema"
+	// ErrorMissingSingleRefLocationURL message
+	ErrorMissingSingleRefLocationURL string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema"
+	// ErrorMissingSingleRefType message
+	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
+	// ErrorInvalidClassType message
+	ErrorInvalidClassType string = "class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s' or '%s'"
+	// ErrorInvalidString message
+	ErrorInvalidString string = "class '%s' with property '%s' requires a string. The given value is '%v'"
+	// ErrorInvalidInteger message
+	ErrorInvalidInteger string = "class '%s' with property '%s' requires an integer. The given value is '%v'"
+	// ErrorInvalidIntegerConvertion message
+	ErrorInvalidIntegerConvertion string = ErrorInvalidInteger + "The JSON number could not be converted to an int."
+	// ErrorInvalidFloat message
+	ErrorInvalidFloat string = "class '%s' with property '%s' requires a float. The given value is '%v'"
+	// ErrorInvalidFloatConvertion message
+	ErrorInvalidFloatConvertion string = ErrorInvalidFloat + "The JSON number could not be converted to a float."
+	// ErrorInvalidBool message
+	ErrorInvalidBool string = "class '%s' with property '%s' requires a bool. The given value is '%v'"
+	// ErrorInvalidDate message
+	ErrorInvalidDate string = "class '%s' with property '%s' requires a string with a RFC3339 formatted date. The given value is '%v'"
+)
+
 // ValidateSchemaInBody Validate the schema in the given body
-func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interface{}, refType string, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig) error {
+func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{}, refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
 	// Initialize class object
 	var isp interface{}
 	var className string
@@ -38,7 +66,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 		className = object.(*models.ThingCreate).AtClass
 		isp = object.(*models.ThingCreate).Schema
 	} else {
-		return fmt.Errorf("given ref type is not valid")
+		return fmt.Errorf(schema.ErrorInvalidRefType)
 	}
 
 	// Validate whether the class exists in the given schema
@@ -82,28 +110,28 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 			if len(pvcr) != 3 {
 				// Give an error if the cref is not filled with correct number of properties
 				return fmt.Errorf(
-					"class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema",
+					ErrorInvalidSingleRef,
 					class.Class,
 					pk,
 				)
 			} else if _, ok := pvcr["$cref"]; !ok {
 				// Give an error if the cref is not filled with correct properties ($cref)
 				return fmt.Errorf(
-					"class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. '$cref' is missing, check your input schema",
+					ErrorMissingSingleRefCRef,
 					class.Class,
 					pk,
 				)
 			} else if _, ok := pvcr["locationUrl"]; !ok {
 				// Give an error if the cref is not filled with correct properties (locationUrl)
 				return fmt.Errorf(
-					"class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema",
+					ErrorMissingSingleRefLocationURL,
 					class.Class,
 					pk,
 				)
 			} else if _, ok := pvcr["type"]; !ok {
 				// Give an error if the cref is not filled with correct properties (type)
 				return fmt.Errorf(
-					"class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'type' is missing, check your input schema",
+					ErrorMissingSingleRefType,
 					class.Class,
 					pk,
 				)
@@ -111,9 +139,9 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 
 			// Return error if type is not right, when it is not one of the 3 possible types
 			refType := pvcr["type"].(string)
-			if !validateRefType(refType) {
+			if !validateRefType(connutils.RefType(refType)) {
 				return fmt.Errorf(
-					"class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s' or '%s'",
+					ErrorInvalidClassType,
 					class.Class, pk,
 					connutils.RefTypeAction,
 					connutils.RefTypeThing,
@@ -127,7 +155,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 			locationURL := pvcr["locationUrl"].(string)
 			cref.LocationURL = &locationURL
 			cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
-			err = ValidateSingleRef(serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk))
+			err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
 			if err != nil {
 				return err
 			}
@@ -139,7 +167,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 			data, ok = pv.(string)
 			if !ok {
 				return fmt.Errorf(
-					"class '%s' with property '%s' requires a string. The given value is '%v'",
+					ErrorInvalidString,
 					class.Class,
 					pk,
 					pv,
@@ -156,7 +184,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 						// Check whether the float is containing a decimal
 						if data != float64(int64(data.(float64))) {
 							return fmt.Errorf(
-								"class '%s' with property '%s' requires an integer. The given value is '%v'",
+								ErrorInvalidInteger,
 								class.Class,
 								pk,
 								pv,
@@ -165,7 +193,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 					} else {
 						// If it is not a float, it is cerntainly not a integer, return the error
 						return fmt.Errorf(
-							"class '%s' with property '%s' requires an integer. The given value is '%v'",
+							ErrorInvalidInteger,
 							class.Class,
 							pk,
 							pv,
@@ -175,7 +203,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 			} else if data, err = pv.(json.Number).Int64(); err != nil {
 				// Return error when the input can not be converted to an int
 				return fmt.Errorf(
-					"class '%s' with property '%s' requires an integer, the JSON number could not be converted to an int. The given value is '%v'",
+					ErrorInvalidIntegerConvertion,
 					class.Class,
 					pk,
 					pv,
@@ -188,7 +216,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 			if data, ok = pv.(json.Number); !ok {
 				if data, ok = pv.(float64); !ok {
 					return fmt.Errorf(
-						"class '%s' with property '%s' requires a float. The given value is '%v'",
+						ErrorInvalidFloat,
 						class.Class,
 						pk,
 						pv,
@@ -197,7 +225,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 			} else if data, err = pv.(json.Number).Float64(); err != nil {
 				// Return error when the input can not be converted to a float
 				return fmt.Errorf(
-					"class '%s' with property '%s' requires a float, the JSON number could not be converted to a float. The given value is '%v'",
+					ErrorInvalidFloatConvertion,
 					class.Class,
 					pk,
 					pv,
@@ -208,7 +236,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 			// Return error when the input can not be casted to a boolean
 			if data, ok = pv.(bool); !ok {
 				return fmt.Errorf(
-					"class '%s' with property '%s' requires a bool. The given value is '%v'",
+					ErrorInvalidBool,
 					class.Class,
 					pk,
 					pv,
@@ -219,7 +247,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 			// Return error when the input can not be casted to a string
 			if data, ok = pv.(string); !ok {
 				return fmt.Errorf(
-					"class '%s' with property '%s' requires a string with a RFC3339 formatted date. The given value is '%v'",
+					ErrorInvalidDate,
 					class.Class,
 					pk,
 					pv,
@@ -232,7 +260,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 			// Return if there is an error while parsing
 			if err != nil {
 				return fmt.Errorf(
-					"class '%s' with property '%s' requires a string with a RFC3339 formatted date. The given value is '%v'",
+					ErrorInvalidDate,
 					class.Class,
 					pk,
 					pv,
@@ -249,7 +277,7 @@ func ValidateSchemaInBody(weaviateSchema *models.SemanticSchema, object interfac
 	} else if refType == connutils.RefTypeThing {
 		object.(*models.ThingCreate).Schema = returnSchema
 	} else {
-		return fmt.Errorf("given ref type is not valid")
+		return fmt.Errorf(schema.ErrorInvalidRefType)
 	}
 
 	return nil

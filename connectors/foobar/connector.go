@@ -36,6 +36,7 @@ After creating the connector, make sure to add the name of the connector to: fun
 package foobar
 
 import (
+	"context"
 	errors_ "errors"
 	"fmt"
 	"runtime"
@@ -167,7 +168,7 @@ func (f *Foobar) Connect() error {
 }
 
 // Init 1st initializes the schema in the database and 2nd creates a root key.
-func (f *Foobar) Init() error {
+func (f *Foobar) Init(ctx context.Context) (context.Context, error) {
 
 	/*
 	 * 1.  If a schema is needed, you need to add the schema to the DB here.
@@ -198,7 +199,7 @@ func (f *Foobar) Init() error {
 	// END KEYS
 
 	// If success return nil, otherwise return the error
-	return nil
+	return ctx, nil
 }
 
 // AddThing adds a thing to the Foobar database with the given UUID.
@@ -211,7 +212,7 @@ func (f *Foobar) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // GetThing fills the given ThingGetResponse with the values from the database, based on the given UUID.
-func (f *Foobar) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
 
 	// thingResponse should be populated with the response that comes from the DB.
 	// thingResponse = based on the ontology
@@ -221,7 +222,7 @@ func (f *Foobar) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespon
 }
 
 // GetThings fills the given []ThingGetResponse with the values from the database, based on the given UUIDs.
-func (f *Foobar) GetThings(UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error {
+func (f *Foobar) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error {
 	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
 
 	// If success return nil, otherwise return the error

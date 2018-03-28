@@ -31,6 +31,8 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/schema"
+	"github.com/creativesoftwarefdn/weaviate/validation"
 )
 
 /*
@@ -73,12 +75,12 @@ func getResponseBody(response *http.Response) []byte {
 	return body
 }
 
-// getEmptyJSON returns a buffer with emtpy JSON
+// getEmptyJSON returns a buffer with empty JSON
 func getEmptyJSON() io.Reader {
 	return bytes.NewBuffer([]byte(`{}`))
 }
 
-// getEmptyPatchJSON returns a buffer with emtpy Patch-JSON
+// getEmptyPatchJSON returns a buffer with empty Patch-JSON
 func getEmptyPatchJSON() io.Reader {
 	return bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/xxx", "value": "xxx"}]`))
 }
@@ -208,7 +210,7 @@ func Benchmark__weaviate_adding_things(b *testing.B) {
 
 		resp, err := client.Do(req)
 		if err != nil {
-			messaging.DebugMessage(fmt.Sprintf("Error in response occured during benchmark: %s", err.Error()))
+			messaging.DebugMessage(fmt.Sprintf("Error in response occurred during benchmark: %s", err.Error()))
 		}
 
 		resp.Body.Close()
@@ -248,14 +250,14 @@ func Test__weaviate_GET_meta_JSON_missing_headers(t *testing.T) {
 
 	// Check status code and message of error
 	require.Equal(t, http.StatusUnauthorized, responseMissingToken.StatusCode)
-	require.Contains(t, string(getResponseBody(responseMissingToken)), "Please provide both X-API-KEY and X-API-TOKEN headers.")
+	require.Contains(t, string(getResponseBody(responseMissingToken)), connutils.StaticMissingHeader)
 
 	// Missing key in request
 	responseMissingKey := doRequest("/meta", "GET", "application/json", nil, "", apiTokenCmdLine)
 
 	// Check status code and message of error
 	require.Equal(t, http.StatusUnauthorized, responseMissingKey.StatusCode)
-	require.Contains(t, string(getResponseBody(responseMissingKey)), "Please provide both X-API-KEY and X-API-TOKEN headers.")
+	require.Contains(t, string(getResponseBody(responseMissingKey)), connutils.StaticMissingHeader)
 }
 func Test__weaviate_GET_meta_JSON_invalid_headers(t *testing.T) {
 	// Invalid token in request
@@ -263,14 +265,14 @@ func Test__weaviate_GET_meta_JSON_invalid_headers(t *testing.T) {
 
 	// Check status code and message of error
 	require.Equal(t, http.StatusUnauthorized, responseInvalidToken.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidToken)), "Provided token is invalid")
+	require.Contains(t, string(getResponseBody(responseInvalidToken)), connutils.StaticInvalidToken)
 
 	// Invalid key in request
 	responseInvalidKey := doRequest("/meta", "GET", "application/json", nil, fakeID, apiTokenCmdLine)
 
 	// Check status code and message of error
 	require.Equal(t, http.StatusUnauthorized, responseInvalidKey.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidKey)), "Key is not found in database")
+	require.Contains(t, string(getResponseBody(responseInvalidKey)), connutils.StaticKeyNotFound)
 }
 
 /******************
@@ -695,7 +697,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString)))
 	responseInvalid1 := doRequest(uri, method, "application/json", jsonStrInvalid1, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid1.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid1)), "the given class is empty")
+	require.Contains(t, string(getResponseBody(responseInvalid1)), validation.ErrorMissingClass)
 
 	// Test missing context
 	jsonStrInvalid2 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -706,7 +708,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString)))
 	responseInvalid2 := doRequest(uri, method, "application/json", jsonStrInvalid2, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid2.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid2)), "the given context is empty")
+	require.Contains(t, string(getResponseBody(responseInvalid2)), validation.ErrorMissingContext)
 
 	// Test non-existing class
 	jsonStrInvalid3 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -718,7 +720,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString)))
 	responseInvalid3 := doRequest(uri, method, "application/json", jsonStrInvalid3, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid3.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid3)), "no such class with name")
+	require.Contains(t, string(getResponseBody(responseInvalid3)), fmt.Sprintf(schema.ErrorNoSuchClass, "TestThings"))
 
 	// Test non-existing property
 	jsonStrInvalid4 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -730,7 +732,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString)))
 	responseInvalid4 := doRequest(uri, method, "application/json", jsonStrInvalid4, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid4.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid4)), "no such prop with name")
+	require.Contains(t, string(getResponseBody(responseInvalid4)), fmt.Sprintf(schema.ErrorNoSuchProperty, "testStrings", "TestThing"))
 
 	// Test invalid property cref
 	jsonStrInvalid5 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -745,7 +747,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`, getWeaviateURL())))
 	responseInvalid5 := doRequest(uri, method, "application/json", jsonStrInvalid5, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid5.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid5)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema")
+	require.Contains(t, string(getResponseBody(responseInvalid5)), fmt.Sprintf(validation.ErrorInvalidSingleRef, "TestThing", "testCref"))
 
 	// Test invalid property cref2
 	jsonStrInvalid6 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -761,7 +763,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`, thingID, getWeaviateURL())))
 	responseInvalid6 := doRequest(uri, method, "application/json", jsonStrInvalid6, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid6.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid6)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema")
+	require.Contains(t, string(getResponseBody(responseInvalid6)), fmt.Sprintf(validation.ErrorMissingSingleRefLocationURL, "TestThing", "testCref"))
 
 	// Test invalid property cref3
 	jsonStrInvalid7 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -777,7 +779,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`, thingID, getWeaviateURL())))
 	responseInvalid7 := doRequest(uri, method, "application/json", jsonStrInvalid7, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid7)), "requires one of the following values in 'type':")
+	require.Contains(t, string(getResponseBody(responseInvalid7)), fmt.Sprintf(validation.ErrorInvalidClassType, "TestThing", "testCref", connutils.RefTypeAction, connutils.RefTypeThing, connutils.RefTypeKey))
 
 	// Test invalid property cref4
 	jsonStrInvalid7b := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -793,7 +795,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`, fakeID, getWeaviateURL())))
 	responseInvalid7b := doRequest(uri, method, "application/json", jsonStrInvalid7b, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7b.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid7b)), "is not found in database")
+	require.Contains(t, string(getResponseBody(responseInvalid7b)), connutils.StaticThingNotFound)
 
 	// Test invalid property cref5: invalid LocationURL
 	jsonStrInvalid7c := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -809,7 +811,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`, thingID, "http://example.org/")))
 	responseInvalid7c := doRequest(uri, method, "application/json", jsonStrInvalid7c, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7c.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid7c)), "no credentials available for the Weaviate instance for http://example.org/ given in the 'cref' Thing TestThing:testCref")
+	require.Contains(t, string(getResponseBody(responseInvalid7c)), fmt.Sprintf(validation.ErrorNoExternalCredentials, "http://example.org/", "'cref' Thing TestThing:testCref"))
 
 	// Test invalid property cref6: valid locationURL, invalid ThingID
 	jsonStrInvalid7d := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -825,7 +827,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`, fakeID, "http://localhost:8070")))
 	responseInvalid7d := doRequest(uri, method, "application/json", jsonStrInvalid7d, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7d.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid7d)), "but 200 was expected for LocationURL given in the")
+	require.Contains(t, string(getResponseBody(responseInvalid7d)), fmt.Sprintf(validation.ErrorExternalNotFound, "http://localhost:8070", 404, ""))
 
 	// Test invalid property string
 	jsonStrInvalid8 := bytes.NewBuffer([]byte(`{
@@ -837,7 +839,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`))
 	responseInvalid8 := doRequest(uri, method, "application/json", jsonStrInvalid8, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid8.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid8)), "requires a string. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid8)), fmt.Sprintf(validation.ErrorInvalidString, "TestThing", "testString", 2))
 
 	// Test invalid property int
 	jsonStrInvalid9 := bytes.NewBuffer([]byte(`{
@@ -849,7 +851,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`))
 	responseInvalid9 := doRequest(uri, method, "application/json", jsonStrInvalid9, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid9.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid9)), "requires an integer")
+	require.Contains(t, string(getResponseBody(responseInvalid9)), fmt.Sprintf(validation.ErrorInvalidInteger, "TestThing", "testInt", 2.7))
 
 	// Test invalid property float
 	jsonStrInvalid10 := bytes.NewBuffer([]byte(`{
@@ -861,7 +863,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`))
 	responseInvalid10 := doRequest(uri, method, "application/json", jsonStrInvalid10, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid10.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid10)), "requires a float. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid10)), fmt.Sprintf(validation.ErrorInvalidFloat, "TestThing", "testNumber", "test"))
 
 	// Test invalid property bool
 	jsonStrInvalid11 := bytes.NewBuffer([]byte(`{
@@ -873,7 +875,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`))
 	responseInvalid11 := doRequest(uri, method, "application/json", jsonStrInvalid11, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid11.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid11)), "requires a bool. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid11)), fmt.Sprintf(validation.ErrorInvalidBool, "TestThing", "testBoolean", "test"))
 
 	// Test invalid property date
 	jsonStrInvalid12 := bytes.NewBuffer([]byte(`{
@@ -885,7 +887,7 @@ func performInvalidThingRequests(t *testing.T, uri string, method string) {
 	}`))
 	responseInvalid12 := doRequest(uri, method, "application/json", jsonStrInvalid12, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid12.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid12)), "requires a string with a RFC3339 formatted date. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid12)), fmt.Sprintf(validation.ErrorInvalidDate, "TestThing", "testDateTime", "test"))
 }
 
 func Test__weaviate_POST_things_JSON(t *testing.T) {
@@ -1324,61 +1326,61 @@ func Test__weaviate_PATCH_things_id_JSON_invalid(t *testing.T) {
 	jsonStrInvalid1 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/@class", "value": "%s"}]`, "TestThings")))
 	responseInvalid1 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid1, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid1.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid1)), "no such class with name")
+	require.Contains(t, string(getResponseBody(responseInvalid1)), fmt.Sprintf(schema.ErrorNoSuchClass, "TestThings"))
 
 	// Test non-existing property
 	jsonStrInvalid2 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "add", "path": "/schema/testStrings", "value": "%s"}]`, "Test")))
 	responseInvalid2 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid2, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid2.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid2)), "no such prop with name")
+	require.Contains(t, string(getResponseBody(responseInvalid2)), fmt.Sprintf(schema.ErrorNoSuchProperty, "testStrings", "TestThing2"))
 
 	// Test invalid property cref
 	jsonStrInvalid3 := bytes.NewBuffer([]byte(`[{ "op": "remove", "path": "/schema/testCref/locationUrl"}]`))
 	responseInvalid3 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid3, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid3.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid3)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema")
+	require.Contains(t, string(getResponseBody(responseInvalid3)), fmt.Sprintf(validation.ErrorInvalidSingleRef, "TestThing2", "testCref"))
 
 	// Test invalid property cref2
 	jsonStrInvalid4 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "remove", "path": "/schema/testCref/locationUrl"}, { "op": "add", "path": "/schema/testCref/locationUrls", "value": "%s"}]`, getWeaviateURL())))
 	responseInvalid4 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid4, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid4.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid4)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema")
+	require.Contains(t, string(getResponseBody(responseInvalid4)), fmt.Sprintf(validation.ErrorMissingSingleRefLocationURL, "TestThing2", "testCref"))
 
 	// Test invalid property cref3
 	jsonStrInvalid5 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testCref/type", "value": "%s"}]`, "Test")))
 	responseInvalid5 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid5, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid5.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid5)), "requires one of the following values in 'type':")
+	require.Contains(t, string(getResponseBody(responseInvalid5)), fmt.Sprintf(validation.ErrorInvalidClassType, "TestThing2", "testCref", connutils.RefTypeAction, connutils.RefTypeThing, connutils.RefTypeKey))
 
 	// Test invalid property string
 	jsonStrInvalid6 := bytes.NewBuffer([]byte(fmt.Sprintf(`[{ "op": "replace", "path": "/schema/testString", "value": %d}]`, 2)))
 	responseInvalid6 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid6, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid6.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid6)), "requires a string. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid6)), fmt.Sprintf(validation.ErrorInvalidString, "TestThing2", "testString", 2))
 
 	// Test invalid property int
 	jsonStrInvalid7 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testInt", "value": 2.8}]`))
 	responseInvalid7 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid7, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid7)), "requires an integer")
+	require.Contains(t, string(getResponseBody(responseInvalid7)), fmt.Sprintf(validation.ErrorInvalidInteger, "TestThing2", "testInt", 2.8))
 
 	// Test invalid property float
 	jsonStrInvalid8 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testNumber", "value": "test"}]`))
 	responseInvalid8 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid8, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid8.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid8)), "requires a float. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid8)), fmt.Sprintf(validation.ErrorInvalidFloat, "TestThing2", "testNumber", "test"))
 
 	// Test invalid property bool
 	jsonStrInvalid9 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testBoolean", "value": "test"}]`))
 	responseInvalid9 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid9, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid9.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid9)), "requires a bool. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid9)), fmt.Sprintf(validation.ErrorInvalidBool, "TestThing2", "testBoolean", "test"))
 
 	// Test invalid property date
 	jsonStrInvalid10 := bytes.NewBuffer([]byte(`[{ "op": "replace", "path": "/schema/testDateTime", "value": "test"}]`))
 	responseInvalid10 := doRequest("/things/"+thingIDsubject, "PATCH", "application/json", jsonStrInvalid10, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid10.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid10)), "requires a string with a RFC3339 formatted date. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid10)), fmt.Sprintf(validation.ErrorInvalidDate, "TestThing2", "testDateTime", "test"))
 }
 
 func Test__weaviate_PATCH_things_id_JSON_not_found(t *testing.T) {
@@ -1503,7 +1505,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString)))
 	responseInvalidThings1 := doRequest(uri, method, "application/json", jsonStrInvalidThings1, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings1.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings1)), "no things, object and subject, are added. Add 'things' by using the 'things' key in the root of the JSON")
+	require.Contains(t, string(getResponseBody(responseInvalidThings1)), validation.ErrorMissingActionThings)
 
 	// Test missing things-object
 	jsonStrInvalidThings2 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1522,7 +1524,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, thingID, getWeaviateURL())))
 	responseInvalidThings2 := doRequest(uri, method, "application/json", jsonStrInvalidThings2, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings2.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings2)), "no object-thing is added. Add the 'object' inside the 'things' part of the JSON")
+	require.Contains(t, string(getResponseBody(responseInvalidThings2)), validation.ErrorMissingActionThingsObject)
 
 	// Test missing things-subject
 	jsonStrInvalidThings3 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1541,7 +1543,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, thingID, getWeaviateURL())))
 	responseInvalidThings3 := doRequest(uri, method, "application/json", jsonStrInvalidThings3, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings3.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings3)), "no subject-thing is added. Add the 'subject' inside the 'things' part of the JSON")
+	require.Contains(t, string(getResponseBody(responseInvalidThings3)), validation.ErrorMissingActionThingsSubject)
 
 	// Test missing things-object locationUrl
 	jsonStrInvalidThings4 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1565,7 +1567,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
 	responseInvalidThings4 := doRequest(uri, method, "application/json", jsonStrInvalidThings4, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings4.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings4)), "no 'locationURL' is found in the object-thing. Add the 'locationURL' inside the 'object-thing' part of the JSON")
+	require.Contains(t, string(getResponseBody(responseInvalidThings4)), validation.ErrorMissingActionThingsObjectLocation)
 
 	// Test missing things-object type
 	jsonStrInvalidThings5 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1589,7 +1591,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
 	responseInvalidThings5 := doRequest(uri, method, "application/json", jsonStrInvalidThings5, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings5.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings5)), "no 'type' is found in the object-thing. Add the 'type' inside the 'object-thing' part of the JSON")
+	require.Contains(t, string(getResponseBody(responseInvalidThings5)), validation.ErrorMissingActionThingsObjectType)
 
 	// Test faulty things-object type
 	jsonStrInvalidThings6 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1637,7 +1639,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, fakeID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
 	responseInvalidThings7 := doRequest(uri, method, "application/json", jsonStrInvalidThings7, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Contains(t, []int{http.StatusUnprocessableEntity, http.StatusAccepted}, responseInvalidThings7.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings7)), "'Thing is not found in database' at Object-Thing")
+	require.Contains(t, string(getResponseBody(responseInvalidThings7)), connutils.StaticThingNotFound)
 
 	// Test missing things-subject locationUrl
 	jsonStrInvalidThings8 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1661,7 +1663,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
 	responseInvalidThings8 := doRequest(uri, method, "application/json", jsonStrInvalidThings8, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings8.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings8)), "no 'locationURL' is found in the subject-thing. Add the 'locationURL' inside the 'subject-thing' part of the JSON")
+	require.Contains(t, string(getResponseBody(responseInvalidThings8)), validation.ErrorMissingActionThingsSubjectLocation)
 
 	// Test missing things-object type
 	jsonStrInvalidThings9 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1685,7 +1687,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, getWeaviateURL())))
 	responseInvalidThings9 := doRequest(uri, method, "application/json", jsonStrInvalidThings9, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings9.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings9)), "no 'type' is found in the subject-thing. Add the 'type' inside the 'subject-thing' part of the JSON")
+	require.Contains(t, string(getResponseBody(responseInvalidThings9)), validation.ErrorMissingActionThingsSubjectType)
 
 	// Test faulty things-object type
 	jsonStrInvalidThings10 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1733,7 +1735,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, thingID, getWeaviateURL(), fakeID, getWeaviateURL())))
 	responseInvalidThings11 := doRequest(uri, method, "application/json", jsonStrInvalidThings11, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings11.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings11)), "'Thing is not found in database' at Subject-Thing")
+	require.Contains(t, string(getResponseBody(responseInvalidThings11)), connutils.StaticThingNotFound)
 
 	// Test non-existing object-thing location
 	jsonStrInvalidThings12 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1757,7 +1759,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, thingID, "http://example.org", thingIDsubject, getWeaviateURL())))
 	responseInvalidThings12 := doRequest(uri, method, "application/json", jsonStrInvalidThings12, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings12.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings12)), "no credentials available")
+	require.Contains(t, string(getResponseBody(responseInvalidThings12)), fmt.Sprintf(validation.ErrorNoExternalCredentials, "http://example.org", "Object-Thing"))
 
 	// Test non-existing object-thing in existing location
 	jsonStrInvalidThings13 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1781,7 +1783,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, fakeID, "http://localhost:8070", thingIDsubject, getWeaviateURL())))
 	responseInvalidThings13 := doRequest(uri, method, "application/json", jsonStrInvalidThings13, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings13.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings13)), "but 200 was expected for LocationURL given")
+	require.Contains(t, string(getResponseBody(responseInvalidThings13)), fmt.Sprintf(validation.ErrorExternalNotFound, "http://localhost:8070", 404, ""))
 
 	// Test non-existing object-thing location
 	jsonStrInvalidThings14 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1805,7 +1807,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, thingID, getWeaviateURL(), thingIDsubject, "http://example.org")))
 	responseInvalidThings14 := doRequest(uri, method, "application/json", jsonStrInvalidThings14, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings14.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings14)), "no credentials available")
+	require.Contains(t, string(getResponseBody(responseInvalidThings14)), fmt.Sprintf(validation.ErrorNoExternalCredentials, "http://example.org", "Subject-Thing"))
 
 	// Test non-existing object-thing in existing location
 	jsonStrInvalidThings15 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1829,7 +1831,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, thingID, getWeaviateURL(), fakeID, "http://localhost:8070")))
 	responseInvalidThings15 := doRequest(uri, method, "application/json", jsonStrInvalidThings15, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalidThings15.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalidThings15)), "but 200 was expected for LocationURL given")
+	require.Contains(t, string(getResponseBody(responseInvalidThings15)), fmt.Sprintf(validation.ErrorExternalNotFound, "http://localhost:8070", 404, ""))
 
 	// Correct connected things
 	actionThingsJSON := fmt.Sprintf(`,
@@ -1855,7 +1857,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, actionThingsJSON)))
 	responseInvalid1 := doRequest(uri, method, "application/json", jsonStrInvalid1, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid1.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid1)), "the given class is empty")
+	require.Contains(t, string(getResponseBody(responseInvalid1)), validation.ErrorMissingClass)
 
 	// Test missing context
 	jsonStrInvalid2 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1866,7 +1868,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, actionThingsJSON)))
 	responseInvalid2 := doRequest(uri, method, "application/json", jsonStrInvalid2, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid2.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid2)), "the given context is empty")
+	require.Contains(t, string(getResponseBody(responseInvalid2)), validation.ErrorMissingContext)
 
 	// Test non-existing class
 	jsonStrInvalid3 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1878,7 +1880,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, actionThingsJSON)))
 	responseInvalid3 := doRequest(uri, method, "application/json", jsonStrInvalid3, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid3.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid3)), "no such class with name")
+	require.Contains(t, string(getResponseBody(responseInvalid3)), fmt.Sprintf(schema.ErrorNoSuchClass, "TestActions"))
 
 	// Test non-existing property
 	jsonStrInvalid4 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1890,7 +1892,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingTestString, actionThingsJSON)))
 	responseInvalid4 := doRequest(uri, method, "application/json", jsonStrInvalid4, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid4.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid4)), "no such prop with name")
+	require.Contains(t, string(getResponseBody(responseInvalid4)), fmt.Sprintf(schema.ErrorNoSuchProperty, "testStrings", "TestAction"))
 
 	// Test invalid property cref
 	jsonStrInvalid5 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1905,7 +1907,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, getWeaviateURL(), actionThingsJSON)))
 	responseInvalid5 := doRequest(uri, method, "application/json", jsonStrInvalid5, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid5.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid5)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema")
+	require.Contains(t, string(getResponseBody(responseInvalid5)), fmt.Sprintf(validation.ErrorInvalidSingleRef, "TestAction", "testCref"))
 
 	// Test invalid property cref2
 	jsonStrInvalid6 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1921,7 +1923,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingID, getWeaviateURL(), actionThingsJSON)))
 	responseInvalid6 := doRequest(uri, method, "application/json", jsonStrInvalid6, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid6.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid6)), "requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema")
+	require.Contains(t, string(getResponseBody(responseInvalid6)), fmt.Sprintf(validation.ErrorMissingSingleRefLocationURL, "TestAction", "testCref"))
 
 	// Test invalid property cref3
 	jsonStrInvalid7 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1937,7 +1939,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingID, getWeaviateURL(), actionThingsJSON)))
 	responseInvalid7 := doRequest(uri, method, "application/json", jsonStrInvalid7, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid7)), "requires one of the following values in 'type':")
+	require.Contains(t, string(getResponseBody(responseInvalid7)), fmt.Sprintf(validation.ErrorInvalidClassType, "TestAction", "testCref", connutils.RefTypeAction, connutils.RefTypeThing, connutils.RefTypeKey))
 
 	// Test invalid property cref3
 	jsonStrInvalid7b := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1953,7 +1955,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, fakeID, getWeaviateURL(), actionThingsJSON)))
 	responseInvalid7b := doRequest(uri, method, "application/json", jsonStrInvalid7b, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7b.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid7b)), "Thing is not found in database' at 'cref' Thing TestAction:testCref")
+	require.Contains(t, string(getResponseBody(responseInvalid7b)), connutils.StaticThingNotFound)
 
 	// Test invalid property cref5: invalid LocationURL
 	jsonStrInvalid7c := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1969,7 +1971,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, thingID, "http://example.org/", actionThingsJSON)))
 	responseInvalid7c := doRequest(uri, method, "application/json", jsonStrInvalid7c, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7c.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid7c)), "no credentials available for the Weaviate instance for http://example.org/ given in the 'cref' Thing TestAction:testCref")
+	require.Contains(t, string(getResponseBody(responseInvalid7c)), fmt.Sprintf(validation.ErrorNoExternalCredentials, "http://example.org/", "'cref' Thing TestAction:testCref"))
 
 	// Test invalid property cref6: valid locationURL, invalid ThingID
 	jsonStrInvalid7d := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1985,7 +1987,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, fakeID, "http://localhost:8070", actionThingsJSON)))
 	responseInvalid7d := doRequest(uri, method, "application/json", jsonStrInvalid7d, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid7d.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid7d)), "but 200 was expected for LocationURL given in the")
+	require.Contains(t, string(getResponseBody(responseInvalid7d)), fmt.Sprintf(validation.ErrorExternalNotFound, "http://localhost:8070", 404, ""))
 
 	// Test invalid property string
 	jsonStrInvalid8 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -1997,7 +1999,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, actionThingsJSON)))
 	responseInvalid8 := doRequest(uri, method, "application/json", jsonStrInvalid8, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid8.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid8)), "requires a string. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid8)), fmt.Sprintf(validation.ErrorInvalidString, "TestAction", "testString", 2))
 
 	// Test invalid property int
 	jsonStrInvalid9 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -2009,7 +2011,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, actionThingsJSON)))
 	responseInvalid9 := doRequest(uri, method, "application/json", jsonStrInvalid9, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid9.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid9)), "requires an integer")
+	require.Contains(t, string(getResponseBody(responseInvalid9)), fmt.Sprintf(validation.ErrorInvalidInteger, "TestAction", "testInt", 2.7))
 
 	// Test invalid property float
 	jsonStrInvalid10 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -2021,7 +2023,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, actionThingsJSON)))
 	responseInvalid10 := doRequest(uri, method, "application/json", jsonStrInvalid10, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid10.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid10)), "requires a float. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid10)), fmt.Sprintf(validation.ErrorInvalidFloat, "TestAction", "testNumber", "test"))
 
 	// Test invalid property bool
 	jsonStrInvalid11 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -2033,7 +2035,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, actionThingsJSON)))
 	responseInvalid11 := doRequest(uri, method, "application/json", jsonStrInvalid11, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid11.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid11)), "requires a bool. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid11)), fmt.Sprintf(validation.ErrorInvalidBool, "TestAction", "testBoolean", "test"))
 
 	// Test invalid property date
 	jsonStrInvalid12 := bytes.NewBuffer([]byte(fmt.Sprintf(`{
@@ -2045,7 +2047,7 @@ func performInvalidActionRequests(t *testing.T, uri string, method string) {
 	}`, actionThingsJSON)))
 	responseInvalid12 := doRequest(uri, method, "application/json", jsonStrInvalid12, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusUnprocessableEntity, responseInvalid12.StatusCode)
-	require.Contains(t, string(getResponseBody(responseInvalid12)), "requires a string with a RFC3339 formatted date. The given value is")
+	require.Contains(t, string(getResponseBody(responseInvalid12)), fmt.Sprintf(validation.ErrorInvalidDate, "TestAction", "testDateTime", "test"))
 }
 
 func Test__weaviate_POST_actions_JSON(t *testing.T) {
@@ -2848,6 +2850,42 @@ func Test__weaviate_POST_graphql_JSON_thing(t *testing.T) {
 	require.Equal(t, actionIDs[0], string(respActionsUUID))
 }
 
+func Test__weaviate_POST_graphql_JSON_thing_forbidden_read(t *testing.T) {
+	// Set the graphQL body
+	body := `{ thing(uuid:"%s") { uuid atContext atClass creationTimeUnix key { uuid read } actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
+
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, thingID),
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, newAPIKeyID, newAPIToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.NotNil(t, respObject.Errors)
+}
+
+func Test__weaviate_POST_graphql_JSON_thing_forbidden_parent(t *testing.T) {
+	// Set the graphQL body
+	body := `{ thing(uuid:"%s") { uuid atContext atClass creationTimeUnix key { uuid read } actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
+
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, thingID),
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, headKeyID, headToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.NotNil(t, respObject.Errors)
+}
+
 func Test__weaviate_POST_graphql_JSON_thing_external(t *testing.T) {
 	// Set the graphQL body
 	body := `{ thing(uuid:"%s") { uuid schema { testCref { uuid } } } }`
@@ -3004,6 +3042,22 @@ func Test__weaviate_POST_graphql_JSON_listThings(t *testing.T) {
 	require.Equal(t, thingIDs[0], string(respUUID))
 }
 
+func Test__weaviate_POST_graphql_JSON_listThings_forbidden(t *testing.T) {
+	// Set the graphQL body
+	bodyObj := graphQLQueryObject{
+		Query: `{ listThings { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, newAPIKeyID, newAPIToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is not nil
+	require.NotNil(t, respObject.Errors)
+}
+
 func Test__weaviate_POST_graphql_JSON_listThings_limit(t *testing.T) {
 	// Set the graphQL body
 	bodyObj := graphQLQueryObject{
@@ -3134,6 +3188,39 @@ func Test__weaviate_POST_graphql_JSON_action(t *testing.T) {
 	require.Equal(t, thingIDsubject, respSubjectUUID)
 }
 
+func Test__weaviate_POST_graphql_JSON_action_forbidden_read(t *testing.T) {
+	// Set the graphQL body
+	body := `{ action(uuid:"%s") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }`
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, actionID),
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, newAPIKeyID, newAPIToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.NotNil(t, respObject.Errors)
+}
+
+func Test__weaviate_POST_graphql_JSON_action_forbidden_parent(t *testing.T) {
+	// Set the graphQL body
+	body := `{ action(uuid:"%s") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }`
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, actionID),
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, headKeyID, headToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.NotNil(t, respObject.Errors)
+}
 func Test__weaviate_POST_graphql_JSON_action_external(t *testing.T) {
 	// Set the graphQL body
 	body := `{ action(uuid:"%s") { uuid things { object { uuid } subject { uuid } } schema { testCref { uuid } } } }`
@@ -3218,6 +3305,68 @@ func Test__weaviate_POST_graphql_JSON_key(t *testing.T) {
 	// Check equality
 	require.Equal(t, checkIDs[0], responseIDs[0])
 	require.Equal(t, checkIDs[1], responseIDs[1])
+}
+
+func Test__weaviate_POST_graphql_JSON_myKey(t *testing.T) {
+	// Set the graphQL body
+	body := `{ myKey { uuid read write ipOrigin children { uuid read } } }`
+	bodyObj := graphQLQueryObject{
+		Query: body,
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, newAPIKeyID, newAPIToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.Nil(t, respObject.Errors)
+
+	// Test the given UUID in the response
+	respUUID := respObject.Data["myKey"].(map[string]interface{})["uuid"]
+	require.Regexp(t, strfmt.UUIDPattern, respUUID)
+	require.Regexp(t, strfmt.UUIDPattern, newAPIKeyID)
+	require.Equal(t, newAPIKeyID, respUUID)
+
+	// Test children
+	child1UUID := respObject.Data["myKey"].(map[string]interface{})["children"].([]interface{})[0].(map[string]interface{})["uuid"].(string)
+	child2UUID := respObject.Data["myKey"].(map[string]interface{})["children"].([]interface{})[1].(map[string]interface{})["uuid"].(string)
+
+	responseIDs := []string{
+		child1UUID,
+		child2UUID,
+	}
+
+	checkIDs := []string{
+		headKeyID,
+		newSubAPIKeyID,
+	}
+
+	// Sort keys
+	sort.Strings(responseIDs)
+	sort.Strings(checkIDs)
+
+	// Check equality
+	require.Equal(t, checkIDs[0], responseIDs[0])
+	require.Equal(t, checkIDs[1], responseIDs[1])
+}
+
+func Test__weaviate_POST_graphql_JSON_key_forbidden_parent(t *testing.T) {
+	// Set the graphQL body
+	body := `{ key(uuid:"%s") { uuid read write ipOrigin children { uuid read } } }`
+	bodyObj := graphQLQueryObject{
+		Query: fmt.Sprintf(body, newAPIKeyID),
+	}
+
+	// Do the GraphQL request
+	response, respObject := doGraphQLRequest(bodyObj, headKeyID, headToken)
+
+	// Check statuscode
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	// Test that the error in the response is nil
+	require.NotNil(t, respObject.Errors)
 }
 
 /******************
