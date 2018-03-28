@@ -71,6 +71,15 @@ const (
 	DataTypeUnknown DataType = "unknown"
 	// validationErrorMessage is a constant for returning the same message
 	validationErrorMessage string = "All predicates with the same name across different classes should contain the same kind of data"
+
+	// ErrorNoSuchClass message
+	ErrorNoSuchClass string = "no such class with name '%s' found in the schema. Check your schema files for which classes are available"
+	// ErrorNoSuchProperty message
+	ErrorNoSuchProperty string = "no such prop with name '%s' found in class '%s' in the schema. Check your schema files for which properties in this class are available"
+	// ErrorNoSuchDatatype message
+	ErrorNoSuchDatatype string = "given value-DataType does not exist."
+	// ErrorInvalidRefType message
+	ErrorInvalidRefType string = "given ref type is not valid"
 )
 
 // GetClassByName returns the class by its name
@@ -84,7 +93,7 @@ func GetClassByName(s *models.SemanticSchema, className string) (*models.Semanti
 		}
 	}
 
-	return nil, fmt.Errorf("no such class with name '%s' found in the schema. Check your schema files for which classes are available", className)
+	return nil, fmt.Errorf(ErrorNoSuchClass, className)
 }
 
 // GetPropertyByName returns the class by its name
@@ -98,7 +107,7 @@ func GetPropertyByName(c *models.SemanticSchemaClass, propName string) (*models.
 		}
 	}
 
-	return nil, fmt.Errorf("no such prop with name '%s' found in class '%s' in the schema. Check your schema files for which properties in this class are available", propName, c.Class)
+	return nil, fmt.Errorf(ErrorNoSuchProperty, propName, c.Class)
 }
 
 // GetPropertyDataType checks whether the given string is a valid data type
@@ -148,7 +157,7 @@ func GetValueDataTypeFromString(dt string) (*DataType, error) {
 			returnDataType = DataTypeString
 		}
 	} else {
-		return nil, errors_.New("given value-DataType does not exist.")
+		return nil, errors_.New(ErrorNoSuchDatatype)
 	}
 
 	return &returnDataType, nil
@@ -182,7 +191,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment, m *messages.
 	for cfk, cfv := range configFiles {
 		// Continue loop if the file is not set in the config.
 		if len(cfv.schemaLocationFromConfig) == 0 {
-			return errors_.New("schema file for '" + cfk + "' not given in config (path: *env*/schemas/" + cfk + "')")
+			return fmt.Errorf("schema file for '%s' not given in config (path: *env*/schemas/%s')", cfk, cfk)
 		}
 
 		// Validate if given location is URL or local file
@@ -320,7 +329,7 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 					prop.Name,
 					strings.Join(prop.AtDataType, ","),
 				))
-			} else {
+			} else if !hasCRef && !hasValue {
 				// Check whether a class-property contains no data types
 				return errors_.New(fmt.Sprintf(
 					"no value given to the data type in class '%s', at property '%s'",
@@ -375,7 +384,7 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 
 // UpdateObjectSchemaProperties updates all the edges of the Object in 'schema', used with a new Object or to update/patch a Object using a connector specified callback.
 // This function is not part of connector utils because of the import cycle problem
-func UpdateObjectSchemaProperties(refType string, object interface{}, nodeSchema models.Schema, schemas *WeaviateSchema, callback func(string, interface{}, *DataType, string) error) error {
+func UpdateObjectSchemaProperties(refType connutils.RefType, object interface{}, nodeSchema models.Schema, schemas *WeaviateSchema, callback func(string, interface{}, *DataType, string) error) error {
 	// Init error var
 	var err error
 
@@ -399,7 +408,7 @@ func UpdateObjectSchemaProperties(refType string, object interface{}, nodeSchema
 				return err
 			}
 		} else {
-			return errors_.New("invalid refType given")
+			return errors_.New(ErrorInvalidRefType)
 		}
 
 		dataType, err := GetPropertyDataType(c, propKey)

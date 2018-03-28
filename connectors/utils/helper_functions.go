@@ -122,7 +122,7 @@ func NowUnix() int64 {
 	return MakeUnixMillisecond(time.Now())
 }
 
-// MakeUnixMillisecond returns the milisecond unix-version of the given time
+// MakeUnixMillisecond returns the millisecond unix-version of the given time
 func MakeUnixMillisecond(t time.Time) int64 {
 	return t.UnixNano() / int64(time.Millisecond)
 }
@@ -213,7 +213,11 @@ func DoExternalRequest(instance config.Instance, endpoint string, uuid strfmt.UU
 	// Do the request
 	response, err = client.Do(req)
 
-	// Check the status-code to determine existance
+	if err != nil {
+		return
+	}
+
+	// Check the status-code to determine existence
 	if response.StatusCode != 200 {
 		err = fmt.Errorf("status code is not 200, but %d with status '%s'", response.StatusCode, response.Status)
 	}

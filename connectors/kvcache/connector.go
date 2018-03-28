@@ -14,6 +14,7 @@
 package kvcache
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -51,10 +52,10 @@ func (f *KVCache) Connect() error {
 }
 
 // Init function
-func (f *KVCache) Init() error {
+func (f *KVCache) Init(ctx context.Context) (context.Context, error) {
 	f.cache = cache.New(0, 0)
 
-	return f.databaseConnector.Init()
+	return f.databaseConnector.Init(ctx)
 }
 
 // SetServerAddress function
@@ -88,7 +89,7 @@ func (f *KVCache) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // GetThing function
-func (f *KVCache) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+func (f *KVCache) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Create a cache key
@@ -105,7 +106,7 @@ func (f *KVCache) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespo
 	}
 
 	// If not found, get it from the DB
-	err := f.databaseConnector.GetThing(UUID, thingResponse)
+	err := f.databaseConnector.GetThing(ctx, UUID, thingResponse)
 
 	// If no error is given, set the pointer in the cache on the created key
 	if err == nil {
@@ -115,12 +116,9 @@ func (f *KVCache) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespo
 	return err
 }
 
-// GetThings fills the given []ThingGetResponse with the values from the database, based on the given UUIDs.
-func (f *KVCache) GetThings(UUIDs []strfmt.UUID, thingsResponse *models.ThingsListResponse) error {
-	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
-
-	err := f.databaseConnector.GetThings(UUIDs, thingsResponse)
-	return err
+// GetThings funciton
+func (f *KVCache) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error {
+	return f.databaseConnector.GetThings(ctx, UUIDs, thingResponse)
 }
 
 // ListThings function
