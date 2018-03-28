@@ -244,7 +244,7 @@ func Test__weaviate_GET_meta_JSON(t *testing.T) {
 	require.IsType(t, &models.SemanticSchema{}, respObject.ThingsSchema)
 }
 
-func Test__weaviate_GET_meta_JSON_missing_headers(t *testing.T) {
+func Test__weaviate_GET_meta_JSON_internal_missing_headers(t *testing.T) {
 	// Missing token in request
 	responseMissingToken := doRequest("/meta", "GET", "application/json", nil, apiKeyIDCmdLine, "")
 
@@ -259,7 +259,7 @@ func Test__weaviate_GET_meta_JSON_missing_headers(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, responseMissingKey.StatusCode)
 	require.Contains(t, string(getResponseBody(responseMissingKey)), connutils.StaticMissingHeader)
 }
-func Test__weaviate_GET_meta_JSON_invalid_headers(t *testing.T) {
+func Test__weaviate_GET_meta_JSON_internal_invalid_headers(t *testing.T) {
 	// Invalid token in request
 	responseInvalidToken := doRequest("/meta", "GET", "application/json", nil, apiKeyIDCmdLine, fakeID)
 
@@ -278,7 +278,7 @@ func Test__weaviate_GET_meta_JSON_invalid_headers(t *testing.T) {
 /******************
  * KEY TESTS
  ******************/
-func Test__weaviate_POST_keys_JSON_root_child(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_internal_root_child(t *testing.T) {
 	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(`{
 		"delete": true,
@@ -312,7 +312,7 @@ func Test__weaviate_POST_keys_JSON_root_child(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, newAPIKeyID)
 }
 
-func Test__weaviate_POST_keys_JSON_root_child_child(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_internal_root_child_child(t *testing.T) {
 	// ADD NEW KEY
 	// Create Sub API-Key
 	jsonStrNewKey := bytes.NewBuffer([]byte(`{
@@ -355,7 +355,7 @@ func Test__weaviate_POST_keys_JSON_root_child_child(t *testing.T) {
 	require.Equal(t, true, respObjectNewToken.Write)
 }
 
-func Test__weaviate_POST_keys_JSON_root_child_child_2(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_internal_root_child_child_2(t *testing.T) {
 	// HEAD: Create create request tree-head and process request, for further tests
 	jsonStrKeyHead := bytes.NewBuffer([]byte(`{
 		"delete": true,
@@ -381,7 +381,7 @@ func Test__weaviate_POST_keys_JSON_root_child_child_2(t *testing.T) {
 	headKeyID = string(respObjectHead.KeyID)
 }
 
-func Test__weaviate_POST_keys_JSON_root_child_child_child_1(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_internal_root_child_child_child_1(t *testing.T) {
 	// SUB1: Create create request and process request
 	jsonStrKeySub1 := bytes.NewBuffer([]byte(`{
 		"delete": true,
@@ -406,7 +406,7 @@ func Test__weaviate_POST_keys_JSON_root_child_child_child_1(t *testing.T) {
 	sub1Token = string(respObjectSub1.Token)
 	sub1KeyID = string(respObjectSub1.KeyID)
 }
-func Test__weaviate_POST_keys_JSON_root_child_child_child_2(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_internal_root_child_child_child_2(t *testing.T) {
 	// SUB2: Create create request and process request
 	jsonStrKeySub2 := bytes.NewBuffer([]byte(`{
 		"delete": true,
@@ -432,7 +432,7 @@ func Test__weaviate_POST_keys_JSON_root_child_child_child_2(t *testing.T) {
 	sub2KeyID = string(respObjectSub2.KeyID)
 }
 
-func Test__weaviate_POST_keys_JSON_expire_soon(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_internal_expire_soon(t *testing.T) {
 	// Create create request with a key that will expire soon
 	unixTimeExpire = connutils.NowUnix()
 	jsonStrNewKeySoonExpire := bytes.NewBuffer([]byte(`{
@@ -458,7 +458,7 @@ func Test__weaviate_POST_keys_JSON_expire_soon(t *testing.T) {
 	expiredKeyID = string(respObjectExpireSoon.KeyID)
 }
 
-func Test__weaviate_POST_keys_JSON_expires_later_than_parent(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_internal_expires_later_than_parent(t *testing.T) {
 	// Create request that is invalid because time is lower then parent time
 	jsonStrNewKeyInvalid := bytes.NewBuffer([]byte(`{
 		"delete": false,
@@ -475,7 +475,7 @@ func Test__weaviate_POST_keys_JSON_expires_later_than_parent(t *testing.T) {
 	require.Contains(t, string(getResponseBody(responseNewTokenInvalid)), "Key expiry time is later than the expiry time of parent.")
 }
 
-func Test__weaviate_POST_keys_JSON_expires_in_past(t *testing.T) {
+func Test__weaviate_POST_keys_JSON_internal_expires_in_past(t *testing.T) {
 	// Create request that is invalid because time is lower then parent time
 	jsonStrNewKeyInvalid := bytes.NewBuffer([]byte(`{
 		"delete": false,
@@ -507,7 +507,7 @@ func Test__weaviate_GET_keys_me_JSON(t *testing.T) {
 	require.Equal(t, newAPIKeyID, string(respObject.KeyID))
 }
 
-func Test__weaviate_GET_keys_me_JSON_expired(t *testing.T) {
+func Test__weaviate_GET_keys_me_JSON_internal_expired(t *testing.T) {
 	// Create get request with key that is not yet expired
 	responseNotYetExpired := doRequest("/keys/me", "GET", "application/json", nil, expiredKeyID, expiredToken)
 	require.Equal(t, http.StatusOK, responseNotYetExpired.StatusCode)
@@ -537,7 +537,7 @@ func Test__weaviate_GET_keys_id_JSON(t *testing.T) {
 	require.Equal(t, newAPIKeyID, string(respObject.KeyID))
 }
 
-func Test__weaviate_GET_keys_id_JSON_forbidden(t *testing.T) {
+func Test__weaviate_GET_keys_id_JSON_internal_forbidden(t *testing.T) {
 	// Create get request
 	responseForbidden := doRequest("/keys/"+apiKeyIDCmdLine, "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
@@ -545,7 +545,7 @@ func Test__weaviate_GET_keys_id_JSON_forbidden(t *testing.T) {
 	require.Equal(t, responseForbidden.StatusCode, http.StatusForbidden)
 }
 
-func Test__weaviate_GET_keys_id_JSON_not_found(t *testing.T) {
+func Test__weaviate_GET_keys_id_JSON_internal_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/keys/"+fakeID, "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
@@ -587,19 +587,19 @@ func Test__weaviate_GET_keys_id_children_JSON(t *testing.T) {
 	require.Equal(t, checkIDs[1], responseChildren[1])
 }
 
-func Test__weaviate_GET_keys_id_children_JSON_forbidden(t *testing.T) {
+func Test__weaviate_GET_keys_id_children_JSON_internal_forbidden(t *testing.T) {
 	// Create get forbidden request, check response code
 	responseForbidden := doRequest("/keys/"+apiKeyIDCmdLine+"/children", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 	require.Equal(t, http.StatusForbidden, responseForbidden.StatusCode)
 }
 
-func Test__weaviate_GET_keys_id_children_JSON_not_found(t *testing.T) {
+func Test__weaviate_GET_keys_id_children_JSON_internal_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/keys/"+fakeID+"/children", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-func Test__weaviate_GET_keys_me_children_JSON_(t *testing.T) {
+func Test__weaviate_GET_keys_me_children_JSON_internal_(t *testing.T) {
 	// Create get request
 	response := doRequest("/keys/me/children", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
@@ -664,19 +664,19 @@ func Test__weaviate_PUT_keys_id_renew_token_JSON(t *testing.T) {
 	require.Equal(t, headKeyID, string(respObjectAfterRenew.KeyID))
 }
 
-func Test__weaviate_PUT_keys_id_renew_token_JSON_forbidden_parent(t *testing.T) {
+func Test__weaviate_PUT_keys_id_renew_token_JSON_internal_forbidden_parent(t *testing.T) {
 	// Create renew request for higher in tree, this is forbidden
 	responseForbidden := doRequest("/keys/"+newAPIKeyID+"/renew-token", "PUT", "application/json", nil, headKeyID, headToken)
 	require.Equal(t, responseForbidden.StatusCode, http.StatusForbidden)
 }
 
-func Test__weaviate_PUT_keys_id_renew_token_JSON_forbidden_own(t *testing.T) {
+func Test__weaviate_PUT_keys_id_renew_token_JSON_internal_forbidden_own(t *testing.T) {
 	// Create renew request for own key, this is forbidden
 	responseForbidden2 := doRequest("/keys/"+headKeyID+"/renew-token", "PUT", "application/json", nil, headKeyID, headToken)
 	require.Equal(t, responseForbidden2.StatusCode, http.StatusForbidden)
 }
 
-func Test__weaviate_PUT_keys_id_renew_token_JSON_not_found(t *testing.T) {
+func Test__weaviate_PUT_keys_id_renew_token_JSON_internal_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/keys/"+fakeID+"/renew-token", "PUT", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
@@ -969,7 +969,7 @@ func Test__weaviate_POST_things_JSON_external(t *testing.T) {
 	// Globally set thingID
 	thingIDExternal = string(respObject.ThingID)
 }
-func Test__weaviate_POST_things_JSON_multiple(t *testing.T) {
+func Test__weaviate_POST_things_JSON_internal_multiple(t *testing.T) {
 	// Add multiple things to the database to check List functions
 	// Fill database with things and set the IDs to the global thingIDs-array
 	thingIDs[9] = thingID
@@ -1014,12 +1014,12 @@ func Test__weaviate_POST_things_JSON_multiple(t *testing.T) {
 	time.Sleep(1000 * time.Millisecond)
 }
 
-func Test__weaviate_POST_things_JSON_invalid(t *testing.T) {
+func Test__weaviate_POST_things_JSON_internal_invalid(t *testing.T) {
 	// Create invalid requests
 	performInvalidThingRequests(t, "/things", "POST")
 }
 
-func Test__weaviate_POST_things_JSON_forbidden(t *testing.T) {
+func Test__weaviate_POST_things_JSON_internal_forbidden(t *testing.T) {
 	// Create forbidden requests
 	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 		"@context": "http://example.org",
@@ -1056,7 +1056,7 @@ func Test__weaviate_GET_things_JSON(t *testing.T) {
 	require.Equal(t, thingIDs[0], string(listResponseObject.Things[0].ThingID))
 }
 
-func Test__weaviate_GET_things_JSON_forbidden_read(t *testing.T) {
+func Test__weaviate_GET_things_JSON_internal_forbidden_read(t *testing.T) {
 	// Create list request
 	response := doRequest("/things", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
@@ -1064,7 +1064,7 @@ func Test__weaviate_GET_things_JSON_forbidden_read(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_GET_things_JSON_nothing(t *testing.T) {
+func Test__weaviate_GET_things_JSON_internal_nothing(t *testing.T) {
 	// Create list request
 	response := doRequest("/things", "GET", "application/json", nil, headKeyID, headToken)
 
@@ -1080,7 +1080,7 @@ func Test__weaviate_GET_things_JSON_nothing(t *testing.T) {
 	require.Len(t, listResponseObject.Things, 0)
 }
 
-func Test__weaviate_GET_things_JSON_limit(t *testing.T) {
+func Test__weaviate_GET_things_JSON_internal_limit(t *testing.T) {
 	// Query whole list just created
 	listResponse := doRequest("/things?maxResults=3", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	listResponseObject := &models.ThingsListResponse{}
@@ -1096,7 +1096,7 @@ func Test__weaviate_GET_things_JSON_limit(t *testing.T) {
 	require.Equal(t, thingIDs[1], string(listResponseObject.Things[1].ThingID))
 }
 
-func Test__weaviate_GET_things_JSON_limit_offset(t *testing.T) {
+func Test__weaviate_GET_things_JSON_internal_limit_offset(t *testing.T) {
 	// Query whole list just created
 	listResponse2 := doRequest("/things?maxResults=5&page=2", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	listResponseObject2 := &models.ThingsListResponse{}
@@ -1138,7 +1138,7 @@ func Test__weaviate_GET_things_id_JSON(t *testing.T) {
 	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 }
 
-func Test__weaviate_GET_things_id_JSON_forbidden_read(t *testing.T) {
+func Test__weaviate_GET_things_id_JSON_internal_forbidden_read(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingIDs[0], "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
@@ -1146,7 +1146,7 @@ func Test__weaviate_GET_things_id_JSON_forbidden_read(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_GET_things_id_JSON_forbidden_not_owned(t *testing.T) {
+func Test__weaviate_GET_things_id_JSON_internal_forbidden_not_owned(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingIDs[0], "GET", "application/json", nil, headKeyID, headToken)
 
@@ -1154,13 +1154,13 @@ func Test__weaviate_GET_things_id_JSON_forbidden_not_owned(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_GET_things_id_JSON_not_found(t *testing.T) {
+func Test__weaviate_GET_things_id_JSON_internal_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-func Test__weaviate_GET_things_id_history_JSON_no_updates_yet(t *testing.T) {
+func Test__weaviate_GET_things_id_history_JSON_internal_no_updates_yet(t *testing.T) {
 	// Create patch request
 	response := doRequest("/things/"+thingID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
@@ -1239,18 +1239,18 @@ func Test__weaviate_PUT_things_id_JSON(t *testing.T) {
 	require.Equal(t, thingTestDate, respObjectGet.Schema.(map[string]interface{})["testDateTime"].(string))
 }
 
-func Test__weaviate_PUT_things_id_JSON_invalid(t *testing.T) {
+func Test__weaviate_PUT_things_id_JSON_internal_invalid(t *testing.T) {
 	// Check validation with invalid requests
 	performInvalidThingRequests(t, "/things/"+thingIDsubject, "PUT")
 }
 
-func Test__weaviate_PUT_things_id_JSON_not_found(t *testing.T) {
+func Test__weaviate_PUT_things_id_JSON_internal_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-func Test__weaviate_PUT_things_id_JSON_forbidden_write(t *testing.T) {
+func Test__weaviate_PUT_things_id_JSON_internal_forbidden_write(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingIDs[0], "PUT", "application/json", getEmptyJSON(), newAPIKeyID, newAPIToken)
 
@@ -1258,7 +1258,7 @@ func Test__weaviate_PUT_things_id_JSON_forbidden_write(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_PUT_things_id_JSON_forbidden_not_owned(t *testing.T) {
+func Test__weaviate_PUT_things_id_JSON_internal_forbidden_not_owned(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingIDs[0], "PUT", "application/json", getEmptyJSON(), headKeyID, headToken)
 
@@ -1316,7 +1316,7 @@ func Test__weaviate_PATCH_things_id_JSON(t *testing.T) {
 	require.Equal(t, thingTestDate, respObjectGet.Schema.(map[string]interface{})["testDateTime"].(string))
 }
 
-func Test__weaviate_PATCH_things_id_JSON_invalid(t *testing.T) {
+func Test__weaviate_PATCH_things_id_JSON_internal_invalid(t *testing.T) {
 	// Check patch with incorrect contents
 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/address_components/long_name", "value": "test"}`))
 	responseError := doRequest("/things/"+thingID, "PATCH", "application/json", jsonStrError, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -1383,13 +1383,13 @@ func Test__weaviate_PATCH_things_id_JSON_invalid(t *testing.T) {
 	require.Contains(t, string(getResponseBody(responseInvalid10)), fmt.Sprintf(validation.ErrorInvalidDate, "TestThing2", "testDateTime", "test"))
 }
 
-func Test__weaviate_PATCH_things_id_JSON_not_found(t *testing.T) {
+func Test__weaviate_PATCH_things_id_JSON_internal_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-func Test__weaviate_PATCH_things_id_JSON_forbidden_write(t *testing.T) {
+func Test__weaviate_PATCH_things_id_JSON_internal_forbidden_write(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingIDs[0], "PATCH", "application/json", getEmptyPatchJSON(), newAPIKeyID, newAPIToken)
 
@@ -1397,7 +1397,7 @@ func Test__weaviate_PATCH_things_id_JSON_forbidden_write(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_PATCH_things_id_JSON_forbidden_not_owned(t *testing.T) {
+func Test__weaviate_PATCH_things_id_JSON_internal_forbidden_not_owned(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingIDs[0], "PATCH", "application/json", getEmptyPatchJSON(), headKeyID, headToken)
 
@@ -1440,7 +1440,7 @@ func Test__weaviate_GET_things_id_history_JSON(t *testing.T) {
 	require.Conditionf(t, func() bool { return !(respObject.PropertyHistory[0].CreationTimeUnix < now-20000) }, "CreationTimeUnix is incorrect, it was set to far back.")
 }
 
-func Test__weaviate_GET_things_id_history_JSON_forbidden_read(t *testing.T) {
+func Test__weaviate_GET_things_id_history_JSON_internal_forbidden_read(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingIDs[0]+"/history", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
@@ -1448,7 +1448,7 @@ func Test__weaviate_GET_things_id_history_JSON_forbidden_read(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_GET_things_id_history_JSON_forbidden_not_owned(t *testing.T) {
+func Test__weaviate_GET_things_id_history_JSON_internal_forbidden_not_owned(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingIDs[0]+"/history", "GET", "application/json", nil, headKeyID, headToken)
 
@@ -1456,7 +1456,7 @@ func Test__weaviate_GET_things_id_history_JSON_forbidden_not_owned(t *testing.T)
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_GET_things_id_history_JSON_not_found(t *testing.T) {
+func Test__weaviate_GET_things_id_history_JSON_internal_not_found(t *testing.T) {
 	// Create patch request
 	response := doRequest("/things/"+fakeID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, response.StatusCode)
@@ -1485,7 +1485,7 @@ func Test__weaviate_POST_things_validate_JSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.StatusCode)
 }
 
-func Test__weaviate_POST_things_validate_JSON_invalid(t *testing.T) {
+func Test__weaviate_POST_things_validate_JSON_internal_invalid(t *testing.T) {
 	// Test invalid requests
 	performInvalidThingRequests(t, "/things/validate", "POST")
 }
@@ -2177,7 +2177,7 @@ func Test__weaviate_POST_actions_JSON_external(t *testing.T) {
 	actionIDExternal = string(respObject.ActionID)
 }
 
-func Test__weaviate_POST_actions_JSON_multiple(t *testing.T) {
+func Test__weaviate_POST_actions_JSON_internal_multiple(t *testing.T) {
 	// Add multiple actions to the database to check List functions
 	// Fill database with actions and set the IDs to the global actionIDs-array
 	actionIDs[9] = actionID
@@ -2225,7 +2225,7 @@ func Test__weaviate_POST_actions_JSON_multiple(t *testing.T) {
 		time.Sleep(1000 * time.Millisecond)
 	}
 }
-func Test__weaviate_POST_actions_JSON_invalid(t *testing.T) {
+func Test__weaviate_POST_actions_JSON_internal_invalid(t *testing.T) {
 	// Create invalid requests
 	performInvalidActionRequests(t, "/actions", "POST")
 
@@ -2233,7 +2233,7 @@ func Test__weaviate_POST_actions_JSON_invalid(t *testing.T) {
 	time.Sleep(1000 * time.Millisecond)
 }
 
-func Test__weaviate_POST_actions_JSON_forbidden_write(t *testing.T) {
+func Test__weaviate_POST_actions_JSON_internal_forbidden_write(t *testing.T) {
 	// Create create request
 	jsonStr := bytes.NewBuffer([]byte(fmt.Sprintf(`{
 		"@context": "http://schema.org",
@@ -2290,7 +2290,7 @@ func Test__weaviate_GET_things_id_actions_JSON(t *testing.T) {
 	require.Len(t, respObject.Actions, 11)
 }
 
-func Test__weaviate_GET_things_id_actions_JSON_forbidden_read(t *testing.T) {
+func Test__weaviate_GET_things_id_actions_JSON_internal_forbidden_read(t *testing.T) {
 	// Create get request
 	response := doRequest("/things/"+thingID+"/actions", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
@@ -2298,7 +2298,7 @@ func Test__weaviate_GET_things_id_actions_JSON_forbidden_read(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_GET_things_id_actions_JSON_nothing(t *testing.T) {
+func Test__weaviate_GET_things_id_actions_JSON_internal_nothing(t *testing.T) {
 	// Create list request
 	response := doRequest("/things/"+thingIDs[3]+"/actions", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
@@ -2314,7 +2314,7 @@ func Test__weaviate_GET_things_id_actions_JSON_nothing(t *testing.T) {
 	require.Len(t, respObject.Actions, 0)
 }
 
-func Test__weaviate_GET_things_id_actions_JSON_limit(t *testing.T) {
+func Test__weaviate_GET_things_id_actions_JSON_internal_limit(t *testing.T) {
 	// Query whole list just created
 	listResponse := doRequest("/things/"+thingID+"/actions?maxResults=3", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	listResponseObject := &models.ActionsListResponse{}
@@ -2330,7 +2330,7 @@ func Test__weaviate_GET_things_id_actions_JSON_limit(t *testing.T) {
 	require.Equal(t, actionIDs[1], string(listResponseObject.Actions[1].ActionID))
 }
 
-func Test__weaviate_GET_things_id_actions_JSON_limit_offset(t *testing.T) {
+func Test__weaviate_GET_things_id_actions_JSON_internal_limit_offset(t *testing.T) {
 	// Query whole list just created
 	listResponse2 := doRequest("/things/"+thingID+"/actions?maxResults=5&page=2", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	listResponseObject2 := &models.ActionsListResponse{}
@@ -2382,7 +2382,7 @@ func Test__weaviate_GET_actions_id_JSON(t *testing.T) {
 	require.Equal(t, thingID, string(respObject.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 }
 
-func Test__weaviate_GET_actions_id_JSON_forbidden_read(t *testing.T) {
+func Test__weaviate_GET_actions_id_JSON_internal_forbidden_read(t *testing.T) {
 	// Create get request
 	response := doRequest("/actions/"+actionIDs[0], "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
@@ -2390,20 +2390,20 @@ func Test__weaviate_GET_actions_id_JSON_forbidden_read(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_GET_actions_id_JSON_forbidden_not_owned(t *testing.T) {
+func Test__weaviate_GET_actions_id_JSON_internal_forbidden_not_owned(t *testing.T) {
 	// Create get request
 	response := doRequest("/actions/"+actionIDs[0], "GET", "application/json", nil, headKeyID, headToken)
 
 	// Check status code get request
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
-func Test__weaviate_GET_actions_id_JSON_not_found(t *testing.T) {
+func Test__weaviate_GET_actions_id_JSON_internal_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-func Test__weaviate_GET_actions_id_history_JSON_no_updates_yet(t *testing.T) {
+func Test__weaviate_GET_actions_id_history_JSON_internal_no_updates_yet(t *testing.T) {
 	// Create patch request
 	response := doRequest("/actions/"+actionID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
@@ -2518,11 +2518,11 @@ func Test__weaviate_PUT_actions_id_JSON(t *testing.T) {
 	require.Regexp(t, strfmt.UUIDPattern, thingIDsubject)
 	require.Equal(t, thingIDsubject, string(respObject.Things.Subject.NrDollarCref))
 }
-func Test__weaviate_PUT_actions_id_JSON_invalid(t *testing.T) {
+func Test__weaviate_PUT_actions_id_JSON_internal_invalid(t *testing.T) {
 	// Check validation with invalid requests
 	performInvalidActionRequests(t, "/actions/"+actionID, "PUT")
 }
-func Test__weaviate_PUT_actions_id_JSON_forbidden_write(t *testing.T) {
+func Test__weaviate_PUT_actions_id_JSON_internal_forbidden_write(t *testing.T) {
 	// Create get request
 	response := doRequest("/actions/"+actionID, "PUT", "application/json", getEmptyJSON(), newAPIKeyID, newAPIToken)
 
@@ -2530,7 +2530,7 @@ func Test__weaviate_PUT_actions_id_JSON_forbidden_write(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_PUT_actions_id_JSON_forbidden_not_owned(t *testing.T) {
+func Test__weaviate_PUT_actions_id_JSON_internal_forbidden_not_owned(t *testing.T) {
 	// Create get request
 	response := doRequest("/actions/"+actionID, "PUT", "application/json", getEmptyJSON(), headKeyID, headToken)
 
@@ -2538,7 +2538,7 @@ func Test__weaviate_PUT_actions_id_JSON_forbidden_not_owned(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_PUT_actions_id_JSON_not_found(t *testing.T) {
+func Test__weaviate_PUT_actions_id_JSON_internal_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "PUT", "application/json", getEmptyJSON(), apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
@@ -2596,14 +2596,14 @@ func Test__weaviate_PATCH_actions_id_JSON(t *testing.T) {
 	require.Equal(t, thingID, string(respObjectGet.Schema.(map[string]interface{})["testCref"].(map[string]interface{})["$cref"].(string)))
 }
 
-func Test__weaviate_PATCH_actions_id_JSON_invalid(t *testing.T) {
+func Test__weaviate_PATCH_actions_id_JSON_internal_invalid(t *testing.T) {
 	// Check patch with incorrect contents
 	jsonStrError := bytes.NewBuffer([]byte(`{ "op": "replace", "path": "/xxxx", "value": "test"}`))
 	responseError := doRequest("/actions/"+actionID, "PATCH", "application/json", jsonStrError, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusBadRequest, responseError.StatusCode)
 }
 
-func Test__weaviate_PATCH_actions_id_JSON_forbidden_write(t *testing.T) {
+func Test__weaviate_PATCH_actions_id_JSON_internal_forbidden_write(t *testing.T) {
 	// Create get request
 	response := doRequest("/actions/"+actionID, "PATCH", "application/json", getEmptyPatchJSON(), newAPIKeyID, newAPIToken)
 
@@ -2611,7 +2611,7 @@ func Test__weaviate_PATCH_actions_id_JSON_forbidden_write(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_PATCH_actions_id_JSON_forbidden_not_owned(t *testing.T) {
+func Test__weaviate_PATCH_actions_id_JSON_internal_forbidden_not_owned(t *testing.T) {
 	// Create get request
 	response := doRequest("/actions/"+actionID, "PATCH", "application/json", getEmptyPatchJSON(), headKeyID, headToken)
 
@@ -2619,7 +2619,7 @@ func Test__weaviate_PATCH_actions_id_JSON_forbidden_not_owned(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_PATCH_actions_id_JSON_not_found(t *testing.T) {
+func Test__weaviate_PATCH_actions_id_JSON_internal_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "PATCH", "application/json", getEmptyPatchJSON(), apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
@@ -2680,7 +2680,7 @@ func Test__weaviate_GET_actions_id_history_JSON(t *testing.T) {
 	require.Conditionf(t, func() bool { return !(respObject.PropertyHistory[0].CreationTimeUnix < now-20000) }, "CreationTimeUnix is incorrect, it was set to far back.")
 }
 
-func Test__weaviate_GET_actions_id_history_JSON_forbidden_read(t *testing.T) {
+func Test__weaviate_GET_actions_id_history_JSON_internal_forbidden_read(t *testing.T) {
 	// Create get request
 	response := doRequest("/actions/"+actionID+"/history", "GET", "application/json", nil, newAPIKeyID, newAPIToken)
 
@@ -2688,7 +2688,7 @@ func Test__weaviate_GET_actions_id_history_JSON_forbidden_read(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_GET_actions_id_history_JSON_forbidden_not_owned(t *testing.T) {
+func Test__weaviate_GET_actions_id_history_JSON_internal_forbidden_not_owned(t *testing.T) {
 	// Create get request
 	response := doRequest("/actions/"+actionID+"/history", "GET", "application/json", nil, headKeyID, headToken)
 
@@ -2696,7 +2696,7 @@ func Test__weaviate_GET_actions_id_history_JSON_forbidden_not_owned(t *testing.T
 	require.Equal(t, http.StatusForbidden, response.StatusCode)
 }
 
-func Test__weaviate_GET_actions_id_history_JSON_not_found(t *testing.T) {
+func Test__weaviate_GET_actions_id_history_JSON_internal_not_found(t *testing.T) {
 	// Create patch request
 	response := doRequest("/actions/"+fakeID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, response.StatusCode)
@@ -2736,7 +2736,7 @@ func Test__weaviate_POST_actions_validate_JSON(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.StatusCode)
 }
 
-func Test__weaviate_POST_actions_validate_JSON_invalid(t *testing.T) {
+func Test__weaviate_POST_actions_validate_JSON_internal_invalid(t *testing.T) {
 	// Test invalid requests
 	performInvalidActionRequests(t, "/actions/validate", "POST")
 }
@@ -2765,7 +2765,7 @@ func doGraphQLRequest(body graphQLQueryObject, apiKey string, apiToken string) (
 	return response, respObject
 }
 
-func Test__weaviate_POST_graphql_JSON_no_query(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_no_query(t *testing.T) {
 	// Set the graphQL body
 	bodyUnpr := `{
 		"querys": "{ }"
@@ -2781,7 +2781,7 @@ func Test__weaviate_POST_graphql_JSON_no_query(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity, responseUnpr.StatusCode)
 }
 
-func Test__weaviate_POST_graphql_JSON_non_existing_property(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_non_existing_property(t *testing.T) {
 	// Set the graphQL body
 	bodyNonExistingProperty := graphQLQueryObject{
 		Query: fmt.Sprintf(`{ action(uuid:"%s") { uuids atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }`, actionID),
@@ -2800,7 +2800,7 @@ func Test__weaviate_POST_graphql_JSON_non_existing_property(t *testing.T) {
 	require.NotNil(t, respObjectNonExistingProperty.Errors)
 }
 
-func Test__weaviate_POST_graphql_JSON_thing(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_thing(t *testing.T) {
 	// Set the graphQL body
 	body := `{ thing(uuid:"%s") { uuid atContext atClass creationTimeUnix key { uuid read } actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
 
@@ -2850,7 +2850,7 @@ func Test__weaviate_POST_graphql_JSON_thing(t *testing.T) {
 	require.Equal(t, actionIDs[0], string(respActionsUUID))
 }
 
-func Test__weaviate_POST_graphql_JSON_thing_forbidden_read(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_thing_forbidden_read(t *testing.T) {
 	// Set the graphQL body
 	body := `{ thing(uuid:"%s") { uuid atContext atClass creationTimeUnix key { uuid read } actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
 
@@ -2868,7 +2868,7 @@ func Test__weaviate_POST_graphql_JSON_thing_forbidden_read(t *testing.T) {
 	require.NotNil(t, respObject.Errors)
 }
 
-func Test__weaviate_POST_graphql_JSON_thing_forbidden_parent(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_thing_forbidden_parent(t *testing.T) {
 	// Set the graphQL body
 	body := `{ thing(uuid:"%s") { uuid atContext atClass creationTimeUnix key { uuid read } actions { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
 
@@ -2916,7 +2916,7 @@ func Test__weaviate_POST_graphql_JSON_thing_external(t *testing.T) {
 	require.Equal(t, thingID, externalUUID)
 }
 
-func Test__weaviate_POST_graphql_JSON_thing_actions_limit(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_thing_actions_limit(t *testing.T) {
 	// Set the graphQL body
 	body := `{ thing(uuid:"%s") { actions(first:3) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
 	bodyObj := graphQLQueryObject{
@@ -2944,7 +2944,7 @@ func Test__weaviate_POST_graphql_JSON_thing_actions_limit(t *testing.T) {
 	require.Equal(t, actionIDs[1], string(resultActionsLimit[1].(map[string]interface{})["uuid"].(string)))
 }
 
-func Test__weaviate_POST_graphql_JSON_thing_actions_limit_ofset(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_thing_actions_limit_ofset(t *testing.T) {
 	// Set the graphQL body
 	body := `{ thing(uuid:"%s") { actions(first:5, offset:5) { actions { uuid atContext atClass creationTimeUnix } totalResults } } }`
 	bodyObj := graphQLQueryObject{
@@ -2973,7 +2973,7 @@ func Test__weaviate_POST_graphql_JSON_thing_actions_limit_ofset(t *testing.T) {
 
 }
 
-func Test__weaviate_POST_graphql_JSON_thing_actions_filters(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_thing_actions_filters(t *testing.T) {
 	// Search class 'TestAction2', most recent should be the set actionID[0]
 	bodyObj := graphQLQueryObject{Query: fmt.Sprintf(`{ thing(uuid:"%s") { actions(class:"TestAction2", first:1) { actions { uuid atClass } totalResults } } }`, thingID)}
 	_, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -3016,7 +3016,7 @@ func Test__weaviate_POST_graphql_JSON_thing_actions_filters(t *testing.T) {
 	// require.Equal(t, float64(9), totalResultsValueSearch6)
 }
 
-func Test__weaviate_POST_graphql_JSON_listThings(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_listThings(t *testing.T) {
 	// Set the graphQL body
 	bodyObj := graphQLQueryObject{
 		Query: `{ listThings { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
@@ -3042,7 +3042,7 @@ func Test__weaviate_POST_graphql_JSON_listThings(t *testing.T) {
 	require.Equal(t, thingIDs[0], string(respUUID))
 }
 
-func Test__weaviate_POST_graphql_JSON_listThings_forbidden(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_listThings_forbidden(t *testing.T) {
 	// Set the graphQL body
 	bodyObj := graphQLQueryObject{
 		Query: `{ listThings { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
@@ -3058,7 +3058,7 @@ func Test__weaviate_POST_graphql_JSON_listThings_forbidden(t *testing.T) {
 	require.NotNil(t, respObject.Errors)
 }
 
-func Test__weaviate_POST_graphql_JSON_listThings_limit(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_listThings_limit(t *testing.T) {
 	// Set the graphQL body
 	bodyObj := graphQLQueryObject{
 		Query: `{ listThings(first: 3) { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
@@ -3085,7 +3085,7 @@ func Test__weaviate_POST_graphql_JSON_listThings_limit(t *testing.T) {
 	require.Equal(t, thingIDs[1], string(resultThingsLimit[1].(map[string]interface{})["uuid"].(string)))
 }
 
-func Test__weaviate_POST_graphql_JSON_listThings_limit_offset(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_listThings_limit_offset(t *testing.T) {
 	// Set the graphQL body
 	bodyObj := graphQLQueryObject{
 		Query: `{ listThings(first: 5, offset: 5) { things { uuid atContext atClass creationTimeUnix } totalResults } }`,
@@ -3112,7 +3112,7 @@ func Test__weaviate_POST_graphql_JSON_listThings_limit_offset(t *testing.T) {
 	require.Equal(t, thingIDs[7], string(resultThingsLimitOffset[2].(map[string]interface{})["uuid"].(string)))
 }
 
-func Test__weaviate_POST_graphql_JSON_listThings_filters(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_listThings_filters(t *testing.T) {
 	// Search class 'TestThing2', most recent should be the set thingIDsubject
 	bodyObj := graphQLQueryObject{Query: `{ listThings(class:"TestThing2", first:1) { things { uuid atClass } totalResults } }`}
 	_, respObjectValueSearch1 := doGraphQLRequest(bodyObj, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -3153,7 +3153,7 @@ func Test__weaviate_POST_graphql_JSON_listThings_filters(t *testing.T) {
 	// // require.Equal(t, thingIDs[0], string(resultThingsValueSearch6[0].(map[string]interface{})["uuid"].(string)))
 }
 
-func Test__weaviate_POST_graphql_JSON_action(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_action(t *testing.T) {
 	// Set the graphQL body
 	body := `{ action(uuid:"%s") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }`
 	bodyObj := graphQLQueryObject{
@@ -3188,7 +3188,7 @@ func Test__weaviate_POST_graphql_JSON_action(t *testing.T) {
 	require.Equal(t, thingIDsubject, respSubjectUUID)
 }
 
-func Test__weaviate_POST_graphql_JSON_action_forbidden_read(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_action_forbidden_read(t *testing.T) {
 	// Set the graphQL body
 	body := `{ action(uuid:"%s") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }`
 	bodyObj := graphQLQueryObject{
@@ -3205,7 +3205,7 @@ func Test__weaviate_POST_graphql_JSON_action_forbidden_read(t *testing.T) {
 	require.NotNil(t, respObject.Errors)
 }
 
-func Test__weaviate_POST_graphql_JSON_action_forbidden_parent(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_action_forbidden_parent(t *testing.T) {
 	// Set the graphQL body
 	body := `{ action(uuid:"%s") { uuid atContext atClass creationTimeUnix things { object { uuid } subject { uuid } } key { uuid read } } }`
 	bodyObj := graphQLQueryObject{
@@ -3262,7 +3262,7 @@ func Test__weaviate_POST_graphql_JSON_action_external(t *testing.T) {
 	require.Equal(t, thingID, externalUUID)
 }
 
-func Test__weaviate_POST_graphql_JSON_key(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_key(t *testing.T) {
 	// Set the graphQL body
 	body := `{ key(uuid:"%s") { uuid read write ipOrigin children { uuid read } } }`
 	bodyObj := graphQLQueryObject{
@@ -3307,7 +3307,7 @@ func Test__weaviate_POST_graphql_JSON_key(t *testing.T) {
 	require.Equal(t, checkIDs[1], responseIDs[1])
 }
 
-func Test__weaviate_POST_graphql_JSON_myKey(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_myKey(t *testing.T) {
 	// Set the graphQL body
 	body := `{ myKey { uuid read write ipOrigin children { uuid read } } }`
 	bodyObj := graphQLQueryObject{
@@ -3352,7 +3352,7 @@ func Test__weaviate_POST_graphql_JSON_myKey(t *testing.T) {
 	require.Equal(t, checkIDs[1], responseIDs[1])
 }
 
-func Test__weaviate_POST_graphql_JSON_key_forbidden_parent(t *testing.T) {
+func Test__weaviate_POST_graphql_JSON_internal_key_forbidden_parent(t *testing.T) {
 	// Set the graphQL body
 	body := `{ key(uuid:"%s") { uuid read write ipOrigin children { uuid read } } }`
 	bodyObj := graphQLQueryObject{
@@ -3383,7 +3383,7 @@ func Test__weaviate_DELETE_keys_id_JSON(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseSub1Deleted.StatusCode)
 }
 
-func Test__weaviate_DELETE_keys_id_JSON_forbidden_parent(t *testing.T) {
+func Test__weaviate_DELETE_keys_id_JSON_internal_forbidden_parent(t *testing.T) {
 	// Delete head with sub2, which is not allowed
 	responseDelHeadWithSub := doRequest("/keys/"+headKeyID, "DELETE", "application/json", nil, sub2KeyID, sub2Token)
 	require.Equal(t, http.StatusForbidden, responseDelHeadWithSub.StatusCode)
@@ -3393,13 +3393,13 @@ func Test__weaviate_DELETE_keys_id_JSON_forbidden_parent(t *testing.T) {
 	require.Equal(t, http.StatusOK, responseSub2Exists.StatusCode)
 }
 
-func Test__weaviate_DELETE_keys_id_JSON_forbidden_own(t *testing.T) {
+func Test__weaviate_DELETE_keys_id_JSON_internal_forbidden_own(t *testing.T) {
 	// Delete head with own key, not allowed
 	responseDelHeadForbidden := doRequest("/keys/"+headKeyID, "DELETE", "application/json", nil, headKeyID, headToken)
 	require.Equal(t, http.StatusForbidden, responseDelHeadForbidden.StatusCode)
 }
 
-func Test__weaviate_DELETE_keys_id_JSON_with_child(t *testing.T) {
+func Test__weaviate_DELETE_keys_id_JSON_internal_with_child(t *testing.T) {
 	// Delete head with its parent key, allowed
 	responseDelHead := doRequest("/keys/"+headKeyID, "DELETE", "application/json", nil, newAPIKeyID, newAPIToken)
 	require.Equal(t, http.StatusNoContent, responseDelHead.StatusCode)
@@ -3413,7 +3413,7 @@ func Test__weaviate_DELETE_keys_id_JSON_with_child(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, responseHeadDeleted.StatusCode)
 }
 
-func Test__weaviate_DELETE_keys_id_JSON_root_child_clean_up(t *testing.T) {
+func Test__weaviate_DELETE_keys_id_JSON_internal_root_child_clean_up(t *testing.T) {
 	// Delete key that is expired
 	responseExpiredDeleted := doRequest("/keys/"+expiredKeyID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNoContent, responseExpiredDeleted.StatusCode)
@@ -3434,7 +3434,7 @@ func Test__weaviate_DELETE_actions_id_JSON(t *testing.T) {
 	time.Sleep(1000 * time.Millisecond)
 }
 
-func Test__weaviate_DELETE_actions_id_JSON_not_found_already_deleted(t *testing.T) {
+func Test__weaviate_DELETE_actions_id_JSON_internal_not_found_already_deleted(t *testing.T) {
 	// Create delete request
 	responseAlreadyDeleted := doRequest("/actions/"+actionID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
@@ -3442,13 +3442,13 @@ func Test__weaviate_DELETE_actions_id_JSON_not_found_already_deleted(t *testing.
 	require.Equal(t, http.StatusNotFound, responseAlreadyDeleted.StatusCode)
 }
 
-func Test__weaviate_DELETE_actions_id_JSON_not_found(t *testing.T) {
+func Test__weaviate_DELETE_actions_id_JSON_internal_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/actions/"+fakeID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-func Test__weaviate_GET_actions_id_history_JSON_after_delete(t *testing.T) {
+func Test__weaviate_GET_actions_id_history_JSON_internal_after_delete(t *testing.T) {
 	// Create patch request
 	response := doRequest("/actions/"+actionID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
@@ -3489,7 +3489,7 @@ func Test__weaviate_DELETE_things_id_JSON(t *testing.T) {
 	time.Sleep(1000 * time.Millisecond)
 }
 
-func Test__weaviate_DELETE_things_id_JSON_not_found_already_deleted(t *testing.T) {
+func Test__weaviate_DELETE_things_id_JSON_internal_not_found_already_deleted(t *testing.T) {
 	// Create delete request
 	responseAlreadyDeleted := doRequest("/things/"+thingID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
@@ -3497,13 +3497,13 @@ func Test__weaviate_DELETE_things_id_JSON_not_found_already_deleted(t *testing.T
 	require.Equal(t, http.StatusNotFound, responseAlreadyDeleted.StatusCode)
 }
 
-func Test__weaviate_DELETE_things_id_JSON_not_found(t *testing.T) {
+func Test__weaviate_DELETE_things_id_JSON_internal_not_found(t *testing.T) {
 	// Create get request with non-existing ID, check its responsecode
 	responseNotFound := doRequest("/things/"+fakeID, "DELETE", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 	require.Equal(t, http.StatusNotFound, responseNotFound.StatusCode)
 }
 
-func Test__weaviate_DELETE_things_id_JSON_actions_deleted(t *testing.T) {
+func Test__weaviate_DELETE_things_id_JSON_internal_actions_deleted(t *testing.T) {
 	// Test whether all actions are deleted
 	for _, deletedActionID := range actionIDs {
 		responseDeletedByObjectThing := doRequest("/actions/"+deletedActionID, "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
@@ -3511,7 +3511,7 @@ func Test__weaviate_DELETE_things_id_JSON_actions_deleted(t *testing.T) {
 	}
 }
 
-func Test__weaviate_GET_things_id_history_JSON_after_delete(t *testing.T) {
+func Test__weaviate_GET_things_id_history_JSON_internal_after_delete(t *testing.T) {
 	// Create patch request
 	response := doRequest("/things/"+thingID+"/history", "GET", "application/json", nil, apiKeyIDCmdLine, apiTokenCmdLine)
 
