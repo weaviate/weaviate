@@ -47,7 +47,7 @@
 				"Action": "./test/schema/test-action-schema.json"
 			},
 			"broker": {
-				"host": "localhost",
+				"host": "weaviate-broker",
 				"port": 1883
 			},
 			"limit": 100,
