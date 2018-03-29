@@ -226,7 +226,7 @@ func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *
 	return nil
 }
 
-// GetThings fills the given []ThingGetResponse with the values from the database, based on the given UUIDs.
+// GetThings fills the given ThingsListResponse with the values from the database, based on the given UUIDs.
 func (f *Foobar) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error {
 	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
 
@@ -286,6 +286,12 @@ func (f *Foobar) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse
 	// actionResponse should be populated with the response that comes from the DB.
 	// actionResponse = based on the ontology
 
+	// If success return nil, otherwise return the error
+	return nil
+}
+
+// GetActions fills the given ActionsListResponse with the values from the database, based on the given UUIDs.
+func (f *Foobar) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsResponse *models.ActionsListResponse) error {
 	// If success return nil, otherwise return the error
 	return nil
 }
@@ -351,6 +357,12 @@ func (f *Foobar) ValidateToken(ctx context.Context, UUID strfmt.UUID, keyRespons
 // GetKey fills the given KeyGetResponse with the values from the database, based on the given UUID.
 func (f *Foobar) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
 
+	f.trace()
+	return nil
+}
+
+// GetKeys fills the given []KeyGetResponse with the values from the database, based on the given UUIDs.
+func (f *Foobar) GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keysResponse *[]*models.KeyGetResponse) error {
 	f.trace()
 	return nil
 }

@@ -200,6 +200,14 @@ func (f *KVCache) GetAction(ctx context.Context, UUID strfmt.UUID, actionRespons
 	return err
 }
 
+// GetActions fills the given ActionsListResponse with the values from the database, based on the given UUIDs.
+func (f *KVCache) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsResponse *models.ActionsListResponse) error {
+	defer f.messaging.TimeTrack(time.Now())
+
+	// If success return nil, otherwise return the error
+	return f.databaseConnector.GetActions(ctx, UUIDs, actionsResponse)
+}
+
 // ListActions function
 func (f *KVCache) ListActions(ctx context.Context, UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
 	defer f.messaging.TimeTrack(time.Now())
@@ -281,6 +289,13 @@ func (f *KVCache) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *mod
 	}
 
 	return err
+}
+
+// GetKeys function
+func (f *KVCache) GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keysResponse *[]*models.KeyGetResponse) error {
+	defer f.messaging.TimeTrack(time.Now())
+
+	return f.databaseConnector.GetKeys(ctx, UUIDs, keysResponse)
 }
 
 // DeleteKey function
