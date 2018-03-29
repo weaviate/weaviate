@@ -94,6 +94,13 @@ const selectKeyStatement = `
 	WHERE ` + colKeyUUID + ` = ?
 `
 
+// selectKeyInStatement is used to get a Keys form the database
+const selectKeyInStatement = `
+	SELECT *
+	FROM ` + tableKeys + ` 
+	WHERE ` + colKeyUUID + ` IN ?
+`
+
 // insertKeyStatement is used to insert a single key into the database
 const insertKeyStatement = `
 	INSERT INTO ` + tableKeys + ` (
@@ -230,6 +237,13 @@ const selectActionStatement = `
 	SELECT *
 	FROM ` + tableActions + ` 
 	WHERE ` + colActionUUID + ` = ?
+`
+
+// selectActionStatement is used to get a actions form the database
+const selectActionInStatement = `
+	SELECT *
+	FROM ` + tableActions + ` 
+	WHERE ` + colActionUUID + ` IN ?
 `
 
 // listActionsSelectStatement is used to get a list of actions form the database, based on object-thing-id and ordered by creationtime
@@ -1082,6 +1096,50 @@ func (f *Cassandra) GetAction(ctx context.Context, UUID strfmt.UUID, actionRespo
 	return nil
 }
 
+// GetActions function
+func (f *Cassandra) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsResponse *models.ActionsListResponse) error {
+	// Track time of this function for debug reasons
+	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetActions: '%s'", UUIDs))
+
+	cqlUUIDs := []gocql.UUID{}
+
+	for _, UUID := range UUIDs {
+		cqlUUIDs = append(cqlUUIDs, f.convUUIDtoCQLUUID(UUID))
+	}
+
+	// Build the query
+	query := fmt.Sprintf(selectActionInStatement)
+
+	// Do the query to get the thing from the database and get the iterator
+	iter := f.client.Query(query, cqlUUIDs).Iter()
+
+	// Put everything in a for loop
+	for {
+		// Init the map for each row
+		m := map[string]interface{}{}
+
+		// Fill the map with the current row in the iterator
+		if !iter.MapScan(m) {
+			break
+		}
+
+		// Fill the response with the row
+		actionResponse := models.ActionGetResponse{}
+		f.fillActionResponseWithRow(m, &actionResponse)
+
+		// Add the thing to the list in the response
+		actionsResponse.Actions = append(actionsResponse.Actions, &actionResponse)
+	}
+
+	// Close the iterator to get errors
+	if err := iter.Close(); err != nil {
+		return err
+	}
+
+	// No errors, return nil
+	return nil
+}
+
 // ListActions fills the given ActionListResponse with the values from the database, based on the given parameters.
 func (f *Cassandra) ListActions(ctx context.Context, UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
 	// Track time of this function for debug reasons
@@ -1439,6 +1497,50 @@ func (f *Cassandra) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *m
 	// If there is no key found, return an error
 	if !found {
 		return errors_.New(connutils.StaticKeyNotFound)
+	}
+
+	// No errors, return nil
+	return nil
+}
+
+// GetKeys function
+func (f *Cassandra) GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keysResponse *[]*models.KeyGetResponse) error {
+	// Track time of this function for debug reasons
+	defer f.messaging.TimeTrack(time.Now(), fmt.Sprintf("GetKeys: '%s'", UUIDs))
+
+	cqlUUIDs := []gocql.UUID{}
+
+	for _, UUID := range UUIDs {
+		cqlUUIDs = append(cqlUUIDs, f.convUUIDtoCQLUUID(UUID))
+	}
+
+	// Build the query
+	query := fmt.Sprintf(selectKeyInStatement)
+
+	// Do the query to get the key from the database and get the iterator
+	iter := f.client.Query(query, cqlUUIDs).Iter()
+
+	// Put everything in a for loop
+	for {
+		// Init the map for each row
+		m := map[string]interface{}{}
+
+		// Fill the map with the current row in the iterator
+		if !iter.MapScan(m) {
+			break
+		}
+
+		// Fill the response with the row
+		keyResponse := models.KeyGetResponse{}
+		f.fillKeyResponseWithRow(m, &keyResponse)
+
+		// Add the key to the list in the response
+		*keysResponse = append(*keysResponse, &keyResponse)
+	}
+
+	// Close the iterator to get errors
+	if err := iter.Close(); err != nil {
+		return err
 	}
 
 	// No errors, return nil

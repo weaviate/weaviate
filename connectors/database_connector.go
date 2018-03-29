@@ -66,6 +66,8 @@ type DatabaseConnector interface {
 	BaseConnector
 
 	GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error
+	GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionResponse *models.ActionsListResponse) error
+	GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keyResponse *[]*models.KeyGetResponse) error
 }
 
 // CacheConnector is the interface that all cache-connectors should have
