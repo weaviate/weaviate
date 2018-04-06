@@ -396,17 +396,26 @@ func (f *DataLoader) UpdateAction(ctx context.Context, action *models.Action, UU
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Init varaibles used by data loader
-	var loader *dataloader.Loader
+	var thingsLoader *dataloader.Loader
+	var actionsLoader *dataloader.Loader
 	var ok bool
 
 	// Load the dataloader from the context
-	if loader, ok = ctx.Value(thingsDataLoader).(*dataloader.Loader); !ok {
+	if thingsLoader, ok = ctx.Value(thingsDataLoader).(*dataloader.Loader); !ok {
 		return fmt.Errorf("dataloader not found in context")
 	}
 
 	// Clear the data from the thing-dataloader cache
-	loader.Clear(ctx, dataloader.StringKey(string(action.Things.Subject.NrDollarCref)))
-	loader.Clear(ctx, dataloader.StringKey(string(action.Things.Object.NrDollarCref)))
+	thingsLoader.Clear(ctx, dataloader.StringKey(string(action.Things.Subject.NrDollarCref)))
+	thingsLoader.Clear(ctx, dataloader.StringKey(string(action.Things.Object.NrDollarCref)))
+
+	// Load the dataloader from the context
+	if actionsLoader, ok = ctx.Value(actionsDataLoader).(*dataloader.Loader); !ok {
+		return fmt.Errorf("dataloader not found in context")
+	}
+
+	// Clear the data from the thing-dataloader cache
+	actionsLoader.Clear(ctx, dataloader.StringKey(string(UUID)))
 
 	// Forward request to db-connector
 	return f.databaseConnector.UpdateAction(ctx, action, UUID)
@@ -417,17 +426,26 @@ func (f *DataLoader) DeleteAction(ctx context.Context, action *models.Action, UU
 	defer f.messaging.TimeTrack(time.Now())
 
 	// Init varaibles used by data loader
-	var loader *dataloader.Loader
+	var thingsLoader *dataloader.Loader
+	var actionsLoader *dataloader.Loader
 	var ok bool
 
 	// Load the dataloader from the context
-	if loader, ok = ctx.Value(thingsDataLoader).(*dataloader.Loader); !ok {
+	if thingsLoader, ok = ctx.Value(thingsDataLoader).(*dataloader.Loader); !ok {
 		return fmt.Errorf("dataloader not found in context")
 	}
 
 	// Clear the data from the thing-dataloader cache
-	loader.Clear(ctx, dataloader.StringKey(string(action.Things.Subject.NrDollarCref)))
-	loader.Clear(ctx, dataloader.StringKey(string(action.Things.Object.NrDollarCref)))
+	thingsLoader.Clear(ctx, dataloader.StringKey(string(action.Things.Subject.NrDollarCref)))
+	thingsLoader.Clear(ctx, dataloader.StringKey(string(action.Things.Object.NrDollarCref)))
+
+	// Load the dataloader from the context
+	if actionsLoader, ok = ctx.Value(actionsDataLoader).(*dataloader.Loader); !ok {
+		return fmt.Errorf("dataloader not found in context")
+	}
+
+	// Clear the data from the thing-dataloader cache
+	actionsLoader.Clear(ctx, dataloader.StringKey(string(UUID)))
 
 	// Forward request to db-connector
 	return f.databaseConnector.DeleteAction(ctx, action, UUID)
@@ -500,6 +518,18 @@ func (f *DataLoader) GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keysRespo
 func (f *DataLoader) DeleteKey(ctx context.Context, key *models.Key, UUID strfmt.UUID) error {
 	defer f.messaging.TimeTrack(time.Now())
 
+	// Init varaibles used by data loader
+	var loader *dataloader.Loader
+	var ok bool
+
+	// Load the dataloader from the context
+	if loader, ok = ctx.Value(keysDataLoader).(*dataloader.Loader); !ok {
+		return fmt.Errorf("dataloader not found in context")
+	}
+
+	// Clear the data from the thing-dataloader cache
+	loader.Clear(ctx, dataloader.StringKey(string(UUID)))
+
 	return f.databaseConnector.DeleteKey(ctx, key, UUID)
 }
 
@@ -512,5 +542,19 @@ func (f *DataLoader) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, child
 
 // UpdateKey updates the Key in the DB at the given UUID.
 func (f *DataLoader) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
+	defer f.messaging.TimeTrack(time.Now())
+
+	// Init varaibles used by data loader
+	var loader *dataloader.Loader
+	var ok bool
+
+	// Load the dataloader from the context
+	if loader, ok = ctx.Value(keysDataLoader).(*dataloader.Loader); !ok {
+		return fmt.Errorf("dataloader not found in context")
+	}
+
+	// Clear the data from the thing-dataloader cache
+	loader.Clear(ctx, dataloader.StringKey(string(UUID)))
+
 	return f.databaseConnector.UpdateKey(ctx, key, UUID, token)
 }
