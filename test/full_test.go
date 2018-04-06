@@ -1218,7 +1218,7 @@ func Test__weaviate_PUT_things_id_JSON_internal(t *testing.T) {
 	// Check given update time is after now, but not in the future
 	now := connutils.NowUnix()
 	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix > now) }, "LastUpdateTimeUnix is incorrect, it was set in the future.")
-	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix < now-2000) }, "LastUpdateTimeUnix is incorrect, it was set to far back.")
+	require.Conditionf(t, func() bool { return !(respObject.LastUpdateTimeUnix < now-4000) }, "LastUpdateTimeUnix is incorrect, it was set too far back.")
 
 	// Test is faster than adding to DB.
 	time.Sleep(1000 * time.Millisecond)
