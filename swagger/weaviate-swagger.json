@@ -1,14 +1,7 @@
 {
   "basePath": "/weaviate/v1",
   "consumes": [
-    "application/json",
-    "application/xml",
-    "application/x-yaml",
-    "text/plain",
-    "application/octet-stream",
-    "multipart/form-data",
-    "application/x-www-form-urlencoded",
-    "application/json-patch+json"
+    "application/json"
   ],
   "definitions": {
     "Action": {
@@ -685,7 +678,7 @@
     },
     "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
     "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
-    "version": "0.8.2"
+    "version": "0.8.4"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
@@ -1784,13 +1777,7 @@
     }
   },
   "produces": [
-    "application/json",
-    "application/xml",
-    "application/x-yaml",
-    "text/plain",
-    "application/octet-stream",
-    "multipart/form-data",
-    "application/x-www-form-urlencoded"
+    "application/json"
   ],
   "schemes": [
     "https"
