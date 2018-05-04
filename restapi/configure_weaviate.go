@@ -33,7 +33,6 @@ import (
 	errors "github.com/go-openapi/errors"
 	runtime "github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
-	"github.com/go-openapi/runtime/yamlpc"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	gographql "github.com/graphql-go/graphql"
@@ -272,32 +271,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.ServeError = errors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
-
-	api.BinConsumer = runtime.ByteStreamConsumer()
-
-	api.UrlformConsumer = runtime.DiscardConsumer
-
-	api.YamlConsumer = yamlpc.YAMLConsumer()
-
-	api.XMLConsumer = runtime.XMLConsumer()
-
-	api.MultipartformConsumer = runtime.DiscardConsumer
-
-	api.TxtConsumer = runtime.TextConsumer()
-
-	api.JSONProducer = runtime.JSONProducer()
-
-	api.BinProducer = runtime.ByteStreamProducer()
-
-	api.UrlformProducer = runtime.DiscardProducer
-
-	api.YamlProducer = yamlpc.YAMLProducer()
-
-	api.XMLProducer = runtime.XMLProducer()
-
-	api.MultipartformProducer = runtime.DiscardProducer
-
-	api.TxtProducer = runtime.TextProducer()
 
 	/*
 	 * HANDLE X-API-KEY
