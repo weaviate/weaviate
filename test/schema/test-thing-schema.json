@@ -7,6 +7,13 @@
     "classes": [
         {
             "class": "TestThing",
+            "kinds": [{
+                "kind": "testThing1KindA",
+                "weight": 1.0
+            },{
+                "kind": "testThing1KindB",
+                "weight": 0.9
+            }],
             "description": "This is a Test",
             "properties": [
                 {
@@ -55,6 +62,13 @@
         },
         {
             "class": "TestThing2",
+            "kinds": [{
+                "kind": "testThing2KindA",
+                "weight": 1.0
+            },{
+                "kind": "testThing2KindB",
+                "weight": 0.9
+            }],
             "description": "This is a Test",
             "properties": [
                 {

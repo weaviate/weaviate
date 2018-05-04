@@ -23,23 +23,10 @@ var SwaggerJSON json.RawMessage
 func init() {
 	SwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
-    "application/json",
-    "application/xml",
-    "application/x-yaml",
-    "text/plain",
-    "application/octet-stream",
-    "multipart/form-data",
-    "application/x-www-form-urlencoded",
-    "application/json-patch+json"
+    "application/json"
   ],
   "produces": [
-    "application/json",
-    "application/xml",
-    "application/x-yaml",
-    "text/plain",
-    "application/octet-stream",
-    "multipart/form-data",
-    "application/x-www-form-urlencoded"
+    "application/json"
   ],
   "schemes": [
     "https"
@@ -53,7 +40,7 @@ func init() {
       "url": "http://www.creativesoftwarefdn.org",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.7.11"
+    "version": "0.8.4"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -1590,6 +1577,22 @@ func init() {
         "description": {
           "description": "Description of the class",
           "type": "string"
+        },
+        "kinds": {
+          "description": "Describes the kind of class. For example Geolocation for the class City.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "weight": {
+                "type": "number",
+                "format": "float"
+              }
+            }
+          }
         },
         "properties": {
           "description": "The properties of the class.",
