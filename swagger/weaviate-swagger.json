@@ -464,14 +464,17 @@
         },
         "kinds": {
           "description": "Describes the kind of class. For example Geolocation for the class City.",
-          "type": "object",
-          "properties": {
-            "kind": {
-              "type": "string"
-            },
-            "weight": {
-              "type": "number",
-              "format": "float"
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "weight": {
+                "type": "number",
+                "format": "float"
+              }
             }
           }
         },
@@ -682,7 +685,7 @@
     },
     "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
     "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
-    "version": "0.8.1"
+    "version": "0.8.2"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
