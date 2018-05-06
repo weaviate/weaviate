@@ -57,6 +57,12 @@
                         "TestThing2"
                     ],
                     "description": "Value of testCref."
+                }, {
+                    "name": "testRandomType",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Same name, different datatypes."
                 }
             ]
         },
@@ -112,6 +118,12 @@
                         "TestThing"
                     ],
                     "description": "Value of testCref."
+                }, {
+                    "name": "testRandomType",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Same name, different datatypes."
                 }
             ]
         }   
