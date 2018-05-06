@@ -61,11 +61,11 @@ script:
           # if master, upload version nr otherwise nightly
           if [ $TRAVIS_BRANCH = "master" ]; then
               # create folder with releases for master
-              mv dist releases/$(cat OpenAPI-Specification/schema.json.json | jq '.info.version')
+              mv dist releases/$(cat OpenAPI-Specification/schema.json | jq -r '.info.version')
               # Create txt file with version number
-              echo $(cat OpenAPI-Specification/schema.json.json | jq '.info.version') > releases/latest.master.txt
+              echo $(cat OpenAPI-Specification/schema.json | jq -r '.info.version') > releases/latest.master.txt
               # Check if the version number is now, if not, kill and fail the process
-              if [[ `wget -S --spider https://storage.googleapis.com/weaviate-dist/releases/$(cat OpenAPI-Specification/schema.json.json | jq '.info.version')/config.yaml 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then
+              if [[ `wget -S --spider https://storage.googleapis.com/weaviate-dist/releases/$(cat OpenAPI-Specification/schema.json | jq -r '.info.version')/config.yaml 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then
                   echo "ERROR - This version is already released, master build will fail! Increate version number in OPENAPI schema file"
                   exit 1
               fi
@@ -73,7 +73,7 @@ script:
               # if develop, create nightly
               mv dist releases/nightly
               # Create txt file with version number of nightly build
-              echo $(cat OpenAPI-Specification/schema.json.json | jq '.info.version') > releases/latest.nightly.txt
+              echo $(cat OpenAPI-Specification/schema.json | jq -r '.info.version') > releases/latest.nightly.txt
           fi
           # remove all except for releases
           rm -r !(releases)
