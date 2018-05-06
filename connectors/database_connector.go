@@ -18,6 +18,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/go-openapi/strfmt"
+	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/messages"
