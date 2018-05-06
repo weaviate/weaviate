@@ -1032,7 +1032,7 @@ func Test__weaviate_POST_things_JSON_internal_forbidden(t *testing.T) {
 			"testBoolean": %t,
 			"testNumber": %f,
 			"testDateTime": "%s",
-			"testRandomType": %d
+			"testRandomType": "%s"
 		}
 	}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate, thingTestString)))
 	response := doRequest("/things", "POST", "application/json", jsonStr, newAPIKeyID, newAPIToken)
