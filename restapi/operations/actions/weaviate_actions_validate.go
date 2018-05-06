@@ -4,11 +4,11 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 package actions
@@ -43,7 +43,7 @@ func NewWeaviateActionsValidate(ctx *middleware.Context, handler WeaviateActions
 
 Validate an action based on a schema.
 
-Validate an action object. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.
+Validate an action's schema and meta-data. It has to be based on a schema, which is related to the given action to be accepted by this validation.
 
 */
 type WeaviateActionsValidate struct {

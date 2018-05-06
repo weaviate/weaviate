@@ -4,11 +4,11 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 package restapi
@@ -23,43 +23,30 @@ var SwaggerJSON json.RawMessage
 func init() {
 	SwaggerJSON = json.RawMessage([]byte(`{
   "consumes": [
-    "application/json",
-    "application/xml",
-    "application/x-yaml",
-    "text/plain",
-    "application/octet-stream",
-    "multipart/form-data",
-    "application/x-www-form-urlencoded",
-    "application/json-patch+json"
+    "application/json"
   ],
   "produces": [
-    "application/json",
-    "application/xml",
-    "application/x-yaml",
-    "text/plain",
-    "application/octet-stream",
-    "multipart/form-data",
-    "application/x-www-form-urlencoded"
+    "application/json"
   ],
   "schemes": [
     "https"
   ],
   "swagger": "2.0",
   "info": {
-    "description": "Semantic Graphql, RESTful and Websocket Web of Things platform.",
-    "title": "Weaviate - Semantic Graphql, RESTful and Websocket Web of Things platform.",
+    "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
+    "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
     "contact": {
       "name": "Weaviate",
-      "url": "https://weaviate.com",
-      "email": "yourfriends@weaviate.com"
+      "url": "http://www.creativesoftwarefdn.org",
+      "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "v0.7.0"
+    "version": "0.8.4"
   },
   "basePath": "/weaviate/v1",
   "paths": {
     "/actions": {
       "post": {
-        "description": "Create action.",
+        "description": "Registers a new action. Given meta-data and schema values are validated.",
         "tags": [
           "actions"
         ],
@@ -98,12 +85,13 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
     "/actions/validate": {
       "post": {
-        "description": "Validate an action object. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
+        "description": "Validate an action's schema and meta-data. It has to be based on a schema, which is related to the given action to be accepted by this validation.",
         "tags": [
           "actions"
         ],
@@ -139,6 +127,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -180,6 +169,61 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
+      "put": {
+        "description": "Updates an action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "tags": [
+          "actions"
+        ],
+        "summary": "Update an action based on its uuid related to this key.",
+        "operationId": "weaviate.action.update",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the action.",
+            "name": "actionId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ActionUpdate"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
@@ -216,10 +260,11 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-websocket": false
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true
       },
       "patch": {
-        "description": "Updates an action. This method supports patch semantics.",
+        "description": "Updates an action. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "actions"
         ],
@@ -248,8 +293,8 @@ func init() {
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful updated.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -276,6 +321,49 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/actions/{actionId}/history": {
+      "get": {
+        "description": "Returns a particular action history.",
+        "tags": [
+          "actions"
+        ],
+        "summary": "Get a action's history based on its uuid related to this key.",
+        "operationId": "weaviate.action.history.get",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the action.",
+            "name": "actionId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetHistoryResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -321,12 +409,13 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
     "/keys": {
       "post": {
-        "description": "Creates a new key.",
+        "description": "Creates a new key. Input expiration date is validated on being in the future and not longer than parent expiration date.",
         "tags": [
           "keys"
         ],
@@ -343,8 +432,8 @@ func init() {
           }
         ],
         "responses": {
-          "202": {
-            "description": "Successfully received.",
+          "200": {
+            "description": "Successfully created.",
             "schema": {
               "$ref": "#/definitions/KeyTokenGetResponse"
             }
@@ -362,6 +451,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -377,7 +467,7 @@ func init() {
           "200": {
             "description": "Successful response.",
             "schema": {
-              "$ref": "#/definitions/KeyTokenGetResponse"
+              "$ref": "#/definitions/KeyGetResponse"
             }
           },
           "401": {
@@ -390,6 +480,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -418,6 +509,7 @@ func init() {
             "description": "Not (yet) implemented"
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -459,10 +551,11 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Deletes a key. Only parent or self is allowed to delete key.",
+        "description": "Deletes a key. Only parent or self is allowed to delete key. When you delete a key, all its children will be deleted as well.",
         "tags": [
           "keys"
         ],
@@ -495,6 +588,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -536,6 +630,55 @@ func init() {
             "description": "Not (yet) implemented"
           }
         },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/keys/{keyId}/renew-token": {
+      "put": {
+        "description": "Renews the related key. Validates being lower in tree than given key. Can not renew itself, unless being parent.",
+        "tags": [
+          "keys"
+        ],
+        "summary": "Renews a key based on the key given in the query string.",
+        "operationId": "weaviate.keys.renew.token",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the key.",
+            "name": "keyId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/KeyTokenGetResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -564,6 +707,7 @@ func init() {
             "description": "Not (yet) implemented"
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -603,10 +747,11 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Registers a new thing. This method may be used only by aggregator things or adapters.",
+        "description": "Registers a new thing. Given meta-data and schema values are validated.",
         "tags": [
           "things"
         ],
@@ -645,12 +790,13 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
     "/things/validate": {
       "post": {
-        "description": "Validate thing.",
+        "description": "Validate a thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
         "tags": [
           "things"
         ],
@@ -686,6 +832,7 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
@@ -727,10 +874,11 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "put": {
-        "description": "Updates a thing data.",
+        "description": "Updates a thing data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "things"
         ],
@@ -755,8 +903,8 @@ func init() {
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful update.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ThingGetResponse"
             }
@@ -780,10 +928,11 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Deletes a thing from the system.",
+        "description": "Deletes a thing from the system. All actions pointing to this thing, where the thing is the object of the action, are also being deleted.",
         "tags": [
           "things"
         ],
@@ -816,10 +965,11 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-websocket": false
+        "x-available-in-mqtt": true,
+        "x-available-in-websocket": true
       },
       "patch": {
-        "description": "Updates a thing data. This method supports patch semantics.",
+        "description": "Updates a thing data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "things"
         ],
@@ -848,8 +998,8 @@ func init() {
           }
         ],
         "responses": {
-          "200": {
-            "description": "Successful update.",
+          "202": {
+            "description": "Successfully received.",
             "schema": {
               "$ref": "#/definitions/ThingGetResponse"
             }
@@ -876,12 +1026,13 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
+        "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
     },
     "/things/{thingId}/actions": {
       "get": {
-        "description": "Returns the actions of a thing in a list.",
+        "description": "Lists all actions in reverse order of creation, related to the thing that belongs to the used thingId.",
         "tags": [
           "things"
         ],
@@ -923,7 +1074,50 @@ func init() {
             "description": "Not (yet) implemented."
           }
         },
-        "x-available-in-websocket": true
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/things/{thingId}/history": {
+      "get": {
+        "description": "Returns a particular thing history.",
+        "tags": [
+          "things"
+        ],
+        "summary": "Get a thing's history based on its uuid related to this key.",
+        "operationId": "weaviate.thing.history.get",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the thing.",
+            "name": "thingId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetHistoryResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
       }
     }
   },
@@ -973,6 +1167,22 @@ func init() {
         }
       }
     },
+    "ActionGetHistoryResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ActionHistory"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "actionId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      ]
+    },
     "ActionGetResponse": {
       "type": "object",
       "allOf": [
@@ -987,6 +1197,52 @@ func init() {
               "format": "uuid"
             }
           }
+        }
+      ]
+    },
+    "ActionHistory": {
+      "type": "object",
+      "properties": {
+        "deleted": {
+          "description": "Indication whether the action is deleted",
+          "type": "boolean"
+        },
+        "key": {
+          "$ref": "#/definitions/SingleRef"
+        },
+        "propertyHistory": {
+          "description": "An array with the history of the action.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ActionHistoryObject"
+          }
+        }
+      }
+    },
+    "ActionHistoryObject": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ActionCreate"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this action history in milliseconds since epoch UTC.",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        }
+      ]
+    },
+    "ActionUpdate": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Action"
+        },
+        {
+          "type": "object"
         }
       ]
     },
@@ -1143,6 +1399,11 @@ func init() {
             "type": "string"
           }
         },
+        "isRoot": {
+          "description": "Shows if key is root key",
+          "type": "boolean",
+          "default": false
+        },
         "keyExpiresUnix": {
           "description": "Time as Unix timestamp that the key expires. Set to 0 for never.",
           "type": "integer",
@@ -1263,6 +1524,10 @@ func init() {
       "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
       "type": "object"
     },
+    "SchemaHistory": {
+      "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "type": "object"
+    },
     "SemanticSchema": {
       "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas)",
       "type": "object",
@@ -1312,6 +1577,22 @@ func init() {
         "description": {
           "description": "Description of the class",
           "type": "string"
+        },
+        "kinds": {
+          "description": "Describes the kind of class. For example Geolocation for the class City.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "weight": {
+                "type": "number",
+                "format": "float"
+              }
+            }
+          }
         },
         "properties": {
           "description": "The properties of the class.",
@@ -1407,6 +1688,22 @@ func init() {
         }
       }
     },
+    "ThingGetHistoryResponse": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ThingHistory"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "thingId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      ]
+    },
     "ThingGetResponse": {
       "allOf": [
         {
@@ -1418,6 +1715,42 @@ func init() {
             "thingId": {
               "type": "string",
               "format": "uuid"
+            }
+          }
+        }
+      ]
+    },
+    "ThingHistory": {
+      "type": "object",
+      "properties": {
+        "deleted": {
+          "description": "Indication whether the action is deleted",
+          "type": "boolean"
+        },
+        "key": {
+          "$ref": "#/definitions/SingleRef"
+        },
+        "propertyHistory": {
+          "description": "An array with the history of the things.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ThingHistoryObject"
+          }
+        }
+      }
+    },
+    "ThingHistoryObject": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ThingCreate"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "creationTimeUnix": {
+              "description": "Timestamp of creation of this thing history in milliseconds since epoch UTC.",
+              "type": "integer",
+              "format": "int64"
             }
           }
         }
@@ -1456,7 +1789,7 @@ func init() {
     "CommonMaxResultsParameterQuery": {
       "type": "integer",
       "format": "int64",
-      "description": "The maximum number of items to be returned per page.",
+      "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
       "name": "maxResults",
       "in": "query"
     },
@@ -1473,11 +1806,17 @@ func init() {
       "type": "apiKey",
       "name": "X-API-KEY",
       "in": "header"
+    },
+    "apiToken": {
+      "type": "apiKey",
+      "name": "X-API-TOKEN",
+      "in": "header"
     }
   },
   "security": [
     {
-      "apiKey": []
+      "apiKey": [],
+      "apiToken": []
     }
   ],
   "tags": [
@@ -1498,7 +1837,7 @@ func init() {
     }
   ],
   "externalDocs": {
-    "url": "https://weaviate.com"
+    "url": "http://www.creativesoftwarefdn.org/weaviate"
   }
 }`))
 }

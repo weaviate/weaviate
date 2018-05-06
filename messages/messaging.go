@@ -4,11 +4,11 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 package messages
@@ -17,6 +17,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
+	"runtime"
+	"strings"
+	"time"
 )
 
 // Messaging has some basic variables.
@@ -28,7 +32,7 @@ type Messaging struct {
 func (f *Messaging) ExitError(code int, message interface{}) {
 	// Print Error
 	f.ErrorMessage(message.(string))
-	log.Println("ERROR: This error needs to be resolved. For more info, check https://weaviate.com/. Exiting now...")
+	log.Println("ERROR: This error needs to be resolved. For more info, check creativesoftwarefdn.org/weaviate. Exiting now...")
 
 	// Exit with code
 	os.Exit(code)
@@ -52,4 +56,27 @@ func (f *Messaging) DebugMessage(message interface{}) {
 func (f *Messaging) ErrorMessage(message interface{}) {
 	// Print Error
 	log.Println("ERROR: " + fmt.Sprint(message) + ".")
+}
+
+// TimeTrack tracks the time from execution to return of the function
+// Usage: defer TimeTrack(time.Now())
+func (f *Messaging) TimeTrack(start time.Time, info ...string) {
+	elapsed := time.Since(start)
+
+	// Skip this function, and fetch the PC and file for its parent
+	pc, _, line, _ := runtime.Caller(1)
+
+	// Retrieve a Function object this functions parent
+	functionObject := runtime.FuncForPC(pc)
+
+	// Regex to extract just the function name (and not the module path)
+	extractFnName := regexp.MustCompile(`^.*\/(.*)$`)
+	name := extractFnName.ReplaceAllString(functionObject.Name(), "$1")
+
+	infoStr := ""
+	if len(info) > 0 {
+		infoStr = strings.Join(info, ", ") + ": "
+	}
+
+	f.DebugMessage(fmt.Sprintf("%s%s:%d took %s", infoStr, name, line, elapsed))
 }

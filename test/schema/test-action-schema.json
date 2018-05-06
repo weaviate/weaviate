@@ -3,10 +3,14 @@
     "type": "action",
     "version": "1.0.0",
     "name": "example.org - Action Test",
-    "maintainer": "yourfriends@weaviate.com",
+    "maintainer": "hello@creativesoftwarefdn.org",
     "classes": [
         {
             "class": "TestAction",
+            "kinds": [{
+                "kind": "testActionKind",
+                "weight": 1.0
+            }],
             "description": "This is a Test",
             "properties": [
                 {
@@ -55,6 +59,13 @@
         },
         {
             "class": "TestAction2",
+            "kinds": [{
+                "kind": "testAction2KindA",
+                "weight": 1.0
+            },{
+                "kind": "testAction2KindB",
+                "weight": 0.9
+            }],
             "description": "This is a Test",
             "properties": [
                 {

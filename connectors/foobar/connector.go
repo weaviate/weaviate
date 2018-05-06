@@ -4,11 +4,11 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 /*
@@ -36,6 +36,7 @@ After creating the connector, make sure to add the name of the connector to: fun
 package foobar
 
 import (
+	"context"
 	errors_ "errors"
 	"fmt"
 	"runtime"
@@ -201,17 +202,22 @@ func (f *Foobar) Init() error {
 	return nil
 }
 
+// Attach can attach something to the request-context
+func (f *Foobar) Attach(ctx context.Context) (context.Context, error) {
+	return ctx, nil
+}
+
 // AddThing adds a thing to the Foobar database with the given UUID.
 // Takes the thing and a UUID as input.
 // Thing is already validated against the ontology
-func (f *Foobar) AddThing(thing *models.Thing, UUID strfmt.UUID) error {
+func (f *Foobar) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 
 	// If success return nil, otherwise return the error
 	return nil
 }
 
 // GetThing fills the given ThingGetResponse with the values from the database, based on the given UUID.
-func (f *Foobar) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
 
 	// thingResponse should be populated with the response that comes from the DB.
 	// thingResponse = based on the ontology
@@ -220,8 +226,16 @@ func (f *Foobar) GetThing(UUID strfmt.UUID, thingResponse *models.ThingGetRespon
 	return nil
 }
 
+// GetThings fills the given ThingsListResponse with the values from the database, based on the given UUIDs.
+func (f *Foobar) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error {
+	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
+
+	// If success return nil, otherwise return the error
+	return nil
+}
+
 // ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
-func (f *Foobar) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
+func (f *Foobar) ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 
 	// thingsResponse should be populated with the response that comes from the DB.
 	// thingsResponse = based on the ontology
@@ -231,7 +245,7 @@ func (f *Foobar) ListThings(first int, offset int, keyID strfmt.UUID, wheres []*
 }
 
 // UpdateThing updates the Thing in the DB at the given UUID.
-func (f *Foobar) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
+func (f *Foobar) UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 
 	// Run the query to update the thing based on its UUID.
 
@@ -240,7 +254,7 @@ func (f *Foobar) UpdateThing(thing *models.Thing, UUID strfmt.UUID) error {
 }
 
 // DeleteThing deletes the Thing in the DB at the given UUID.
-func (f *Foobar) DeleteThing(UUID strfmt.UUID) error {
+func (f *Foobar) DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 
 	// Run the query to delete the thing based on its UUID.
 
@@ -248,17 +262,27 @@ func (f *Foobar) DeleteThing(UUID strfmt.UUID) error {
 	return nil
 }
 
+// HistoryThing fills the history of a thing based on its UUID
+func (f *Foobar) HistoryThing(ctx context.Context, UUID strfmt.UUID, history *models.ThingHistory) error {
+	return nil
+}
+
+// MoveToHistoryThing moves a thing to history
+func (f *Foobar) MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
+	return nil
+}
+
 // AddAction adds an action to the Foobar database with the given UUID.
 // Takes the action and a UUID as input.
 // Action is already validated against the ontology
-func (f *Foobar) AddAction(action *models.Action, UUID strfmt.UUID) error {
+func (f *Foobar) AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 
 	// If success return nil, otherwise return the error
 	return nil
 }
 
 // GetAction fills the given ActionGetResponse with the values from the database, based on the given UUID.
-func (f *Foobar) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
+func (f *Foobar) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
 	// actionResponse should be populated with the response that comes from the DB.
 	// actionResponse = based on the ontology
 
@@ -266,8 +290,14 @@ func (f *Foobar) GetAction(UUID strfmt.UUID, actionResponse *models.ActionGetRes
 	return nil
 }
 
+// GetActions fills the given ActionsListResponse with the values from the database, based on the given UUIDs.
+func (f *Foobar) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsResponse *models.ActionsListResponse) error {
+	// If success return nil, otherwise return the error
+	return nil
+}
+
 // ListActions fills the given ActionListResponse with the values from the database, based on the given parameters.
-func (f *Foobar) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
+func (f *Foobar) ListActions(ctx context.Context, UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
 	// actionsResponse should be populated with the response that comes from the DB.
 	// actionsResponse = based on the ontology
 
@@ -276,14 +306,14 @@ func (f *Foobar) ListActions(UUID strfmt.UUID, first int, offset int, wheres []*
 }
 
 // UpdateAction updates the Thing in the DB at the given UUID.
-func (f *Foobar) UpdateAction(action *models.Action, UUID strfmt.UUID) error {
+func (f *Foobar) UpdateAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 
 	// If success return nil, otherwise return the error
 	return nil
 }
 
 // DeleteAction deletes the Action in the DB at the given UUID.
-func (f *Foobar) DeleteAction(UUID strfmt.UUID) error {
+func (f *Foobar) DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 
 	// Run the query to delete the action based on its UUID.
 
@@ -291,10 +321,20 @@ func (f *Foobar) DeleteAction(UUID strfmt.UUID) error {
 	return nil
 }
 
+// HistoryAction fills the history of a Action based on its UUID
+func (f *Foobar) HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error {
+	return nil
+}
+
+// MoveToHistoryAction moves an action to history
+func (f *Foobar) MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error {
+	return nil
+}
+
 // AddKey adds a key to the Foobar database with the given UUID and token.
 // UUID  = reference to the key
 // token = is the actual access token used in the API's header
-func (f *Foobar) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) error {
+func (f *Foobar) AddKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
 
 	// Key struct should be stored
 
@@ -303,36 +343,46 @@ func (f *Foobar) AddKey(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) er
 }
 
 // ValidateToken validates/gets a key to the Foobar database with the given token (=UUID)
-func (f *Foobar) ValidateToken(token strfmt.UUID, key *models.KeyTokenGetResponse) error {
+func (f *Foobar) ValidateToken(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
 
-	// key (= models.KeyTokenGetResponse) should be populated with the response that comes from the DB.
-	// key = based on the ontology
+	// key (= models.KeyGetResponse) should be populated with the response that comes from the DB.
 
 	// in case the key is not found, return an error like:
 	// return errors_.New("Key not found in database.")
 
 	// If success return nil, otherwise return the error
+	return "", nil
+}
+
+// GetKey fills the given KeyGetResponse with the values from the database, based on the given UUID.
+func (f *Foobar) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
+
+	f.trace()
 	return nil
 }
 
-// GetKey fills the given KeyTokenGetResponse with the values from the database, based on the given UUID.
-func (f *Foobar) GetKey(UUID strfmt.UUID, keyResponse *models.KeyTokenGetResponse) error {
-
+// GetKeys fills the given []KeyGetResponse with the values from the database, based on the given UUIDs.
+func (f *Foobar) GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keysResponse *[]*models.KeyGetResponse) error {
 	f.trace()
 	return nil
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
-func (f *Foobar) DeleteKey(UUID strfmt.UUID) error {
+func (f *Foobar) DeleteKey(ctx context.Context, key *models.Key, UUID strfmt.UUID) error {
 	f.trace()
 	return nil
 }
 
-// GetKeyChildren fills the given KeyTokenGetResponse array with the values from the database, based on the given UUID.
-func (f *Foobar) GetKeyChildren(UUID strfmt.UUID, children *[]*models.KeyTokenGetResponse) error {
+// GetKeyChildren fills the given KeyGetResponse array with the values from the database, based on the given UUID.
+func (f *Foobar) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
 
 	// for examle: `children = [OBJECT-A, OBJECT-B, OBJECT-C]`
-	// Where an OBJECT = models.KeyTokenGetResponse
+	// Where an OBJECT = models.KeyGetResponse
 
+	return nil
+}
+
+// UpdateKey updates the Key in the DB at the given UUID.
+func (f *Foobar) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
 	return nil
 }
