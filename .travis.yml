@@ -51,6 +51,8 @@ script:
   # Install goreleaser and create build dirs
   - |
       if [ $TRAVIS_PULL_REQUEST = "false" ]; then
+          # Make distribution dir if not exsists
+          mkdir -p releases
           # Get latest goreleaser
           curl -s -L -o "goreleaser.tar.gz" "https://github.com/goreleaser/goreleaser/releases/download/v0.58.0/goreleaser_$(uname -s)_$(uname -m).tar.gz"
           tar -xzf goreleaser.tar.gz
@@ -58,20 +60,18 @@ script:
           rm goreleaser goreleaser.tar.gz
           # if master, upload version nr otherwise nightly
           if [ $TRAVIS_BRANCH = "master" ]; then
-              # If the folder exsists, it will fail
-              if [ -e $(cat swagger/weaviate-swagger.json | jq '.info.version') ]
-              then
-                  # fail the script, can't overwrite an old version
-                  echo "Fail, can't overwrite an old version. Update the version in the Swagger file."
-                  exit 1
-              fi
-              mv dist $(cat swagger/weaviate-swagger.json | jq '.info.version')
-              rm -r !($(cat swagger/weaviate-swagger.json | jq '.info.version'))
+              # create folder with releases for master
+              mv dist releases/$(cat swagger/weaviate-swagger.json | jq '.info.version')
+              # Create txt file with version number
+              echo $(cat swagger/weaviate-swagger.json | jq '.info.version') > releases/latest.master.txt
           else
-              # if master, upload version nr
-              mv dist nightly
-              rm -r !(nightly)
+              # if develop, create nightly
+              mv dist releases/nightly
+              # Create txt file with version number of nightly build
+              echo $(cat swagger/weaviate-swagger.json | jq '.info.version') > releases/latest.nightly.txt
           fi
+          # remove all except for releases
+          rm -r !(releases)
       fi
 services: 
   - docker
