@@ -403,11 +403,11 @@
       ]
     },
     "Schema": {
-      "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
       "type": "object"
     },
     "SchemaHistory": {
-      "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
       "type": "object"
     },
     "SemanticSchema": {
@@ -678,7 +678,7 @@
     },
     "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
     "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
-    "version": "0.8.4"
+    "version": "0.8.5"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {

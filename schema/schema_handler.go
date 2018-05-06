@@ -338,44 +338,8 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 				))
 			}
 
-			if val, ok := f.predicateDict[prop.Name]; ok {
-				if val == DataTypeCRef && hasValue {
-					// The value of the predicate in the dict is a Cref, but now its a value
-					return errors_.New(fmt.Sprintf(
-						"The value of the predicate '%s' is set as a cross-reference, but it is a value (%s) in class '%s', at property '%s'. %s",
-						prop.Name,
-						pred,
-						class.Class,
-						prop.Name,
-						validationErrorMessage,
-					))
-				} else if pred != val {
-					if pred == DataTypeCRef {
-						// The value of the predicate in the dict is different
-						return errors_.New(fmt.Sprintf(
-							"The value of the predicate '%s' is set as '%s', but in class '%s', at property '%s' it is a cross-reference. %s",
-							prop.Name,
-							val,
-							class.Class,
-							prop.Name,
-							validationErrorMessage,
-						))
-					}
-					// The value of the predicate in the dict is different
-					return errors_.New(fmt.Sprintf(
-						"The value of the predicate '%s' is set as '%s', but in class '%s', at property '%s' it's value is a '%s'. %s",
-						prop.Name,
-						val,
-						class.Class,
-						prop.Name,
-						pred,
-						validationErrorMessage,
-					))
-				}
-			} else if string(pred) != "" {
-				// Add to predicate dict if it is not empty
-				f.predicateDict[prop.Name] = pred
-			}
+			// Add to predicate dict if it is not empty
+			f.predicateDict[prop.Name] = pred
 		}
 	}
 

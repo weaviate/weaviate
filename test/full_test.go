@@ -986,13 +986,14 @@ func Test__weaviate_POST_things_JSON_internal_multiple(t *testing.T) {
 				"testBoolean": %t,
 				"testNumber": %f,
 				"testDateTime": "%s",
+				"testRandomType": %d,
 				"testCref": {
 					"$cref": "%s",
 					"locationUrl": "%s",
 					"type": "Thing"
 				}
 			}
-		}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate, thingID, getWeaviateURL())))
+		}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate, thingTestInt, thingID, getWeaviateURL())))
 		response := doRequest("/things", "POST", "application/json", jsonStr, apiKeyIDCmdLine, apiTokenCmdLine)
 		body := getResponseBody(response)
 		respObject := &models.ThingGetResponse{}
@@ -1030,9 +1031,10 @@ func Test__weaviate_POST_things_JSON_internal_forbidden(t *testing.T) {
 			"testInt": %d,
 			"testBoolean": %t,
 			"testNumber": %f,
-			"testDateTime": "%s"
+			"testDateTime": "%s",
+			"testRandomType": %d
 		}
-	}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate)))
+	}`, thingTestString, thingTestInt, thingTestBoolean, thingTestNumber, thingTestDate, thingTestString)))
 	response := doRequest("/things", "POST", "application/json", jsonStr, newAPIKeyID, newAPIToken)
 
 	// Check status code of create
