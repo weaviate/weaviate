@@ -4,11 +4,11 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 package keys
@@ -33,7 +33,7 @@ type WeaviateKeysMeGetOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.KeyTokenGetResponse `json:"body,omitempty"`
+	Payload *models.KeyGetResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateKeysMeGetOK creates WeaviateKeysMeGetOK with default headers values
@@ -42,13 +42,13 @@ func NewWeaviateKeysMeGetOK() *WeaviateKeysMeGetOK {
 }
 
 // WithPayload adds the payload to the weaviate keys me get o k response
-func (o *WeaviateKeysMeGetOK) WithPayload(payload *models.KeyTokenGetResponse) *WeaviateKeysMeGetOK {
+func (o *WeaviateKeysMeGetOK) WithPayload(payload *models.KeyGetResponse) *WeaviateKeysMeGetOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the weaviate keys me get o k response
-func (o *WeaviateKeysMeGetOK) SetPayload(payload *models.KeyTokenGetResponse) {
+func (o *WeaviateKeysMeGetOK) SetPayload(payload *models.KeyGetResponse) {
 	o.Payload = payload
 }
 

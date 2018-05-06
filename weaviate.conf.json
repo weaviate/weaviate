@@ -1,67 +1,69 @@
 {
-    "environments": [
-        {
-            "name": "test-dgraph",
-            "cache": {
-                "name": "kv-cache"
-            },
-            "database": {
-                "name": "dgraph",
-                "database_config" : {
-                    "host": "127.0.0.1",
-                    "port": 9080
-                }
-            },
-            "schemas": {
-                "Thing": "test/schema/test-thing-schema.json",
-                "Action": "test/schema/test-action-schema.json"
-            },
-            "mqttEnabled": false
-        },
-        {
-            "name": "test-gremlin",
-            "database": {
-                "name": "gremlin",
-                "database_config" : {
-                    "host": "127.0.0.1",
-                    "port": 8182
-                }
-            },
-            "schemas": {
-                "Thing": "test/schema/test-thing-schema.json",
-                "Action": "test/schema/test-action-schema.json"
-            },
-            "mqttEnabled": false
-        },
-        {
-            "name": "graph",
-            "database": {
-                "name": "dgraph",
-                "database_config" : {
-                    "host": "127.0.0.1",
-                    "port": 8888
-                }
-            },
-            "schemas": {
-                "Thing": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.min.json",
-                "Action": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.min.json"
-            },
-            "mqttEnabled": false
-        },
-        {
-            "name": "docker",
-            "database": {
-                "name": "dgraph",
-                "database_config" : {
-                    "host": "x.x.x.x",
-                    "port": 9080
-                }
-            },
-            "schemas": {
-                "Thing": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Thing-ontology-schema_org.min.json",
-                "Action": "https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-semantic-schemas/master/weaviate-Action-ontology-schema_org.min.json"
-            },
-            "mqttEnabled": false
-        }
-    ]
+	"environments": [{
+			"name": "cassandra",
+			"database": {
+				"name": "cassandra",
+				"database_config": {
+					"host": "127.0.0.1",
+					"port": 7000,
+					"keyspace": "weaviate"
+				}
+			},
+			"cache": {
+				"name": "dataloader"
+			},
+			"schemas": {
+				"Thing": "./test/schema/test-thing-schema.json",
+				"Action": "./test/schema/test-action-schema.json"
+			},
+			"broker": {
+				"host": "localhost",
+				"port": 1883
+			},
+			"limit": 100,
+			"debug": true,
+			"development": {
+				"external_instances": [{
+						"url": "http://localhost:8070",
+						"api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
+						"api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
+					},
+					{
+						"url": "http://127.0.0.1:8070",
+						"api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
+						"api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
+					}
+				]
+			}
+		}, {
+			"name": "cassandra_docker",
+			"database": {
+				"name": "cassandra",
+				"database_config": {
+					"host": "db",
+					"port": 7000,
+					"keyspace": "weaviate"
+				}
+			},
+			"schemas": {
+				"Thing": "./test/schema/test-thing-schema.json",
+				"Action": "./test/schema/test-action-schema.json"
+			},
+			"broker": {
+				"host": "weaviate-broker",
+				"port": 1883
+			},
+			"limit": 100,
+			"debug": true,
+			"development": {
+				"external_instances": [{
+						"url": "http://localhost:8080"
+					},
+					{
+						"url": "http://127.0.0.1:8080"
+					}
+				]
+			}
+		}
+	]
 }

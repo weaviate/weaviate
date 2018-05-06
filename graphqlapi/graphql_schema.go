@@ -4,20 +4,19 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 package graphqlapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -25,6 +24,7 @@ import (
 	"github.com/graphql-go/graphql/gqlerrors"
 	ast "github.com/graphql-go/graphql/language/ast"
 
+	"github.com/creativesoftwarefdn/weaviate/auth"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
@@ -39,7 +39,8 @@ type GraphQLSchema struct {
 	serverConfig          *config.WeaviateConfig
 	serverSchema          *schema.WeaviateSchema
 	dbConnector           dbconnector.DatabaseConnector
-	usedKey               models.KeyTokenGetResponse
+	usedKey               *models.KeyGetResponse
+	usedKeyToken          *models.KeyTokenGetResponse
 	messaging             *messages.Messaging
 }
 
@@ -59,12 +60,15 @@ func NewGraphQLSchema(databaseConnector dbconnector.DatabaseConnector, serverCon
 var thingType *graphql.Object
 
 // SetKey sets the key that is used for the latest request
-func (f *GraphQLSchema) SetKey(key models.KeyTokenGetResponse) {
-	f.usedKey = key
+func (f *GraphQLSchema) SetKey(key *models.KeyTokenGetResponse) {
+	f.usedKey = &key.KeyGetResponse
+	f.usedKeyToken = key
 }
 
 // GetGraphQLSchema returns the schema if it is set
 func (f *GraphQLSchema) GetGraphQLSchema() (graphql.Schema, error) {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Return the schema, note that InitSchema has to be runned before this could be used
 	if &f.weaviateGraphQLSchema == nil {
 		return graphql.Schema{}, errors.New("schema is not initialized, perhaps you forget to run 'InitSchema'")
@@ -75,6 +79,8 @@ func (f *GraphQLSchema) GetGraphQLSchema() (graphql.Schema, error) {
 
 // InitSchema the GraphQL schema
 func (f *GraphQLSchema) InitSchema() error {
+	defer f.messaging.TimeTrack(time.Now())
+
 	// Create the interface to which all objects (Key, Thing and Action) must comply
 	objectInterface := graphql.NewInterface(graphql.InterfaceConfig{
 		Name:        "WeaviateObject",
@@ -136,27 +142,8 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The id of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.KeyID, nil
-					}
-					return nil, nil
-				},
-			},
-			"token": &graphql.Field{
-				Type:        graphql.String,
-				Description: "The token of the key.",
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
-						// Return incl token if it is own key, otherwise do not return
-						if f.usedKey.Token != key.Token {
-							return nil, graphql.NewLocatedError(
-								errors.New("the asked token is not accessible for the given API-token"),
-								graphql.FieldASTsToNodeASTs(p.Info.FieldASTs),
-							)
-						}
-
-						return key.Token, nil
 					}
 					return nil, nil
 				},
@@ -166,7 +153,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The email of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.Email, nil
 					}
 					return nil, nil
@@ -177,7 +164,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The allowed ip-origins of the key.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.IPOrigin, nil
 					}
 					return []string{}, nil
@@ -188,7 +175,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "The unix timestamp of when the key expires.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return float64(key.KeyExpiresUnix), nil
 					}
 					return nil, nil
@@ -199,7 +186,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has read-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.Read, nil
 					}
 					return nil, nil
@@ -210,7 +197,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has execute-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.Execute, nil
 					}
 					return nil, nil
@@ -221,7 +208,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has write-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.Write, nil
 					}
 					return nil, nil
@@ -232,14 +219,14 @@ func (f *GraphQLSchema) InitSchema() error {
 				Description: "Whether the key has delete-rights.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Resolve the data from the Key Response
-					if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+					if key, ok := p.Source.(*models.KeyGetResponse); ok {
 						return key.Delete, nil
 					}
 					return nil, nil
 				},
 			},
 		},
-		// The interfaces this object satifies
+		// The interfaces this object satisfies
 		Interfaces: []*graphql.Interface{
 			objectInterface,
 		},
@@ -257,19 +244,32 @@ func (f *GraphQLSchema) InitSchema() error {
 		Description: "Get all children of this key.",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			// Resolve the data from the Key Response
-			if key, ok := p.Source.(*models.KeyTokenGetResponse); ok {
+			if key, ok := p.Source.(*models.KeyGetResponse); ok {
 				// Init the respons as an array of keys
-				children := []*models.KeyTokenGetResponse{}
+				children := []*models.KeyGetResponse{}
 
 				// Get the key-ID from the object
 				keyUUID := key.KeyID
 
+				// Check whether the logged in user is allowed to get data
+				if !auth.IsOwnKeyOrLowerInTree(p.Context, f.usedKeyToken, keyUUID, f.dbConnector) {
+					err := errors.New("forbidden to get child-data for this key")
+					return nil, gqlerrors.NewError(
+						err.Error(),
+						gqlerrors.FieldASTsToNodeASTs(p.Info.FieldASTs),
+						err.Error(),
+						nil,
+						[]int{},
+						err,
+					)
+				}
+
 				// Get children UUID's from the database
-				err := f.dbConnector.GetKeyChildren(keyUUID, &children)
+				err := f.dbConnector.GetKeyChildren(p.Context, keyUUID, &children)
 
 				// If an error is given, return the empty array
 				if err != nil {
-					return children, err
+					return nil, err
 				}
 
 				// Return children without error
@@ -344,7 +344,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        keyType,
 				Description: "The key which is the owner of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					keyResponse := &models.KeyTokenGetResponse{}
+					keyResponse := &models.KeyGetResponse{}
 					if thing, ok := p.Source.(*models.ThingGetResponse); ok {
 						// If no UUID is given, just return nil
 						if thing.Key.NrDollarCref == "" {
@@ -352,10 +352,10 @@ func (f *GraphQLSchema) InitSchema() error {
 						}
 
 						// Do a new request with the key from the reference object
-						err := f.resolveCrossRef(p.Info.FieldASTs, thing.Key, keyResponse)
+						err := f.resolveCrossRef(p.Context, p.Info.FieldASTs, thing.Key, keyResponse)
 
 						if err != nil {
-							return keyResponse, err
+							return nil, err
 						}
 
 						// Return found
@@ -367,7 +367,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 			},
 		},
-		// The interfaces this object satifies
+		// The interfaces this object satisfies
 		Interfaces: []*graphql.Interface{
 			schemaInterface,
 			objectInterface,
@@ -402,7 +402,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 			},
 		},
-		// The interfaces this object satifies
+		// The interfaces this object satisfies
 		Interfaces: []*graphql.Interface{
 			listInterface,
 		},
@@ -425,10 +425,10 @@ func (f *GraphQLSchema) InitSchema() error {
 						}
 
 						// Evaluate the Cross reference
-						err := f.resolveCrossRef(p.Info.FieldASTs, ref.Object, thingResponse)
+						err := f.resolveCrossRef(p.Context, p.Info.FieldASTs, ref.Object, thingResponse)
 
 						if err != nil {
-							return thingResponse, err
+							return nil, err
 						}
 
 						// Return found
@@ -450,9 +450,9 @@ func (f *GraphQLSchema) InitSchema() error {
 						}
 
 						// Do a new request with the thing from the reference object
-						err := f.resolveCrossRef(p.Info.FieldASTs, ref.Subject, thingResponse)
+						err := f.resolveCrossRef(p.Context, p.Info.FieldASTs, ref.Subject, thingResponse)
 						if err != nil {
-							return thingResponse, err
+							return nil, err
 						}
 
 						// Return found
@@ -540,7 +540,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        keyType,
 				Description: "The key which is the owner of the object.",
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					keyResponse := &models.KeyTokenGetResponse{}
+					keyResponse := &models.KeyGetResponse{}
 					if action, ok := p.Source.(*models.ActionGetResponse); ok {
 						// If no UUID is given, just return nil
 						if action.Key.NrDollarCref == "" {
@@ -548,9 +548,9 @@ func (f *GraphQLSchema) InitSchema() error {
 						}
 
 						// Do a new request with the key from the reference object
-						err := f.resolveCrossRef(p.Info.FieldASTs, action.Key, keyResponse)
+						err := f.resolveCrossRef(p.Context, p.Info.FieldASTs, action.Key, keyResponse)
 						if err != nil {
-							return keyResponse, err
+							return nil, err
 						}
 
 						// Return found
@@ -562,7 +562,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 			},
 		},
-		// The interfaces this object satifies
+		// The interfaces this object satisfies
 		Interfaces: []*graphql.Interface{
 			schemaInterface,
 			objectInterface,
@@ -597,7 +597,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 			},
 		},
-		// The interfaces this object satifies
+		// The interfaces this object satisfies
 		Interfaces: []*graphql.Interface{
 			listInterface,
 		},
@@ -609,19 +609,19 @@ func (f *GraphQLSchema) InitSchema() error {
 		Description: "The actions belonging to this thing, sorted on creation time..",
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
-				Description:  "First X items from the given offset, when none given, it will be " + string(connutils.DefaultFirst) + ".",
+				Description:  "First X items from the given offset, when none given, it will be " + string(f.serverConfig.Environment.Limit) + ".",
 				Type:         graphql.Int,
-				DefaultValue: connutils.DefaultFirst,
+				DefaultValue: int(f.serverConfig.Environment.Limit),
 			},
 			"offset": &graphql.ArgumentConfig{
 				Description:  "Offset from the most recent item.",
 				Type:         graphql.Int,
 				DefaultValue: 0,
 			},
-			"schema": &graphql.ArgumentConfig{
-				Description: "Schema filter options.",
-				Type:        graphql.String,
-			},
+			// "schema": &graphql.ArgumentConfig{
+			// 	Description: "Schema filter options.",
+			// 	Type:        graphql.String,
+			// },
 			"class": &graphql.ArgumentConfig{
 				Description: "Class filter options.",
 				Type:        graphql.String,
@@ -630,6 +630,19 @@ func (f *GraphQLSchema) InitSchema() error {
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			// Resolve the data from the Thing Response
 			if thing, ok := p.Source.(*models.ThingGetResponse); ok {
+				// This is a read function, validate if allowed to read?
+				if allowed, _ := auth.ActionsAllowed(p.Context, []string{"read"}, f.usedKeyToken, f.dbConnector, f.usedKey.KeyID); !allowed {
+					err := errors.New("forbidden to get data for actions")
+					return nil, gqlerrors.NewError(
+						err.Error(),
+						gqlerrors.FieldASTsToNodeASTs(p.Info.FieldASTs),
+						err.Error(),
+						nil,
+						[]int{},
+						err,
+					)
+				}
+
 				// Initialize the thing response
 				actionsResponse := &models.ActionsListResponse{}
 
@@ -653,18 +666,18 @@ func (f *GraphQLSchema) InitSchema() error {
 				wheres := []*connutils.WhereQuery{}
 
 				// Check whether the schema var is filled in
-				if p.Args["schema"] != nil {
-					// Rewrite the string to structs
-					where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
+				// if p.Args["schema"] != nil {
+				// 	// Rewrite the string to structs
+				// 	where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
 
-					// If error is given, return it
-					if err != nil {
-						return actionsResponse, err
-					}
+				// 	// If error is given, return it
+				// 	if err != nil {
+				// 		return actionsResponse, err
+				// 	}
 
-					// Append wheres to the list
-					wheres = append(wheres, &where)
-				}
+				// 	// Append wheres to the list
+				// 	wheres = append(wheres, &where)
+				// }
 
 				// Check whether the class var is filled in
 				if p.Args["class"] != nil {
@@ -673,7 +686,7 @@ func (f *GraphQLSchema) InitSchema() error {
 
 					// If error is given, return it
 					if err != nil {
-						return actionsResponse, err
+						return nil, err
 					}
 
 					// Append wheres to the list
@@ -681,11 +694,11 @@ func (f *GraphQLSchema) InitSchema() error {
 				}
 
 				// Do a request on the database to get the Thing
-				err := f.dbConnector.ListActions(thing.ThingID, first, offset, wheres, actionsResponse)
+				err := f.dbConnector.ListActions(p.Context, thing.ThingID, first, offset, wheres, actionsResponse)
 
 				// Return error, if needed.
 				if err != nil && actionsResponse.TotalResults == 0 {
-					return actionsResponse, err
+					return nil, err
 				}
 				return actionsResponse, nil
 			}
@@ -713,14 +726,14 @@ func (f *GraphQLSchema) InitSchema() error {
 		return errA
 	}
 
-	// The thingsSchemaType in wich all the possible fields are addes
+	// The thingsSchemaType in which all the possible fields are addes
 	thingSchemaType := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "ThingSchema",
 		Description: "Schema type for things from the database, based on the Weaviate thing-schema.",
 		Fields:      thingSchemaFields,
 	})
 
-	// The actionsSchemaType in wich all the possible fields are addes
+	// The actionsSchemaType in which all the possible fields are addes
 	actionSchemaType := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "ActionSchema",
 		Description: "Schema type for actions from the database, based on the Weaviate action-schema.",
@@ -777,9 +790,23 @@ func (f *GraphQLSchema) InitSchema() error {
 					UUID := strfmt.UUID(p.Args["uuid"].(string))
 
 					// Do a request on the database to get the Thing
-					err := f.dbConnector.GetThing(UUID, thingResponse)
+					err := f.dbConnector.GetThing(p.Context, UUID, thingResponse)
+
+					// This is a read function, validate if allowed to read?
+					if allowed, _ := auth.ActionsAllowed(p.Context, []string{"read"}, f.usedKeyToken, f.dbConnector, thingResponse.Key.NrDollarCref); !allowed {
+						err := errors.New("forbidden to get data for this thing")
+						return nil, gqlerrors.NewError(
+							err.Error(),
+							gqlerrors.FieldASTsToNodeASTs(p.Info.FieldASTs),
+							err.Error(),
+							nil,
+							[]int{},
+							err,
+						)
+					}
+
 					if err != nil {
-						return thingResponse, err
+						return nil, err
 					}
 					return thingResponse, nil
 				},
@@ -790,25 +817,38 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        thingListType,
 				Args: graphql.FieldConfigArgument{
 					"first": &graphql.ArgumentConfig{
-						Description:  "First X items from the given offset, when none given, it will be " + string(connutils.DefaultFirst) + ".",
+						Description:  "First X items from the given offset, when none given, it will be " + string(f.serverConfig.Environment.Limit) + ".",
 						Type:         graphql.Int,
-						DefaultValue: connutils.DefaultFirst,
+						DefaultValue: int(f.serverConfig.Environment.Limit),
 					},
 					"offset": &graphql.ArgumentConfig{
 						Description:  "Offset from the most recent item.",
 						Type:         graphql.Int,
 						DefaultValue: 0,
 					},
-					"schema": &graphql.ArgumentConfig{
-						Description: "Schema filter options.",
-						Type:        graphql.String,
-					},
+					// "schema": &graphql.ArgumentConfig{
+					// 	Description: "Schema filter options.",
+					// 	Type:        graphql.String,
+					// },
 					"class": &graphql.ArgumentConfig{
 						Description: "Class filter options.",
 						Type:        graphql.String,
 					},
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// This is a read function, validate if allowed to read?
+					if allowed, _ := auth.ActionsAllowed(p.Context, []string{"read"}, f.usedKeyToken, f.dbConnector, f.usedKey.KeyID); !allowed {
+						err := errors.New("forbidden to get data for things")
+						return nil, gqlerrors.NewError(
+							err.Error(),
+							gqlerrors.FieldASTsToNodeASTs(p.Info.FieldASTs),
+							err.Error(),
+							nil,
+							[]int{},
+							err,
+						)
+					}
+
 					// Initialize the thing response
 					thingsResponse := &models.ThingsListResponse{}
 
@@ -827,18 +867,18 @@ func (f *GraphQLSchema) InitSchema() error {
 					wheres := []*connutils.WhereQuery{}
 
 					// Check whether the schema var is filled in
-					if p.Args["schema"] != nil {
-						// Rewrite the string to structs
-						where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
+					// if p.Args["schema"] != nil {
+					// 	// Rewrite the string to structs
+					// 	where, err := connutils.WhereStringToStruct("schema", p.Args["schema"].(string))
 
-						// If error is given, return it
-						if err != nil {
-							return thingsResponse, err
-						}
+					// 	// If error is given, return it
+					// 	if err != nil {
+					// 		return thingsResponse, err
+					// 	}
 
-						// Append wheres to the list
-						wheres = append(wheres, &where)
-					}
+					// 	// Append wheres to the list
+					// 	wheres = append(wheres, &where)
+					// }
 
 					// Check whether the class var is filled in
 					if p.Args["class"] != nil {
@@ -847,7 +887,7 @@ func (f *GraphQLSchema) InitSchema() error {
 
 						// If error is given, return it
 						if err != nil {
-							return thingsResponse, err
+							return nil, err
 						}
 
 						// Append wheres to the list
@@ -855,11 +895,11 @@ func (f *GraphQLSchema) InitSchema() error {
 					}
 
 					// Do a request on the database to get the Thing
-					err := f.dbConnector.ListThings(first, offset, f.usedKey.KeyID, wheres, thingsResponse)
+					err := f.dbConnector.ListThings(p.Context, first, offset, f.usedKey.KeyID, wheres, thingsResponse)
 
 					// Return error, if needed.
 					if err != nil && thingsResponse.TotalResults == 0 {
-						return thingsResponse, err
+						return nil, err
 					}
 					return thingsResponse, nil
 				},
@@ -884,10 +924,25 @@ func (f *GraphQLSchema) InitSchema() error {
 					UUID := strfmt.UUID(p.Args["uuid"].(string))
 
 					// Do a request on the database to get the Action
-					err := f.dbConnector.GetAction(UUID, actionResponse)
+					err := f.dbConnector.GetAction(p.Context, UUID, actionResponse)
+
 					if err != nil {
-						return actionResponse, err
+						return nil, err
 					}
+
+					// Return error when not allowed to read the data
+					if allowed, _ := auth.ActionsAllowed(p.Context, []string{"read"}, f.usedKeyToken, f.dbConnector, actionResponse.Key.NrDollarCref); !allowed {
+						err := errors.New("forbidden to get data for this action")
+						return nil, gqlerrors.NewError(
+							err.Error(),
+							gqlerrors.FieldASTsToNodeASTs(p.Info.FieldASTs),
+							err.Error(),
+							nil,
+							[]int{},
+							err,
+						)
+					}
+
 					return actionResponse, nil
 				},
 			},
@@ -903,15 +958,28 @@ func (f *GraphQLSchema) InitSchema() error {
 				},
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Initialize the key response
-					keyResponse := &models.KeyTokenGetResponse{}
+					keyResponse := &models.KeyGetResponse{}
 
 					// Get the ID from the arguments
 					UUID := strfmt.UUID(p.Args["uuid"].(string))
 
+					// Check whether the logged in user is allowed to get data
+					if !auth.IsOwnKeyOrLowerInTree(p.Context, f.usedKeyToken, UUID, f.dbConnector) {
+						err := errors.New("forbidden to get data for this key")
+						return nil, gqlerrors.NewError(
+							err.Error(),
+							gqlerrors.FieldASTsToNodeASTs(p.Info.FieldASTs),
+							err.Error(),
+							nil,
+							[]int{},
+							err,
+						)
+					}
+
 					// Do a request on the database to get the Key
-					err := f.dbConnector.GetKey(UUID, keyResponse)
+					err := f.dbConnector.GetKey(p.Context, UUID, keyResponse)
 					if err != nil {
-						return &models.KeyTokenGetResponse{}, err
+						return nil, err
 					}
 
 					return keyResponse, nil
@@ -923,7 +991,7 @@ func (f *GraphQLSchema) InitSchema() error {
 				Type:        keyType,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 					// Get the ID from the class' variables
-					return &f.usedKey, nil
+					return f.usedKey, nil
 				},
 			},
 		},
@@ -963,34 +1031,6 @@ func GetSubQuery(selections []ast.Selection) string {
 	return collectQuery
 }
 
-// Request function
-func doRequest(hostname string, endpoint string, method string, body io.Reader, apiKey string) (*http.Response, error) {
-	// Set the HTTP Transport information
-	tr := &http.Transport{
-		MaxIdleConns:       10,
-		IdleConnTimeout:    30 * time.Second,
-		DisableCompression: true,
-	}
-
-	// Init client
-	client := &http.Client{Transport: tr}
-
-	// Set-up the request
-	req, _ := http.NewRequest(method, "http://"+hostname+"/"+endpoint, body)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	// Add the API-key into the headers
-	if apiKey != "" {
-		req.Header.Set("X-API-KEY", apiKey)
-	}
-
-	// Get the response
-	response, err := client.Do(req)
-
-	return response, err
-}
-
 // buildFieldsBySchema builds a GraphQL fields object for the given fields
 func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.Fields, error) {
 	// Init the fields for the return of the function
@@ -1002,13 +1042,13 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.
 		// Do it for every property in that class
 		for _, schemaProp := range schemaClass.Properties {
 
-			// If the property isn't allready added
+			// If the property isn't already added
 			if _, ok := fields[schemaProp.Name]; !ok {
 				// Get the datatype
 				dt, err := schema.GetPropertyDataType(schemaClass, schemaProp.Name)
 
 				if err != nil {
-					return fields, err
+					return nil, err
 				}
 
 				var scalar graphql.Output
@@ -1068,7 +1108,7 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.
 							}
 							return nil, nil
 						} else if *dt == schema.DataTypeCRef {
-							// TODO: Cref is not always of type 'thing'
+							// TODO: Cref is not always of type 'thing', related to the scalar set for all CREF's, this == Thing
 							// Data type is not a value, but an cref object
 							thingResponse := &models.ThingGetResponse{}
 
@@ -1079,9 +1119,9 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.
 								}
 
 								// Evaluate the Cross reference
-								err := f.resolveCrossRef(p.Info.FieldASTs, value, thingResponse)
+								err := f.resolveCrossRef(p.Context, p.Info.FieldASTs, value, thingResponse)
 								if err != nil {
-									return thingResponse, err
+									return nil, err
 								}
 
 								// Return found
@@ -1114,20 +1154,62 @@ func (f *GraphQLSchema) buildFieldsBySchema(ws *models.SemanticSchema) (graphql.
 }
 
 // resolveCrossRef Resolves a Cross reference
-func (f *GraphQLSchema) resolveCrossRef(fields []*ast.Field, cref *models.SingleRef, objectLoaded interface{}) error {
+func (f *GraphQLSchema) resolveCrossRef(ctx context.Context, fields []*ast.Field, cref *models.SingleRef, objectLoaded interface{}) error {
+	defer f.messaging.TimeTrack(time.Now(), "Resolve CREF: "+string(cref.NrDollarCref))
+
 	var err error
 
+	// Check whether the instance URL is the same as the cross-reference URL
 	if f.serverConfig.GetHostAddress() != *cref.LocationURL {
-		// Return an error because you want to connect to other server. You need an license.
-		err = errors.New("a license for connection to another Weaviate-instance is required in order to resolve this query further")
+		// Search for key-information for resolving this part
+		instance, err := f.serverConfig.GetInstance(*cref.LocationURL, f.usedKeyToken)
+
+		// Return an error because you want to connect to other server which is not set in the config.
+		if err != nil {
+			err = fmt.Errorf("a key for connection to another Weaviate-instance (with address '%s') is required in order to resolve this query further", *cref.LocationURL)
+		}
+
+		f.messaging.InfoMessage(fmt.Sprintf("doing external request for '%s' from '%s' on '%s'", cref.NrDollarCref, f.serverConfig.GetHostAddress(), *cref.LocationURL))
+
+		// Get the thing from an external connection.
+		if cref.Type == "Thing" {
+			err = connutils.ResolveExternalCrossRef(instance, "things", cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
+		} else if cref.Type == "Action" {
+			err = connutils.ResolveExternalCrossRef(instance, "actions", cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
+		} else if cref.Type == "Key" {
+			err = connutils.ResolveExternalCrossRef(instance, "keys", cref.NrDollarCref, objectLoaded.(*models.KeyGetResponse))
+		} else {
+			err = fmt.Errorf("can't resolve the given type '%s'", cref.Type)
+		}
 	} else {
 		// Check whether the request has to be done for key, thing or action types
 		if cref.Type == "Thing" {
-			err = f.dbConnector.GetThing(cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
+			err = f.dbConnector.GetThing(ctx, cref.NrDollarCref, objectLoaded.(*models.ThingGetResponse))
+
+			// Return error when not allowed to read the data
+			if err == nil {
+				if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, f.usedKeyToken, f.dbConnector, objectLoaded.(*models.ThingGetResponse).Key.NrDollarCref); !allowed {
+					err = errors.New("forbidden to get data for this thing")
+				}
+			}
 		} else if cref.Type == "Action" {
-			err = f.dbConnector.GetAction(cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
+			err = f.dbConnector.GetAction(ctx, cref.NrDollarCref, objectLoaded.(*models.ActionGetResponse))
+
+			// Return error when not allowed to read the data
+			if err == nil {
+				if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, f.usedKeyToken, f.dbConnector, objectLoaded.(*models.ActionGetResponse).Key.NrDollarCref); !allowed {
+					err = errors.New("forbidden to get data for this action")
+				}
+			}
 		} else if cref.Type == "Key" {
-			err = f.dbConnector.GetKey(cref.NrDollarCref, objectLoaded.(*models.KeyTokenGetResponse))
+			err = f.dbConnector.GetKey(ctx, cref.NrDollarCref, objectLoaded.(*models.KeyGetResponse))
+
+			// Return error when not allowed to read the data
+			if err == nil {
+				if !auth.IsOwnKeyOrLowerInTree(ctx, f.usedKeyToken, cref.NrDollarCref, f.dbConnector) {
+					err = errors.New("forbidden to get data for this key")
+				}
+			}
 		} else {
 			err = fmt.Errorf("can't resolve the given type '%s'", cref.Type)
 		}

@@ -3,10 +3,17 @@
     "type": "thing",
     "version": "1.0.0",
     "name": "example.org - Thing Test",
-    "maintainer": "yourfriends@weaviate.com",
+    "maintainer": "hello@creativesoftwarefdn.org",
     "classes": [
         {
             "class": "TestThing",
+            "kinds": [{
+                "kind": "testThing1KindA",
+                "weight": 1.0
+            },{
+                "kind": "testThing1KindB",
+                "weight": 0.9
+            }],
             "description": "This is a Test",
             "properties": [
                 {
@@ -50,11 +57,24 @@
                         "TestThing2"
                     ],
                     "description": "Value of testCref."
+                }, {
+                    "name": "testRandomType",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Same name, different datatypes."
                 }
             ]
         },
         {
             "class": "TestThing2",
+            "kinds": [{
+                "kind": "testThing2KindA",
+                "weight": 1.0
+            },{
+                "kind": "testThing2KindB",
+                "weight": 0.9
+            }],
             "description": "This is a Test",
             "properties": [
                 {
@@ -98,6 +118,12 @@
                         "TestThing"
                     ],
                     "description": "Value of testCref."
+                }, {
+                    "name": "testRandomType",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Same name, different datatypes."
                 }
             ]
         }   

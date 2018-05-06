@@ -4,11 +4,11 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 package config
@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"io/ioutil"
 
 	"github.com/go-openapi/swag"
@@ -43,12 +44,20 @@ type File struct {
 
 // Environment outline of the environment inside the config file
 type Environment struct {
-	Name        string   `json:"name"`
-	Database    Database `json:"database"`
-	Schemas     Schemas  `json:"schemas"`
-	MQTTEnabled bool     `json:"mqttEnabled"`
-	Cache       Cache    `json:"cache"`
-	Debug       bool     `json:"debug"`
+	Name        string      `json:"name"`
+	Database    Database    `json:"database"`
+	Schemas     Schemas     `json:"schemas"`
+	Broker      Broker      `json:"broker"`
+	Cache       Cache       `json:"cache"`
+	Limit       int64       `json:"limit"`
+	Debug       bool        `json:"debug"`
+	Development Development `json:"development"`
+}
+
+// Broker checks if broker details are set
+type Broker struct {
+	Host string `json:"host"`
+	Port int32  `json:"port"`
 }
 
 // Database is the outline of the database
@@ -68,10 +77,23 @@ type Cache struct {
 	Name string `json:"name"`
 }
 
+// Development is the outline of (temporary) config variables
+// Note: the purpose is that these variables will be moved somewhere else in time
+type Development struct {
+	ExternalInstances []Instance `json:"external_instances"`
+}
+
+// Instance is the outline for an external instance whereto crossreferences can be resolved
+type Instance struct {
+	URL      string `json:"url"`
+	APIKey   string `json:"api_key"`
+	APIToken string `json:"api_token"`
+}
+
 // GetConfigOptionGroup creates a option group for swagger
 func GetConfigOptionGroup() *swag.CommandLineOptionsGroup {
 	commandLineOptionsGroup := swag.CommandLineOptionsGroup{
-		ShortDescription: "Connector config usage",
+		ShortDescription: "Connector config & MQTT config",
 		LongDescription:  "",
 		Options:          &Flags{},
 	}
@@ -149,4 +171,37 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 	}
 
 	return nil
+}
+
+// GetInstance from config
+func (f *WeaviateConfig) GetInstance(hostname string, keyToken *models.KeyTokenGetResponse) (instance Instance, err error) {
+	err = nil
+
+	found := false
+
+	// For each instance, check if hostname is the same
+	for _, v := range f.Environment.Development.ExternalInstances {
+		if hostname == v.URL {
+			instance = v
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		// Didn't find item in list
+		err = errors.New("can't find key for given instance")
+		return
+	}
+
+	// If no key and token are given in the config, use the key and token used for the current request
+	if instance.APIKey == "" {
+		instance.APIKey = string(keyToken.KeyID)
+	}
+
+	if instance.APIToken == "" {
+		instance.APIToken = string(keyToken.Token)
+	}
+
+	return
 }

@@ -4,28 +4,33 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 package connutils
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
-	"time"
-
-	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/go-openapi/strfmt"
-
+	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
+	"regexp"
+	"runtime"
+	"time"
 
+	"github.com/go-openapi/strfmt"
 	gouuid "github.com/satori/go.uuid"
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // NewDatabaseObjectFromPrincipal creates a new object with default values, out of principle object
@@ -40,9 +45,10 @@ import (
 // }
 
 // CreateRootKeyObject creates a new user with new API key when none exists when starting server
-func CreateRootKeyObject(key *models.Key) strfmt.UUID {
-	// Create key token
+func CreateRootKeyObject(key *models.Key) (hashedToken string, UUID strfmt.UUID) {
+	// Create key token and UUID
 	token := GenerateUUID()
+	UUID = GenerateUUID()
 
 	// Do not set any parent
 
@@ -82,19 +88,56 @@ func CreateRootKeyObject(key *models.Key) strfmt.UUID {
 	// Print the key
 	log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/creativesoftwarefdn/weaviate/blob/develop/README.md#authentication")
 	log.Println("INFO: Auto set allowed IPs to: ", key.IPOrigin)
-	log.Println("ROOTKEY=" + token)
+	log.Println("ROOTTOKEN=" + token)
+	log.Println("ROOTKEY=" + string(UUID))
 
-	return token
+	hashedToken = TokenHasher(token)
+
+	return
+}
+
+// TokenHasher is the function used to hash the UUID token
+func TokenHasher(UUID strfmt.UUID) string {
+	hashed, _ := bcrypt.GenerateFromPassword([]byte(UUID), bcrypt.DefaultCost)
+	return string(hashed)
+}
+
+// TokenHashCompare is the function used to compare the hash with given UUID
+func TokenHashCompare(hashed string, token strfmt.UUID) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hashed), []byte(token))
+	return err == nil
+}
+
+// Trace is used to display the running function in a connector
+func Trace() {
+	pc := make([]uintptr, 10) // at least 1 entry needed
+	runtime.Callers(2, pc)
+	f2 := runtime.FuncForPC(pc[0])
+	//file, line := f2.FileLine(pc[0])
+	fmt.Printf("THIS FUNCTION RUNS: %s\n", f2.Name())
 }
 
 // NowUnix returns the current Unix time
 func NowUnix() int64 {
-	return time.Now().UnixNano() / int64(time.Millisecond)
+	return MakeUnixMillisecond(time.Now())
+}
+
+// MakeUnixMillisecond returns the millisecond unix-version of the given time
+func MakeUnixMillisecond(t time.Time) int64 {
+	return t.UnixNano() / int64(time.Millisecond)
 }
 
 // GenerateUUID returns a new UUID
 func GenerateUUID() strfmt.UUID {
 	return strfmt.UUID(fmt.Sprintf("%v", gouuid.NewV4()))
+}
+
+// Must panics if error, otherwise returns value
+func Must(i interface{}, err error) interface{} {
+	if err != nil {
+		panic(err)
+	}
+	return i
 }
 
 // WhereStringToStruct is the 'compiler' for converting the filter/where query-string into a struct
@@ -132,7 +175,8 @@ func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
 	}
 
 	// The wild cards
-	whereQuery.Value.Contains = result[3] == "~"
+	// TODO: Wildcard search is disabled for now https://github.com/creativesoftwarefdn/weaviate/issues/202
+	whereQuery.Value.Contains = false //result[3] == "~"
 
 	// Set the value itself
 	if len(result[4]) == 0 {
@@ -148,4 +192,55 @@ func WhereStringToStruct(prop string, where string) (WhereQuery, error) {
 	}
 
 	return whereQuery, nil
+}
+
+// DoExternalRequest does a request to an external Weaviate Instance based on given parameters
+func DoExternalRequest(instance config.Instance, endpoint string, uuid strfmt.UUID) (response *http.Response, err error) {
+	// Create the transport and HTTP client
+	client := &http.Client{Transport: &http.Transport{
+		MaxIdleConns:       10,
+		IdleConnTimeout:    30 * time.Second,
+		DisableCompression: true,
+	}}
+
+	// Create the request with basic headers
+	req, _ := http.NewRequest("GET", fmt.Sprintf("%s/weaviate/v1/%s/%s", instance.URL, endpoint, uuid), nil)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-API-KEY", instance.APIKey)
+	req.Header.Set("X-API-TOKEN", instance.APIToken)
+
+	// Do the request
+	response, err = client.Do(req)
+
+	if err != nil {
+		return
+	}
+
+	// Check the status-code to determine existence
+	if response.StatusCode != 200 {
+		err = fmt.Errorf("status code is not 200, but %d with status '%s'", response.StatusCode, response.Status)
+	}
+
+	return
+}
+
+// ResolveExternalCrossRef resolves an object on an external instance using the given parameters and the Weaviate REST-API of the external instance
+func ResolveExternalCrossRef(instance config.Instance, endpoint string, uuid strfmt.UUID, responseObject interface{}) (err error) {
+	// Do the request
+	response, err := DoExternalRequest(instance, endpoint, uuid)
+
+	// Return error
+	if err != nil {
+		return
+	}
+
+	// Close the body on the end of the function
+	defer response.Body.Close()
+
+	// Read the body and fill the object with the data from the response
+	body, _ := ioutil.ReadAll(response.Body)
+	json.Unmarshal(body, responseObject)
+
+	return
 }

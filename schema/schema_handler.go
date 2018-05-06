@@ -4,11 +4,11 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@weaviate.com)
- * See www.weaviate.com for details
- * Contact: @ CreativeSofwFdn / yourfriends@weaviate.com
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
 package schema
@@ -30,6 +30,9 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 )
+
+// SchemaPrefix is the prefixed used in the database for schema properties
+const SchemaPrefix string = "schema."
 
 type schemaProperties struct {
 	localFile                string
@@ -64,8 +67,19 @@ const (
 	DataTypeBoolean DataType = "boolean"
 	// DataTypeDate The data type is a value of type date
 	DataTypeDate DataType = "date"
+	// DataTypeUnknown The data type is unknown
+	DataTypeUnknown DataType = "unknown"
 	// validationErrorMessage is a constant for returning the same message
 	validationErrorMessage string = "All predicates with the same name across different classes should contain the same kind of data"
+
+	// ErrorNoSuchClass message
+	ErrorNoSuchClass string = "no such class with name '%s' found in the schema. Check your schema files for which classes are available"
+	// ErrorNoSuchProperty message
+	ErrorNoSuchProperty string = "no such prop with name '%s' found in class '%s' in the schema. Check your schema files for which properties in this class are available"
+	// ErrorNoSuchDatatype message
+	ErrorNoSuchDatatype string = "given value-DataType does not exist."
+	// ErrorInvalidRefType message
+	ErrorInvalidRefType string = "given ref type is not valid"
 )
 
 // GetClassByName returns the class by its name
@@ -79,7 +93,7 @@ func GetClassByName(s *models.SemanticSchema, className string) (*models.Semanti
 		}
 	}
 
-	return nil, fmt.Errorf("no such class with name '%s' found in the schema. Check your schema files for which classes are available", className)
+	return nil, fmt.Errorf(ErrorNoSuchClass, className)
 }
 
 // GetPropertyByName returns the class by its name
@@ -88,12 +102,12 @@ func GetPropertyByName(c *models.SemanticSchemaClass, propName string) (*models.
 	for _, prop := range c.Properties {
 
 		// Check if the name of the property is the given name, that's the property we need
-		if prop.Name == propName {
+		if prop.Name == strings.Split(propName, ".")[0] {
 			return prop, nil
 		}
 	}
 
-	return nil, fmt.Errorf("no such prop with name '%s' found in class '%s' in the schema. Check your schema files for which properties in this class are available", propName, c.Class)
+	return nil, fmt.Errorf(ErrorNoSuchProperty, propName, c.Class)
 }
 
 // GetPropertyDataType checks whether the given string is a valid data type
@@ -143,7 +157,7 @@ func GetValueDataTypeFromString(dt string) (*DataType, error) {
 			returnDataType = DataTypeString
 		}
 	} else {
-		return nil, errors_.New("given value-DataType does not exist.")
+		return nil, errors_.New(ErrorNoSuchDatatype)
 	}
 
 	return &returnDataType, nil
@@ -177,7 +191,7 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment, m *messages.
 	for cfk, cfv := range configFiles {
 		// Continue loop if the file is not set in the config.
 		if len(cfv.schemaLocationFromConfig) == 0 {
-			return errors_.New("schema file for '" + cfk + "' not given in config (path: *env*/schemas/" + cfk + "')")
+			return fmt.Errorf("schema file for '%s' not given in config (path: *env*/schemas/%s')", cfk, cfk)
 		}
 
 		// Validate if given location is URL or local file
@@ -315,7 +329,7 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 					prop.Name,
 					strings.Join(prop.AtDataType, ","),
 				))
-			} else {
+			} else if !hasCRef && !hasValue {
 				// Check whether a class-property contains no data types
 				return errors_.New(fmt.Sprintf(
 					"no value given to the data type in class '%s', at property '%s'",
@@ -324,46 +338,77 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 				))
 			}
 
-			if val, ok := f.predicateDict[prop.Name]; ok {
-				if val == DataTypeCRef && hasValue {
-					// The value of the predicate in the dict is a Cref, but now its a value
-					return errors_.New(fmt.Sprintf(
-						"The value of the predicate '%s' is set as a cross-reference, but it is a value (%s) in class '%s', at property '%s'. %s",
-						prop.Name,
-						pred,
-						class.Class,
-						prop.Name,
-						validationErrorMessage,
-					))
-				} else if pred != val {
-					if pred == DataTypeCRef {
-						// The value of the predicate in the dict is different
-						return errors_.New(fmt.Sprintf(
-							"The value of the predicate '%s' is set as '%s', but in class '%s', at property '%s' it is a cross-reference. %s",
-							prop.Name,
-							val,
-							class.Class,
-							prop.Name,
-							validationErrorMessage,
-						))
-					}
-					// The value of the predicate in the dict is different
-					return errors_.New(fmt.Sprintf(
-						"The value of the predicate '%s' is set as '%s', but in class '%s', at property '%s' it's value is a '%s'. %s",
-						prop.Name,
-						val,
-						class.Class,
-						prop.Name,
-						pred,
-						validationErrorMessage,
-					))
-				}
-			} else if string(pred) != "" {
-				// Add to predicate dict if it is not empty
-				f.predicateDict[prop.Name] = pred
-			}
+			// Add to predicate dict if it is not empty
+			f.predicateDict[prop.Name] = pred
 		}
 	}
 
 	return nil
+}
+
+// UpdateObjectSchemaProperties updates all the edges of the Object in 'schema', used with a new Object or to update/patch a Object using a connector specified callback.
+// This function is not part of connector utils because of the import cycle problem
+func UpdateObjectSchemaProperties(refType connutils.RefType, object interface{}, nodeSchema models.Schema, schemas *WeaviateSchema, callback func(string, interface{}, *DataType, string) error) error {
+	// Init error var
+	var err error
+
+	if nodeSchema == nil {
+		return nil
+	}
+
+	// Add Object properties
+	for propKey, propValue := range nodeSchema.(map[string]interface{}) {
+		var c *models.SemanticSchemaClass
+		if refType == connutils.RefTypeAction {
+			action := object.(*models.Action)
+			c, err = GetClassByName(schemas.ActionSchema.Schema, action.AtClass)
+			if err != nil {
+				return err
+			}
+		} else if refType == connutils.RefTypeThing {
+			thing := object.(*models.Thing)
+			c, err = GetClassByName(schemas.ThingSchema.Schema, thing.AtClass)
+			if err != nil {
+				return err
+			}
+		} else {
+			return errors_.New(ErrorInvalidRefType)
+		}
+
+		dataType, err := GetPropertyDataType(c, propKey)
+		// If getting a property gives an error, return it
+		if err != nil {
+			return err
+		}
+
+		err = callback(propKey, propValue, dataType, SchemaPrefix+propKey)
+
+		// If adding a property gives an error, return it
+		if err != nil {
+			return err
+		}
+	}
+
+	return err
+}
+
+// TranslateSchemaPropertiesFromDataBase translates property keys from DB into data types
+func TranslateSchemaPropertiesFromDataBase(propKey string, className string, modelSchema *models.SemanticSchema) (isSchema bool, schemaPropKey string, dataType *DataType, err error) {
+	ud := DataTypeUnknown
+	if strings.HasPrefix(propKey, SchemaPrefix) {
+		propKey := strings.Split(propKey, ".")[1]
+
+		var c *models.SemanticSchemaClass
+		c, err := GetClassByName(modelSchema, className)
+		if err != nil {
+			return true, propKey, &ud, err
+		}
+		dataType, err := GetPropertyDataType(c, propKey)
+
+		if err != nil {
+			return true, propKey, &ud, err
+		}
+		return true, propKey, dataType, nil
+	}
+	return false, propKey, &ud, nil
 }
