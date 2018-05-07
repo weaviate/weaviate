@@ -26,3 +26,5 @@ builds:
 archive:
   format: zip
   name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+checksum:
+  name_template: "checksums.txt"
