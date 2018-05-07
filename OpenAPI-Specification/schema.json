@@ -678,7 +678,7 @@
     },
     "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
     "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
-    "version": "0.8.5"
+    "version": "0.8.6"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {

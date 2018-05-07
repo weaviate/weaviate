@@ -1,6 +1,7 @@
 # ignore release dirs
 nightly/*
 dist/*
+dist
 nightly
 dist
 
