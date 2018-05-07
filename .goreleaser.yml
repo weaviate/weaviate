@@ -25,6 +25,4 @@ builds:
       - mips64le
 archive:
   format: zip
-  name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-snapshot:
-  name_template: nightly
+  name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
