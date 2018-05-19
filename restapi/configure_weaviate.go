@@ -28,6 +28,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
 
 	jsonpatch "github.com/evanphx/json-patch"
 	errors "github.com/go-openapi/errors"
@@ -1148,6 +1149,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		metaResponse.ThingsSchema = databaseSchema.ThingSchema.Schema
 
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
+	})
+	api.P2PWeaviatePeersAnnounceHandler = p2_p.WeaviatePeersAnnounceHandlerFunc(func(params p2_p.WeaviatePeersAnnounceParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation p2_p.WeaviatePeersAnnounce has not yet been implemented")
+	})
+	api.P2PWeaviatePeersAnswersCreateHandler = p2_p.WeaviatePeersAnswersCreateHandlerFunc(func(params p2_p.WeaviatePeersAnswersCreateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation p2_p.WeaviatePeersAnswersCreate has not yet been implemented")
+	})
+	api.P2PWeaviatePeersEchoHandler = p2_p.WeaviatePeersEchoHandlerFunc(func(params p2_p.WeaviatePeersEchoParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation p2_p.WeaviatePeersEcho has not yet been implemented")
+	})
+	api.P2PWeaviatePeersQuestionsCreateHandler = p2_p.WeaviatePeersQuestionsCreateHandlerFunc(func(params p2_p.WeaviatePeersQuestionsCreateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation p2_p.WeaviatePeersQuestionsCreate has not yet been implemented")
 	})
 	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
 		// Get limit and page
