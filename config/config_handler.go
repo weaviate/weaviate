@@ -17,8 +17,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"io/ioutil"
+
+	"github.com/creativesoftwarefdn/weaviate/models"
 
 	"github.com/go-openapi/swag"
 
@@ -48,10 +49,20 @@ type Environment struct {
 	Database    Database    `json:"database"`
 	Schemas     Schemas     `json:"schemas"`
 	Broker      Broker      `json:"broker"`
+	P2P         P2P         `json:"P2P"`
 	Cache       Cache       `json:"cache"`
 	Limit       int64       `json:"limit"`
 	Debug       bool        `json:"debug"`
 	Development Development `json:"development"`
+}
+
+// P2P sets the Peer to Peer values of the Weaviate network
+type P2P struct {
+	FriendlyPeer string `json:"friendlyPeer"`
+	Vectors      struct {
+		Cbor string `json:"cbor"`
+		MD5  string `json:"MD5"`
+	}
 }
 
 // Broker checks if broker details are set
