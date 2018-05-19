@@ -567,6 +567,22 @@
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        },
+        "kinds": {
+          "description": "Describes the kind of class. For example Geolocation for the class City.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "weight": {
+                "type": "number",
+                "format": "float"
+              }
+            }
+          }
         }
       },
       "type": "object"
@@ -785,7 +801,7 @@
     },
     "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
     "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
-    "version": "0.9.0"
+    "version": "0.9.1"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
