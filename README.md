@@ -1,11 +1,11 @@
 # Weaviate
 
+_Decentralised Semantic Knowledge Graph_
+
 | Branch | Status        |
 | ------ |:-------------:|
 Master   | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=master)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
 Develop  | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=develop)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
-
-**A decentralised semantic, graph based Internet of Things platform based on web-semantics, GraphQL and RESTful API's.**
 
 *Important Note:
 Weaviate is not fully production ready yet. Follow this repo or sign up for the [mailing list](http://eepurl.com/bRsMir) to stay informed about the progress. We do have nightly builds that you can use to test Weaviate*
