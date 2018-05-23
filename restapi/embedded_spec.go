@@ -37,10 +37,10 @@ func init() {
     "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
     "contact": {
       "name": "Weaviate",
-      "url": "http://www.creativesoftwarefdn.org",
+      "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.8.4"
+    "version": "0.9.0"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -705,6 +705,145 @@ func init() {
           },
           "501": {
             "description": "Not (yet) implemented"
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/peers": {
+      "post": {
+        "description": "Announce a new peer, authentication not needed (all peers are allowed to try and connect). This endpoint will only be used in M2M communications.",
+        "tags": [
+          "P2P"
+        ],
+        "summary": "Announce a new peer.",
+        "operationId": "weaviate.peers.announce",
+        "parameters": [
+          {
+            "description": "The announcement message",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PeerAnnouncement"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully registred the peer to the network."
+          },
+          "403": {
+            "description": "You are not allowed on the network."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/peers/answers/{answerId}": {
+      "post": {
+        "description": "Receive an answer based on a question from a peer in the network.",
+        "tags": [
+          "P2P"
+        ],
+        "summary": "Receiving a new answer from a peer.",
+        "operationId": "weaviate.peers.answers.create",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The Uuid of the answer.",
+            "name": "answerId",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The answer.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Schema"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successfully received."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/peers/echo": {
+      "get": {
+        "description": "Check if a peer is alive.",
+        "tags": [
+          "P2P"
+        ],
+        "summary": "Check if a peer is alive.",
+        "operationId": "weaviate.peers.echo",
+        "responses": {
+          "200": {
+            "description": "Alive and kicking!"
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/peers/questions": {
+      "post": {
+        "description": "Receive a question from a peer in the network.",
+        "tags": [
+          "P2P"
+        ],
+        "summary": "Receive a question from a peer in the network.",
+        "operationId": "weaviate.peers.questions.create",
+        "parameters": [
+          {
+            "description": "The question.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/QuestionCreate"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successfully received the question and answer might be send back.",
+            "schema": {
+              "$ref": "#/definitions/QuestionResponse"
+            }
+          },
+          "403": {
+            "description": "You are not allowed on the network."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -1520,12 +1659,78 @@ func init() {
         }
       }
     },
+    "PeerAnnouncement": {
+      "description": "Announcent of a peer on the network",
+      "type": "object",
+      "properties": {
+        "networkUuid": {
+          "description": "Uuid of the network.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "networkVoucherUuid": {
+          "description": "Voucher that allows access or not to the network.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "peerHost": {
+          "description": "Host or IP of the peer.",
+          "type": "string",
+          "format": "hostname"
+        },
+        "peerName": {
+          "description": "Name of the peer in readable format",
+          "type": "string"
+        },
+        "peerUuid": {
+          "description": "Uuid of the peer.",
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "QuestionCreate": {
+      "type": "object",
+      "properties": {
+        "answerUuid": {
+          "description": "The Uuid of the answer when generated and returned to the /answer endpoint.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "question": {
+          "$ref": "#/definitions/VectorBasedQuestion"
+        },
+        "returnTo": {
+          "type": "object",
+          "properties": {
+            "host": {
+              "description": "The answer should be returned to which host?",
+              "type": "string"
+            },
+            "port": {
+              "description": "The answer should be returned to which port?",
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "QuestionResponse": {
+      "type": "object",
+      "properties": {
+        "answerUuid": {
+          "description": "The Uuid of the answer when generated and returned to the /answer endpoint.",
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
     "Schema": {
-      "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
       "type": "object"
     },
     "SchemaHistory": {
-      "description": "This is an open object, with Swagger 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
       "type": "object"
     },
     "SemanticSchema": {
@@ -1783,6 +1988,47 @@ func init() {
           "format": "int64"
         }
       }
+    },
+    "VectorBasedQuestion": {
+      "description": "receive question based on array of classes, properties and values.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "classProps": {
+            "description": "Vectorized properties.",
+            "type": "array",
+            "maxItems": 300,
+            "minItems": 300,
+            "items": {
+              "type": "object",
+              "properties": {
+                "propsVectors": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "format": "float"
+                  }
+                },
+                "value": {
+                  "description": "String with valuename.",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "classVectors": {
+            "description": "Vectorized classname.",
+            "type": "array",
+            "maxItems": 300,
+            "minItems": 300,
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          }
+        }
+      }
     }
   },
   "parameters": {
@@ -1833,11 +2079,14 @@ func init() {
       "name": "meta"
     },
     {
+      "name": "P2P"
+    },
+    {
       "name": "things"
     }
   ],
   "externalDocs": {
-    "url": "http://www.creativesoftwarefdn.org/weaviate"
+    "url": "https://github.com/creativesoftwarefdn/weaviate"
   }
 }`))
 }

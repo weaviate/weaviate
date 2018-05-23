@@ -31,6 +31,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/keys"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
 )
 
@@ -96,6 +97,18 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		MetaWeaviateMetaGetHandler: meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation MetaWeaviateMetaGet has not yet been implemented")
+		}),
+		P2PWeaviatePeersAnnounceHandler: p2_p.WeaviatePeersAnnounceHandlerFunc(func(params p2_p.WeaviatePeersAnnounceParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation P2PWeaviatePeersAnnounce has not yet been implemented")
+		}),
+		P2PWeaviatePeersAnswersCreateHandler: p2_p.WeaviatePeersAnswersCreateHandlerFunc(func(params p2_p.WeaviatePeersAnswersCreateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation P2PWeaviatePeersAnswersCreate has not yet been implemented")
+		}),
+		P2PWeaviatePeersEchoHandler: p2_p.WeaviatePeersEchoHandlerFunc(func(params p2_p.WeaviatePeersEchoParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation P2PWeaviatePeersEcho has not yet been implemented")
+		}),
+		P2PWeaviatePeersQuestionsCreateHandler: p2_p.WeaviatePeersQuestionsCreateHandlerFunc(func(params p2_p.WeaviatePeersQuestionsCreateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation P2PWeaviatePeersQuestionsCreate has not yet been implemented")
 		}),
 		ThingsWeaviateThingHistoryGetHandler: things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingHistoryGet has not yet been implemented")
@@ -208,6 +221,14 @@ type WeaviateAPI struct {
 	KeysWeaviateKeysRenewTokenHandler keys.WeaviateKeysRenewTokenHandler
 	// MetaWeaviateMetaGetHandler sets the operation handler for the weaviate meta get operation
 	MetaWeaviateMetaGetHandler meta.WeaviateMetaGetHandler
+	// P2PWeaviatePeersAnnounceHandler sets the operation handler for the weaviate peers announce operation
+	P2PWeaviatePeersAnnounceHandler p2_p.WeaviatePeersAnnounceHandler
+	// P2PWeaviatePeersAnswersCreateHandler sets the operation handler for the weaviate peers answers create operation
+	P2PWeaviatePeersAnswersCreateHandler p2_p.WeaviatePeersAnswersCreateHandler
+	// P2PWeaviatePeersEchoHandler sets the operation handler for the weaviate peers echo operation
+	P2PWeaviatePeersEchoHandler p2_p.WeaviatePeersEchoHandler
+	// P2PWeaviatePeersQuestionsCreateHandler sets the operation handler for the weaviate peers questions create operation
+	P2PWeaviatePeersQuestionsCreateHandler p2_p.WeaviatePeersQuestionsCreateHandler
 	// ThingsWeaviateThingHistoryGetHandler sets the operation handler for the weaviate thing history get operation
 	ThingsWeaviateThingHistoryGetHandler things.WeaviateThingHistoryGetHandler
 	// ThingsWeaviateThingsActionsListHandler sets the operation handler for the weaviate things actions list operation
@@ -359,6 +380,22 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.MetaWeaviateMetaGetHandler == nil {
 		unregistered = append(unregistered, "meta.WeaviateMetaGetHandler")
+	}
+
+	if o.P2PWeaviatePeersAnnounceHandler == nil {
+		unregistered = append(unregistered, "p2_p.WeaviatePeersAnnounceHandler")
+	}
+
+	if o.P2PWeaviatePeersAnswersCreateHandler == nil {
+		unregistered = append(unregistered, "p2_p.WeaviatePeersAnswersCreateHandler")
+	}
+
+	if o.P2PWeaviatePeersEchoHandler == nil {
+		unregistered = append(unregistered, "p2_p.WeaviatePeersEchoHandler")
+	}
+
+	if o.P2PWeaviatePeersQuestionsCreateHandler == nil {
+		unregistered = append(unregistered, "p2_p.WeaviatePeersQuestionsCreateHandler")
 	}
 
 	if o.ThingsWeaviateThingHistoryGetHandler == nil {
@@ -580,6 +617,26 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/meta"] = meta.NewWeaviateMetaGet(o.context, o.MetaWeaviateMetaGetHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/peers"] = p2_p.NewWeaviatePeersAnnounce(o.context, o.P2PWeaviatePeersAnnounceHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/peers/answers/{answerId}"] = p2_p.NewWeaviatePeersAnswersCreate(o.context, o.P2PWeaviatePeersAnswersCreateHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/peers/echo"] = p2_p.NewWeaviatePeersEcho(o.context, o.P2PWeaviatePeersEchoHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/peers/questions"] = p2_p.NewWeaviatePeersQuestionsCreate(o.context, o.P2PWeaviatePeersQuestionsCreateHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
