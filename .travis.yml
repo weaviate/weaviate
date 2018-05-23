@@ -50,6 +50,10 @@ script:
       go test -v ./test -args -api-key=${ROOTKEY} -api-token=${ROOTTOKEN} -server-host=127.0.0.1 -server-port=8080 -server-scheme=http
   # Install goreleaser and create build dirs
   - |
+      # If the branch is not master or develop we are done :-)
+      if [ $TRAVIS_BRANCH -ne "master" ] && [ $TRAVIS_BRANCH -ne "develop" ]; then
+        travis_terminate 0
+      fi
       if [ $TRAVIS_PULL_REQUEST = "false" ]; then
           # Make distribution dir if not exsists
           mkdir -p releases
@@ -69,7 +73,8 @@ script:
                   echo "ERROR - This version is already released, master build will fail! Increate version number in OPENAPI schema file"
                   exit 1
               fi
-          else
+          fi
+          if [ $TRAVIS_BRANCH = "develop" ]; then
               # if develop, create nightly
               mv dist releases/nightly
               # Create txt file with version number of nightly build

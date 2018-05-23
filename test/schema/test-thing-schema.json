@@ -18,6 +18,10 @@
             "properties": [
                 {
                     "name": "testString",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "string"
                     ],
@@ -25,6 +29,10 @@
                 },
                 {
                     "name": "testInt",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "int"
                     ],
@@ -32,6 +40,10 @@
                 },
                 {
                     "name": "testBoolean",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "boolean"
                     ],
@@ -39,6 +51,10 @@
                 },
                 {
                     "name": "testNumber",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "number"
                     ],
@@ -46,6 +62,10 @@
                 },
                 {
                     "name": "testDateTime",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "date"
                     ],
@@ -53,12 +73,20 @@
                 },
                 {
                     "name": "testCref",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "TestThing2"
                     ],
                     "description": "Value of testCref."
                 }, {
                     "name": "testRandomType",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "string"
                     ],
@@ -79,6 +107,10 @@
             "properties": [
                 {
                     "name": "testString",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "string"
                     ],
@@ -86,6 +118,10 @@
                 },
                 {
                     "name": "testInt",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "int"
                     ],
@@ -93,6 +129,10 @@
                 },
                 {
                     "name": "testBoolean",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "boolean"
                     ],
@@ -100,6 +140,10 @@
                 },
                 {
                     "name": "testNumber",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "number"
                     ],
@@ -107,6 +151,10 @@
                 },
                 {
                     "name": "testDateTime",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "date"
                     ],
@@ -114,12 +162,20 @@
                 },
                 {
                     "name": "testCref",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "TestThing"
                     ],
                     "description": "Value of testCref."
                 }, {
                     "name": "testRandomType",
+                    "kinds": [{
+                        "kind": "testActionKind",
+                        "weight": 1.0
+                    }],
                     "@dataType": [
                         "int"
                     ],

@@ -1,69 +1,111 @@
 {
 	"environments": [{
+		"name": "cassandra",
+		"database": {
 			"name": "cassandra",
-			"database": {
-				"name": "cassandra",
-				"database_config": {
-					"host": "127.0.0.1",
-					"port": 7000,
-					"keyspace": "weaviate"
-				}
-			},
-			"cache": {
-				"name": "dataloader"
-			},
-			"schemas": {
-				"Thing": "./test/schema/test-thing-schema.json",
-				"Action": "./test/schema/test-action-schema.json"
-			},
-			"broker": {
-				"host": "localhost",
-				"port": 1883
-			},
-			"limit": 100,
-			"debug": true,
-			"development": {
-				"external_instances": [{
-						"url": "http://localhost:8070",
-						"api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
-						"api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
-					},
-					{
-						"url": "http://127.0.0.1:8070",
-						"api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
-						"api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
-					}
-				]
+			"database_config": {
+				"host": "127.0.0.1",
+				"port": 7000,
+				"keyspace": "weaviate"
 			}
-		}, {
-			"name": "cassandra_docker",
-			"database": {
-				"name": "cassandra",
-				"database_config": {
-					"host": "db",
-					"port": 7000,
-					"keyspace": "weaviate"
+		},
+		"cache": {
+			"name": "dataloader"
+		},
+		"schemas": {
+			"Thing": "./test/schema/test-thing-schema.json",
+			"Action": "./test/schema/test-action-schema.json"
+		},
+		"broker": {
+			"host": "localhost",
+			"port": 1883
+		},
+		"limit": 100,
+		"debug": true,
+		"development": {
+			"external_instances": [{
+					"url": "http://localhost:8070",
+					"api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
+					"api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
+				},
+				{
+					"url": "http://127.0.0.1:8070",
+					"api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
+					"api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
 				}
-			},
-			"schemas": {
-				"Thing": "./test/schema/test-thing-schema.json",
-				"Action": "./test/schema/test-action-schema.json"
-			},
-			"broker": {
-				"host": "weaviate-broker",
-				"port": 1883
-			},
-			"limit": 100,
-			"debug": true,
-			"development": {
-				"external_instances": [{
-						"url": "http://localhost:8080"
-					},
-					{
-						"url": "http://127.0.0.1:8080"
-					}
-				]
-			}
+			]
 		}
-	]
+	}, {
+		"name": "cassandra-P2P",
+		"database": {
+			"name": "cassandra",
+			"database_config": {
+				"host": "127.0.0.1",
+				"port": 7000,
+				"keyspace": "weaviate"
+			}
+		},
+		"cache": {
+			"name": "dataloader"
+		},
+		"schemas": {
+			"Thing": "./test/schema/test-thing-schema.json",
+			"Action": "./test/schema/test-action-schema.json"
+		},
+		"broker": {
+			"host": "localhost",
+			"port": 1883
+		},
+		"P2P": {
+			"friendlyPeer:": "https://weaviate.somepeer.net",
+			"Vectors": {
+				"cbor": "https://storage.googleapis.com/weaviate-vectors/vectors.cbor.gz",
+				"md5": "https://storage.googleapis.com/weaviate-vectors/md5.txt"
+			}
+		},
+		"limit": 100,
+		"debug": true,
+		"development": {
+			"external_instances": [{
+					"url": "http://localhost:8070",
+					"api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
+					"api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
+				},
+				{
+					"url": "http://127.0.0.1:8070",
+					"api_key": "a310f32d-0b0b-4b18-9349-8bd986822217",
+					"api_token": "2cc8b504-b429-439e-87d0-d2a17f2bbcf7"
+				}
+			]
+		}
+	}, {
+		"name": "cassandra_docker",
+		"database": {
+			"name": "cassandra",
+			"database_config": {
+				"host": "db",
+				"port": 7000,
+				"keyspace": "weaviate"
+			}
+		},
+		"schemas": {
+			"Thing": "./test/schema/test-thing-schema.json",
+			"Action": "./test/schema/test-action-schema.json"
+		},
+		"broker": {
+			"host": "weaviate-broker",
+			"port": 1883
+		},
+		"limit": 100,
+		"debug": true,
+		"development": {
+			"external_instances": [{
+					"url": "http://localhost:8080"
+				},
+				{
+					"url": "http://127.0.0.1:8080"
+				}
+			]
+		}
+	}]
 }
