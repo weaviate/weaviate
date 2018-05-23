@@ -116,47 +116,47 @@ List of value types as defined in the ontologies;
 
 ```json
 [{
-		"name": "testString",
-		"@dataType": [
-			"string"
-		],
-		"description": "Value of testString."
-	},
-	{
-		"name": "testInt",
-		"@dataType": [
-			"int"
-		],
-		"description": "Value of testInt."
-	},
-	{
-		"name": "testBoolean",
-		"@dataType": [
-			"boolean"
-		],
-		"description": "Value of testBoolean."
-	},
-	{
-		"name": "testNumber",
-		"@dataType": [
-			"number"
-		],
-		"description": "Value of testNumber."
-	},
-	{
-		"name": "testDateTime",
-		"@dataType": [
-			"date"
-		],
-		"description": "Value of testDateTime."
-	},
-	{
-		"name": "testCref",
-		"@dataType": [
-			"TestThing2"
-		],
-		"description": "Value of testCref."
-	}
+    "name": "testString",
+    "@dataType": [
+      "string"
+    ],
+    "description": "Value of testString."
+  },
+  {
+    "name": "testInt",
+    "@dataType": [
+      "int"
+    ],
+    "description": "Value of testInt."
+  },
+  {
+    "name": "testBoolean",
+    "@dataType": [
+      "boolean"
+    ],
+    "description": "Value of testBoolean."
+  },
+  {
+    "name": "testNumber",
+    "@dataType": [
+      "number"
+    ],
+    "description": "Value of testNumber."
+  },
+  {
+    "name": "testDateTime",
+    "@dataType": [
+      "date"
+    ],
+    "description": "Value of testDateTime."
+  },
+  {
+    "name": "testCref",
+    "@dataType": [
+      "TestThing2"
+    ],
+    "description": "Value of testCref."
+  }
 ]
 ```
 
@@ -166,64 +166,64 @@ _Also see [this](https://github.com/creativesoftwarefdn/weaviate-semantic-schema
 
 ```json
 {
-	"@context": "http://example.org",
-	"type": "thing",
-	"version": "1.0.0",
-	"name": "example.org - Thing Test",
-	"maintainer": "hello@creativesoftwarefdn.org",
-	"classes": [{
-			"class": "City",
-			"kinds": [{
-				"kind": "Place",
-				"weight": 1
-			}],
-			"description": "This is a test City",
-			"properties": [{
-					"name": "name",
-					"@dataType": [
-						"string"
-					],
-					"description": "name of the city."
-				},
-				{
-					"name": "established",
-					"@dataType": [
-						"int"
-					],
-					"description": "Year of establishment."
-				},
-				{
-					"name": "inhabitants",
-					"@dataType": [
-						"number"
-					],
-					"description": "Number of inhabitants."
-				},
-				{
-					"name": "country",
-					"@dataType": [
-						"Country"
-					],
-					"description": "Country that the city is located in."
-				}
-			]
-		},
-		{
-			"class": "Country",
-			"kinds": [{
-				"kind": "Place",
-				"weight": 1
-			}],
-			"description": "This is a Country",
-			"properties": [{
-				"name": "name",
-				"@dataType": [
-					"string"
-				],
-				"description": "Name of the country."
-			}]
-		}
-	]
+  "@context": "http://example.org",
+  "type": "thing",
+  "version": "1.0.0",
+  "name": "example.org - Thing Test",
+  "maintainer": "hello@creativesoftwarefdn.org",
+  "classes": [{
+      "class": "City",
+      "kinds": [{
+        "kind": "Place",
+        "weight": 1
+      }],
+      "description": "This is a test City",
+      "properties": [{
+          "name": "name",
+          "@dataType": [
+            "string"
+          ],
+          "description": "name of the city."
+        },
+        {
+          "name": "established",
+          "@dataType": [
+            "int"
+          ],
+          "description": "Year of establishment."
+        },
+        {
+          "name": "inhabitants",
+          "@dataType": [
+            "number"
+          ],
+          "description": "Number of inhabitants."
+        },
+        {
+          "name": "country",
+          "@dataType": [
+            "Country"
+          ],
+          "description": "Country that the city is located in."
+        }
+      ]
+    },
+    {
+      "class": "Country",
+      "kinds": [{
+        "kind": "Place",
+        "weight": 1
+      }],
+      "description": "This is a Country",
+      "properties": [{
+        "name": "name",
+        "@dataType": [
+          "string"
+        ],
+        "description": "Name of the country."
+      }]
+    }
+  ]
 }
 ```
 
