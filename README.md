@@ -13,13 +13,25 @@ Weaviate is not fully production ready yet. Follow this repo or sign up for the 
 ## Index
 
 - [Documentation](#documentation)
+	- [Questions](#questions)
 - [Concept](#concept)
+	- [Why Use Weaviate?](#why-use-weaviate)
+- [Architecture](#architecture)
+	- [Design Principles](#design-principles)
+	- [Overview](#overview)
+	- [Database Connector & Graph Interface](#database-connector--graph-interface)
+	- [Ontology](#ontology)
+	- [Semantic Peer to Peer (P2P) network](#semantic-p2p-network)
+	- [Semantic P2P Questionnaire](#semantic-p2p-questionnaire)
 - [Usage](#usage)
 - [Roadmap](#roadmap)
 
 ## Documentation
 
-Documentation will soon be published on [www.semi.network](https://www.semi.network).
+- Running Weaviate (will soon be published on [www.semi.network](https://www.semi.network)).
+- Using Weaviate (will soon be published on [www.semi.network](https://www.semi.network)).
+
+*Follow this repo or sign up for the [mailing list](http://eepurl.com/bRsMir) to stay informed about the progress.*
 
 #### Questions
 
@@ -43,6 +55,10 @@ What makes Weaviate unique;<br>
 
 Weaviate solves the problem of relating seemingly different datasets to each other. It can be used to compare and describe data ranging from finance 🏦 to car manufacturing 🚗🏭, from zoos 🐘 to space stations 🚀 and from traditional datasets 📊 to Internet of Thing 📱 devices.
 
+Besides doing that inside a single Weaviate instance. You can also create a peer-to-peer network of Weaviates that use word embeddings to communicate with each other in a unique way.
+
+Want to learn more about large semantic networks or want to create a network for your business? Visit [www.semi.network](https://www.semi.network).
+
 ## Architecture
 
 _The architecture of Weaviate is based on a core set of design principles which consists of the graph, the P2P network, and the word embeddings._
@@ -63,7 +79,7 @@ Weaviate is build with the following axioms in mind;
 
 The above diagram contains a bird's eye view overview of Weaviate. Both human to machine and M2M communication is done over the RESTful endpoint. The ontology is validated through the semantic interface which translates all humanly readable requests into vector-based requests. 
 
-### Database connector & graph interface
+### Database Connector & Graph Interface
 
 Weaviate can support any database of your choosing. In the table below there is an overview of Weaviate functions that need to be implemented per database. In the folder [`/connectors`](https://github.com/creativesoftwarefdn/weaviate/tree/master/connectors) you can find all available connectors. There is a template which you can use to create a new connector called [foobar](https://github.com/creativesoftwarefdn/weaviate/blob/develop/connectors/foobar/connector.go) (documentation included inline). You can also [take inspiration](https://github.com/creativesoftwarefdn/weaviate/blob/develop/connectors/cassandra/connector.go) from the full-fledged Cassandra connector. In case of questions, please use [Stackoverflow](https://stackoverflow.com/questions/tagged/weaviate) or [Github](https://github.com/creativesoftwarefdn/weaviate/issues).
 
@@ -84,7 +100,7 @@ Weaviate can support any database of your choosing. In the table below there is 
 
 ### Ontology
 
-Every Weaviate needs to have two ontologies, one for Things and one for Actions. Ontologies are always; class-, property-, value-based and classes and properties are enriched by a kind.
+Every Weaviate instance needs to have two ontologies, one for Things and one for Actions. Ontologies are always; class-, property-, value-based and classes and properties are enriched by a kind.
 
 | Name          | Type     | Should be in Vector? | Mandatory? | Description |
 | ------------- |:--------:|:--------------------:|:----------:|--------------|
@@ -226,7 +242,7 @@ The P2P network operates in the following fashion;
 5. If accepted, the Weaviate that received the request sends the vector file and network meta-data to the Weaviate node _and_ broadcasts the new Weaviate meta-data to the complete network.
 6. If the new Weaviate is unknown to the receiving node, the node broadcasts the meta-data to all other known nodes. This recurs until all nodes are informed.
 
-### Semantic Interface
+### Semantic P2P Questionnaire
 
 Weaviate communicates to each other node over the `/peers/*` endpoint on the HTTPS P2P network. Nodes don't communicate with actual values, but with vector representations of the classes and kinds.
 
