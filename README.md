@@ -114,7 +114,7 @@ Every Weaviate instance needs to have two ontologies, one for Things and one for
 
 List of value types as defined in the ontologies;
 
-```
+```json
 [{
 		"name": "testString",
 		"@dataType": [
@@ -164,7 +164,7 @@ List of value types as defined in the ontologies;
 
 _Also see [this](https://github.com/creativesoftwarefdn/weaviate-semantic-schemas) repo for more examples._
 
-```
+```json
 {
 	"@context": "http://example.org",
 	"type": "thing",
