@@ -59,7 +59,7 @@ Weaviate is build with the following axioms in mind;
 
 ### Overview
 
-[image1]: https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_overview.jpg "Architectural overview"
+![Architectural overview](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_overview.jpg "Architectural overview")
 
 The above diagram contains a bird's eye view overview of Weaviate. Both human to machine and M2M communication is done over the RESTful endpoint. The ontology is validated through the semantic interface which translates all humanly readable requests into vector-based requests. 
 
@@ -217,7 +217,7 @@ Weaviate is an HTTPS-based Semantic P2P network. The network allows Weaviates to
 
 The P2P network operates in the following fashion;
 
-[image2]: https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_semP2PNetwork.jpg "Semantic P2P network"
+![Semantic P2P network](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_semP2PNetwork.jpg "Semantic P2P network")
 
 1. Genesis Weaviate collects vector from storage.
 2. New Weaviate makes itself known on `POST /peers`.
@@ -230,7 +230,7 @@ The P2P network operates in the following fashion;
 
 Weaviate communicates to each other node over the `/peers/*` endpoint on the HTTPS P2P network. Nodes don't communicate with actual values, but with vector representations of the classes and kinds.
 
-[image3]: https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_semInterface.jpg "Semantic Interface"
+![Semantic Interface](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_semInterface.jpg "Semantic Interface")
 
 Weaviate uses 300-dimensional [word vector representations](https://en.wikipedia.org/wiki/Word_embedding) that define the context of the request. The kinds and the weights of the kinds define the centroid of the vector.
 
@@ -238,7 +238,7 @@ An example of creating a vector on Ubuntu can be found in [this repo](https://gi
 
 #### Example
 
-[image3]: https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_vectorSpace.jpg "Semantic Interface"
+![Vector Spaces](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_vectorSpace.jpg "Vector Spaces")
 
 ## Usage
 
