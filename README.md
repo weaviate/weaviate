@@ -277,6 +277,10 @@ Weaviate is [open source](LICENSE.md); information for commercial use can be fou
  `/keys/{keyId}/children`      | GET    | No    | Get children of a key, only one step deep. A child can have children of its own.                                                                                       
  `/keys/{keyId}/renew-token`   | PUT    | No    | Renews the related key. Validates being lower in tree than given key. Can not renew itself, unless being parent.                                                       
  `/meta`                       | GET    | No    | Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.          
+ `/peers`                      | POST   | No    | Announce a new peer, authentication not needed (all peers are allowed to try and connect). This endpoint will only be used in M2M communications.                      
+ `/peers/answers/{answerId}`   | POST   | No    | Receive an answer based on a question from a peer in the network.                                                                                                      
+ `/peers/echo`                 | GET    | No    | Check if a peer is alive.                                                                                                                                              
+ `/peers/questions`            | POST   | No    | Receive a question from a peer in the network.                                                                                                                         
  `/things`                     | GET    | No    | Lists all things in reverse order of creation, owned by the user that belongs to the used token.                                                                       
  `/things`                     | POST   | No    | Registers a new thing. Given meta-data and schema values are validated.                                                                                                
  `/things/validate`            | POST   | No    | Validate a thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.                        
@@ -285,7 +289,7 @@ Weaviate is [open source](LICENSE.md); information for commercial use can be fou
  `/things/{thingId}`           | PATCH  | No    | Updates a thing data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
  `/things/{thingId}`           | PUT    | No    | Updates a thing data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.                                      
  `/things/{thingId}/actions`   | GET    | No    | Lists all actions in reverse order of creation, related to the thing that belongs to the used thingId.                                                                 
- `/things/{thingId}/history`   | GET    | No    | Returns a particular thing history.                                                                                                                                  
+ `/things/{thingId}/history`   | GET    | No    | Returns a particular thing history.                                                                                                                                    
 <!-- /markdown-swagger -->
 
 <sup>Mardown generated with `markdown-swagger OpenAPI-Specification/schema.json README.md`</sup>
