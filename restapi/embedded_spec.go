@@ -40,7 +40,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.9.0"
+    "version": "0.9.2"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -1783,7 +1783,7 @@ func init() {
           "description": "Description of the class",
           "type": "string"
         },
-        "kinds": {
+        "keywords": {
           "description": "Describes the kind of class. For example Geolocation for the class City.",
           "type": "array",
           "items": {
@@ -1821,6 +1821,22 @@ func init() {
         "description": {
           "description": "Description of the property",
           "type": "string"
+        },
+        "keywords": {
+          "description": "Describes the kind of class. For example Geolocation for the class City.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "weight": {
+                "type": "number",
+                "format": "float"
+              }
+            }
+          }
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",

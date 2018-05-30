@@ -34,7 +34,7 @@ type SemanticSchemaClass struct {
 	Description string `json:"description,omitempty"`
 
 	// Describes the kind of class. For example Geolocation for the class City.
-	Kinds []*SemanticSchemaClassKindsItems0 `json:"kinds"`
+	Keywords []*SemanticSchemaClassKeywordsItems0 `json:"keywords"`
 
 	// The properties of the class.
 	Properties []*SemanticSchemaClassProperty `json:"properties"`
@@ -44,7 +44,7 @@ type SemanticSchemaClass struct {
 
 /* polymorph SemanticSchemaClass description false */
 
-/* polymorph SemanticSchemaClass kinds false */
+/* polymorph SemanticSchemaClass keywords false */
 
 /* polymorph SemanticSchemaClass properties false */
 
@@ -52,7 +52,7 @@ type SemanticSchemaClass struct {
 func (m *SemanticSchemaClass) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateKinds(formats); err != nil {
+	if err := m.validateKeywords(formats); err != nil {
 		// prop
 		res = append(res, err)
 	}
@@ -68,23 +68,23 @@ func (m *SemanticSchemaClass) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *SemanticSchemaClass) validateKinds(formats strfmt.Registry) error {
+func (m *SemanticSchemaClass) validateKeywords(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.Kinds) { // not required
+	if swag.IsZero(m.Keywords) { // not required
 		return nil
 	}
 
-	for i := 0; i < len(m.Kinds); i++ {
+	for i := 0; i < len(m.Keywords); i++ {
 
-		if swag.IsZero(m.Kinds[i]) { // not required
+		if swag.IsZero(m.Keywords[i]) { // not required
 			continue
 		}
 
-		if m.Kinds[i] != nil {
+		if m.Keywords[i] != nil {
 
-			if err := m.Kinds[i].Validate(formats); err != nil {
+			if err := m.Keywords[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("kinds" + "." + strconv.Itoa(i))
+					return ve.ValidateName("keywords" + "." + strconv.Itoa(i))
 				}
 				return err
 			}
@@ -140,10 +140,10 @@ func (m *SemanticSchemaClass) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// SemanticSchemaClassKindsItems0 semantic schema class kinds items0
-// swagger:model SemanticSchemaClassKindsItems0
+// SemanticSchemaClassKeywordsItems0 semantic schema class keywords items0
+// swagger:model SemanticSchemaClassKeywordsItems0
 
-type SemanticSchemaClassKindsItems0 struct {
+type SemanticSchemaClassKeywordsItems0 struct {
 
 	// kind
 	Kind string `json:"kind,omitempty"`
@@ -152,12 +152,12 @@ type SemanticSchemaClassKindsItems0 struct {
 	Weight float32 `json:"weight,omitempty"`
 }
 
-/* polymorph SemanticSchemaClassKindsItems0 kind false */
+/* polymorph SemanticSchemaClassKeywordsItems0 kind false */
 
-/* polymorph SemanticSchemaClassKindsItems0 weight false */
+/* polymorph SemanticSchemaClassKeywordsItems0 weight false */
 
-// Validate validates this semantic schema class kinds items0
-func (m *SemanticSchemaClassKindsItems0) Validate(formats strfmt.Registry) error {
+// Validate validates this semantic schema class keywords items0
+func (m *SemanticSchemaClassKeywordsItems0) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if len(res) > 0 {
@@ -167,7 +167,7 @@ func (m *SemanticSchemaClassKindsItems0) Validate(formats strfmt.Registry) error
 }
 
 // MarshalBinary interface implementation
-func (m *SemanticSchemaClassKindsItems0) MarshalBinary() ([]byte, error) {
+func (m *SemanticSchemaClassKeywordsItems0) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -175,8 +175,8 @@ func (m *SemanticSchemaClassKindsItems0) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *SemanticSchemaClassKindsItems0) UnmarshalBinary(b []byte) error {
-	var res SemanticSchemaClassKindsItems0
+func (m *SemanticSchemaClassKeywordsItems0) UnmarshalBinary(b []byte) error {
+	var res SemanticSchemaClassKeywordsItems0
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

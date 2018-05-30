@@ -7,7 +7,7 @@
     "classes": [
         {
             "class": "TestThing",
-            "kinds": [{
+            "keywords": [{
                 "kind": "testThing1KindA",
                 "weight": 1.0
             },{
@@ -18,7 +18,7 @@
             "properties": [
                 {
                     "name": "testString",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -29,7 +29,7 @@
                 },
                 {
                     "name": "testInt",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -40,7 +40,7 @@
                 },
                 {
                     "name": "testBoolean",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -51,7 +51,7 @@
                 },
                 {
                     "name": "testNumber",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -62,7 +62,7 @@
                 },
                 {
                     "name": "testDateTime",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -73,7 +73,7 @@
                 },
                 {
                     "name": "testCref",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -83,7 +83,7 @@
                     "description": "Value of testCref."
                 }, {
                     "name": "testRandomType",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -96,7 +96,7 @@
         },
         {
             "class": "TestThing2",
-            "kinds": [{
+            "keywords": [{
                 "kind": "testThing2KindA",
                 "weight": 1.0
             },{
@@ -107,7 +107,7 @@
             "properties": [
                 {
                     "name": "testString",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -118,7 +118,7 @@
                 },
                 {
                     "name": "testInt",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -129,7 +129,7 @@
                 },
                 {
                     "name": "testBoolean",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -140,7 +140,7 @@
                 },
                 {
                     "name": "testNumber",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -151,7 +151,7 @@
                 },
                 {
                     "name": "testDateTime",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -162,7 +162,7 @@
                 },
                 {
                     "name": "testCref",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],
@@ -172,7 +172,7 @@
                     "description": "Value of testCref."
                 }, {
                     "name": "testRandomType",
-                    "kinds": [{
+                    "keywords": [{
                         "kind": "testActionKind",
                         "weight": 1.0
                     }],

@@ -100,14 +100,14 @@ Weaviate can support any database of your choosing. In the table below there is 
 
 ### Ontology
 
-Every Weaviate instance needs to have two ontologies, one for Things and one for Actions. Ontologies are always; class-, property-, value-based and classes and properties are enriched by a kind.
+Every Weaviate instance needs to have two ontologies, one for Things and one for Actions. Ontologies are always; class-, property-, value-based and classes and properties are enriched by a keyword.
 
 | Name          | Type     | Should be in Vector? | Mandatory? | Description |
 | ------------- |:--------:|:--------------------:|:----------:|--------------|
 | Class         | `string` | `true`               | `true`     | Noun for Things (i.e., "Place"), verb for action (i.e., "Bought" or "Buys") |
-| Class kind    | `array`  | `true`               | `false`    | An array of descriptions relative to the class. (i.e., the class "Place" might gave: "City" as a kind) |
+| Class keyword    | `array`  | `true`               | `false`    | An array of descriptions relative to the class. (i.e., the class "Place" might gave: "City" as a keyword) |
 | Property      | `string` | `true`               | `true`     | Property of the class. (i.e., "name" for "City") |
-| Property kind | `array`  | `true`               | `false`    | An array of descriptions relative to the class. (i.e., the class "Place" might gave: "City" as a kind) |
+| Property keyword | `array`  | `true`               | `false`    | An array of descriptions relative to the class. (i.e., the class "Place" might gave: "City" as a keyword) |
 | Value         | `string` | `false`              | `true`     | Value or refererence. |
 
 #### Value Types
@@ -173,8 +173,8 @@ _Also see [this](https://github.com/creativesoftwarefdn/weaviate-semantic-schema
   "maintainer": "hello@creativesoftwarefdn.org",
   "classes": [{
       "class": "City",
-      "kinds": [{
-        "kind": "Place",
+      "keywords": [{
+        "keyword": "Place",
         "weight": 1
       }],
       "description": "This is a test City",
@@ -210,8 +210,8 @@ _Also see [this](https://github.com/creativesoftwarefdn/weaviate-semantic-schema
     },
     {
       "class": "Country",
-      "kinds": [{
-        "kind": "Place",
+      "keywords": [{
+        "keyword": "Place",
         "weight": 1
       }],
       "description": "This is a Country",
@@ -244,11 +244,11 @@ The P2P network operates in the following fashion;
 
 ### Semantic P2P Questionnaire
 
-Weaviate communicates to each other node over the `/peers/*` endpoint on the HTTPS P2P network. Nodes don't communicate with actual values, but with vector representations of the classes and kinds.
+Weaviate communicates to each other node over the `/peers/*` endpoint on the HTTPS P2P network. Nodes don't communicate with actual values, but with vector representations of the classes and keywords.
 
 ![Semantic Interface](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_semInterface.jpg "Semantic Interface")
 
-Weaviate uses 300-dimensional [word vector representations](https://en.wikipedia.org/wiki/Word_embedding) that define the context of the request. The kinds and the weights of the kinds define the centroid of the vector.
+Weaviate uses 300-dimensional [word vector representations](https://en.wikipedia.org/wiki/Word_embedding) that define the context of the request. The keywords and the weights of the keywords define the centroid of the vector.
 
 An example of creating a vector on Ubuntu can be found in [this repo](https://github.com/creativesoftwarefdn/weaviate-vector-generator).
 
