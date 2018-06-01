@@ -102,13 +102,52 @@ Weaviate can support any database of your choosing. In the table below there is 
 
 Every Weaviate instance needs to have two ontologies, one for Things and one for Actions. Ontologies are always; class-, property-, value-based and classes and properties are enriched by a keyword.
 
-| Name          | Type     | Should be in Vector? | Mandatory? | Description |
-| ------------- |:--------:|:--------------------:|:----------:|--------------|
-| Class         | `string` | `true`               | `true`     | Noun for Things (i.e., "Place"), verb for action (i.e., "Bought" or "Buys") |
+| Name             | Type     | Should be in Vector? | Mandatory? | Description |
+| ---------------- |:--------:|:--------------------:|:----------:|-------------|
+| Class            | `string` | `true`               | `true`     | Noun for Things (i.e., "Place"), verb for action (i.e., "Bought" or "Buys") |
 | Class keyword    | `array`  | `true`               | `false`    | An array of descriptions relative to the class. (i.e., the class "Place" might gave: "City" as a keyword) |
-| Property      | `string` | `true`               | `true`     | Property of the class. (i.e., "name" for "City") |
+| Property         | `string` | `true`               | `true`     | Property of the class. (i.e., "name" for "City") |
 | Property keyword | `array`  | `true`               | `false`    | An array of descriptions relative to the class. (i.e., the class "Place" might gave: "City" as a keyword) |
-| Value         | `string` | `false`              | `true`     | Value or refererence. |
+| Value            | `string` | `false`              | `true`     | Value or refererence. |
+
+#### Keyword Characteristics in the Ontology
+
+Keywords are used to determine the context of the word, based on the location of the word in the vector space.
+
+Keywords are always stored in an array containing a weight. The keyword itself should be available in the vector space. The weights are -based on the chosen algorithm- used to determine the location of the class or property that the word depicts.
+
+The following excerpt depicts how the location in the vector space is determined to represent a "place that people live in."
+
+```
+...
+"class": "Place",
+"description": "This is a place that people live in",
+"keywords": [
+  {
+    "keyword": "city",
+    "weight": 0.9
+  },
+  {
+    "keyword": "town",
+    "weight": 0.8
+  },
+  {
+    "keyword": "village",
+    "weight": 0.7
+  },
+  {
+    "keyword": "people",
+    "weight": 0.2
+  }
+],
+...
+```
+
+_Note:_<br>
+Both [CamelCase](https://en.wikipedia.org/wiki/Camel_case) and camelCase are interpreted as being two words. Snake_case will be interpreted as one word and most probably will not be available in the vector space.
+
+_Note II:_<br>
+Although there is no distinction being made in the vector space between uppercase and lowercase. It is advised to keep classes CamelCase (or start with capital) and properties camelCase (start with lower).
 
 #### Value Types
 
@@ -167,63 +206,101 @@ _Also see [this](https://github.com/creativesoftwarefdn/weaviate-semantic-schema
 ```json
 {
   "@context": "http://example.org",
-  "type": "thing",
-  "version": "1.0.0",
-  "name": "example.org - Thing Test",
-  "maintainer": "hello@creativesoftwarefdn.org",
-  "classes": [{
+  "classes": [
+    {
       "class": "City",
-      "keywords": [{
-        "keyword": "Place",
-        "weight": 1
-      }],
       "description": "This is a test City",
-      "properties": [{
-          "name": "name",
+      "keywords": [
+        {
+          "keyword": "Place",
+          "weight": 1
+        }
+      ],
+      "properties": [
+        {
           "@dataType": [
             "string"
           ],
-          "description": "name of the city."
+          "description": "name of the city.",
+          "keywords": [
+            {
+              "keyword": "keyword",
+              "weight": 1
+            }
+          ],
+          "name": "name"
         },
         {
-          "name": "established",
           "@dataType": [
             "int"
           ],
-          "description": "Year of establishment."
+          "description": "Year of establishment.",
+          "keywords": [
+            {
+              "keyword": "keyword",
+              "weight": 1
+            }
+          ],
+          "name": "established"
         },
         {
-          "name": "inhabitants",
           "@dataType": [
             "number"
           ],
-          "description": "Number of inhabitants."
+          "description": "Number of inhabitants.",
+          "keywords": [
+            {
+              "keyword": "keyword",
+              "weight": 1
+            }
+          ],
+          "name": "inhabitants"
         },
         {
-          "name": "country",
           "@dataType": [
             "Country"
           ],
-          "description": "Country that the city is located in."
+          "description": "Country that the city is located in.",
+          "keywords": [
+            {
+              "keyword": "keyword",
+              "weight": 1
+            }
+          ],
+          "name": "country"
         }
       ]
     },
     {
       "class": "Country",
-      "keywords": [{
-        "keyword": "Place",
-        "weight": 1
-      }],
       "description": "This is a Country",
-      "properties": [{
-        "name": "name",
-        "@dataType": [
-          "string"
-        ],
-        "description": "Name of the country."
-      }]
+      "keywords": [
+        {
+          "keyword": "Place",
+          "weight": 1
+        }
+      ],
+      "properties": [
+        {
+          "@dataType": [
+            "string"
+          ],
+          "description": "Name of the country.",
+          "keywords": [
+            {
+              "keyword": "keyword",
+              "weight": 1
+            }
+          ],
+          "name": "name"
+        }
+      ]
     }
-  ]
+  ],
+  "maintainer": "hello@creativesoftwarefdn.org",
+  "name": "example.org - Thing Test",
+  "type": "thing",
+  "version": "1.0.0"
 }
 ```
 
