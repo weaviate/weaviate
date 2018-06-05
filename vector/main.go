@@ -12,7 +12,7 @@ type Vector {
 
 // API to decouple the K-nn interface that is needed for Weaviate from a concrete implementation.
 type VectorIndex interface {
-  // Return the number of items that is stored in the0
+  // Return the number of items that is stored in the index.
   GetNumberOfItems() int
 
   // Returns the length of the used vectors.
