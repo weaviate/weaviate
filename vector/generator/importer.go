@@ -20,6 +20,11 @@ type Options struct {
   OutputPrefix  string `short:"p" long:"output-prefix" description:"The prefix of the names of the files" required:"true"`
 }
 
+type WordVectorInfo struct {
+  numberOfWords int
+  vectorWidth int
+}
+
 func main() {
 	var options Options
 	var parser = flags.NewParser(&options, flags.Default)
@@ -46,20 +51,21 @@ func main() {
 	defer file.Close()
 
 	log.Print("Processing and ordering raw trained data")
-  _, nr_words := readVectorsFromFileAndInsertIntoLevelDB(db, file)
+  info := readVectorsFromFileAndInsertIntoLevelDB(db, file)
 
 	log.Print("Generating wordlist")
-	createWordList(db, nr_words, options.OutputPrefix + ".idx")
+	createWordList(db, info, options.OutputPrefix + ".idx")
 
 	log.Print("Generating k-nn index")
-	createKnn(db, options.OutputPrefix + ".knn")
+	createKnn(db, info, options.OutputPrefix + ".knn")
 
   db.Close()
   os.RemoveAll(options.TempDBPath)
 }
 
+
 // read word vectors, insert them into level db, also return the dimension of the vectors.
-func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) (int, int) {
+func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) WordVectorInfo {
 	var vector_length int = -1
 	var nr_words int = 0
 
@@ -99,10 +105,10 @@ func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) (int
     db.Put([]byte(word), buf.Bytes(), nil)
 	}
 
-	return vector_length, nr_words
+  return WordVectorInfo { numberOfWords: nr_words, vectorWidth: vector_length }
 }
 
-func createWordList(db *leveldb.DB, nr_words int, outputFileName string) {
+func createWordList(db *leveldb.DB, info WordVectorInfo, outputFileName string) {
 	file, err := os.Create(outputFileName)
 	if err != nil {
 		log.Fatal("Could not open wordlist output file")
@@ -111,13 +117,18 @@ func createWordList(db *leveldb.DB, nr_words int, outputFileName string) {
 
 	wbuf := bufio.NewWriter(file)
 
-	// First write nr of words
-	err = binary.Write(wbuf, binary.LittleEndian, uint64(nr_words))
+	// Write file header
+	err = binary.Write(wbuf, binary.LittleEndian, uint64(info.numberOfWords))
 	if err != nil {
-		log.Fatal("Could not write length of wordlist")
+		log.Fatal("Could not write length of wordlist.")
 	}
 
-	var word_offset uint64 = (1 + uint64(nr_words)) * 8
+	err = binary.Write(wbuf, binary.LittleEndian, uint64(info.vectorWidth))
+	if err != nil {
+		log.Fatal("Could not write with of the vector.")
+	}
+
+	var word_offset uint64 = (2 + uint64(info.numberOfWords)) * 8 // first two uint64's from the header, then the table of indices.
   var orig_word_offset = word_offset
 
   // Iterate first time over all data, computing indices for all words.
@@ -163,7 +174,7 @@ func createWordList(db *leveldb.DB, nr_words int, outputFileName string) {
   iter.Release()
 }
 
-func createKnn(db *leveldb.DB, outputFileName string) {
+func createKnn(db *leveldb.DB, info WordVectorInfo, outputFileName string) {
   var knn annoy.AnnoyIndex = annoy.NewAnnoyIndexManhattan(300)
   var idx int = -1
 
@@ -172,7 +183,7 @@ func createKnn(db *leveldb.DB, outputFileName string) {
   for iter.Next() {
     idx += 1
 
-    vector := make([]float32, 300)
+    vector := make([]float32, info.vectorWidth)
     err := gob.NewDecoder(bytes.NewBuffer(iter.Value())).Decode(&vector)
     if err != nil {
       log.Fatalf("Could not decode vector value %+v", err)
@@ -180,6 +191,7 @@ func createKnn(db *leveldb.DB, outputFileName string) {
     knn.AddItem(idx, vector)
   }
 
-  knn.Build(20)
+  knn.Build(20) // Hardcoded for now. Must be tweaked.
   knn.Save(outputFileName)
+  knn.Unload()
 }
