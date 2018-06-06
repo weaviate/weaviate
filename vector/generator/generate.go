@@ -172,6 +172,7 @@ func createWordList(db *leveldb.DB, info WordVectorInfo, outputFileName string) 
 
     word_offset += padding
   }
+  wbuf.Flush()
   iter.Release()
 }
 
