@@ -1,6 +1,12 @@
+package vector
+
+import (
+  "fmt"
+)
+
 // Combine multiple indices, present them as one.
 // It assumes that each index stores unique words
-func CombineVectorIndices(indices []VectorIndex) (*CombinedIndex) {
+func CombineVectorIndices(indices []VectorIndex) (*CombinedIndex, error) {
   // We join the ItemIndex spaces the indivual indices, by
   // offsetting the 2nd ItemIndex with len(indices[0]),
   // the 3rd ItemIndex space with len(indices[0]) + len(indices[1]), etc.
@@ -10,11 +16,11 @@ func CombineVectorIndices(indices []VectorIndex) (*CombinedIndex) {
   }
 
   offsets := make([]int, len(indices))
-  offset int = 0
+  var offset int = 0
 
   first_length := indices[0].GetVectorLength()
 
-  for i := range(len(indices)) {
+  for i := 0; i < len(indices); i++ {
     offsets[i] = offset
     offset += indices[i].GetNumberOfItems()
     my_length := indices[1].GetVectorLength()
@@ -24,10 +30,10 @@ func CombineVectorIndices(indices []VectorIndex) (*CombinedIndex) {
     }
   }
 
-  return CombinedIndex { indices, offsets }
+  return &CombinedIndex { indices, offsets }, nil
 }
 
-struct CombinedIndex {
+type CombinedIndex struct {
   indices []VectorIndex
   offsets []int
 }
@@ -38,8 +44,8 @@ func (ci *CombinedIndex) VerifyUniqueness() error {
 }
 
 func (ci *CombinedIndex) GetNumberOfItems() int {
-  sum int := 0
-  for index in ci.indices {
+  var sum int = 0
+  for _ = range(ci.indices) {
     sum += ci.GetNumberOfItems()
   }
 
@@ -50,28 +56,34 @@ func (ci *CombinedIndex) GetVectorLength() int {
   return ci.indices[0].GetVectorLength()
 }
 
-func (ci *CombinedIndex) WordToItemIndex(word string) ItemIndex {
+func (ci *CombinedIndex) WordToItemIndex(word string) (ItemIndex, error) {
   for i, index := range(ci.indices) {
-    item_index := index.WordToItemIndex(word)
+    item_index, err := index.WordToItemIndex(word)
 
-    if item_index.IsPresent() {
-      return item_index + ci.offsets[i]
+    if err != nil {
+      return -1, err
+    }
+
+    if (&item_index).IsPresent() {
+      return item_index + ItemIndex(ci.offsets[i]), nil
     }
   }
 
-  return -1
+  return -1, nil
 }
 
-func (ci *CombinedIndex) ItemIndexToWord(item ItemIndex) string {
+func (ci *CombinedIndex) ItemIndexToWord(item ItemIndex) (string, error) {
   for i, index := range(ci.indices) {
-    word := index.ItemIndexToWord(item - ci.offsets[i])
-
+    word, err := index.ItemIndexToWord(item - ItemIndex(ci.offsets[i]))
+    if err != nil {
+      return "", err
+    }
     if word != "" {
-      return word
+      return word, nil
     }
   }
 
-  return ""
+  return "", nil
 }
 
 //// etc

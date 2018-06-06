@@ -78,6 +78,7 @@ func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) Word
 		word := parts[0]
 		if vector_length == -1 {
 			vector_length = len(parts) - 1
+      print("SETTING VECTOR LENGTH TO ", vector_length, "\n")
 		}
 
 		if vector_length != len(parts)-1 {

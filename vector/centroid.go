@@ -1,6 +1,9 @@
+package vector
+
 func ComputeCentroid(vectors []Vector) Vector {
-  weights []float := make([]float32, len(vectors))
-  for i := range len(vectors) {
+  var weights []float32 = make([]float32, len(vectors))
+
+  for i := 0; i < len(vectors); i++ {
     weights[i] = 1.0
   }
 
@@ -8,5 +11,5 @@ func ComputeCentroid(vectors []Vector) Vector {
 }
 
 func ComputeWeightedCentroid(vectors []Vector, weights []float32) Vector {
-  return Vector { vector: [], }
+  return Vector { }
 }
