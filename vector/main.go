@@ -20,13 +20,13 @@ type VectorIndex interface {
 
   // Look up a word, return an index.
   // Check for presence of the index with index.IsPresent()
-  WordToItemIndex(word string) ItemIndex
+  WordToItemIndex(word string) (ItemIndex, error)
 
   // Based on an index, return the assosiated word.
-  ItemIndexToWord(ItemIndex) string
+  ItemIndexToWord(item ItemIndex) (string, error)
 
   // Get the vector of an item index.
-  GetVectorForItemIndex(item ItemIndex) Vector
+  GetVectorForItemIndex(item ItemIndex) (Vector, error)
 
   // Compute the distance between two items.
   GetDistance(a ItemIndex, b ItemIndex) Vector
