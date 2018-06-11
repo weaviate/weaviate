@@ -1,15 +1,15 @@
-package main
+package generator
 
 import (
+	annoy "github.com/creativesoftwarefdn/weaviate/vector/annoyindex"
 	"bufio"
+  "bytes"
 	"encoding/binary"
 	"encoding/gob"
+  "encoding/json"
 	"github.com/syndtr/goleveldb/leveldb"
 	"log"
 	"os"
-	annoy "github.com/creativesoftwarefdn/weaviate/vector/annoyindex"
-	flags "github.com/jessevdk/go-flags"
-  "bytes"
   "strconv"
   "strings"
 )
@@ -18,25 +18,23 @@ type Options struct {
 	VectorCSVPath string `short:"c" long:"vector-csv-path" description:"Path to the output file of Glove" required:"true"`
   TempDBPath    string `short:"t" long:"temp-db-path" description:"Location for the temporary database" default:".tmp_import"`
   OutputPrefix  string `short:"p" long:"output-prefix" description:"The prefix of the names of the files" required:"true"`
+  K int `short:"k" description:"number of forrests to generate" default:"20"`
 }
 
 type WordVectorInfo struct {
   numberOfWords int
   vectorWidth int
+  k int
+  metadata JsonMetadata
 }
 
-func main() {
-	var options Options
-	var parser = flags.NewParser(&options, flags.Default)
 
-	if _, err := parser.Parse(); err != nil {
-		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
-			os.Exit(0)
-		} else {
-			os.Exit(1)
-		}
-	}
+type JsonMetadata struct {
+  K int `json:"k"` // the number of parallel forrests.
+}
 
+
+func Generate(options Options) {
 	db, err := leveldb.OpenFile(options.TempDBPath, nil)
   defer db.Close()
 
@@ -52,6 +50,9 @@ func main() {
 
 	log.Print("Processing and ordering raw trained data")
   info := readVectorsFromFileAndInsertIntoLevelDB(db, file)
+
+  info.k = options.K
+  info.metadata = JsonMetadata { options.K }
 
 	log.Print("Generating wordlist")
 	createWordList(db, info, options.OutputPrefix + ".idx")
@@ -78,7 +79,6 @@ func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) Word
 		word := parts[0]
 		if vector_length == -1 {
 			vector_length = len(parts) - 1
-      print("SETTING VECTOR LENGTH TO ", vector_length, "\n")
 		}
 
 		if vector_length != len(parts)-1 {
@@ -88,8 +88,8 @@ func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) Word
 		// pre-allocate a vector for speed.
 		vector := make([]float32, vector_length)
 
-		for i := 1; i < vector_length; i++ {
-			float, err := strconv.ParseFloat(parts[i], 32)
+		for i := 1; i <= vector_length; i++ {
+			float, err := strconv.ParseFloat(parts[i], 64)
 
 			if err != nil {
 				log.Fatal("Error parsing float")
@@ -129,7 +129,30 @@ func createWordList(db *leveldb.DB, info WordVectorInfo, outputFileName string) 
 		log.Fatal("Could not write with of the vector.")
 	}
 
+  metadata, err := json.Marshal(info.metadata)
+  if err != nil {
+		log.Fatal("Could not serialize metadata.")
+  }
+
+	err = binary.Write(wbuf, binary.LittleEndian, uint64(len(metadata)))
+	if err != nil {
+		log.Fatal("Could not write with of the vector.")
+	}
+
+  _, err = wbuf.Write(metadata)
+	if err != nil {
+		log.Fatal("Could not write the metadata")
+	}
+
+  var metadata_len = uint64(len(metadata))
+  var metadata_padding = 4 - (metadata_len % 4)
+  for i := 0; uint64(i) < metadata_padding; i++ {
+    wbuf.WriteByte(byte(0))
+  }
+
 	var word_offset uint64 = (2 + uint64(info.numberOfWords)) * 8 // first two uint64's from the header, then the table of indices.
+  word_offset += 8 + metadata_len + metadata_padding // and the metadata length + content & padding
+
   var orig_word_offset = word_offset
 
   // Iterate first time over all data, computing indices for all words.
@@ -177,7 +200,7 @@ func createWordList(db *leveldb.DB, info WordVectorInfo, outputFileName string) 
 }
 
 func createKnn(db *leveldb.DB, info WordVectorInfo, outputFileName string) {
-  var knn annoy.AnnoyIndex = annoy.NewAnnoyIndexManhattan(300)
+  var knn annoy.AnnoyIndex = annoy.NewAnnoyIndexManhattan(info.vectorWidth)
   var idx int = -1
 
   iter := db.NewIterator(nil,nil)
@@ -193,7 +216,7 @@ func createKnn(db *leveldb.DB, info WordVectorInfo, outputFileName string) {
     knn.AddItem(idx, vector)
   }
 
-  knn.Build(20) // Hardcoded for now. Must be tweaked.
+  knn.Build(info.k) // Hardcoded for now. Must be tweaked.
   knn.Save(outputFileName)
   knn.Unload()
 }
