@@ -2,6 +2,7 @@ package vector
 
 import (
   "fmt"
+//  "math"
 )
 
 // Opaque type that models an index number used to identify a word.
@@ -36,6 +37,26 @@ func (v *Vector) EqualFloats(floats []float32) (bool, error) {
   }
 
   return true, nil
+}
+
+func dot(a []float32, b []float32) float32 {
+  var sum float32
+  if len(a) != len(b) {
+    panic("should be called with equal length slices")
+  }
+
+  for i := 0; i < len(a); i++ {
+    sum += a[i] * b[i]
+  }
+
+  return sum
+}
+
+func (v *Vector) Distance(other *Vector) float32 {
+  a := v.vector
+  b := other.vector
+
+  return dot(a,b) / (dot(a,a) * dot(b,b))
 }
 
 // API to decouple the K-nn interface that is needed for Weaviate from a concrete implementation.

@@ -203,9 +203,12 @@ func TestMMappedIndex(t *testing.T) {
       t.Errorf("apple pie should be 2nd closest to pie!, but was '%v'", closest_to)
     }
 
-    apple_fruit_dist := sum_dist(vectorTests[0].vec, vectorTests[3].vec)
+//    apple_fruit_dist := sum_dist(vectorTests[0].vec, vectorTests[3].vec)
+    v1 := NewVector(vectorTests[0].vec)
+    v2 := NewVector(vectorTests[3].vec)
+    apple_fruit_dist := v1.Distance(&v2)
     if !equal_float_epsilon(distances[0], apple_fruit_dist, 0.00001) {
-      t.Errorf("Wrong distance for fruit, expectec %v, got %v", apple_fruit_dist, distances[0])
+      t.Errorf("Wrong distance for fruit, expect %v, got %v", apple_fruit_dist, distances[0])
     }
 
     if !equal_float_epsilon(distances[1], 0, 0) {
