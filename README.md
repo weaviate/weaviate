@@ -28,8 +28,7 @@ Weaviate is not fully production ready yet. Follow this repo or sign up for the 
 
 ## Documentation
 
-- Running Weaviate (will soon be published on [www.semi.network](https://www.semi.network)).
-- Using Weaviate (will soon be published on [www.semi.network](https://www.semi.network)).
+[Full documentation is available here](https://www.semi.network/knowledge-base/implement/weaviate/).
 
 *Follow this repo or sign up for the [mailing list](http://eepurl.com/bRsMir) to stay informed about the progress.*
 
