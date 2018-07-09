@@ -17,13 +17,15 @@ func CombineVectorIndices(indices []VectorIndex) (*CombinedIndex, error) {
 	}
 
 	offsets := make([]int, len(indices))
+	sizes := make([]int, len(indices))
 	var offset int = 0
 
 	first_length := indices[0].GetVectorLength()
 
 	for i := 0; i < len(indices); i++ {
 		offsets[i] = offset
-		offset += indices[i].GetNumberOfItems()
+    sizes[i] = indices[i].GetNumberOfItems()
+		offset += sizes[i]
 		my_length := indices[1].GetVectorLength()
 
 		if first_length != my_length {
@@ -31,12 +33,14 @@ func CombineVectorIndices(indices []VectorIndex) (*CombinedIndex, error) {
 		}
 	}
 
-	return &CombinedIndex{indices, offsets}, nil
+  return &CombinedIndex { indices: indices, offsets: offsets, sizes: sizes, size: offset}, nil
 }
 
 type CombinedIndex struct {
 	indices []VectorIndex
 	offsets []int
+	sizes   []int
+  size    int
 }
 
 func (ci *CombinedIndex) GetNumberOfItems() int {
@@ -65,21 +69,13 @@ func (ci *CombinedIndex) WordToItemIndex(word string) (ItemIndex) {
 }
 
 func (ci *CombinedIndex) find_vector_index_for_item_index(item ItemIndex) (ItemIndex, *VectorIndex, error) {
-  current := 0
-
-  for next := 1; next < len(ci.indices); next ++ {
-    if ci.offsets[current] >= int(item) && ci.offsets[next] < int(item) {
-      return ItemIndex(ci.offsets[current]), &ci.indices[current], nil
+  for i := 0; i < len(ci.indices); i++ {
+    if ci.offsets[i] <= int(item) && int(item) < (ci.offsets[i] + ci.sizes[i]) {
+      return (item - ItemIndex(ci.offsets[i])), &ci.indices[i], nil
     }
-
-    current = next
   }
 
-  if ci.offsets[current] >= int(item) && (ci.offsets[current] + ci.indices[current].GetNumberOfItems()) < int(item) {
-    return ItemIndex(ci.offsets[current]), &ci.indices[current], nil
-  } else {
-    return 0, nil, fmt.Errorf("out of index")
-  }
+  return 0, nil, fmt.Errorf("out of index")
 }
 
 func (ci *CombinedIndex) ItemIndexToWord(item ItemIndex) (string, error) {

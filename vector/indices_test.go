@@ -153,8 +153,6 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
       if vector == nil {
         t.Errorf("Vector missing!")
         t.FailNow()
-      } else {
-        print(fmt.Sprintf("vector: %+v\n", vector))
       }
 
       // and check that it's correct
