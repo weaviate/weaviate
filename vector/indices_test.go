@@ -64,6 +64,10 @@ func TestMMappedIndex(t *testing.T) {
     t.Errorf("Could not load vectors from disk: %v", err)
   }
 
+  shared_tests(t, vi)
+}
+
+func shared_tests(t *testing.T, vi *VectorIndex) {
   t.Run("Iterate over all items", func (t *testing.T) {
     // Iterate over all items. Check index -> word, and lookup word -> index
     length := ItemIndex((*vi).GetNumberOfItems())
