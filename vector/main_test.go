@@ -5,7 +5,6 @@ import (
   "io/ioutil"
   "os"
   "fmt"
-  "math"
 
   "github.com/creativesoftwarefdn/weaviate/vector/generator"
 )
@@ -22,7 +21,6 @@ var vectorTests = []struct {
   { "fruit",    []float32{0.8, 0, 0} },
   { "company",  []float32{0,   0, 2} },
 }
-
 
 func TestMMappedIndex(t *testing.T) {
   tempdir, err := ioutil.TempDir("", "weaviate-vector-test")
@@ -97,7 +95,8 @@ func TestMMappedIndex(t *testing.T) {
       }
 
       // and check that it's correct
-      areEqual, err := vector.EqualFloats(vt.vec)
+      vtvec := NewVector(vt.vec)
+      areEqual, err := vector.Equal(&vtvec)
       if err != nil {
         t.Errorf("Could not compare the two vectors: %v", err)
       }
@@ -108,12 +107,13 @@ func TestMMappedIndex(t *testing.T) {
     }
   })
 
-
   t.Run("Test that the distances between all pairs of test data is correct", func (t *testing.T) {
     for i := 0; i < len(vectorTests); i ++ {
       for j := 0; j < len(vectorTests); j ++ {
         vt_a := vectorTests[i]
         vt_b := vectorTests[j]
+        vt_a_vec := NewVector(vt_a.vec)
+        vt_b_vec := NewVector(vt_b.vec)
 
         wi_a := (*vi).WordToItemIndex(vt_a.word)
         wi_b := (*vi).WordToItemIndex(vt_b.word)
@@ -122,7 +122,9 @@ func TestMMappedIndex(t *testing.T) {
         if err != nil {
           t.Errorf("Could not compute distance")
         }
-        simple_dist := dist(vt_a.vec, vt_b.vec)
+
+        simple_dist, err := vt_a_vec.Distance(&vt_b_vec)
+        if err != nil { panic("should be same length") }
 
         if !equal_float_epsilon(annoy_dist, simple_dist, 0.00003) {
           t.Errorf("Distance between %v and %v incorrect; %v (annoy) vs %v (test impl)", vt_a.word, vt_b.word, annoy_dist, simple_dist)
@@ -174,7 +176,7 @@ func TestMMappedIndex(t *testing.T) {
   })
 
   t.Run("Test k-nearest from vector", func (t *testing.T) {
-    var apple_pie = NewVector(/* centroid of apple and pie */ []float32{0.6, 0.5,0})
+    var apple_pie = NewVector(/* centroid of apple and pie */ []float32{0.5, 0.5,0})
 
     fruit_idx :=  (*vi).WordToItemIndex("fruit")
     apple_idx :=  (*vi).WordToItemIndex("apple")
@@ -190,59 +192,47 @@ func TestMMappedIndex(t *testing.T) {
 
     if res[0] != fruit_idx {
       closest_to, _ := (*vi).ItemIndexToWord(res[1])
-      t.Errorf("apple pie should be closest to fruit !, but was '%v'", closest_to)
+      t.Errorf("fruit should be closest to fruit !, but was '%v'", closest_to)
     }
 
     if res[1] != apple_idx {
       closest_to, _ := (*vi).ItemIndexToWord(res[1])
-      t.Errorf("apple pie should be closest to apple!, but was '%v'", closest_to)
+      t.Errorf("apple should be 2nd closest to apple!, but was '%v'", closest_to)
     }
 
     if res[2] != pie_idx {
       closest_to, _ := (*vi).ItemIndexToWord(res[2])
-      t.Errorf("apple pie should be 2nd closest to pie!, but was '%v'", closest_to)
+      t.Errorf("pie should be 3rd closest to pie!, but was '%v'", closest_to)
     }
 
-//    apple_fruit_dist := sum_dist(vectorTests[0].vec, vectorTests[3].vec)
-    v1 := NewVector(vectorTests[0].vec)
-    v2 := NewVector(vectorTests[3].vec)
-    apple_fruit_dist := v1.Distance(&v2)
-    if !equal_float_epsilon(distances[0], apple_fruit_dist, 0.00001) {
-      t.Errorf("Wrong distance for fruit, expect %v, got %v", apple_fruit_dist, distances[0])
+    v_fruit, err := (*vi).GetVectorForItemIndex(fruit_idx);
+    if err != nil { panic("could not fetch fruit vector") }
+
+    v_apple, err := (*vi).GetVectorForItemIndex(apple_idx);
+    if err != nil { panic("could not fetch apple vector") }
+
+    v_pie, err := (*vi).GetVectorForItemIndex(pie_idx);
+    if err != nil { panic("could not fetch pie vector") }
+
+    distance_to_fruit, err := apple_pie.Distance(v_fruit)
+    if err != nil { panic("should be same length") }
+    if !equal_float_epsilon(distances[0], distance_to_fruit, 0.0001) {
+      t.Errorf("Wrong distance for fruit, expect %v, got %v", distance_to_fruit, distances[0])
     }
 
-    if !equal_float_epsilon(distances[1], 0, 0) {
+    distance_to_apple, err := apple_pie.Distance(v_apple)
+    if err != nil { panic("should be same length") }
+    if !equal_float_epsilon(distances[1], distance_to_apple, 0.0001) {
       t.Errorf("Wrong distance for apple, got %v", distances[1])
     }
 
-    if !equal_float_epsilon(distances[2], 0, 0) {
-      t.Errorf("Wrong distance for pie, got %v", distances[2])
+    distance_to_pie, err := apple_pie.Distance(v_pie)
+    if err != nil { panic("should be same size") }
+    if !equal_float_epsilon(distances[2], distance_to_pie, 0.0001) {
+      t.Errorf("Wrong distance for pie, expected %v, got %v", distance_to_pie, distances[2])
     }
   });
 }
-
-func dist(a []float32, b []float32) float32 {
-  var sum float32
-
-  for i := 0; i < len(a); i ++ {
-    x := a[i] - b[i]
-    sum += x*x
-  }
-
-  return float32(math.Sqrt(float64(sum)))
-}
-
-func sum_dist(a []float32, b []float32) float32 {
-  var sum float32
-
-  for i := 0; i < len(a); i ++ {
-    x := a[i] - b[i]
-    sum += float32(math.Abs(float64(x)))
-  }
-
-  return float32(math.Sqrt(float64(sum)))
-}
-
 
 func equal_float_epsilon(a float32, b float32, epsilon float32) bool {
   var min, max float32
@@ -252,8 +242,8 @@ func equal_float_epsilon(a float32, b float32, epsilon float32) bool {
     max = b
   } else {
     min = b
-    max =a
+    max = a
   }
 
-  return max < (min + epsilon)
+  return max <= (min + epsilon)
 }
