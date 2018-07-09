@@ -34,7 +34,7 @@ func (a mib_pairs) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 func (a mib_pairs) Less(i, j int) bool { return a[i].word < a[j].word }
 
 // Construct a new builder.
-func Builder(dimensions int, trees int) *MemoryIndexBuilder {
+func InMemoryBuilder(dimensions int, trees int) *MemoryIndexBuilder {
   mib := MemoryIndexBuilder {
     dimensions: dimensions,
     trees: trees,

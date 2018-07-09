@@ -67,6 +67,18 @@ func TestMMappedIndex(t *testing.T) {
   shared_tests(t, vi)
 }
 
+func TestInMemoryIndex(t *testing.T) {
+  builder := InMemoryBuilder(3, 3)
+  for i := 0; i < len(vectorTests); i ++ {
+    v := vectorTests[i]
+    builder.AddWord(v.word, NewVector(v.vec))
+  }
+
+  memory_index := VectorIndex(builder.Build())
+
+  shared_tests(t, memory_index)
+}
+
 func shared_tests(t *testing.T, vi *VectorIndex) {
   t.Run("Iterate over all items", func (t *testing.T) {
     // Iterate over all items. Check index -> word, and lookup word -> index
