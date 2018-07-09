@@ -22,7 +22,7 @@ var vectorTests = []struct {
   { "company",  []float32{0,   0, 2} },
 }
 
-func TestMMappedIndex(t *testing.T) {
+func _TestMMappedIndex(t *testing.T) {
   tempdir, err := ioutil.TempDir("", "weaviate-vector-test")
 
   if err != nil {
@@ -67,7 +67,7 @@ func TestMMappedIndex(t *testing.T) {
   shared_tests(t, vi)
 }
 
-func TestInMemoryIndex(t *testing.T) {
+func _TestInMemoryIndex(t *testing.T) {
   builder := InMemoryBuilder(3)
   for i := 0; i < len(vectorTests); i ++ {
     v := vectorTests[i]
@@ -77,6 +77,38 @@ func TestInMemoryIndex(t *testing.T) {
   memory_index := VectorIndex(builder.Build(3))
 
   shared_tests(t, &memory_index)
+}
+
+func TestCombinedIndex(t *testing.T) {
+  builder1 := InMemoryBuilder(3)
+  builder2 := InMemoryBuilder(3)
+
+  split := 3
+
+  for i := 0; i < split; i ++ {
+    v := vectorTests[i]
+    builder1.AddWord(v.word, NewVector(v.vec))
+  }
+
+  for i := split; i < len(vectorTests); i ++ {
+    v := vectorTests[i]
+    builder2.AddWord(v.word, NewVector(v.vec))
+  }
+
+  memory_index1 := VectorIndex(builder1.Build(3))
+  memory_index2 := VectorIndex(builder2.Build(3))
+
+  var indices []VectorIndex = []VectorIndex { memory_index1, memory_index2, }
+
+  combined_index, err := CombineVectorIndices(indices)
+  if err != nil {
+    t.Errorf("Combining failed")
+    t.FailNow()
+  }
+
+  vi := VectorIndex(combined_index)
+
+  shared_tests(t, &vi)
 }
 
 func shared_tests(t *testing.T, vi *VectorIndex) {
@@ -116,6 +148,13 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
       vector, err := (*vi).GetVectorForItemIndex(word_index)
       if err != nil {
         t.Errorf("Could not get vector")
+      }
+
+      if vector == nil {
+        t.Errorf("Vector missing!")
+        t.FailNow()
+      } else {
+        print(fmt.Sprintf("vector: %+v\n", vector))
       }
 
       // and check that it's correct
@@ -167,6 +206,7 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
     }
     if len(res) != 2 {
       t.Errorf("Wrong number of items returned")
+      t.FailNow()
     }
     // res[0] will be fruit itself.
     if res[1] != apple_idx {
@@ -188,6 +228,7 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
     }
     if len(res) != 2 {
       t.Errorf("Wrong number of items returned")
+      t.FailNow()
     }
     // res[0] will be company itself.
     if res[1] != computer_idx {
@@ -232,7 +273,7 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
     }
 
     v_fruit, err := (*vi).GetVectorForItemIndex(fruit_idx);
-    if err != nil { panic("could not fetch fruit vector") }
+    if err != nil { t.Errorf("could not fetch fruit vector"); return }
 
     v_apple, err := (*vi).GetVectorForItemIndex(apple_idx);
     if err != nil { panic("could not fetch apple vector") }

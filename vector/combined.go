@@ -2,6 +2,7 @@ package vector
 
 import (
 	"fmt"
+  "sort"
 )
 
 // Combine multiple indices, present them as one.
@@ -38,15 +39,10 @@ type CombinedIndex struct {
 	offsets []int
 }
 
-// Verifies that all the indices do not contain overlapping words.
-func (ci *CombinedIndex) VerifyUniqueness() error {
-	return nil
-}
-
 func (ci *CombinedIndex) GetNumberOfItems() int {
 	var sum int = 0
-	for _ = range ci.indices {
-		sum += ci.GetNumberOfItems()
+  for _, vi := range ci.indices {
+		sum += vi.GetNumberOfItems()
 	}
 
 	return sum
@@ -68,18 +64,126 @@ func (ci *CombinedIndex) WordToItemIndex(word string) (ItemIndex) {
 	return -1
 }
 
-func (ci *CombinedIndex) ItemIndexToWord(item ItemIndex) (string, error) {
-	for i, index := range ci.indices {
-		word, err := index.ItemIndexToWord(item - ItemIndex(ci.offsets[i]))
-		if err != nil {
-			return "", err
-		}
-		if word != "" {
-			return word, nil
-		}
-	}
+func (ci *CombinedIndex) find_vector_index_for_item_index(item ItemIndex) (ItemIndex, *VectorIndex, error) {
+  current := 0
 
-	return "", nil
+  for next := 1; next < len(ci.indices); next ++ {
+    if ci.offsets[current] >= int(item) && ci.offsets[next] < int(item) {
+      return ItemIndex(ci.offsets[current]), &ci.indices[current], nil
+    }
+
+    current = next
+  }
+
+  if ci.offsets[current] >= int(item) && (ci.offsets[current] + ci.indices[current].GetNumberOfItems()) < int(item) {
+    return ItemIndex(ci.offsets[current]), &ci.indices[current], nil
+  } else {
+    return 0, nil, fmt.Errorf("out of index")
+  }
 }
 
-//// etc
+func (ci *CombinedIndex) ItemIndexToWord(item ItemIndex) (string, error) {
+  offset, vi, err := ci.find_vector_index_for_item_index(item)
+
+  if err != nil {
+    return "", err
+  }
+
+  offsetted_index := item - offset
+
+  word, err := (*vi).ItemIndexToWord(offsetted_index)
+  return word, err
+}
+
+func (ci *CombinedIndex) GetVectorForItemIndex(item ItemIndex) (*Vector, error) {
+  offset, vi, err := ci.find_vector_index_for_item_index(item)
+
+  if err != nil {
+    return nil, err
+  }
+
+  offsetted_index := item - offset
+
+  word, err := (*vi).GetVectorForItemIndex(offsetted_index)
+  return word, err
+}
+
+// Compute the distance between two items.
+func (ci *CombinedIndex) GetDistance(a ItemIndex, b ItemIndex) (float32, error) {
+  v1, err := ci.GetVectorForItemIndex(a)
+  if err != nil {
+    return 0.0, err
+  }
+
+  v2, err := ci.GetVectorForItemIndex(b)
+  if err != nil {
+    return 0.0, err
+  }
+
+  dist, err := v1.Distance(v2)
+  if err != nil {
+    return 0, err
+  }
+
+  return dist, nil
+}
+
+// Get the n nearest neighbours of item, examining k trees.
+// Returns an array of indices, and of distances between item and the n-nearest neighbors.
+func (ci *CombinedIndex) GetNnsByItem(item ItemIndex, n int, k int) ([]ItemIndex, []float32, error) {
+  vec, err := ci.GetVectorForItemIndex(item)
+  if err != nil {
+    return nil, nil, err
+  }
+
+  return ci.GetNnsByVector(*vec, n, k)
+}
+
+type combined_nn_search_result struct {
+  item ItemIndex
+  dist float32
+}
+
+type combined_nn_search_results []combined_nn_search_result
+func (a combined_nn_search_results) Len() int { return len(a) }
+func (a combined_nn_search_results) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a combined_nn_search_results) Less(i, j int) bool { return a[i].dist < a[j].dist }
+
+
+// Get the n nearest neighbours of item, examining k trees.
+// Returns an array of indices, and of distances between item and the n-nearest neighbors.
+func (ci *CombinedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex, []float32, error) {
+  results := make(combined_nn_search_results, 0)
+
+  for _, vi := range(ci.indices) {
+    indices, floats, err := vi.GetNnsByVector(vector, n, k)
+
+    if err != nil {
+      return nil, nil, err
+    } else {
+      for i, item := range(indices) {
+        results = append(results, combined_nn_search_result { item: item, dist: floats[i] })
+      }
+    }
+  }
+
+  sort.Sort(results)
+
+  items := make([]ItemIndex, 0)
+  floats := make([]float32, 0)
+
+  var max_index int
+
+  if k < len(results) {
+    max_index = k
+  } else {
+    max_index = len(results)
+  }
+
+  for i := 0; i < max_index; i ++ {
+    items  = append(items, results[i].item)
+    floats = append(floats, results[i].dist)
+  }
+
+  return items, floats, nil
+}
