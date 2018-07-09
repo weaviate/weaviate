@@ -68,18 +68,26 @@ func TestMMappedIndex(t *testing.T) {
 }
 
 func TestInMemoryIndex(t *testing.T) {
-  builder := InMemoryBuilder(3, 3)
+  builder := InMemoryBuilder(3)
   for i := 0; i < len(vectorTests); i ++ {
     v := vectorTests[i]
     builder.AddWord(v.word, NewVector(v.vec))
   }
 
-  memory_index := VectorIndex(builder.Build())
+  memory_index := VectorIndex(builder.Build(3))
 
-  shared_tests(t, memory_index)
+  shared_tests(t, &memory_index)
 }
 
 func shared_tests(t *testing.T, vi *VectorIndex) {
+  t.Run("Number of elements is correct", func (t *testing.T) {
+    expected := 5
+    found := (*vi).GetNumberOfItems()
+    if found != expected {
+      t.Errorf("Expected to have %v items, but found %v", expected, found)
+    }
+  })
+
   t.Run("Iterate over all items", func (t *testing.T) {
     // Iterate over all items. Check index -> word, and lookup word -> index
     length := ItemIndex((*vi).GetNumberOfItems())
@@ -200,10 +208,12 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
 
     res, distances, err := (*vi).GetNnsByVector(apple_pie, 3, 3)
     if err != nil {
-      t.Errorf("GetNNs failed!")
+      t.Errorf("GetNNs failed: %v", err)
+      t.FailNow()
     }
     if len(res) != 3 {
       t.Errorf("Wrong number of items returned")
+      t.FailNow()
     }
 
     if res[0] != fruit_idx {
