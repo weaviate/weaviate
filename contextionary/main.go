@@ -35,6 +35,29 @@ func (v *Vector) Equal(other *Vector) (bool, error) {
   return true, nil
 }
 
+func (v *Vector) Len() int {
+  return len(v.vector)
+}
+
+
+func (v *Vector) ToString() string {
+  str := "["
+  first := true
+  for _, i := range v.vector {
+    if first {
+      first = false
+    } else {
+      str += ", "
+    }
+
+    str += fmt.Sprintf("%.3f", i)
+  }
+
+  str += "]"
+
+  return str
+}
+
 func (v *Vector) Distance(other *Vector) (float32, error) {
   var sum float32
 
