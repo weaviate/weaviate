@@ -150,6 +150,13 @@ func (a combined_nn_search_results) Len() int { return len(a) }
 func (a combined_nn_search_results) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 func (a combined_nn_search_results) Less(i, j int) bool { return a[i].dist < a[j].dist }
 
+// Remove a certain element from the result search.
+func (a *combined_nn_search_results) Remove(i int) {
+  s := *a
+  s = append(s[:i], s[i+1:]...)
+  *a = s
+}
+
 
 // Get the n nearest neighbours of item, examining k trees.
 // Returns an array of indices, and of distances between item and the n-nearest neighbors.
@@ -169,6 +176,21 @@ func (ci *CombinedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemInde
   }
 
   sort.Sort(results)
+
+
+  // Now remove duplicates.
+  for i := 1; i < len(results); {
+    if results[i].item == results[i-1].item {
+      w, _:= ci.ItemIndexToWord(results[i].item)
+      fmt.Printf("Removing %v\n", w)
+      results.Remove(i)
+    } else {
+      w, _ := ci.ItemIndexToWord(results[i].item)
+      fmt.Printf("Keeping %v\n", w)
+      i++ // only increment if we're not removing.
+    }
+  }
+  fmt.Printf("DONE\n")
 
   items := make([]ItemIndex, 0)
   floats := make([]float32, 0)
