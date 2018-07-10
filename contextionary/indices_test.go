@@ -203,7 +203,7 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
       t.Errorf("GetNNs failed!")
     }
     if len(res) != 2 {
-      t.Errorf("Wrong number of items returned")
+      t.Errorf("Wrong number of items returned; got %v expected 2", len(res))
       t.FailNow()
     }
     // res[0] will be fruit itself.
@@ -225,7 +225,7 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
       t.Errorf("GetNNs failed!")
     }
     if len(res) != 2 {
-      t.Errorf("Wrong number of items returned")
+      t.Errorf("Wrong number of items returned; got %v expected 2", len(res))
       t.FailNow()
     }
     // res[0] will be company itself.
@@ -251,13 +251,13 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
       t.FailNow()
     }
     if len(res) != 3 {
-      t.Errorf("Wrong number of items returned")
+      t.Errorf("Wrong number of items returned; got %v expected 3", len(res))
       t.FailNow()
     }
 
     if res[0] != fruit_idx {
       closest_to, _ := (*vi).ItemIndexToWord(res[1])
-      t.Errorf("fruit should be closest to fruit !, but was '%v'", closest_to)
+      t.Errorf("fruit should be closest to fruit!, but was '%v'", closest_to)
     }
 
     if res[1] != apple_idx {
