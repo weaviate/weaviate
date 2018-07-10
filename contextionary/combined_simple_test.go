@@ -14,20 +14,20 @@ func TestSimpleCombinedIndex(t *testing.T) {
   builder3.AddWord("c", NewVector([]float32 { 0, 0, 1}))
 
 
-  memory_index1 := VectorIndex(builder1.Build(3))
-  memory_index2 := VectorIndex(builder2.Build(3))
-  memory_index3 := VectorIndex(builder3.Build(3))
+  memory_index1 := Contextionary(builder1.Build(3))
+  memory_index2 := Contextionary(builder2.Build(3))
+  memory_index3 := Contextionary(builder3.Build(3))
 
-  var indices123 []VectorIndex = []VectorIndex { memory_index1, memory_index2, memory_index3 }
-  var indices231 []VectorIndex = []VectorIndex { memory_index2, memory_index3, memory_index1 }
-  var indices312 []VectorIndex = []VectorIndex { memory_index3, memory_index1, memory_index2 }
+  var indices123 []Contextionary = []Contextionary { memory_index1, memory_index2, memory_index3 }
+  var indices231 []Contextionary = []Contextionary { memory_index2, memory_index3, memory_index1 }
+  var indices312 []Contextionary = []Contextionary { memory_index3, memory_index1, memory_index2 }
 
   t.Run("indices 123", func(t *testing.T) { test_simple_combined(t, indices123) })
   t.Run("indices 231", func(t *testing.T) { test_simple_combined(t, indices231) })
   t.Run("indices 312", func(t *testing.T) { test_simple_combined(t, indices312) })
 }
 
-func test_simple_combined(t *testing.T, indices []VectorIndex) {
+func test_simple_combined(t *testing.T, indices []Contextionary) {
   ci, err := CombineVectorIndices(indices)
   if err != nil { panic("should work") }
 

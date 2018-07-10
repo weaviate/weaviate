@@ -9,7 +9,7 @@ func (i *ItemIndex) IsPresent() bool {
 }
 
 // API to decouple the K-nn interface that is needed for Weaviate from a concrete implementation.
-type VectorIndex interface {
+type Contextionary interface {
 	// Return the number of items that is stored in the index.
 	GetNumberOfItems() int
 

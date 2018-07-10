@@ -14,12 +14,12 @@ type CombinedIndex struct {
 type combinedIndex struct {
   offset int
   size int
-  index *VectorIndex
+  index *Contextionary
 }
 
 // Combine multiple indices, present them as one.
 // It assumes that each index stores unique words
-func CombineVectorIndices(indices []VectorIndex) (*CombinedIndex, error) {
+func CombineVectorIndices(indices []Contextionary) (*CombinedIndex, error) {
 	// We join the ItemIndex spaces the indivual indices, by
 	// offsetting the 2nd ItemIndex with len(indices[0]),
 	// the 3rd ItemIndex space with len(indices[0]) + len(indices[1]), etc.
@@ -97,7 +97,7 @@ func (ci *CombinedIndex) WordToItemIndex(word string) (ItemIndex) {
 	return -1
 }
 
-func (ci *CombinedIndex) find_vector_index_for_item_index(item_index ItemIndex) (ItemIndex, *VectorIndex, error) {
+func (ci *CombinedIndex) find_vector_index_for_item_index(item_index ItemIndex) (ItemIndex, *Contextionary, error) {
   item := int(item_index)
 
   for _, idx := range ci.indices {

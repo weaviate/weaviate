@@ -74,7 +74,7 @@ func TestInMemoryIndex(t *testing.T) {
     builder.AddWord(v.word, NewVector(v.vec))
   }
 
-  memory_index := VectorIndex(builder.Build(3))
+  memory_index := Contextionary(builder.Build(3))
 
   shared_tests(t, &memory_index)
 }
@@ -95,17 +95,17 @@ func TestCombinedIndex(t *testing.T) {
     builder2.AddWord(v.word, NewVector(v.vec))
   }
 
-  memory_index1 := VectorIndex(builder1.Build(3))
-  memory_index2 := VectorIndex(builder2.Build(3))
+  memory_index1 := Contextionary(builder1.Build(3))
+  memory_index2 := Contextionary(builder2.Build(3))
 
-  var indices12 []VectorIndex = []VectorIndex { memory_index1, memory_index2, }
-  var indices21 []VectorIndex = []VectorIndex { memory_index2, memory_index1, }
+  var indices12 []Contextionary = []Contextionary { memory_index1, memory_index2, }
+  var indices21 []Contextionary = []Contextionary { memory_index2, memory_index1, }
 
   t.Run("indices 1,2", func(t *testing.T) { test_combined(t, indices12) })
   t.Run("indices 2,1", func(t *testing.T) { test_combined(t, indices21) })
 }
 
-func test_combined(t *testing.T, indices []VectorIndex) {
+func test_combined(t *testing.T, indices []Contextionary) {
   combined_index, err := CombineVectorIndices(indices)
   if err != nil {
     t.Errorf("Combining failed")
@@ -119,12 +119,12 @@ func test_combined(t *testing.T, indices []VectorIndex) {
     t.FailNow()
   }
 
-  vi := VectorIndex(combined_index)
+  vi := Contextionary(combined_index)
 
   shared_tests(t, &vi)
 }
 
-func shared_tests(t *testing.T, vi *VectorIndex) {
+func shared_tests(t *testing.T, vi *Contextionary) {
   t.Run("Number of elements is correct", func (t *testing.T) {
     expected := 5
     found := (*vi).GetNumberOfItems()
@@ -338,7 +338,7 @@ func equal_float_epsilon(a float32, b float32, epsilon float32) bool {
   return max <= (min + epsilon)
 }
 
-func debug_print_items(vi *VectorIndex, items []ItemIndex, distances []float32) string {
+func debug_print_items(vi *Contextionary, items []ItemIndex, distances []float32) string {
   result := ""
   for i, item := range(items) {
     w, _ := (*vi).ItemIndexToWord(item)
