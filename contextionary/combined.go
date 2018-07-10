@@ -5,6 +5,18 @@ import (
   "sort"
 )
 
+type CombinedIndex struct {
+  indices []combinedIndex
+  total_size    int
+  vector_length int
+}
+
+type combinedIndex struct {
+  offset int
+  size int
+  index *VectorIndex
+}
+
 // Combine multiple indices, present them as one.
 // It assumes that each index stores unique words
 func CombineVectorIndices(indices []VectorIndex) (*CombinedIndex, error) {
@@ -16,62 +28,59 @@ func CombineVectorIndices(indices []VectorIndex) (*CombinedIndex, error) {
 		return nil, fmt.Errorf("Less than two vector indices provided!")
 	}
 
-	offsets := make([]int, len(indices))
-	sizes := make([]int, len(indices))
+  combined_indices := make([]combinedIndex, len(indices))
+
 	var offset int = 0
 
-	first_length := indices[0].GetVectorLength()
+	vector_length := indices[0].GetVectorLength()
 
 	for i := 0; i < len(indices); i++ {
-		offsets[i] = offset
-    sizes[i] = indices[i].GetNumberOfItems()
-		offset += sizes[i]
-		my_length := indices[1].GetVectorLength()
+    size  := indices[i].GetNumberOfItems()
 
-		if first_length != my_length {
+    combined_indices[i] = combinedIndex {
+      offset: offset,
+      size: size,
+      index: &indices[i],
+    }
+
+		offset += size
+
+		my_length := indices[i].GetVectorLength()
+
+		if my_length != vector_length {
 			return nil, fmt.Errorf("vector length not equal")
 		}
 	}
 
-  return &CombinedIndex { indices: indices, offsets: offsets, sizes: sizes, size: offset}, nil
-}
-
-type CombinedIndex struct {
-	indices []VectorIndex
-	offsets []int
-	sizes   []int
-  size    int
+  return &CombinedIndex { indices: combined_indices, total_size: offset, vector_length: vector_length}, nil
 }
 
 func (ci *CombinedIndex) GetNumberOfItems() int {
-	var sum int = 0
-  for _, vi := range ci.indices {
-		sum += vi.GetNumberOfItems()
-	}
-
-	return sum
+	return ci.total_size
 }
 
 func (ci *CombinedIndex) GetVectorLength() int {
-	return ci.indices[0].GetVectorLength()
+	return ci.vector_length
 }
 
 func (ci *CombinedIndex) WordToItemIndex(word string) (ItemIndex) {
-	for i, index := range ci.indices {
-		item_index := index.WordToItemIndex(word)
+  for _, item := range ci.indices {
+		item_index := (*item.index).WordToItemIndex(word)
 
 		if (&item_index).IsPresent() {
-			return item_index + ItemIndex(ci.offsets[i])
+			return item_index + ItemIndex(item.offset)
 		}
-	}
+  }
 
 	return -1
 }
 
-func (ci *CombinedIndex) find_vector_index_for_item_index(item ItemIndex) (ItemIndex, *VectorIndex, error) {
-  for i := 0; i < len(ci.indices); i++ {
-    if ci.offsets[i] <= int(item) && int(item) < (ci.offsets[i] + ci.sizes[i]) {
-      return (item - ItemIndex(ci.offsets[i])), &ci.indices[i], nil
+func (ci *CombinedIndex) find_vector_index_for_item_index(item_index ItemIndex) (ItemIndex, *VectorIndex, error) {
+  item := int(item_index)
+
+  for _, idx := range ci.indices {
+    if item >= idx.offset && item < (idx.offset + idx.size) {
+      return ItemIndex(item - idx.offset), idx.index, nil
     }
   }
 
@@ -79,26 +88,22 @@ func (ci *CombinedIndex) find_vector_index_for_item_index(item ItemIndex) (ItemI
 }
 
 func (ci *CombinedIndex) ItemIndexToWord(item ItemIndex) (string, error) {
-  offset, vi, err := ci.find_vector_index_for_item_index(item)
+  offsetted_index, vi, err := ci.find_vector_index_for_item_index(item)
 
   if err != nil {
     return "", err
   }
-
-  offsetted_index := item - offset
 
   word, err := (*vi).ItemIndexToWord(offsetted_index)
   return word, err
 }
 
 func (ci *CombinedIndex) GetVectorForItemIndex(item ItemIndex) (*Vector, error) {
-  offset, vi, err := ci.find_vector_index_for_item_index(item)
+  offsetted_index, vi, err := ci.find_vector_index_for_item_index(item)
 
   if err != nil {
     return nil, err
   }
-
-  offsetted_index := item - offset
 
   word, err := (*vi).GetVectorForItemIndex(offsetted_index)
   return word, err
@@ -151,8 +156,8 @@ func (a combined_nn_search_results) Less(i, j int) bool { return a[i].dist < a[j
 func (ci *CombinedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex, []float32, error) {
   results := make(combined_nn_search_results, 0)
 
-  for _, vi := range(ci.indices) {
-    indices, floats, err := vi.GetNnsByVector(vector, n, k)
+  for _, item := range(ci.indices) {
+    indices, floats, err := (*item.index).GetNnsByVector(vector, n, k)
 
     if err != nil {
       return nil, nil, err
