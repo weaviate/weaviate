@@ -79,6 +79,7 @@ func _TestInMemoryIndex(t *testing.T) {
   shared_tests(t, &memory_index)
 }
 
+
 func TestCombinedIndex(t *testing.T) {
   builder1 := InMemoryBuilder(3)
   builder2 := InMemoryBuilder(3)
@@ -98,11 +99,24 @@ func TestCombinedIndex(t *testing.T) {
   memory_index1 := VectorIndex(builder1.Build(3))
   memory_index2 := VectorIndex(builder2.Build(3))
 
-  var indices []VectorIndex = []VectorIndex { memory_index1, memory_index2, }
+  var indices12 []VectorIndex = []VectorIndex { memory_index1, memory_index2, }
+  var indices21 []VectorIndex = []VectorIndex { memory_index2, memory_index1, }
 
+  t.Run("indices 1,2", func(t *testing.T) { test_combined(t, indices12) })
+  t.Run("indices 2,1", func(t *testing.T) { test_combined(t, indices21) })
+}
+
+func test_combined(t *testing.T, indices []VectorIndex) {
   combined_index, err := CombineVectorIndices(indices)
   if err != nil {
     t.Errorf("Combining failed")
+    t.FailNow()
+  }
+
+  err = combined_index.VerifyDisjoint()
+
+  if err != nil {
+    t.Errorf("Not disjoint; %v", err)
     t.FailNow()
   }
 
@@ -134,6 +148,7 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
       if i2 != i {
         t.Errorf("Index -> Word -> Index failed!. i=%v, w=%v i2=%v", i, word, i2)
       }
+
     }
   })
 
@@ -199,6 +214,7 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
     fruit_idx :=  (*vi).WordToItemIndex("fruit")
 
     res, distances, err := (*vi).GetNnsByItem(fruit_idx, 2, 3)
+    t.Logf("%v, %v, %v\n", res, distances, err)
     if err != nil {
       t.Errorf("GetNNs failed!")
     }
@@ -209,7 +225,7 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
     // res[0] will be fruit itself.
     if res[1] != apple_idx {
       closest_to, _ := (*vi).ItemIndexToWord(res[0])
-      t.Errorf("Fruit should be closest to apple, but was '%v'", closest_to)
+      t.Errorf("apple should be closest to apple, but was '%v'. all results:\n%v", closest_to, debug_print_items(vi, res))
     }
     if !equal_float_epsilon(distances[1], 0.2, 0.0002) {
       t.Errorf("Wrong distances!, got %v", distances[1])
@@ -258,6 +274,11 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
     if res[0] != fruit_idx {
       closest_to, _ := (*vi).ItemIndexToWord(res[1])
       t.Errorf("fruit should be closest to fruit!, but was '%v'", closest_to)
+      t.Errorf("got results: %+v", res)
+      for _, i := range(res) {
+        word, err := (*vi).ItemIndexToWord(i)
+        t.Errorf("got word: %v (err: %v)", word, err)
+      }
     }
 
     if res[1] != apple_idx {
@@ -311,4 +332,14 @@ func equal_float_epsilon(a float32, b float32, epsilon float32) bool {
   }
 
   return max <= (min + epsilon)
+}
+
+func debug_print_items(vi *VectorIndex, items []ItemIndex) string {
+  result := ""
+  for _, item := range(items) {
+    w, _ := (*vi).ItemIndexToWord(item)
+    result += fmt.Sprintf("%v: %v\n", item, w)
+  }
+
+  return result
 }

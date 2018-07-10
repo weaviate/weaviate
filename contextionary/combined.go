@@ -55,6 +55,28 @@ func CombineVectorIndices(indices []VectorIndex) (*CombinedIndex, error) {
   return &CombinedIndex { indices: combined_indices, total_size: offset, vector_length: vector_length}, nil
 }
 
+// Verify that all the indices are disjoint
+// Returns nil on success, an error if the words in the indices are not disjoint.
+func (ci *CombinedIndex) VerifyDisjoint() error {
+  for index_i , item_i := range ci.indices {
+    for i := ItemIndex(0); int(i) < item_i.size; i++ {
+      word, err := (*item_i.index).ItemIndexToWord(i)
+      if err != nil { panic("should not happen; this index should always be accessible") }
+
+      for index_j, item_j := range ci.indices {
+        if index_i != index_j {
+          result := (*(item_j.index)).WordToItemIndex(word)
+          if result.IsPresent() {
+            return fmt.Errorf("Word %v is in more than one index.", word)
+          }
+        }
+      }
+    }
+  }
+
+  return nil
+}
+
 func (ci *CombinedIndex) GetNumberOfItems() int {
 	return ci.total_size
 }
@@ -123,7 +145,7 @@ func (ci *CombinedIndex) GetDistance(a ItemIndex, b ItemIndex) (float32, error) 
 
   dist, err := v1.Distance(v2)
   if err != nil {
-    return 0, err
+    return 0.0, err
   }
 
   return dist, nil
@@ -164,13 +186,20 @@ func (ci *CombinedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemInde
   results := make(combined_nn_search_results, 0)
 
   for _, item := range(ci.indices) {
-    indices, floats, err := (*item.index).GetNnsByVector(vector, n, k)
+    indices, _, err := (*item.index).GetNnsByVector(vector, n, k)
 
     if err != nil {
       return nil, nil, err
     } else {
-      for i, item := range(indices) {
-        results = append(results, combined_nn_search_result { item: item, dist: floats[i] })
+      for _, item := range(indices) {
+        //results = append(results, combined_nn_search_result { item: item, dist: floats[i] })
+        v, err := ci.GetVectorForItemIndex(item)
+        if err != nil { panic("meh") }
+
+        d, err := (*v).Distance(&vector)
+        if err != nil { panic("meh") }
+
+        results = append(results, combined_nn_search_result { item: item, dist: d })
       }
     }
   }
