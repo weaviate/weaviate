@@ -23,11 +23,27 @@ func NewVector(vector []float32) Vector {
 
 func (v *Vector) Equal(other *Vector) (bool, error) {
   if len(v.vector) != len(other.vector) {
-    return false, fmt.Errorf("Vectors have different dimensions")
+    return false, fmt.Errorf("Vectors have different dimensions; %v vs %v", len(v.vector), len(other.vector))
   }
 
   for i, v := range v.vector {
     if other.vector[i] != v {
+      return false, nil
+    }
+  }
+
+  return true, nil
+}
+
+func (v *Vector) EqualEpsilon(other *Vector, epsilon float32) (bool, error) {
+  if len(v.vector) != len(other.vector) {
+    return false, fmt.Errorf("Vectors have different dimensions; %v vs %v", len(v.vector), len(other.vector))
+  }
+
+  for i, v := range v.vector {
+    v_min := v - epsilon
+    v_max := v + epsilon
+    if other.vector[i] < v_min && other.vector[i] > v_max {
       return false, nil
     }
   }
