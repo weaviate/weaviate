@@ -2,7 +2,7 @@ package main
 
 import (
 	flags "github.com/jessevdk/go-flags"
-  "github.com/creativesoftwarefdn/weaviate/vector/generator"
+  "github.com/creativesoftwarefdn/weaviate/contextionary/generator"
 )
 
 func main() {

@@ -1,7 +1,7 @@
-package vector
+package contextionary
 
-//// #include <string.h>
-//import "C"
+// //// #include <string.h>
+// //import "C"
 
 import (
 	"bytes"

@@ -1,8 +1,8 @@
-package vector
+package contextionary
 
 import (
 	"fmt"
-	annoy "github.com/creativesoftwarefdn/weaviate/vector/annoyindex"
+	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
 )
 
 type mmappedIndex struct {

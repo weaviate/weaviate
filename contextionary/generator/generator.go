@@ -1,7 +1,7 @@
 package generator
 
 import (
-	annoy "github.com/creativesoftwarefdn/weaviate/vector/annoyindex"
+	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
 	"bufio"
   "bytes"
 	"encoding/binary"
@@ -200,7 +200,7 @@ func createWordList(db *leveldb.DB, info WordVectorInfo, outputFileName string) 
 }
 
 func createKnn(db *leveldb.DB, info WordVectorInfo, outputFileName string) {
-  var knn annoy.AnnoyIndex = annoy.NewAnnoyIndexManhattan(info.vectorWidth)
+  var knn annoy.AnnoyIndex = annoy.NewAnnoyIndexEuclidean(info.vectorWidth)
   var idx int = -1
 
   iter := db.NewIterator(nil,nil)

@@ -1,4 +1,4 @@
-package vector
+package contextionary
 
 import (
 	"testing"
@@ -6,7 +6,7 @@ import (
   "os"
   "fmt"
 
-  "github.com/creativesoftwarefdn/weaviate/vector/generator"
+  "github.com/creativesoftwarefdn/weaviate/contextionary/generator"
 )
 
 // Test data

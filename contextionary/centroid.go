@@ -1,4 +1,4 @@
-package vector
+package contextionary
 
 func ComputeCentroid(vectors []Vector) Vector {
 	var weights []float32 = make([]float32, len(vectors))

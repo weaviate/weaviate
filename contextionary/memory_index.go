@@ -1,7 +1,7 @@
-package vector
+package contextionary
 
 import (
-	annoy "github.com/creativesoftwarefdn/weaviate/vector/annoyindex"
+	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
   "sort"
   "fmt"
 )
