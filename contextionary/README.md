@@ -5,10 +5,10 @@ It is based on [Spotify's Annoy Library](https://github.com/spotify/annoy), but 
 
 
 ## API
-The API that the user of this library will use is the VectorIndex interface.
+The API that the user of this library will use is the Contextionary interface.
 
 ```go
-type VectorIndex interface {
+type Contextionary interface {
 	// Return the number of items that is stored in the index.
 	GetNumberOfItems() int
 
@@ -62,7 +62,7 @@ An example of how to find close neighbours to a word:
 ```
 
 ## The different vector indicies
-There are several implementations of the `VectorIndex` interface
+There are several implementations of the `Contextionary` interface
 
 - A memory mapped one
 - In-memory index
@@ -89,9 +89,9 @@ builder.AddWord("my_word1", NewVector([]float32 { 0, 1, 2,}))
 //... etc ...
 builder.AddWord("my_word2", NewVector([]float32 { 42, 42, 42,}))
 
-// build three trees, and cast it to the VectorIndex interface
+// build three trees, and cast it to the Contextionary interface
 // Now it can be queried as described in the interface section.
-memory_index := VectorIndex(builder.Build(3))
+memory_index := Contextionary(builder.Build(3))
 ```
 
 
@@ -101,7 +101,7 @@ the ItemIndex ranges do not overlap; it provides an abstraction over underlying 
 Usage example:
 ```
 // assuming that we have two indices vi1 and vi2.
-var indices_to_be_combined []VectorIndex = { vi1, vi2, }
+var indices_to_be_combined []Contextionary = { vi1, vi2, }
 combined_index, err := contextionary.CombineVectorIndices(indices_to_be_combined)
 
 // after which it can be queries as descrbied in the interface section.
