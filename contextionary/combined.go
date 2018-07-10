@@ -167,23 +167,40 @@ type combined_nn_search_result struct {
   dist float32
 }
 
-type combined_nn_search_results []combined_nn_search_result
-func (a combined_nn_search_results) Len() int { return len(a) }
-func (a combined_nn_search_results) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
-func (a combined_nn_search_results) Less(i, j int) bool { return a[i].dist < a[j].dist }
+type combined_nn_search_results struct {
+  items []combined_nn_search_result
+  ci *CombinedIndex
+}
+
+func (a combined_nn_search_results) Len() int { return len(a.items) }
+func (a combined_nn_search_results) Swap(i, j int) { a.items[i], a.items[j] = a.items[j], a.items[i] }
+func (a combined_nn_search_results) Less(i, j int) bool {
+  // Sort on distance first, if those are the same, sort on lexographical order of the words.
+  if a.items[i].dist == a.items[j].dist {
+    wi, err  := a.ci.ItemIndexToWord(a.items[i].item)
+    if err != nil { panic("should be there") }
+
+    wj, err := a.ci.ItemIndexToWord(a.items[j].item)
+    if err != nil { panic("should be there") }
+    return wi < wj
+  } else {
+    return a.items[i].dist < a.items[j].dist
+  }
+}
 
 // Remove a certain element from the result search.
 func (a *combined_nn_search_results) Remove(i int) {
-  s := *a
-  s = append(s[:i], s[i+1:]...)
-  *a = s
+  a.items = append(a.items[:i], a.items[i+1:]...)
 }
 
 
 // Get the n nearest neighbours of item, examining k trees.
 // Returns an array of indices, and of distances between item and the n-nearest neighbors.
 func (ci *CombinedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex, []float32, error) {
-  results := make(combined_nn_search_results, 0)
+  results := combined_nn_search_results {
+    items: make([]combined_nn_search_result, 0),
+    ci: ci,
+  }
 
   for _, item := range(ci.indices) {
     indices, _, err := (*item.index).GetNnsByVector(vector, n, k)
@@ -191,15 +208,15 @@ func (ci *CombinedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemInde
     if err != nil {
       return nil, nil, err
     } else {
-      for _, item := range(indices) {
-        //results = append(results, combined_nn_search_result { item: item, dist: floats[i] })
-        v, err := ci.GetVectorForItemIndex(item)
+      for _, item_idx := range(indices) {
+        v, err := ci.GetVectorForItemIndex(item_idx)
         if err != nil { panic("meh") }
 
         d, err := (*v).Distance(&vector)
         if err != nil { panic("meh") }
 
-        results = append(results, combined_nn_search_result { item: item, dist: d })
+        //results.items = append(results.items, combined_nn_search_result { item: item, dist: floats[i] })
+        results.items = append(results.items, combined_nn_search_result { item: item_idx + ItemIndex(item.offset), dist: d })
       }
     }
   }
@@ -207,34 +224,36 @@ func (ci *CombinedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemInde
   sort.Sort(results)
 
 
+  fmt.Printf("LENGTH BEFORE: %v\n", len(results.items))
+  fmt.Printf("LENGTH BEFORE: %v\n", len(results.items))
   // Now remove duplicates.
-  for i := 1; i < len(results); {
-    if results[i].item == results[i-1].item {
-      w, _:= ci.ItemIndexToWord(results[i].item)
+  for i := 1; i < len(results.items); {
+    if results.items[i].item == results.items[i-1].item {
+      w, _:= ci.ItemIndexToWord(results.items[i].item)
       fmt.Printf("Removing %v\n", w)
       results.Remove(i)
     } else {
-      w, _ := ci.ItemIndexToWord(results[i].item)
+      w, _ := ci.ItemIndexToWord(results.items[i].item)
       fmt.Printf("Keeping %v\n", w)
       i++ // only increment if we're not removing.
     }
   }
-  fmt.Printf("DONE\n")
+  fmt.Printf("LENGTH AFTER REMOVING DUPLICATES: %v\n", len(results.items))
 
   items := make([]ItemIndex, 0)
   floats := make([]float32, 0)
 
   var max_index int
 
-  if n < len(results) {
+  if n < len(results.items) {
     max_index = n
   } else {
-    max_index = len(results)
+    max_index = len(results.items)
   }
 
   for i := 0; i < max_index; i ++ {
-    items  = append(items, results[i].item)
-    floats = append(floats, results[i].dist)
+    items  = append(items, results.items[i].item)
+    floats = append(floats, results.items[i].dist)
   }
 
   return items, floats, nil
