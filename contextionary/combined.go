@@ -175,8 +175,8 @@ func (ci *CombinedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemInde
 
   var max_index int
 
-  if k < len(results) {
-    max_index = k
+  if n < len(results) {
+    max_index = n
   } else {
     max_index = len(results)
   }
