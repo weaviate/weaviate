@@ -99,7 +99,7 @@ The **CombinedIndex**, which delegates to two or more other indicies, but makes 
 the ItemIndex ranges do not overlap; it provides an abstraction over underlying Vector Indices.
 
 Usage example:
-```
+```go
 // assuming that we have two indices vi1 and vi2.
 var indices_to_be_combined []Contextionary = { vi1, vi2, }
 combined_index, err := contextionary.CombineVectorIndices(indices_to_be_combined)
