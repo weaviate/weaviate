@@ -203,20 +203,13 @@ func (ci *CombinedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemInde
   }
 
   for _, item := range(ci.indices) {
-    indices, _, err := (*item.index).GetNnsByVector(vector, n, k)
+    indices, floats, err := (*item.index).GetNnsByVector(vector, n, k)
 
     if err != nil {
       return nil, nil, err
     } else {
-      for _, item_idx := range(indices) {
-        v, err := ci.GetVectorForItemIndex(item_idx)
-        if err != nil { panic("meh") }
-
-        d, err := (*v).Distance(&vector)
-        if err != nil { panic("meh") }
-
-        //results.items = append(results.items, combined_nn_search_result { item: item, dist: floats[i] })
-        results.items = append(results.items, combined_nn_search_result { item: item_idx + ItemIndex(item.offset), dist: d })
+      for i, item_idx := range(indices) {
+        results.items = append(results.items, combined_nn_search_result { item: item_idx + ItemIndex(item.offset), dist: floats[i] })
       }
     }
   }

@@ -220,13 +220,19 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
     }
     if len(res) != 2 {
       t.Errorf("Wrong number of items returned; got %v expected 2", len(res))
-      t.FailNow()
+//      t.FailNow()
     }
     // res[0] will be fruit itself.
-    if res[1] != apple_idx {
+    if res[0] != fruit_idx {
       closest_to, _ := (*vi).ItemIndexToWord(res[0])
-      t.Errorf("apple should be closest to apple, but was '%v'. all results:\n%v", closest_to, debug_print_items(vi, res))
+      t.Errorf("closest element should be itself, fruit, but was '%v'. all results:\n%v", closest_to, debug_print_items(vi, res, distances))
     }
+
+    if res[1] != apple_idx {
+      closest_to, _ := (*vi).ItemIndexToWord(res[1])
+      t.Errorf("apple should be closest to apple, but was '%v'. all results:\n%v", closest_to, debug_print_items(vi, res, distances))
+    }
+
     if !equal_float_epsilon(distances[1], 0.2, 0.0002) {
       t.Errorf("Wrong distances!, got %v", distances[1])
     }
@@ -334,11 +340,11 @@ func equal_float_epsilon(a float32, b float32, epsilon float32) bool {
   return max <= (min + epsilon)
 }
 
-func debug_print_items(vi *VectorIndex, items []ItemIndex) string {
+func debug_print_items(vi *VectorIndex, items []ItemIndex, distances []float32) string {
   result := ""
-  for _, item := range(items) {
+  for i, item := range(items) {
     w, _ := (*vi).ItemIndexToWord(item)
-    result += fmt.Sprintf("%v: %v\n", item, w)
+    result += fmt.Sprintf("%v: %v (%v)\n", item, w, distances[i])
   }
 
   return result
