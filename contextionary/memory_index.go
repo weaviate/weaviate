@@ -25,19 +25,9 @@ func (mi *MemoryIndex) GetVectorLength() int {
 // Look up a word, return an index.
 // Perform binary search.
 func (mi *MemoryIndex) WordToItemIndex(word string) ItemIndex {
-  var low ItemIndex = 0
-  var high ItemIndex = ItemIndex(len(mi.words))
-
-  for low <= high {
-		var midpoint ItemIndex = (low + high) / 2
-    var midpoint_word = mi.words[midpoint]
-
-    if word == midpoint_word {
-      return midpoint
-    } else if word < midpoint_word {
-      high = midpoint - 1
-    } else {
-      low = midpoint + 1
+  for idx, w := range(mi.words) {
+    if word == w {
+      return ItemIndex(idx)
     }
   }
 
