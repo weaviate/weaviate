@@ -149,19 +149,19 @@ func (f *Foobar) SetServerAddress(addr string) {
 func (f *Foobar) Connect() error {
 
 	/*
-	 * NOTE: EXPLAIN WHAT HAPPENS HERE
+	 * NOTE: EXAMPLE FOR WEBSOCKETS
 	 */
 
-	foobarWsAddress := fmt.Sprintf("ws://%s:%d/foobar", f.config.Host, f.config.Port)
+	// foobarWsAddress := fmt.Sprintf("ws://%s:%d/foobar", f.config.Host, f.config.Port)
 
-	var dialer *websocket.Dialer
+	// var dialer *websocket.Dialer
 
-	clientConn, _, err := dialer.Dial(foobarWsAddress, nil)
-	if err != nil {
-		return err
-	}
+	// clientConn, _, err := dialer.Dial(foobarWsAddress, nil)
+	// if err != nil {
+	// 	return err
+	// }
 
-	f.client = clientConn
+	// f.client = clientConn
 
 	// If success return nil, otherwise return the error (also see above)
 	return nil
