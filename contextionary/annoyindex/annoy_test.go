@@ -20,7 +20,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/bobvanluijt/annoy-go/annoyindex"
+	"github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
