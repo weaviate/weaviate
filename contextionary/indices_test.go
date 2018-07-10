@@ -22,7 +22,7 @@ var vectorTests = []struct {
   { "company",  []float32{0,   0, 2} },
 }
 
-func _TestMMappedIndex(t *testing.T) {
+func TestMMappedIndex(t *testing.T) {
   tempdir, err := ioutil.TempDir("", "weaviate-vector-test")
 
   if err != nil {
@@ -67,7 +67,7 @@ func _TestMMappedIndex(t *testing.T) {
   shared_tests(t, vi)
 }
 
-func _TestInMemoryIndex(t *testing.T) {
+func TestInMemoryIndex(t *testing.T) {
   builder := InMemoryBuilder(3)
   for i := 0; i < len(vectorTests); i ++ {
     v := vectorTests[i]
@@ -78,7 +78,6 @@ func _TestInMemoryIndex(t *testing.T) {
 
   shared_tests(t, &memory_index)
 }
-
 
 func TestCombinedIndex(t *testing.T) {
   builder1 := InMemoryBuilder(3)
@@ -220,7 +219,6 @@ func shared_tests(t *testing.T, vi *VectorIndex) {
     }
     if len(res) != 2 {
       t.Errorf("Wrong number of items returned; got %v expected 2", len(res))
-//      t.FailNow()
     }
     // res[0] will be fruit itself.
     if res[0] != fruit_idx {

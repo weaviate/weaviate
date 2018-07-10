@@ -217,21 +217,14 @@ func (ci *CombinedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemInde
   sort.Sort(results)
 
 
-  fmt.Printf("LENGTH BEFORE: %v\n", len(results.items))
-  fmt.Printf("LENGTH BEFORE: %v\n", len(results.items))
   // Now remove duplicates.
   for i := 1; i < len(results.items); {
     if results.items[i].item == results.items[i-1].item {
-      w, _:= ci.ItemIndexToWord(results.items[i].item)
-      fmt.Printf("Removing %v\n", w)
       results.Remove(i)
     } else {
-      w, _ := ci.ItemIndexToWord(results.items[i].item)
-      fmt.Printf("Keeping %v\n", w)
       i++ // only increment if we're not removing.
     }
   }
-  fmt.Printf("LENGTH AFTER REMOVING DUPLICATES: %v\n", len(results.items))
 
   items := make([]ItemIndex, 0)
   floats := make([]float32, 0)

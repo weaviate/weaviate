@@ -2,7 +2,6 @@ package contextionary
 
 import (
 	"testing"
-//  "fmt"
 )
 
 func TestSimpleCombinedIndex(t *testing.T) {
@@ -51,6 +50,8 @@ func test_simple_combined(t *testing.T, indices []VectorIndex) {
   }
 
   if len(items) != 3 { t.Errorf("got length %v, expected 3", len(items)); t.FailNow() }
+
+  // assert lexicographical order, if distances are equal
 
   assert_eq_idx("a", a_idx, items[0])
   assert_eq_idx("b", b_idx, items[1])
