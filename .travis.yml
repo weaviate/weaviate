@@ -29,6 +29,8 @@ before_script:
   - sudo apt-get -qq -y update
   - sudo apt-get -qq -y install jq coreutils
 script: 
+  # Run unit-like tests
+  - go test ./contextionary
   # Running Cassandra deamon
   - docker run -it --name weaviate_db_1_travis -e CASSANDRA_BROADCAST_ADDRESS=127.0.0.1 -p 7000:7000 -p 9042:9042 -v ~/cassandra:/var/lib/cassandra -d cassandra:3
   - sleep 45
@@ -42,7 +44,7 @@ script:
   - CASSANDRAIP=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' weaviate_db_1_travis)
   - ROOTTOKEN=$(cat nohup.out | grep -s ROOTTOKEN|sed 's/.*ROOTTOKEN=//')
   - ROOTKEY=$(cat nohup.out | grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
-  # Run the tests
+  # Run the integration tests
   - |
       # On error, quit
       set -e
