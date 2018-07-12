@@ -5,7 +5,7 @@ version=0.12.0
 
 # Always points to the directory of this script.
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-SWAGGER=$DIR/swagger
+SWAGGER=$DIR/swagger-${version}
 
 if [ ! -f $SWAGGER ]; then
   curl -o $SWAGGER -L'#' https://github.com/go-swagger/go-swagger/releases/download/$version/swagger_$(echo `uname`|tr '[:upper:]' '[:lower:]')_amd64
