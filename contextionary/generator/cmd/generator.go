@@ -1,9 +1,9 @@
 package main
 
 import (
+	"github.com/creativesoftwarefdn/weaviate/contextionary/generator"
 	flags "github.com/jessevdk/go-flags"
-  "github.com/creativesoftwarefdn/weaviate/contextionary/generator"
-  "os"
+	"os"
 )
 
 func main() {
@@ -18,5 +18,5 @@ func main() {
 		}
 	}
 
-  generator.Generate(options)
+	generator.Generate(options)
 }
