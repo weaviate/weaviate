@@ -116,6 +116,10 @@
 				"port": 1
 			}
 		},
+		"contextionary": {
+			"knn_file" : "test/contextionary/example.knn",
+			"idx_file" : "test/contextionary/example.idx"
+		},
 		"schemas": {
 			"Thing": "./test/schema/test-thing-schema.json",
 			"Action": "./test/schema/test-action-schema.json"

@@ -57,12 +57,15 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
 	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/creativesoftwarefdn/weaviate/validation"
+
+	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 )
 
 const pageOverride int = 1
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
 var databaseSchema schema.WeaviateSchema
+var contextionary *libcontextionary.Contextionary
 var serverConfig *config.WeaviateConfig
 var dbConnector dbconnector.DatabaseConnector
 var graphQLSchema *graphqlapi.GraphQLSchema
@@ -1296,6 +1299,8 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, err.Error())
 	}
 
+  loadContextionary()
+
 	// Connect to MQTT via Broker
 	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
 
@@ -1381,4 +1386,47 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 func setupGlobalMiddleware(handler http.Handler) http.Handler {
 	return handler
+}
+
+// This function loads the Contextionary database, and creates
+// an in-memory database for the centroids of the classes / properties in the Schema.
+func loadContextionary() {
+  // First load the file backed contextionary
+  if serverConfig.Environment.Contextionary.KNNFile == "" {
+    messaging.ExitError(78, "Contextionary KNN file not specified")
+  }
+
+  if serverConfig.Environment.Contextionary.IDXFile == "" {
+    messaging.ExitError(78, "Contextionary IDX file not specified")
+  }
+
+  mmaped_contextionary, err := libcontextionary.LoadVectorFromDisk(serverConfig.Environment.Contextionary.KNNFile, serverConfig.Environment.Contextionary.IDXFile)
+
+  if err != nil {
+    messaging.ExitError(78, fmt.Sprintf("Could not load Contextionary; %+v", err))
+  }
+
+  messaging.InfoMessage("Contextionary loaded from disk")
+
+  // Now create the in-memory contextionary based on the classes / properties.
+  in_memory_contextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(mmaped_contextionary)
+  if err != nil {
+    messaging.ExitError(78, fmt.Sprintf("Could not build in-memory contextionary from schema; %+v", err))
+  }
+
+  // Combine contextionaries
+  contextionaries := []libcontextionary.Contextionary{*in_memory_contextionary, *mmaped_contextionary}
+  combined, err := libcontextionary.CombineVectorIndices(contextionaries)
+
+  if err != nil {
+    messaging.ExitError(78, fmt.Sprintf("Could not combine the contextionary database with the in-memory generated contextionary; %+v", err))
+  }
+
+  messaging.InfoMessage("Contextionary extended with names in the schema")
+
+  // urgh, go.
+  x := libcontextionary.Contextionary(combined)
+  contextionary = &x
+
+  // whoop!
 }
