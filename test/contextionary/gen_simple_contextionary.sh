@@ -11,7 +11,7 @@ fi
 if [ -f test/contextionary/example.knn ]; then
   echo "Fixture contextionary already generated"
 else
-  vgo run contextionary/generator/cmd/generator.go \
+  go run contextionary/generator/cmd/generator.go \
     -c test/contextionary/en_test-vectors-small.txt \
     -p test/contextionary/example
 fi
