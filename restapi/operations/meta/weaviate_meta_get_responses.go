@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateMetaGetOKCode is the HTTP code returned for type WeaviateMetaGetOK
@@ -42,6 +42,7 @@ type WeaviateMetaGetOK struct {
 
 // NewWeaviateMetaGetOK creates WeaviateMetaGetOK with default headers values
 func NewWeaviateMetaGetOK() *WeaviateMetaGetOK {
+
 	return &WeaviateMetaGetOK{}
 }
 
@@ -80,11 +81,14 @@ type WeaviateMetaGetUnauthorized struct {
 
 // NewWeaviateMetaGetUnauthorized creates WeaviateMetaGetUnauthorized with default headers values
 func NewWeaviateMetaGetUnauthorized() *WeaviateMetaGetUnauthorized {
+
 	return &WeaviateMetaGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateMetaGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -101,11 +105,14 @@ type WeaviateMetaGetNotImplemented struct {
 
 // NewWeaviateMetaGetNotImplemented creates WeaviateMetaGetNotImplemented with default headers values
 func NewWeaviateMetaGetNotImplemented() *WeaviateMetaGetNotImplemented {
+
 	return &WeaviateMetaGetNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateMetaGetNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

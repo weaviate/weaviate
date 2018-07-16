@@ -26,7 +26,6 @@ import (
 
 // ActionHistoryObject action history object
 // swagger:model ActionHistoryObject
-
 type ActionHistoryObject struct {
 	ActionCreate
 
@@ -36,28 +35,29 @@ type ActionHistoryObject struct {
 
 // UnmarshalJSON unmarshals this object from a JSON structure
 func (m *ActionHistoryObject) UnmarshalJSON(raw []byte) error {
-
+	// AO0
 	var aO0 ActionCreate
 	if err := swag.ReadJSON(raw, &aO0); err != nil {
 		return err
 	}
 	m.ActionCreate = aO0
 
-	var data struct {
+	// AO1
+	var dataAO1 struct {
 		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 	}
-	if err := swag.ReadJSON(raw, &data); err != nil {
+	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
 	}
 
-	m.CreationTimeUnix = data.CreationTimeUnix
+	m.CreationTimeUnix = dataAO1.CreationTimeUnix
 
 	return nil
 }
 
 // MarshalJSON marshals this object to a JSON structure
 func (m ActionHistoryObject) MarshalJSON() ([]byte, error) {
-	var _parts [][]byte
+	_parts := make([][]byte, 0, 2)
 
 	aO0, err := swag.WriteJSON(m.ActionCreate)
 	if err != nil {
@@ -65,17 +65,17 @@ func (m ActionHistoryObject) MarshalJSON() ([]byte, error) {
 	}
 	_parts = append(_parts, aO0)
 
-	var data struct {
+	var dataAO1 struct {
 		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 	}
 
-	data.CreationTimeUnix = m.CreationTimeUnix
+	dataAO1.CreationTimeUnix = m.CreationTimeUnix
 
-	jsonData, err := swag.WriteJSON(data)
-	if err != nil {
-		return nil, err
+	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
+	if errAO1 != nil {
+		return nil, errAO1
 	}
-	_parts = append(_parts, jsonData)
+	_parts = append(_parts, jsonDataAO1)
 
 	return swag.ConcatJSON(_parts...), nil
 }
@@ -84,6 +84,7 @@ func (m ActionHistoryObject) MarshalJSON() ([]byte, error) {
 func (m *ActionHistoryObject) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	// validation for a type composition with ActionCreate
 	if err := m.ActionCreate.Validate(formats); err != nil {
 		res = append(res, err)
 	}

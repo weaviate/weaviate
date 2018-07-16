@@ -22,14 +22,15 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/validate"
 
 	strfmt "github.com/go-openapi/strfmt"
 )
 
 // NewWeaviateKeysRenewTokenParams creates a new WeaviateKeysRenewTokenParams object
-// with the default values initialized.
+// no default values defined in spec.
 func NewWeaviateKeysRenewTokenParams() WeaviateKeysRenewTokenParams {
-	var ()
+
 	return WeaviateKeysRenewTokenParams{}
 }
 
@@ -40,7 +41,7 @@ func NewWeaviateKeysRenewTokenParams() WeaviateKeysRenewTokenParams {
 type WeaviateKeysRenewTokenParams struct {
 
 	// HTTP Request Object
-	HTTPRequest *http.Request
+	HTTPRequest *http.Request `json:"-"`
 
 	/*Unique ID of the key.
 	  Required: true
@@ -50,9 +51,12 @@ type WeaviateKeysRenewTokenParams struct {
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
-// for simple values it will use straight method calls
+// for simple values it will use straight method calls.
+//
+// To ensure default values, the struct must have been initialized with NewWeaviateKeysRenewTokenParams() beforehand.
 func (o *WeaviateKeysRenewTokenParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
+
 	o.HTTPRequest = r
 
 	rKeyID, rhkKeyID, _ := route.Params.GetOK("keyId")
@@ -66,17 +70,35 @@ func (o *WeaviateKeysRenewTokenParams) BindRequest(r *http.Request, route *middl
 	return nil
 }
 
+// bindKeyID binds and validates parameter KeyID from path.
 func (o *WeaviateKeysRenewTokenParams) bindKeyID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
 	}
 
+	// Required: true
+	// Parameter is provided by construction from the route
+
+	// Format: uuid
 	value, err := formats.Parse("uuid", raw)
 	if err != nil {
 		return errors.InvalidType("keyId", "path", "strfmt.UUID", raw)
 	}
 	o.KeyID = *(value.(*strfmt.UUID))
 
+	if err := o.validateKeyID(formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateKeyID carries on validations for parameter KeyID
+func (o *WeaviateKeysRenewTokenParams) validateKeyID(formats strfmt.Registry) error {
+
+	if err := validate.FormatOf("keyId", "path", "uuid", o.KeyID.String(), formats); err != nil {
+		return err
+	}
 	return nil
 }

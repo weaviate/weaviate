@@ -20,13 +20,11 @@ package models
 import (
 	strfmt "github.com/go-openapi/strfmt"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
 )
 
 // KeyCreate key create
 // swagger:model KeyCreate
-
 type KeyCreate struct {
 
 	// Is user allowed to delete.
@@ -54,43 +52,8 @@ type KeyCreate struct {
 	Write bool `json:"write,omitempty"`
 }
 
-/* polymorph KeyCreate delete false */
-
-/* polymorph KeyCreate email false */
-
-/* polymorph KeyCreate execute false */
-
-/* polymorph KeyCreate ipOrigin false */
-
-/* polymorph KeyCreate isRoot false */
-
-/* polymorph KeyCreate keyExpiresUnix false */
-
-/* polymorph KeyCreate read false */
-
-/* polymorph KeyCreate write false */
-
 // Validate validates this key create
 func (m *KeyCreate) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validateIPOrigin(formats); err != nil {
-		// prop
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *KeyCreate) validateIPOrigin(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.IPOrigin) { // not required
-		return nil
-	}
-
 	return nil
 }
 

@@ -26,7 +26,6 @@ import (
 
 // Meta Contains meta information of the current Weaviate instance.
 // swagger:model Meta
-
 type Meta struct {
 
 	// actions schema
@@ -39,23 +38,15 @@ type Meta struct {
 	ThingsSchema *SemanticSchema `json:"thingsSchema,omitempty"`
 }
 
-/* polymorph Meta actionsSchema false */
-
-/* polymorph Meta hostname false */
-
-/* polymorph Meta thingsSchema false */
-
 // Validate validates this meta
 func (m *Meta) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateActionsSchema(formats); err != nil {
-		// prop
 		res = append(res, err)
 	}
 
 	if err := m.validateThingsSchema(formats); err != nil {
-		// prop
 		res = append(res, err)
 	}
 
@@ -72,7 +63,6 @@ func (m *Meta) validateActionsSchema(formats strfmt.Registry) error {
 	}
 
 	if m.ActionsSchema != nil {
-
 		if err := m.ActionsSchema.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("actionsSchema")
@@ -91,7 +81,6 @@ func (m *Meta) validateThingsSchema(formats strfmt.Registry) error {
 	}
 
 	if m.ThingsSchema != nil {
-
 		if err := m.ThingsSchema.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("thingsSchema")

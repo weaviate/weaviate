@@ -29,7 +29,6 @@ import (
 
 // VectorBasedQuestion receive question based on array of classes, properties and values.
 // swagger:model VectorBasedQuestion
-
 type VectorBasedQuestion []*VectorBasedQuestionItems0
 
 // Validate validates this vector based question
@@ -37,13 +36,11 @@ func (m VectorBasedQuestion) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	for i := 0; i < len(m); i++ {
-
 		if swag.IsZero(m[i]) { // not required
 			continue
 		}
 
 		if m[i] != nil {
-
 			if err := m[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName(strconv.Itoa(i))
@@ -62,7 +59,6 @@ func (m VectorBasedQuestion) Validate(formats strfmt.Registry) error {
 
 // VectorBasedQuestionItems0 vector based question items0
 // swagger:model VectorBasedQuestionItems0
-
 type VectorBasedQuestionItems0 struct {
 
 	// Vectorized properties.
@@ -76,21 +72,15 @@ type VectorBasedQuestionItems0 struct {
 	ClassVectors []float32 `json:"classVectors"`
 }
 
-/* polymorph VectorBasedQuestionItems0 classProps false */
-
-/* polymorph VectorBasedQuestionItems0 classVectors false */
-
 // Validate validates this vector based question items0
 func (m *VectorBasedQuestionItems0) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateClassProps(formats); err != nil {
-		// prop
 		res = append(res, err)
 	}
 
 	if err := m.validateClassVectors(formats); err != nil {
-		// prop
 		res = append(res, err)
 	}
 
@@ -117,13 +107,11 @@ func (m *VectorBasedQuestionItems0) validateClassProps(formats strfmt.Registry) 
 	}
 
 	for i := 0; i < len(m.ClassProps); i++ {
-
 		if swag.IsZero(m.ClassProps[i]) { // not required
 			continue
 		}
 
 		if m.ClassProps[i] != nil {
-
 			if err := m.ClassProps[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("classProps" + "." + strconv.Itoa(i))
@@ -176,7 +164,6 @@ func (m *VectorBasedQuestionItems0) UnmarshalBinary(b []byte) error {
 
 // VectorBasedQuestionItems0ClassPropsItems0 vector based question items0 class props items0
 // swagger:model VectorBasedQuestionItems0ClassPropsItems0
-
 type VectorBasedQuestionItems0ClassPropsItems0 struct {
 
 	// props vectors
@@ -186,31 +173,8 @@ type VectorBasedQuestionItems0ClassPropsItems0 struct {
 	Value string `json:"value,omitempty"`
 }
 
-/* polymorph VectorBasedQuestionItems0ClassPropsItems0 propsVectors false */
-
-/* polymorph VectorBasedQuestionItems0ClassPropsItems0 value false */
-
 // Validate validates this vector based question items0 class props items0
 func (m *VectorBasedQuestionItems0ClassPropsItems0) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validatePropsVectors(formats); err != nil {
-		// prop
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *VectorBasedQuestionItems0ClassPropsItems0) validatePropsVectors(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.PropsVectors) { // not required
-		return nil
-	}
-
 	return nil
 }
 

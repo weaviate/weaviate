@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateActionHistoryGetOKCode is the HTTP code returned for type WeaviateActionHistoryGetOK
@@ -42,6 +42,7 @@ type WeaviateActionHistoryGetOK struct {
 
 // NewWeaviateActionHistoryGetOK creates WeaviateActionHistoryGetOK with default headers values
 func NewWeaviateActionHistoryGetOK() *WeaviateActionHistoryGetOK {
+
 	return &WeaviateActionHistoryGetOK{}
 }
 
@@ -80,11 +81,14 @@ type WeaviateActionHistoryGetUnauthorized struct {
 
 // NewWeaviateActionHistoryGetUnauthorized creates WeaviateActionHistoryGetUnauthorized with default headers values
 func NewWeaviateActionHistoryGetUnauthorized() *WeaviateActionHistoryGetUnauthorized {
+
 	return &WeaviateActionHistoryGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateActionHistoryGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -101,11 +105,14 @@ type WeaviateActionHistoryGetForbidden struct {
 
 // NewWeaviateActionHistoryGetForbidden creates WeaviateActionHistoryGetForbidden with default headers values
 func NewWeaviateActionHistoryGetForbidden() *WeaviateActionHistoryGetForbidden {
+
 	return &WeaviateActionHistoryGetForbidden{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateActionHistoryGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -122,11 +129,14 @@ type WeaviateActionHistoryGetNotFound struct {
 
 // NewWeaviateActionHistoryGetNotFound creates WeaviateActionHistoryGetNotFound with default headers values
 func NewWeaviateActionHistoryGetNotFound() *WeaviateActionHistoryGetNotFound {
+
 	return &WeaviateActionHistoryGetNotFound{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateActionHistoryGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -143,11 +153,14 @@ type WeaviateActionHistoryGetNotImplemented struct {
 
 // NewWeaviateActionHistoryGetNotImplemented creates WeaviateActionHistoryGetNotImplemented with default headers values
 func NewWeaviateActionHistoryGetNotImplemented() *WeaviateActionHistoryGetNotImplemented {
+
 	return &WeaviateActionHistoryGetNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateActionHistoryGetNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateGraphqlPostOKCode is the HTTP code returned for type WeaviateGraphqlPostOK
@@ -42,6 +42,7 @@ type WeaviateGraphqlPostOK struct {
 
 // NewWeaviateGraphqlPostOK creates WeaviateGraphqlPostOK with default headers values
 func NewWeaviateGraphqlPostOK() *WeaviateGraphqlPostOK {
+
 	return &WeaviateGraphqlPostOK{}
 }
 
@@ -80,11 +81,14 @@ type WeaviateGraphqlPostUnauthorized struct {
 
 // NewWeaviateGraphqlPostUnauthorized creates WeaviateGraphqlPostUnauthorized with default headers values
 func NewWeaviateGraphqlPostUnauthorized() *WeaviateGraphqlPostUnauthorized {
+
 	return &WeaviateGraphqlPostUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateGraphqlPostUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -101,11 +105,14 @@ type WeaviateGraphqlPostForbidden struct {
 
 // NewWeaviateGraphqlPostForbidden creates WeaviateGraphqlPostForbidden with default headers values
 func NewWeaviateGraphqlPostForbidden() *WeaviateGraphqlPostForbidden {
+
 	return &WeaviateGraphqlPostForbidden{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateGraphqlPostForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -127,6 +134,7 @@ type WeaviateGraphqlPostUnprocessableEntity struct {
 
 // NewWeaviateGraphqlPostUnprocessableEntity creates WeaviateGraphqlPostUnprocessableEntity with default headers values
 func NewWeaviateGraphqlPostUnprocessableEntity() *WeaviateGraphqlPostUnprocessableEntity {
+
 	return &WeaviateGraphqlPostUnprocessableEntity{}
 }
 
@@ -165,11 +173,14 @@ type WeaviateGraphqlPostNotImplemented struct {
 
 // NewWeaviateGraphqlPostNotImplemented creates WeaviateGraphqlPostNotImplemented with default headers values
 func NewWeaviateGraphqlPostNotImplemented() *WeaviateGraphqlPostNotImplemented {
+
 	return &WeaviateGraphqlPostNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateGraphqlPostNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

@@ -22,42 +22,44 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // ActionGetResponse action get response
 // swagger:model ActionGetResponse
-
 type ActionGetResponse struct {
 	Action
 
 	// ID of the action.
+	// Format: uuid
 	ActionID strfmt.UUID `json:"actionId,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
 func (m *ActionGetResponse) UnmarshalJSON(raw []byte) error {
-
+	// AO0
 	var aO0 Action
 	if err := swag.ReadJSON(raw, &aO0); err != nil {
 		return err
 	}
 	m.Action = aO0
 
-	var data struct {
+	// AO1
+	var dataAO1 struct {
 		ActionID strfmt.UUID `json:"actionId,omitempty"`
 	}
-	if err := swag.ReadJSON(raw, &data); err != nil {
+	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
 	}
 
-	m.ActionID = data.ActionID
+	m.ActionID = dataAO1.ActionID
 
 	return nil
 }
 
 // MarshalJSON marshals this object to a JSON structure
 func (m ActionGetResponse) MarshalJSON() ([]byte, error) {
-	var _parts [][]byte
+	_parts := make([][]byte, 0, 2)
 
 	aO0, err := swag.WriteJSON(m.Action)
 	if err != nil {
@@ -65,17 +67,17 @@ func (m ActionGetResponse) MarshalJSON() ([]byte, error) {
 	}
 	_parts = append(_parts, aO0)
 
-	var data struct {
+	var dataAO1 struct {
 		ActionID strfmt.UUID `json:"actionId,omitempty"`
 	}
 
-	data.ActionID = m.ActionID
+	dataAO1.ActionID = m.ActionID
 
-	jsonData, err := swag.WriteJSON(data)
-	if err != nil {
-		return nil, err
+	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
+	if errAO1 != nil {
+		return nil, errAO1
 	}
-	_parts = append(_parts, jsonData)
+	_parts = append(_parts, jsonDataAO1)
 
 	return swag.ConcatJSON(_parts...), nil
 }
@@ -84,13 +86,31 @@ func (m ActionGetResponse) MarshalJSON() ([]byte, error) {
 func (m *ActionGetResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	// validation for a type composition with Action
 	if err := m.Action.Validate(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateActionID(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ActionGetResponse) validateActionID(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.ActionID) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("actionId", "body", "uuid", m.ActionID.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 

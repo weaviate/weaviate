@@ -62,6 +62,7 @@ func (o *WeaviateActionsPatchURL) Build() (*url.URL, error) {
 	} else {
 		return nil, errors.New("ActionID is required on WeaviateActionsPatchURL")
 	}
+
 	_basePath := o._basePath
 	if _basePath == "" {
 		_basePath = "/weaviate/v1"

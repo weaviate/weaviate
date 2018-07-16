@@ -37,7 +37,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	gographql "github.com/graphql-go/graphql"
-	graceful "github.com/tylerb/graceful"
 	"google.golang.org/grpc/grpclog"
 
 	"github.com/creativesoftwarefdn/weaviate/auth"
@@ -1271,7 +1270,7 @@ func configureTLS(tlsConfig *tls.Config) {
 // If you need to modify a config, store server instance to stop it individually later, this is the place.
 // This function can be called multiple times, depending on the number of serving schemes.
 // scheme value will be set accordingly: "http", "https" or "unix"
-func configureServer(s *graceful.Server, scheme, addr string) {
+func configureServer(s *http.Server, scheme, addr string) {
 	// Create message service
 	messaging = &messages.Messaging{}
 

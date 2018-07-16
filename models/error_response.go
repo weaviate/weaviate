@@ -26,21 +26,17 @@ import (
 
 // ErrorResponse An error response given by Weaviate end-points.
 // swagger:model ErrorResponse
-
 type ErrorResponse struct {
 
 	// error
 	Error *ErrorResponseError `json:"error,omitempty"`
 }
 
-/* polymorph ErrorResponse error false */
-
 // Validate validates this error response
 func (m *ErrorResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateError(formats); err != nil {
-		// prop
 		res = append(res, err)
 	}
 
@@ -57,7 +53,6 @@ func (m *ErrorResponse) validateError(formats strfmt.Registry) error {
 	}
 
 	if m.Error != nil {
-
 		if err := m.Error.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("error")
@@ -89,22 +84,14 @@ func (m *ErrorResponse) UnmarshalBinary(b []byte) error {
 
 // ErrorResponseError error response error
 // swagger:model ErrorResponseError
-
 type ErrorResponseError struct {
 
 	// message
 	Message string `json:"message,omitempty"`
 }
 
-/* polymorph ErrorResponseError message false */
-
 // Validate validates this error response error
 func (m *ErrorResponseError) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
 	return nil
 }
 

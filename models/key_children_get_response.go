@@ -26,22 +26,39 @@ import (
 
 // KeyChildrenGetResponse key children get response
 // swagger:model KeyChildrenGetResponse
-
 type KeyChildrenGetResponse struct {
 
 	// children
 	Children MultipleRef `json:"children"`
 }
 
-/* polymorph KeyChildrenGetResponse children false */
-
 // Validate validates this key children get response
 func (m *KeyChildrenGetResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateChildren(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *KeyChildrenGetResponse) validateChildren(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Children) { // not required
+		return nil
+	}
+
+	if err := m.Children.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("children")
+		}
+		return err
+	}
+
 	return nil
 }
 

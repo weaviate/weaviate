@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateThingsValidateOKCode is the HTTP code returned for type WeaviateThingsValidateOK
@@ -37,11 +37,14 @@ type WeaviateThingsValidateOK struct {
 
 // NewWeaviateThingsValidateOK creates WeaviateThingsValidateOK with default headers values
 func NewWeaviateThingsValidateOK() *WeaviateThingsValidateOK {
+
 	return &WeaviateThingsValidateOK{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsValidateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -58,11 +61,14 @@ type WeaviateThingsValidateUnauthorized struct {
 
 // NewWeaviateThingsValidateUnauthorized creates WeaviateThingsValidateUnauthorized with default headers values
 func NewWeaviateThingsValidateUnauthorized() *WeaviateThingsValidateUnauthorized {
+
 	return &WeaviateThingsValidateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsValidateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -79,11 +85,14 @@ type WeaviateThingsValidateForbidden struct {
 
 // NewWeaviateThingsValidateForbidden creates WeaviateThingsValidateForbidden with default headers values
 func NewWeaviateThingsValidateForbidden() *WeaviateThingsValidateForbidden {
+
 	return &WeaviateThingsValidateForbidden{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsValidateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -105,6 +114,7 @@ type WeaviateThingsValidateUnprocessableEntity struct {
 
 // NewWeaviateThingsValidateUnprocessableEntity creates WeaviateThingsValidateUnprocessableEntity with default headers values
 func NewWeaviateThingsValidateUnprocessableEntity() *WeaviateThingsValidateUnprocessableEntity {
+
 	return &WeaviateThingsValidateUnprocessableEntity{}
 }
 
@@ -143,11 +153,14 @@ type WeaviateThingsValidateNotImplemented struct {
 
 // NewWeaviateThingsValidateNotImplemented creates WeaviateThingsValidateNotImplemented with default headers values
 func NewWeaviateThingsValidateNotImplemented() *WeaviateThingsValidateNotImplemented {
+
 	return &WeaviateThingsValidateNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsValidateNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

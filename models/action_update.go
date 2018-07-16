@@ -26,32 +26,46 @@ import (
 
 // ActionUpdate action update
 // swagger:model ActionUpdate
-
 type ActionUpdate struct {
 	Action
+
+	ActionUpdateAllOf1
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
 func (m *ActionUpdate) UnmarshalJSON(raw []byte) error {
-
+	// AO0
 	var aO0 Action
 	if err := swag.ReadJSON(raw, &aO0); err != nil {
 		return err
 	}
 	m.Action = aO0
 
+	// AO1
+	var aO1 ActionUpdateAllOf1
+	if err := swag.ReadJSON(raw, &aO1); err != nil {
+		return err
+	}
+	m.ActionUpdateAllOf1 = aO1
+
 	return nil
 }
 
 // MarshalJSON marshals this object to a JSON structure
 func (m ActionUpdate) MarshalJSON() ([]byte, error) {
-	var _parts [][]byte
+	_parts := make([][]byte, 0, 2)
 
 	aO0, err := swag.WriteJSON(m.Action)
 	if err != nil {
 		return nil, err
 	}
 	_parts = append(_parts, aO0)
+
+	aO1, err := swag.WriteJSON(m.ActionUpdateAllOf1)
+	if err != nil {
+		return nil, err
+	}
+	_parts = append(_parts, aO1)
 
 	return swag.ConcatJSON(_parts...), nil
 }
@@ -60,9 +74,11 @@ func (m ActionUpdate) MarshalJSON() ([]byte, error) {
 func (m *ActionUpdate) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	// validation for a type composition with Action
 	if err := m.Action.Validate(formats); err != nil {
 		res = append(res, err)
 	}
+	// validation for a type composition with ActionUpdateAllOf1
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
@@ -87,3 +103,7 @@ func (m *ActionUpdate) UnmarshalBinary(b []byte) error {
 	*m = res
 	return nil
 }
+
+// ActionUpdateAllOf1 action update all of1
+// swagger:model ActionUpdateAllOf1
+type ActionUpdateAllOf1 interface{}

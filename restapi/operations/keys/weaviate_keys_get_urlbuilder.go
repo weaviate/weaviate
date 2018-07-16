@@ -62,6 +62,7 @@ func (o *WeaviateKeysGetURL) Build() (*url.URL, error) {
 	} else {
 		return nil, errors.New("KeyID is required on WeaviateKeysGetURL")
 	}
+
 	_basePath := o._basePath
 	if _basePath == "" {
 		_basePath = "/weaviate/v1"

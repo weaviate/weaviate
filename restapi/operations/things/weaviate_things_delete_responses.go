@@ -35,11 +35,14 @@ type WeaviateThingsDeleteNoContent struct {
 
 // NewWeaviateThingsDeleteNoContent creates WeaviateThingsDeleteNoContent with default headers values
 func NewWeaviateThingsDeleteNoContent() *WeaviateThingsDeleteNoContent {
+
 	return &WeaviateThingsDeleteNoContent{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsDeleteNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(204)
 }
@@ -56,11 +59,14 @@ type WeaviateThingsDeleteUnauthorized struct {
 
 // NewWeaviateThingsDeleteUnauthorized creates WeaviateThingsDeleteUnauthorized with default headers values
 func NewWeaviateThingsDeleteUnauthorized() *WeaviateThingsDeleteUnauthorized {
+
 	return &WeaviateThingsDeleteUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsDeleteUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -77,11 +83,14 @@ type WeaviateThingsDeleteForbidden struct {
 
 // NewWeaviateThingsDeleteForbidden creates WeaviateThingsDeleteForbidden with default headers values
 func NewWeaviateThingsDeleteForbidden() *WeaviateThingsDeleteForbidden {
+
 	return &WeaviateThingsDeleteForbidden{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -98,11 +107,14 @@ type WeaviateThingsDeleteNotFound struct {
 
 // NewWeaviateThingsDeleteNotFound creates WeaviateThingsDeleteNotFound with default headers values
 func NewWeaviateThingsDeleteNotFound() *WeaviateThingsDeleteNotFound {
+
 	return &WeaviateThingsDeleteNotFound{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -119,11 +131,14 @@ type WeaviateThingsDeleteNotImplemented struct {
 
 // NewWeaviateThingsDeleteNotImplemented creates WeaviateThingsDeleteNotImplemented with default headers values
 func NewWeaviateThingsDeleteNotImplemented() *WeaviateThingsDeleteNotImplemented {
+
 	return &WeaviateThingsDeleteNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsDeleteNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

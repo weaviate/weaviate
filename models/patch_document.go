@@ -29,7 +29,6 @@ import (
 
 // PatchDocument A JSONPatch document as defined by RFC 6902.
 // swagger:model PatchDocument
-
 type PatchDocument struct {
 
 	// A string containing a JSON Pointer value.
@@ -37,6 +36,7 @@ type PatchDocument struct {
 
 	// The operation to be performed.
 	// Required: true
+	// Enum: [add remove replace move copy test]
 	Op *string `json:"op"`
 
 	// A JSON-Pointer.
@@ -47,25 +47,15 @@ type PatchDocument struct {
 	Value interface{} `json:"value,omitempty"`
 }
 
-/* polymorph PatchDocument from false */
-
-/* polymorph PatchDocument op false */
-
-/* polymorph PatchDocument path false */
-
-/* polymorph PatchDocument value false */
-
 // Validate validates this patch document
 func (m *PatchDocument) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateOp(formats); err != nil {
-		// prop
 		res = append(res, err)
 	}
 
 	if err := m.validatePath(formats); err != nil {
-		// prop
 		res = append(res, err)
 	}
 
@@ -88,16 +78,22 @@ func init() {
 }
 
 const (
+
 	// PatchDocumentOpAdd captures enum value "add"
 	PatchDocumentOpAdd string = "add"
+
 	// PatchDocumentOpRemove captures enum value "remove"
 	PatchDocumentOpRemove string = "remove"
+
 	// PatchDocumentOpReplace captures enum value "replace"
 	PatchDocumentOpReplace string = "replace"
+
 	// PatchDocumentOpMove captures enum value "move"
 	PatchDocumentOpMove string = "move"
+
 	// PatchDocumentOpCopy captures enum value "copy"
 	PatchDocumentOpCopy string = "copy"
+
 	// PatchDocumentOpTest captures enum value "test"
 	PatchDocumentOpTest string = "test"
 )

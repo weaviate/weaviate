@@ -26,14 +26,13 @@ import (
 
 // ActionValidate action validate
 // swagger:model ActionValidate
-
 type ActionValidate struct {
 	ActionCreate
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
 func (m *ActionValidate) UnmarshalJSON(raw []byte) error {
-
+	// AO0
 	var aO0 ActionCreate
 	if err := swag.ReadJSON(raw, &aO0); err != nil {
 		return err
@@ -45,7 +44,7 @@ func (m *ActionValidate) UnmarshalJSON(raw []byte) error {
 
 // MarshalJSON marshals this object to a JSON structure
 func (m ActionValidate) MarshalJSON() ([]byte, error) {
-	var _parts [][]byte
+	_parts := make([][]byte, 0, 1)
 
 	aO0, err := swag.WriteJSON(m.ActionCreate)
 	if err != nil {
@@ -60,6 +59,7 @@ func (m ActionValidate) MarshalJSON() ([]byte, error) {
 func (m *ActionValidate) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	// validation for a type composition with ActionCreate
 	if err := m.ActionCreate.Validate(formats); err != nil {
 		res = append(res, err)
 	}

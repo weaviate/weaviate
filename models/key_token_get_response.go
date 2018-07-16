@@ -22,42 +22,44 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // KeyTokenGetResponse key token get response
 // swagger:model KeyTokenGetResponse
-
 type KeyTokenGetResponse struct {
 	KeyGetResponse
 
 	// Key for user to use.
+	// Format: uuid
 	Token strfmt.UUID `json:"token,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
 func (m *KeyTokenGetResponse) UnmarshalJSON(raw []byte) error {
-
+	// AO0
 	var aO0 KeyGetResponse
 	if err := swag.ReadJSON(raw, &aO0); err != nil {
 		return err
 	}
 	m.KeyGetResponse = aO0
 
-	var data struct {
+	// AO1
+	var dataAO1 struct {
 		Token strfmt.UUID `json:"token,omitempty"`
 	}
-	if err := swag.ReadJSON(raw, &data); err != nil {
+	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
 	}
 
-	m.Token = data.Token
+	m.Token = dataAO1.Token
 
 	return nil
 }
 
 // MarshalJSON marshals this object to a JSON structure
 func (m KeyTokenGetResponse) MarshalJSON() ([]byte, error) {
-	var _parts [][]byte
+	_parts := make([][]byte, 0, 2)
 
 	aO0, err := swag.WriteJSON(m.KeyGetResponse)
 	if err != nil {
@@ -65,17 +67,17 @@ func (m KeyTokenGetResponse) MarshalJSON() ([]byte, error) {
 	}
 	_parts = append(_parts, aO0)
 
-	var data struct {
+	var dataAO1 struct {
 		Token strfmt.UUID `json:"token,omitempty"`
 	}
 
-	data.Token = m.Token
+	dataAO1.Token = m.Token
 
-	jsonData, err := swag.WriteJSON(data)
-	if err != nil {
-		return nil, err
+	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
+	if errAO1 != nil {
+		return nil, errAO1
 	}
-	_parts = append(_parts, jsonData)
+	_parts = append(_parts, jsonDataAO1)
 
 	return swag.ConcatJSON(_parts...), nil
 }
@@ -84,13 +86,31 @@ func (m KeyTokenGetResponse) MarshalJSON() ([]byte, error) {
 func (m *KeyTokenGetResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	// validation for a type composition with KeyGetResponse
 	if err := m.KeyGetResponse.Validate(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateToken(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *KeyTokenGetResponse) validateToken(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Token) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("token", "body", "uuid", m.Token.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 

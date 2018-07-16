@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateKeyCreateOKCode is the HTTP code returned for type WeaviateKeyCreateOK
@@ -42,6 +42,7 @@ type WeaviateKeyCreateOK struct {
 
 // NewWeaviateKeyCreateOK creates WeaviateKeyCreateOK with default headers values
 func NewWeaviateKeyCreateOK() *WeaviateKeyCreateOK {
+
 	return &WeaviateKeyCreateOK{}
 }
 
@@ -80,11 +81,14 @@ type WeaviateKeyCreateUnauthorized struct {
 
 // NewWeaviateKeyCreateUnauthorized creates WeaviateKeyCreateUnauthorized with default headers values
 func NewWeaviateKeyCreateUnauthorized() *WeaviateKeyCreateUnauthorized {
+
 	return &WeaviateKeyCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeyCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -106,6 +110,7 @@ type WeaviateKeyCreateUnprocessableEntity struct {
 
 // NewWeaviateKeyCreateUnprocessableEntity creates WeaviateKeyCreateUnprocessableEntity with default headers values
 func NewWeaviateKeyCreateUnprocessableEntity() *WeaviateKeyCreateUnprocessableEntity {
+
 	return &WeaviateKeyCreateUnprocessableEntity{}
 }
 
@@ -144,11 +149,14 @@ type WeaviateKeyCreateNotImplemented struct {
 
 // NewWeaviateKeyCreateNotImplemented creates WeaviateKeyCreateNotImplemented with default headers values
 func NewWeaviateKeyCreateNotImplemented() *WeaviateKeyCreateNotImplemented {
+
 	return &WeaviateKeyCreateNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeyCreateNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

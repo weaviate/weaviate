@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateKeysMeGetOKCode is the HTTP code returned for type WeaviateKeysMeGetOK
@@ -42,6 +42,7 @@ type WeaviateKeysMeGetOK struct {
 
 // NewWeaviateKeysMeGetOK creates WeaviateKeysMeGetOK with default headers values
 func NewWeaviateKeysMeGetOK() *WeaviateKeysMeGetOK {
+
 	return &WeaviateKeysMeGetOK{}
 }
 
@@ -80,11 +81,14 @@ type WeaviateKeysMeGetUnauthorized struct {
 
 // NewWeaviateKeysMeGetUnauthorized creates WeaviateKeysMeGetUnauthorized with default headers values
 func NewWeaviateKeysMeGetUnauthorized() *WeaviateKeysMeGetUnauthorized {
+
 	return &WeaviateKeysMeGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeysMeGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -101,11 +105,14 @@ type WeaviateKeysMeGetNotFound struct {
 
 // NewWeaviateKeysMeGetNotFound creates WeaviateKeysMeGetNotFound with default headers values
 func NewWeaviateKeysMeGetNotFound() *WeaviateKeysMeGetNotFound {
+
 	return &WeaviateKeysMeGetNotFound{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeysMeGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -122,11 +129,14 @@ type WeaviateKeysMeGetNotImplemented struct {
 
 // NewWeaviateKeysMeGetNotImplemented creates WeaviateKeysMeGetNotImplemented with default headers values
 func NewWeaviateKeysMeGetNotImplemented() *WeaviateKeysMeGetNotImplemented {
+
 	return &WeaviateKeysMeGetNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeysMeGetNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

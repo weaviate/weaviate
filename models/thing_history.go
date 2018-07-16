@@ -28,7 +28,6 @@ import (
 
 // ThingHistory thing history
 // swagger:model ThingHistory
-
 type ThingHistory struct {
 
 	// Indication whether the action is deleted
@@ -41,23 +40,15 @@ type ThingHistory struct {
 	PropertyHistory []*ThingHistoryObject `json:"propertyHistory"`
 }
 
-/* polymorph ThingHistory deleted false */
-
-/* polymorph ThingHistory key false */
-
-/* polymorph ThingHistory propertyHistory false */
-
 // Validate validates this thing history
 func (m *ThingHistory) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateKey(formats); err != nil {
-		// prop
 		res = append(res, err)
 	}
 
 	if err := m.validatePropertyHistory(formats); err != nil {
-		// prop
 		res = append(res, err)
 	}
 
@@ -74,7 +65,6 @@ func (m *ThingHistory) validateKey(formats strfmt.Registry) error {
 	}
 
 	if m.Key != nil {
-
 		if err := m.Key.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
 				return ve.ValidateName("key")
@@ -93,13 +83,11 @@ func (m *ThingHistory) validatePropertyHistory(formats strfmt.Registry) error {
 	}
 
 	for i := 0; i < len(m.PropertyHistory); i++ {
-
 		if swag.IsZero(m.PropertyHistory[i]) { // not required
 			continue
 		}
 
 		if m.PropertyHistory[i] != nil {
-
 			if err := m.PropertyHistory[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("propertyHistory" + "." + strconv.Itoa(i))
