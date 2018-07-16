@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateKeysRenewTokenOKCode is the HTTP code returned for type WeaviateKeysRenewTokenOK
@@ -42,6 +42,7 @@ type WeaviateKeysRenewTokenOK struct {
 
 // NewWeaviateKeysRenewTokenOK creates WeaviateKeysRenewTokenOK with default headers values
 func NewWeaviateKeysRenewTokenOK() *WeaviateKeysRenewTokenOK {
+
 	return &WeaviateKeysRenewTokenOK{}
 }
 
@@ -80,11 +81,14 @@ type WeaviateKeysRenewTokenUnauthorized struct {
 
 // NewWeaviateKeysRenewTokenUnauthorized creates WeaviateKeysRenewTokenUnauthorized with default headers values
 func NewWeaviateKeysRenewTokenUnauthorized() *WeaviateKeysRenewTokenUnauthorized {
+
 	return &WeaviateKeysRenewTokenUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeysRenewTokenUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -101,11 +105,14 @@ type WeaviateKeysRenewTokenForbidden struct {
 
 // NewWeaviateKeysRenewTokenForbidden creates WeaviateKeysRenewTokenForbidden with default headers values
 func NewWeaviateKeysRenewTokenForbidden() *WeaviateKeysRenewTokenForbidden {
+
 	return &WeaviateKeysRenewTokenForbidden{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeysRenewTokenForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -122,11 +129,14 @@ type WeaviateKeysRenewTokenNotFound struct {
 
 // NewWeaviateKeysRenewTokenNotFound creates WeaviateKeysRenewTokenNotFound with default headers values
 func NewWeaviateKeysRenewTokenNotFound() *WeaviateKeysRenewTokenNotFound {
+
 	return &WeaviateKeysRenewTokenNotFound{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeysRenewTokenNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -148,6 +158,7 @@ type WeaviateKeysRenewTokenUnprocessableEntity struct {
 
 // NewWeaviateKeysRenewTokenUnprocessableEntity creates WeaviateKeysRenewTokenUnprocessableEntity with default headers values
 func NewWeaviateKeysRenewTokenUnprocessableEntity() *WeaviateKeysRenewTokenUnprocessableEntity {
+
 	return &WeaviateKeysRenewTokenUnprocessableEntity{}
 }
 
@@ -186,11 +197,14 @@ type WeaviateKeysRenewTokenNotImplemented struct {
 
 // NewWeaviateKeysRenewTokenNotImplemented creates WeaviateKeysRenewTokenNotImplemented with default headers values
 func NewWeaviateKeysRenewTokenNotImplemented() *WeaviateKeysRenewTokenNotImplemented {
+
 	return &WeaviateKeysRenewTokenNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeysRenewTokenNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

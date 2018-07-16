@@ -62,6 +62,7 @@ func (o *WeaviateKeysChildrenGetURL) Build() (*url.URL, error) {
 	} else {
 		return nil, errors.New("KeyID is required on WeaviateKeysChildrenGetURL")
 	}
+
 	_basePath := o._basePath
 	if _basePath == "" {
 		_basePath = "/weaviate/v1"

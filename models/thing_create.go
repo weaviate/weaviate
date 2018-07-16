@@ -20,13 +20,11 @@ package models
 import (
 	strfmt "github.com/go-openapi/strfmt"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
 )
 
 // ThingCreate thing create
 // swagger:model ThingCreate
-
 type ThingCreate struct {
 
 	// Class of the Thing, defined in the schema.
@@ -39,19 +37,8 @@ type ThingCreate struct {
 	Schema Schema `json:"schema,omitempty"`
 }
 
-/* polymorph ThingCreate @class false */
-
-/* polymorph ThingCreate @context false */
-
-/* polymorph ThingCreate schema false */
-
 // Validate validates this thing create
 func (m *ThingCreate) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
 	return nil
 }
 

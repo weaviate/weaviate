@@ -28,7 +28,6 @@ import (
 
 // GraphQLResponse GraphQL based repsonse: http://facebook.github.io/graphql/
 // swagger:model GraphQLResponse
-
 type GraphQLResponse struct {
 
 	// GraphQL data object
@@ -38,16 +37,11 @@ type GraphQLResponse struct {
 	Errors []*GraphQLError `json:"errors"`
 }
 
-/* polymorph GraphQLResponse data false */
-
-/* polymorph GraphQLResponse errors false */
-
 // Validate validates this graph q l response
 func (m *GraphQLResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateErrors(formats); err != nil {
-		// prop
 		res = append(res, err)
 	}
 
@@ -64,13 +58,11 @@ func (m *GraphQLResponse) validateErrors(formats strfmt.Registry) error {
 	}
 
 	for i := 0; i < len(m.Errors); i++ {
-
 		if swag.IsZero(m.Errors[i]) { // not required
 			continue
 		}
 
 		if m.Errors[i] != nil {
-
 			if err := m.Errors[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("errors" + "." + strconv.Itoa(i))

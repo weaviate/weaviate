@@ -35,11 +35,14 @@ type WeaviatePeersAnnounceOK struct {
 
 // NewWeaviatePeersAnnounceOK creates WeaviatePeersAnnounceOK with default headers values
 func NewWeaviatePeersAnnounceOK() *WeaviatePeersAnnounceOK {
+
 	return &WeaviatePeersAnnounceOK{}
 }
 
 // WriteResponse to the client
 func (o *WeaviatePeersAnnounceOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -56,11 +59,14 @@ type WeaviatePeersAnnounceForbidden struct {
 
 // NewWeaviatePeersAnnounceForbidden creates WeaviatePeersAnnounceForbidden with default headers values
 func NewWeaviatePeersAnnounceForbidden() *WeaviatePeersAnnounceForbidden {
+
 	return &WeaviatePeersAnnounceForbidden{}
 }
 
 // WriteResponse to the client
 func (o *WeaviatePeersAnnounceForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -77,11 +83,14 @@ type WeaviatePeersAnnounceNotImplemented struct {
 
 // NewWeaviatePeersAnnounceNotImplemented creates WeaviatePeersAnnounceNotImplemented with default headers values
 func NewWeaviatePeersAnnounceNotImplemented() *WeaviatePeersAnnounceNotImplemented {
+
 	return &WeaviatePeersAnnounceNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviatePeersAnnounceNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

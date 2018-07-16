@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviatePeersAnswersCreateAcceptedCode is the HTTP code returned for type WeaviatePeersAnswersCreateAccepted
@@ -37,11 +37,14 @@ type WeaviatePeersAnswersCreateAccepted struct {
 
 // NewWeaviatePeersAnswersCreateAccepted creates WeaviatePeersAnswersCreateAccepted with default headers values
 func NewWeaviatePeersAnswersCreateAccepted() *WeaviatePeersAnswersCreateAccepted {
+
 	return &WeaviatePeersAnswersCreateAccepted{}
 }
 
 // WriteResponse to the client
 func (o *WeaviatePeersAnswersCreateAccepted) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(202)
 }
@@ -58,11 +61,14 @@ type WeaviatePeersAnswersCreateUnauthorized struct {
 
 // NewWeaviatePeersAnswersCreateUnauthorized creates WeaviatePeersAnswersCreateUnauthorized with default headers values
 func NewWeaviatePeersAnswersCreateUnauthorized() *WeaviatePeersAnswersCreateUnauthorized {
+
 	return &WeaviatePeersAnswersCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviatePeersAnswersCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -84,6 +90,7 @@ type WeaviatePeersAnswersCreateForbidden struct {
 
 // NewWeaviatePeersAnswersCreateForbidden creates WeaviatePeersAnswersCreateForbidden with default headers values
 func NewWeaviatePeersAnswersCreateForbidden() *WeaviatePeersAnswersCreateForbidden {
+
 	return &WeaviatePeersAnswersCreateForbidden{}
 }
 
@@ -122,11 +129,14 @@ type WeaviatePeersAnswersCreateNotImplemented struct {
 
 // NewWeaviatePeersAnswersCreateNotImplemented creates WeaviatePeersAnswersCreateNotImplemented with default headers values
 func NewWeaviatePeersAnswersCreateNotImplemented() *WeaviatePeersAnswersCreateNotImplemented {
+
 	return &WeaviatePeersAnswersCreateNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviatePeersAnswersCreateNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

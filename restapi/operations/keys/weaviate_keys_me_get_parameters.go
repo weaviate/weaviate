@@ -25,9 +25,9 @@ import (
 )
 
 // NewWeaviateKeysMeGetParams creates a new WeaviateKeysMeGetParams object
-// with the default values initialized.
+// no default values defined in spec.
 func NewWeaviateKeysMeGetParams() WeaviateKeysMeGetParams {
-	var ()
+
 	return WeaviateKeysMeGetParams{}
 }
 
@@ -38,13 +38,16 @@ func NewWeaviateKeysMeGetParams() WeaviateKeysMeGetParams {
 type WeaviateKeysMeGetParams struct {
 
 	// HTTP Request Object
-	HTTPRequest *http.Request
+	HTTPRequest *http.Request `json:"-"`
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
-// for simple values it will use straight method calls
+// for simple values it will use straight method calls.
+//
+// To ensure default values, the struct must have been initialized with NewWeaviateKeysMeGetParams() beforehand.
 func (o *WeaviateKeysMeGetParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
+
 	o.HTTPRequest = r
 
 	if len(res) > 0 {

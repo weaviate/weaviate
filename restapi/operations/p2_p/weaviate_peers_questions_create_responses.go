@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviatePeersQuestionsCreateAcceptedCode is the HTTP code returned for type WeaviatePeersQuestionsCreateAccepted
@@ -42,6 +42,7 @@ type WeaviatePeersQuestionsCreateAccepted struct {
 
 // NewWeaviatePeersQuestionsCreateAccepted creates WeaviatePeersQuestionsCreateAccepted with default headers values
 func NewWeaviatePeersQuestionsCreateAccepted() *WeaviatePeersQuestionsCreateAccepted {
+
 	return &WeaviatePeersQuestionsCreateAccepted{}
 }
 
@@ -80,11 +81,14 @@ type WeaviatePeersQuestionsCreateForbidden struct {
 
 // NewWeaviatePeersQuestionsCreateForbidden creates WeaviatePeersQuestionsCreateForbidden with default headers values
 func NewWeaviatePeersQuestionsCreateForbidden() *WeaviatePeersQuestionsCreateForbidden {
+
 	return &WeaviatePeersQuestionsCreateForbidden{}
 }
 
 // WriteResponse to the client
 func (o *WeaviatePeersQuestionsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -101,11 +105,14 @@ type WeaviatePeersQuestionsCreateNotImplemented struct {
 
 // NewWeaviatePeersQuestionsCreateNotImplemented creates WeaviatePeersQuestionsCreateNotImplemented with default headers values
 func NewWeaviatePeersQuestionsCreateNotImplemented() *WeaviatePeersQuestionsCreateNotImplemented {
+
 	return &WeaviatePeersQuestionsCreateNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviatePeersQuestionsCreateNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

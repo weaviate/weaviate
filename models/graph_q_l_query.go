@@ -20,13 +20,11 @@ package models
 import (
 	strfmt "github.com/go-openapi/strfmt"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
 )
 
 // GraphQLQuery GraphQL query based on: http://facebook.github.io/graphql/
 // swagger:model GraphQLQuery
-
 type GraphQLQuery struct {
 
 	// Name of the operation if multiple exist in query.
@@ -39,19 +37,8 @@ type GraphQLQuery struct {
 	Variables interface{} `json:"variables,omitempty"`
 }
 
-/* polymorph GraphQLQuery operationName false */
-
-/* polymorph GraphQLQuery query false */
-
-/* polymorph GraphQLQuery variables false */
-
 // Validate validates this graph q l query
 func (m *GraphQLQuery) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
 	return nil
 }
 

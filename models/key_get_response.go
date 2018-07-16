@@ -22,42 +22,44 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // KeyGetResponse key get response
 // swagger:model KeyGetResponse
-
 type KeyGetResponse struct {
 	Key
 
 	// Id of the key.
+	// Format: uuid
 	KeyID strfmt.UUID `json:"keyId,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
 func (m *KeyGetResponse) UnmarshalJSON(raw []byte) error {
-
+	// AO0
 	var aO0 Key
 	if err := swag.ReadJSON(raw, &aO0); err != nil {
 		return err
 	}
 	m.Key = aO0
 
-	var data struct {
+	// AO1
+	var dataAO1 struct {
 		KeyID strfmt.UUID `json:"keyId,omitempty"`
 	}
-	if err := swag.ReadJSON(raw, &data); err != nil {
+	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
 	}
 
-	m.KeyID = data.KeyID
+	m.KeyID = dataAO1.KeyID
 
 	return nil
 }
 
 // MarshalJSON marshals this object to a JSON structure
 func (m KeyGetResponse) MarshalJSON() ([]byte, error) {
-	var _parts [][]byte
+	_parts := make([][]byte, 0, 2)
 
 	aO0, err := swag.WriteJSON(m.Key)
 	if err != nil {
@@ -65,17 +67,17 @@ func (m KeyGetResponse) MarshalJSON() ([]byte, error) {
 	}
 	_parts = append(_parts, aO0)
 
-	var data struct {
+	var dataAO1 struct {
 		KeyID strfmt.UUID `json:"keyId,omitempty"`
 	}
 
-	data.KeyID = m.KeyID
+	dataAO1.KeyID = m.KeyID
 
-	jsonData, err := swag.WriteJSON(data)
-	if err != nil {
-		return nil, err
+	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
+	if errAO1 != nil {
+		return nil, errAO1
 	}
-	_parts = append(_parts, jsonData)
+	_parts = append(_parts, jsonDataAO1)
 
 	return swag.ConcatJSON(_parts...), nil
 }
@@ -84,13 +86,31 @@ func (m KeyGetResponse) MarshalJSON() ([]byte, error) {
 func (m *KeyGetResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	// validation for a type composition with Key
 	if err := m.Key.Validate(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateKeyID(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *KeyGetResponse) validateKeyID(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.KeyID) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("keyId", "body", "uuid", m.KeyID.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 

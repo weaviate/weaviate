@@ -29,9 +29,9 @@ import (
 )
 
 // NewWeaviateThingsListParams creates a new WeaviateThingsListParams object
-// with the default values initialized.
+// no default values defined in spec.
 func NewWeaviateThingsListParams() WeaviateThingsListParams {
-	var ()
+
 	return WeaviateThingsListParams{}
 }
 
@@ -42,7 +42,7 @@ func NewWeaviateThingsListParams() WeaviateThingsListParams {
 type WeaviateThingsListParams struct {
 
 	// HTTP Request Object
-	HTTPRequest *http.Request
+	HTTPRequest *http.Request `json:"-"`
 
 	/*The maximum number of items to be returned per page. Default value is set in Weaviate config.
 	  In: query
@@ -55,9 +55,12 @@ type WeaviateThingsListParams struct {
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
-// for simple values it will use straight method calls
+// for simple values it will use straight method calls.
+//
+// To ensure default values, the struct must have been initialized with NewWeaviateThingsListParams() beforehand.
 func (o *WeaviateThingsListParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
+
 	o.HTTPRequest = r
 
 	qs := runtime.Values(r.URL.Query())
@@ -78,11 +81,15 @@ func (o *WeaviateThingsListParams) BindRequest(r *http.Request, route *middlewar
 	return nil
 }
 
+// bindMaxResults binds and validates parameter MaxResults from query.
 func (o *WeaviateThingsListParams) bindMaxResults(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
 	}
+
+	// Required: false
+	// AllowEmptyValue: false
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
@@ -96,11 +103,15 @@ func (o *WeaviateThingsListParams) bindMaxResults(rawData []string, hasKey bool,
 	return nil
 }
 
+// bindPage binds and validates parameter Page from query.
 func (o *WeaviateThingsListParams) bindPage(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
 	}
+
+	// Required: false
+	// AllowEmptyValue: false
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}

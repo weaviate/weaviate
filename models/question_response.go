@@ -22,26 +22,42 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // QuestionResponse question response
 // swagger:model QuestionResponse
-
 type QuestionResponse struct {
 
 	// The Uuid of the answer when generated and returned to the /answer endpoint.
+	// Format: uuid
 	AnswerUUID strfmt.UUID `json:"answerUuid,omitempty"`
 }
-
-/* polymorph QuestionResponse answerUuid false */
 
 // Validate validates this question response
 func (m *QuestionResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateAnswerUUID(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *QuestionResponse) validateAnswerUUID(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.AnswerUUID) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("answerUuid", "body", "uuid", m.AnswerUUID.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 

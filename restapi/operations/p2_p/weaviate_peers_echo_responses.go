@@ -35,11 +35,14 @@ type WeaviatePeersEchoOK struct {
 
 // NewWeaviatePeersEchoOK creates WeaviatePeersEchoOK with default headers values
 func NewWeaviatePeersEchoOK() *WeaviatePeersEchoOK {
+
 	return &WeaviatePeersEchoOK{}
 }
 
 // WriteResponse to the client
 func (o *WeaviatePeersEchoOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -56,11 +59,14 @@ type WeaviatePeersEchoNotImplemented struct {
 
 // NewWeaviatePeersEchoNotImplemented creates WeaviatePeersEchoNotImplemented with default headers values
 func NewWeaviatePeersEchoNotImplemented() *WeaviatePeersEchoNotImplemented {
+
 	return &WeaviatePeersEchoNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviatePeersEchoNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

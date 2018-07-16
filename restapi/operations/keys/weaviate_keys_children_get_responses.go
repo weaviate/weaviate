@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateKeysChildrenGetOKCode is the HTTP code returned for type WeaviateKeysChildrenGetOK
@@ -42,6 +42,7 @@ type WeaviateKeysChildrenGetOK struct {
 
 // NewWeaviateKeysChildrenGetOK creates WeaviateKeysChildrenGetOK with default headers values
 func NewWeaviateKeysChildrenGetOK() *WeaviateKeysChildrenGetOK {
+
 	return &WeaviateKeysChildrenGetOK{}
 }
 
@@ -80,11 +81,14 @@ type WeaviateKeysChildrenGetUnauthorized struct {
 
 // NewWeaviateKeysChildrenGetUnauthorized creates WeaviateKeysChildrenGetUnauthorized with default headers values
 func NewWeaviateKeysChildrenGetUnauthorized() *WeaviateKeysChildrenGetUnauthorized {
+
 	return &WeaviateKeysChildrenGetUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeysChildrenGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -101,11 +105,14 @@ type WeaviateKeysChildrenGetForbidden struct {
 
 // NewWeaviateKeysChildrenGetForbidden creates WeaviateKeysChildrenGetForbidden with default headers values
 func NewWeaviateKeysChildrenGetForbidden() *WeaviateKeysChildrenGetForbidden {
+
 	return &WeaviateKeysChildrenGetForbidden{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeysChildrenGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -122,11 +129,14 @@ type WeaviateKeysChildrenGetNotFound struct {
 
 // NewWeaviateKeysChildrenGetNotFound creates WeaviateKeysChildrenGetNotFound with default headers values
 func NewWeaviateKeysChildrenGetNotFound() *WeaviateKeysChildrenGetNotFound {
+
 	return &WeaviateKeysChildrenGetNotFound{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeysChildrenGetNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -143,11 +153,14 @@ type WeaviateKeysChildrenGetNotImplemented struct {
 
 // NewWeaviateKeysChildrenGetNotImplemented creates WeaviateKeysChildrenGetNotImplemented with default headers values
 func NewWeaviateKeysChildrenGetNotImplemented() *WeaviateKeysChildrenGetNotImplemented {
+
 	return &WeaviateKeysChildrenGetNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateKeysChildrenGetNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

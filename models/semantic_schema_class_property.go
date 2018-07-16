@@ -28,7 +28,6 @@ import (
 
 // SemanticSchemaClassProperty semantic schema class property
 // swagger:model SemanticSchemaClassProperty
-
 type SemanticSchemaClassProperty struct {
 
 	// Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise "string" or "int".
@@ -44,40 +43,17 @@ type SemanticSchemaClassProperty struct {
 	Name string `json:"name,omitempty"`
 }
 
-/* polymorph SemanticSchemaClassProperty @dataType false */
-
-/* polymorph SemanticSchemaClassProperty description false */
-
-/* polymorph SemanticSchemaClassProperty keywords false */
-
-/* polymorph SemanticSchemaClassProperty name false */
-
 // Validate validates this semantic schema class property
 func (m *SemanticSchemaClassProperty) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateAtDataType(formats); err != nil {
-		// prop
-		res = append(res, err)
-	}
-
 	if err := m.validateKeywords(formats); err != nil {
-		// prop
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *SemanticSchemaClassProperty) validateAtDataType(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.AtDataType) { // not required
-		return nil
-	}
-
 	return nil
 }
 
@@ -88,13 +64,11 @@ func (m *SemanticSchemaClassProperty) validateKeywords(formats strfmt.Registry) 
 	}
 
 	for i := 0; i < len(m.Keywords); i++ {
-
 		if swag.IsZero(m.Keywords[i]) { // not required
 			continue
 		}
 
 		if m.Keywords[i] != nil {
-
 			if err := m.Keywords[i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName("keywords" + "." + strconv.Itoa(i))
@@ -128,7 +102,6 @@ func (m *SemanticSchemaClassProperty) UnmarshalBinary(b []byte) error {
 
 // SemanticSchemaClassPropertyKeywordsItems0 semantic schema class property keywords items0
 // swagger:model SemanticSchemaClassPropertyKeywordsItems0
-
 type SemanticSchemaClassPropertyKeywordsItems0 struct {
 
 	// kind
@@ -138,17 +111,8 @@ type SemanticSchemaClassPropertyKeywordsItems0 struct {
 	Weight float32 `json:"weight,omitempty"`
 }
 
-/* polymorph SemanticSchemaClassPropertyKeywordsItems0 kind false */
-
-/* polymorph SemanticSchemaClassPropertyKeywordsItems0 weight false */
-
 // Validate validates this semantic schema class property keywords items0
 func (m *SemanticSchemaClassPropertyKeywordsItems0) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
 	return nil
 }
 

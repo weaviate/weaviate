@@ -62,6 +62,7 @@ func (o *WeaviateThingHistoryGetURL) Build() (*url.URL, error) {
 	} else {
 		return nil, errors.New("ThingID is required on WeaviateThingHistoryGetURL")
 	}
+
 	_basePath := o._basePath
 	if _basePath == "" {
 		_basePath = "/weaviate/v1"

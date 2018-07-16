@@ -22,42 +22,44 @@ import (
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // ThingGetResponse thing get response
 // swagger:model ThingGetResponse
-
 type ThingGetResponse struct {
 	Thing
 
 	// thing Id
+	// Format: uuid
 	ThingID strfmt.UUID `json:"thingId,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
 func (m *ThingGetResponse) UnmarshalJSON(raw []byte) error {
-
+	// AO0
 	var aO0 Thing
 	if err := swag.ReadJSON(raw, &aO0); err != nil {
 		return err
 	}
 	m.Thing = aO0
 
-	var data struct {
+	// AO1
+	var dataAO1 struct {
 		ThingID strfmt.UUID `json:"thingId,omitempty"`
 	}
-	if err := swag.ReadJSON(raw, &data); err != nil {
+	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
 	}
 
-	m.ThingID = data.ThingID
+	m.ThingID = dataAO1.ThingID
 
 	return nil
 }
 
 // MarshalJSON marshals this object to a JSON structure
 func (m ThingGetResponse) MarshalJSON() ([]byte, error) {
-	var _parts [][]byte
+	_parts := make([][]byte, 0, 2)
 
 	aO0, err := swag.WriteJSON(m.Thing)
 	if err != nil {
@@ -65,17 +67,17 @@ func (m ThingGetResponse) MarshalJSON() ([]byte, error) {
 	}
 	_parts = append(_parts, aO0)
 
-	var data struct {
+	var dataAO1 struct {
 		ThingID strfmt.UUID `json:"thingId,omitempty"`
 	}
 
-	data.ThingID = m.ThingID
+	dataAO1.ThingID = m.ThingID
 
-	jsonData, err := swag.WriteJSON(data)
-	if err != nil {
-		return nil, err
+	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
+	if errAO1 != nil {
+		return nil, errAO1
 	}
-	_parts = append(_parts, jsonData)
+	_parts = append(_parts, jsonDataAO1)
 
 	return swag.ConcatJSON(_parts...), nil
 }
@@ -84,13 +86,31 @@ func (m ThingGetResponse) MarshalJSON() ([]byte, error) {
 func (m *ThingGetResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	// validation for a type composition with Thing
 	if err := m.Thing.Validate(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateThingID(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *ThingGetResponse) validateThingID(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.ThingID) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("thingId", "body", "uuid", m.ThingID.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 

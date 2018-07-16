@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateThingsCreateAcceptedCode is the HTTP code returned for type WeaviateThingsCreateAccepted
@@ -42,6 +42,7 @@ type WeaviateThingsCreateAccepted struct {
 
 // NewWeaviateThingsCreateAccepted creates WeaviateThingsCreateAccepted with default headers values
 func NewWeaviateThingsCreateAccepted() *WeaviateThingsCreateAccepted {
+
 	return &WeaviateThingsCreateAccepted{}
 }
 
@@ -80,11 +81,14 @@ type WeaviateThingsCreateUnauthorized struct {
 
 // NewWeaviateThingsCreateUnauthorized creates WeaviateThingsCreateUnauthorized with default headers values
 func NewWeaviateThingsCreateUnauthorized() *WeaviateThingsCreateUnauthorized {
+
 	return &WeaviateThingsCreateUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsCreateUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -101,11 +105,14 @@ type WeaviateThingsCreateForbidden struct {
 
 // NewWeaviateThingsCreateForbidden creates WeaviateThingsCreateForbidden with default headers values
 func NewWeaviateThingsCreateForbidden() *WeaviateThingsCreateForbidden {
+
 	return &WeaviateThingsCreateForbidden{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsCreateForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -127,6 +134,7 @@ type WeaviateThingsCreateUnprocessableEntity struct {
 
 // NewWeaviateThingsCreateUnprocessableEntity creates WeaviateThingsCreateUnprocessableEntity with default headers values
 func NewWeaviateThingsCreateUnprocessableEntity() *WeaviateThingsCreateUnprocessableEntity {
+
 	return &WeaviateThingsCreateUnprocessableEntity{}
 }
 
@@ -165,11 +173,14 @@ type WeaviateThingsCreateNotImplemented struct {
 
 // NewWeaviateThingsCreateNotImplemented creates WeaviateThingsCreateNotImplemented with default headers values
 func NewWeaviateThingsCreateNotImplemented() *WeaviateThingsCreateNotImplemented {
+
 	return &WeaviateThingsCreateNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateThingsCreateNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

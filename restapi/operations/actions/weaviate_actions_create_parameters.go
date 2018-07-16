@@ -25,13 +25,13 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // NewWeaviateActionsCreateParams creates a new WeaviateActionsCreateParams object
-// with the default values initialized.
+// no default values defined in spec.
 func NewWeaviateActionsCreateParams() WeaviateActionsCreateParams {
-	var ()
+
 	return WeaviateActionsCreateParams{}
 }
 
@@ -42,7 +42,7 @@ func NewWeaviateActionsCreateParams() WeaviateActionsCreateParams {
 type WeaviateActionsCreateParams struct {
 
 	// HTTP Request Object
-	HTTPRequest *http.Request
+	HTTPRequest *http.Request `json:"-"`
 
 	/*
 	  Required: true
@@ -52,9 +52,12 @@ type WeaviateActionsCreateParams struct {
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
-// for simple values it will use straight method calls
+// for simple values it will use straight method calls.
+//
+// To ensure default values, the struct must have been initialized with NewWeaviateActionsCreateParams() beforehand.
 func (o *WeaviateActionsCreateParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
+
 	o.HTTPRequest = r
 
 	if runtime.HasBody(r) {
@@ -66,8 +69,8 @@ func (o *WeaviateActionsCreateParams) BindRequest(r *http.Request, route *middle
 			} else {
 				res = append(res, errors.NewParseError("body", "body", "", err))
 			}
-
 		} else {
+			// validate body object
 			if err := body.Validate(route.Formats); err != nil {
 				res = append(res, err)
 			}
@@ -76,11 +79,9 @@ func (o *WeaviateActionsCreateParams) BindRequest(r *http.Request, route *middle
 				o.Body = &body
 			}
 		}
-
 	} else {
 		res = append(res, errors.Required("body", "body"))
 	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}

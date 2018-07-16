@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/runtime"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateActionsPatchAcceptedCode is the HTTP code returned for type WeaviateActionsPatchAccepted
@@ -42,6 +42,7 @@ type WeaviateActionsPatchAccepted struct {
 
 // NewWeaviateActionsPatchAccepted creates WeaviateActionsPatchAccepted with default headers values
 func NewWeaviateActionsPatchAccepted() *WeaviateActionsPatchAccepted {
+
 	return &WeaviateActionsPatchAccepted{}
 }
 
@@ -80,11 +81,14 @@ type WeaviateActionsPatchBadRequest struct {
 
 // NewWeaviateActionsPatchBadRequest creates WeaviateActionsPatchBadRequest with default headers values
 func NewWeaviateActionsPatchBadRequest() *WeaviateActionsPatchBadRequest {
+
 	return &WeaviateActionsPatchBadRequest{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateActionsPatchBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(400)
 }
@@ -101,11 +105,14 @@ type WeaviateActionsPatchUnauthorized struct {
 
 // NewWeaviateActionsPatchUnauthorized creates WeaviateActionsPatchUnauthorized with default headers values
 func NewWeaviateActionsPatchUnauthorized() *WeaviateActionsPatchUnauthorized {
+
 	return &WeaviateActionsPatchUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateActionsPatchUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -122,11 +129,14 @@ type WeaviateActionsPatchForbidden struct {
 
 // NewWeaviateActionsPatchForbidden creates WeaviateActionsPatchForbidden with default headers values
 func NewWeaviateActionsPatchForbidden() *WeaviateActionsPatchForbidden {
+
 	return &WeaviateActionsPatchForbidden{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateActionsPatchForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
 }
@@ -143,11 +153,14 @@ type WeaviateActionsPatchNotFound struct {
 
 // NewWeaviateActionsPatchNotFound creates WeaviateActionsPatchNotFound with default headers values
 func NewWeaviateActionsPatchNotFound() *WeaviateActionsPatchNotFound {
+
 	return &WeaviateActionsPatchNotFound{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateActionsPatchNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
 }
@@ -169,6 +182,7 @@ type WeaviateActionsPatchUnprocessableEntity struct {
 
 // NewWeaviateActionsPatchUnprocessableEntity creates WeaviateActionsPatchUnprocessableEntity with default headers values
 func NewWeaviateActionsPatchUnprocessableEntity() *WeaviateActionsPatchUnprocessableEntity {
+
 	return &WeaviateActionsPatchUnprocessableEntity{}
 }
 
@@ -207,11 +221,14 @@ type WeaviateActionsPatchNotImplemented struct {
 
 // NewWeaviateActionsPatchNotImplemented creates WeaviateActionsPatchNotImplemented with default headers values
 func NewWeaviateActionsPatchNotImplemented() *WeaviateActionsPatchNotImplemented {
+
 	return &WeaviateActionsPatchNotImplemented{}
 }
 
 // WriteResponse to the client
 func (o *WeaviateActionsPatchNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(501)
 }

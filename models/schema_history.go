@@ -19,5 +19,4 @@ package models
 
 // SchemaHistory This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition
 // swagger:model SchemaHistory
-
 type SchemaHistory interface{}
