@@ -113,7 +113,7 @@ func add_names_from_schema_properties(context *libcontextionary.Contextionary, i
               weights  = append(weights, keyword.Weight)
             }
           } else {
-            return fmt.Errorf("Could not find keyword '%v' for class '%v' in the contextionary", word, class.Class)
+            return fmt.Errorf("Could not find keyword '%v' for class '%v' in the contextionary, please choose another keyword", word, class.Class)
           }
         }
 
@@ -140,7 +140,7 @@ func add_names_from_schema_properties(context *libcontextionary.Contextionary, i
               vectors = append(vectors, *vector)
             }
           } else {
-            return fmt.Errorf("Could not find camel cased part of name '%v' for property %v in class '%v' in the contextionary", part, property.Name, class.Class)
+            return fmt.Errorf("Could not find camel cased part of name '%v' for property %v in class '%v' in the contextionary, consider adding some keywords instead.", part, property.Name, class.Class)
           }
         }
 
