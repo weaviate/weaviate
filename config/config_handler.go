@@ -58,9 +58,9 @@ type Environment struct {
 }
 
 type Contextionary struct {
-	KNNFile      string `json:'knn_file'`
-	IDXFile      string `json:'idx_file'`
-	failOnGerund bool   `json:'fail_ongerund'` // is true by default.
+	KNNFile      string `json:"knn_file"`
+	IDXFile      string `json:"idx_file"`
+	failOnGerund bool   `json:"fail_ongerund"` // is false by default.
 }
 
 // P2P sets the Peer to Peer values of the Weaviate network
