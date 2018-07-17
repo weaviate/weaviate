@@ -51,7 +51,7 @@ Based on the technology & concept summary which you can find [here](https://www.
 - [x] Cassandra connector
 - [ ] Gremlin connector <= V0.10.0
 - [ ] GraphQL implementation <= V0.11.0
-- [ ] [Contextionary](https://www.semi.network/knowledge-base/learn/technology-summary/#contextionary)
+- [x] [Contextionary](https://www.semi.network/knowledge-base/learn/technology-summary/#contextionary)
 - [ ] P2P connection <= V0.12.0
 - [ ] Miscellaneous <= V1.0.0
 
