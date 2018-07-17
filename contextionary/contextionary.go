@@ -1,6 +1,5 @@
 package contextionary
 
-
 // Opaque type that models an index number used to identify a word.
 type ItemIndex int
 
@@ -18,7 +17,7 @@ type Contextionary interface {
 
 	// Look up a word, return an index.
 	// Check for presence of the index with index.IsPresent()
-	WordToItemIndex(word string) (ItemIndex)
+	WordToItemIndex(word string) ItemIndex
 
 	// Based on an index, return the assosiated word.
 	ItemIndexToWord(item ItemIndex) (string, error)

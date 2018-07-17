@@ -7,18 +7,10 @@
     "classes": [
         {
             "class": "TestAction",
-            "keywords": [{
-                "kind": "testActionKind",
-                "weight": 1.0
-            }],
             "description": "This is a Test",
             "properties": [
                 {
                     "name": "testString",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
                     "@dataType": [
                         "string"
                     ],
@@ -26,10 +18,10 @@
                 },
                 {
                     "name": "testInt",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
+                    "keywords": [
+                      { "kind": "test", "weight": 1.0 },
+                      { "kind": "number", "weight": 1.0 }
+                    ],
                     "@dataType": [
                         "int"
                     ],
@@ -37,10 +29,11 @@
                 },
                 {
                     "name": "testBoolean",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
+                    "keywords": [
+                      { "kind": "test", "weight": 1.0 },
+                      { "kind": "truth", "weight": 1.0 },
+                      { "kind": "value", "weight": 1.0 }
+                    ],
                     "@dataType": [
                         "boolean"
                     ],
@@ -48,10 +41,6 @@
                 },
                 {
                     "name": "testNumber",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
                     "@dataType": [
                         "number"
                     ],
@@ -59,10 +48,6 @@
                 },
                 {
                     "name": "testDateTime",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
                     "@dataType": [
                         "date"
                     ],
@@ -70,10 +55,10 @@
                 },
                 {
                     "name": "testCref",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
+                    "keywords": [
+                      { "kind": "test", "weight": 1.0 },
+                      { "kind": "reference", "weight": 1.0 }
+                    ],
                     "@dataType": [
                         "TestThing"
                     ],
@@ -83,21 +68,10 @@
         },
         {
             "class": "TestAction2",
-            "keywords": [{
-                "kind": "testAction2KindA",
-                "weight": 1.0
-            },{
-                "kind": "testAction2KindB",
-                "weight": 0.9
-            }],
             "description": "This is a Test",
             "properties": [
                 {
                     "name": "testString",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
                     "@dataType": [
                         "string"
                     ],
@@ -105,21 +79,22 @@
                 },
                 {
                     "name": "testInt",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
                     "@dataType": [
                         "int"
+                    ],
+                    "keywords": [
+                      { "kind": "test", "weight": 1.0 },
+                      { "kind": "number", "weight": 1.0 }
                     ],
                     "description": "Value of testInt."
                 },
                 {
                     "name": "testBoolean",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
+                    "keywords": [
+                      { "kind": "test", "weight": 1.0 },
+                      { "kind": "truth", "weight": 1.0 },
+                      { "kind": "value", "weight": 1.0 }
+                    ],
                     "@dataType": [
                         "boolean"
                     ],
@@ -127,10 +102,6 @@
                 },
                 {
                     "name": "testNumber",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
                     "@dataType": [
                         "number"
                     ],
@@ -138,10 +109,6 @@
                 },
                 {
                     "name": "testDateTime",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
                     "@dataType": [
                         "date"
                     ],
@@ -149,10 +116,10 @@
                 },
                 {
                     "name": "testCref",
-                    "keywords": [{
-                        "kind": "testActionKind",
-                        "weight": 1.0
-                    }],
+                    "keywords": [
+                      { "kind": "test", "weight": 1.0 },
+                      { "kind": "reference", "weight": 1.0 }
+                    ],
                     "@dataType": [
                         "TestThing"
                     ],

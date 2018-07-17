@@ -15,11 +15,11 @@ import (
 type Wordlist struct {
 	vectorWidth   uint64
 	numberOfWords uint64
-  metadata      map[string]interface{}
+	metadata      map[string]interface{}
 
-	file          os.File
-  startOfTable int
-	mmap          []byte
+	file         os.File
+	startOfTable int
+	mmap         []byte
 }
 
 func LoadWordlist(path string) (*Wordlist, error) {
@@ -46,27 +46,27 @@ func LoadWordlist(path string) (*Wordlist, error) {
 	vectorWidth := binary.LittleEndian.Uint64(vectorWidthBytes)
 	metadataLength := binary.LittleEndian.Uint64(metadataLengthBytes)
 
-  metadataBytes := mmap[24:24+metadataLength]
-  var metadata map[string]interface{}
+	metadataBytes := mmap[24 : 24+metadataLength]
+	var metadata map[string]interface{}
 
-  json.Unmarshal(metadataBytes, &metadata)
+	json.Unmarshal(metadataBytes, &metadata)
 
-  // Compute beginning of word list lookup table.
-  var start_of_table int = 24 + int(metadataLength)
-  var offset int = 4 - (start_of_table % 4)
-  start_of_table += offset
+	// Compute beginning of word list lookup table.
+	var start_of_table int = 24 + int(metadataLength)
+	var offset int = 4 - (start_of_table % 4)
+	start_of_table += offset
 
 	return &Wordlist{
 		vectorWidth:   vectorWidth,
 		numberOfWords: nrWords,
-    metadata: metadata,
-    startOfTable: start_of_table,
-    mmap: mmap,
+		metadata:      metadata,
+		startOfTable:  start_of_table,
+		mmap:          mmap,
 	}, nil
 }
 
 func (w *Wordlist) GetNumberOfWords() ItemIndex {
-  return ItemIndex(w.numberOfWords)
+	return ItemIndex(w.numberOfWords)
 }
 
 func (w *Wordlist) FindIndexByWord(_needle string) ItemIndex {
@@ -97,7 +97,7 @@ func (w *Wordlist) FindIndexByWord(_needle string) ItemIndex {
 }
 
 func (w *Wordlist) getWordPtr(index ItemIndex) []byte {
-	entry_addr := ItemIndex(w.startOfTable) + index* 8
+	entry_addr := ItemIndex(w.startOfTable) + index*8
 	word_address_bytes := w.mmap[entry_addr : entry_addr+8]
 	word_address := binary.LittleEndian.Uint64(word_address_bytes)
 	return w.mmap[word_address:]
