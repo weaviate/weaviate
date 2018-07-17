@@ -22,8 +22,7 @@ Weaviate is not fully production ready yet. Follow this repo or sign up for the 
 	- [Overview](#overview)
 	- [Database Connector & Graph Interface](#database-connector--graph-interface)
 	- [Ontology](#ontology)
-	- [Semantic Peer to Peer (P2P) network](#semantic-p2p-network)
-	- [Semantic P2P Questionnaire](#semantic-p2p-questionnaire)
+	- [Peer to Peer (P2P) network](#p2p-network)
 - [Usage](#usage)
 - [Roadmap](#roadmap)
 
@@ -322,48 +321,114 @@ _Also see [this](https://github.com/creativesoftwarefdn/weaviate-semantic-schema
 }
 ```
 
-### Semantic P2P Network
+### P2P Network
 
-Weaviate is an HTTPS-based Semantic P2P network. The network allows Weaviates to communicate based on their ontologies and word vectors.
+Weaviate can run as a stand-alone service or as a node on a peer to peer (P2P) network.
 
-The P2P network operates in the following fashion;
+#### Definitions
 
-![Semantic P2P network](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_semP2PNetwork.jpg "Semantic P2P network")
+- The P2P network is a [hybrid](https://en.wikipedia.org/wiki/Peer-to-peer#Hybrid_models) HTTP(S) network. And uses the `/p2p/*` endpoints of the [Weaviate API's](#) to communicate.
+- The P2P network can be used through the `Network` search in the GraphQL endpoint.
+- Any node can be a bootstrap node to onboard another node on the network.
+- The P2P-network can be open or closed for other nodes.
+- Except for the Genesis Weaviate, contextionaries will be shared over the network.
+- Once a contextionary is defined, the network is fixed. Changing the contextionary means creating a new network.
+- The naming of the network is based on 3 random words of the Contextionary. (For example: `plane-banana-fries`)
+- On an open network, the `X-API-KEY` and `X-API-TOKEN` are both "weaviate-p2p" for the `/P2P/*` endpoints.
 
-1. Genesis Weaviate collects vector from storage.
-2. New Weaviate makes itself known on `POST /peers`.
-3. If accepted, the Weaviate that received the request sends the vector file and network meta-data to the Weaviate node _and_ broadcasts the new Weaviate meta-data to the complete network.
-4. A new Weaviate can make itself known to any Weaviate node on the network.
-5. If accepted, the Weaviate that received the request sends the vector file and network meta-data to the Weaviate node _and_ broadcasts the new Weaviate meta-data to the complete network.
-6. If the new Weaviate is unknown to the receiving node, the node broadcasts the meta-data to all other known nodes. This recurs until all nodes are informed.
+##### Nomenclature
 
-### Semantic P2P Questionnaire
+| Name               | Definition |
+|--------------------|------------|
+| New Weaviate       | A new node on the network, if this Weaviate becomes part of the network, it becomes a Bootstrap Weaviate|
+| Bootstrap Weaviate | A functional node on the network == a Bootstrap Weaviate. The bootstrap node contains enough information to onboard another node |
+| Genesis Weaviate   | Is the first node on the network, after a second node is added the Genesis Weaviate becomes a bootstrap weaviate |
 
-Weaviate communicates to each other node over the `/peers/*` endpoint on the HTTPS P2P network. Nodes don't communicate with actual values, but with vector representations of the classes and keywords.
+#### Defining a Genesis Weaviate
 
-![Semantic Interface](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_semInterface.jpg "Semantic Interface")
+In the configuration add the following object:
 
-Weaviate uses 300-dimensional [word vector representations](https://en.wikipedia.org/wiki/Word_embedding) that define the context of the request. The keywords and the weights of the keywords define the centroid of the vector.
+```
 
-An example of creating a vector on Ubuntu can be found in [this repo](https://github.com/creativesoftwarefdn/weaviate-vector-generator).
+{
+    "environments": [{
+        ...
+        "P2P: {
+            "genesis": true
+        }
+        ...
+    }]
+}
+```
 
-#### Example
+#### Defining a Weaviate as node
 
-![Vector Spaces](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/arch_vectorSpace.jpg "Vector Spaces")
+In the configuration add the following object:
+
+```
+
+{
+    "environments": [{
+        ...
+        "P2P: {
+            "bootstrappedPeers": ["URL"],
+            "requestContextionary": boolean
+        }
+        ...
+    }]
+}
+```
+
+#### Initiating the P2P network
+
+The following steps are part of starting up a Weaviate.
+
+##### Genesis Weaviate
+
+1. If a node is started, validate if `.environments[x].P2P` object is available. If false, run as stand-alone Weaviate and disable `/P2P/*` endpoints. If true;
+2. Validate if `"genesis": true`, if yes, listen to `/P2P/*` endpoints. If succesful;
+3. This Weaviate now became a Bootstrap Weaviate.
+
+![Weaviate P2P Image 1](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/p2p-img4.jpg "Weaviate P2P Image 1")
+
+##### New Weaviate
+
+1. If `"bootstrappedPeers": []` is set, make the New Weaviate known to _one of the peers_ in the array on the P2P endpoint (`"operationId": "weaviate.peers.announce"`). The peer responds with the contextionary in the body.
+2. The New Weaviate validates the MD5 of the network-contextionary. If false and `requestContextionary == true` the contextionary is requested from the node in the network otherwise the Weaviate startup should fail.
+3. If successful (HTTP 200 received) the New Weaviate became a Bootstrapped Weaviate.
+
+![Weaviate P2P Image 2](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/p2p-img4.jpg "Weaviate P2P Image 2")
+
+_The following steps are part of running a Weaviate as a node in the network._
+
+##### Bootstrapped Weaviate
+
+1. If a running Bootstrapped Weaviate receives a request on the `/P2P/announce` (`"operationId": "weaviate.peers.announce"`) end-point;
+2. the existence of the New Weaviate is validated by requesting a `/P2P/echo` (`"operationId": "weaviate.peers.echo"`) from the New Weaviate to validate it is available.
+3. In case of a 200 response, validate if the New Weaviate already is known. If true, do nothing. If false;
+4. Store the meta-information of the New Weaviate and broadcasts to _all_ known nodes the existence of the New Weaviate via the `/P2P/announce` endpoint (`"operationId": "weaviate.peers.announce"`).
+
+![Weaviate P2P Image 3](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/p2p-img3.jpg "Weaviate P2P Image 3")
+
+#### Question the Network
+
+1. An end-user defines a question through the `Network` search in the GraphQL endpoint. 
+2. The question is translated into a network question and broadcasted to all peers via the `/peers/questions` endpoint (`"operationId": "weaviate.peers.questions.create"`).
+3. A peer responds with status code 200 and an answer-UUID.
+4. The node waits* for a response on the `/peers/answers/{answerId}` endpoint (`"operationId": "weaviate.peers.answers.create"`).
+5. All answers are combined and sent to the end-user.
+
+![Weaviate P2P Image 4](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/p2p-img4.jpg "Weaviate P2P Image 4")
+
+_*- The end-user defines a "networkTimeout". This is the time it might take for the answer to accumulate._
+
+### Network Questionnaires
+
+_TBD_
 
 ## Usage
 
 Weaviate is [open source](LICENSE.md); information for commercial use can be found on [www.semi.network](https://www.semi.network).
-
-## Roadmap
-
-| Todo                | Status      |
-| ------------------- | ----------- |
-| Weaviate Graph      | Done        |
-| Cassandra Connector | Done        |
-| Tests               | Done        |
-| Word Vector         | In Progress |
-| HTTPS P2P           | In Progress |
 
 ## RESTful API
 
