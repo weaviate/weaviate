@@ -405,55 +405,40 @@
     "PeerAnnouncement": {
       "description": "Announcent of a peer on the network",
       "properties": {
-        "peerUuid": {
-          "description": "Uuid of the peer.",
-          "type": "string",
-          "format": "uuid"
-        },
         "peerName": {
-          "description": "Name of the peer in readable format",
+          "description": "Name of the peer in readable format. As: X-Y-Z. For example: apple-beer-car",
           "type": "string"
         },
         "peerHost": {
           "description": "Host or IP of the peer.",
           "type": "string",
           "format": "hostname"
-        },
-        "networkUuid": {
-          "description": "Uuid of the network.",
-          "type": "string",
-          "format": "uuid"
-        },
-        "networkVoucherUuid": {
-          "description": "Voucher that allows access or not to the network.",
-          "type": "string",
-          "format": "uuid"
+        }
+      },
+      "type": "object"
+    },
+    "PeerAnnouncementResponse": {
+      "description": "Response to announcent of a peer on the network",
+      "properties": {
+        "ContextionaryMD5": {
+          "description": "MD5 of the contextionary",
+          "type": "string"
         }
       },
       "type": "object"
     },
     "QuestionCreate": {
       "properties": {
-        "answerUuid": {
-          "description": "The Uuid of the answer when generated and returned to the /answer endpoint.",
-          "type": "string",
-          "format": "uuid"
+        "questionnaire": {
+          "description": "What is the -case insensitive- name of the question? Like (OntologyExplorer).",
+          "type": "string"
         },
         "question": {
-          "$ref": "#/definitions/VectorBasedQuestion"
+          "$ref": "#/definitions/Schema"
         },
-        "returnTo": {
-          "properties": {
-            "host": {
-              "description": "The answer should be returned to which host?",
-              "type": "string"
-            },
-            "port": {
-              "description": "The answer should be returned to which port?",
-              "type": "string"
-            }
-          },
-          "type": "object"
+        "returnToWeaviate": {
+          "description": "What is the name of the Weaviate? Like X-Y-Z.",
+          "type": "string"
         }
       },
       "type": "object"
@@ -799,9 +784,9 @@
       "name": "Weaviate",
       "url": "https://github.com/creativesoftwarefdn"
     },
-    "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
-    "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
-    "version": "0.9.2"
+    "description": "Decentralised Knowledge Graph",
+    "title": "Weaviate - Decentralised Knowledge Graph",
+    "version": "0.9.4"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
@@ -1506,7 +1491,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Successfully registred the peer to the network."
+            "description": "Successfully registred the peer to the network.",
+            "schema": {
+              "$ref": "#/definitions/PeerAnnouncementResponse"
+            }
           },
           "403": {
             "description": "You are not allowed on the network."
@@ -1571,10 +1559,35 @@
         "x-available-in-websocket": false
       }
     },
-    "/peers/echo": {
+    "/peers/meta/contextionary": {
+      "get": {
+        "description": "Receive the contextionary of this peer.",
+        "operationId": "weaviate.peers.meta.contextionary.get",
+        "responses": {
+          "200": {
+            "description": "Receive the contextionary",
+            "schema": {
+              "description": "Receive the contextionary.",
+              "type": "string",
+              "format": "binary"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Receive the contextionary of this peer.",
+        "tags": [
+          "P2P"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/peers/meta/echo": {
       "get": {
         "description": "Check if a peer is alive.",
-        "operationId": "weaviate.peers.echo",
+        "operationId": "weaviate.peers.meta.echo",
         "responses": {
           "200": {
             "description": "Alive and kicking!"
