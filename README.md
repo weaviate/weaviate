@@ -389,7 +389,7 @@ The following steps are part of starting up a Weaviate.
 2. Validate if `"genesis": true`, if yes, listen to `/P2P/*` endpoints. If succesful;
 3. This Weaviate now became a Bootstrap Weaviate.
 
-![Weaviate P2P Image 1](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/p2p-img4.jpg "Weaviate P2P Image 1")
+![Weaviate P2P Image 1](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/p2p-img1.jpg "Weaviate P2P Image 1")
 
 ##### New Weaviate
 
@@ -397,7 +397,7 @@ The following steps are part of starting up a Weaviate.
 2. The New Weaviate validates the MD5 of the network-contextionary. If false and `requestContextionary == true` the contextionary is requested from the node in the network otherwise the Weaviate startup should fail.
 3. If successful (HTTP 200 received) the New Weaviate became a Bootstrapped Weaviate.
 
-![Weaviate P2P Image 2](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/p2p-img4.jpg "Weaviate P2P Image 2")
+![Weaviate P2P Image 2](https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/assets/img/p2p-img2.jpg "Weaviate P2P Image 2")
 
 _The following steps are part of running a Weaviate as a node in the network._
 
