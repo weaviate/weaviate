@@ -45,15 +45,22 @@ type File struct {
 
 // Environment outline of the environment inside the config file
 type Environment struct {
-	Name        string      `json:"name"`
-	Database    Database    `json:"database"`
-	Schemas     Schemas     `json:"schemas"`
-	Broker      Broker      `json:"broker"`
-	P2P         P2P         `json:"P2P"`
-	Cache       Cache       `json:"cache"`
-	Limit       int64       `json:"limit"`
-	Debug       bool        `json:"debug"`
-	Development Development `json:"development"`
+	Name          string        `json:"name"`
+	Database      Database      `json:"database"`
+	Schemas       Schemas       `json:"schemas"`
+	Broker        Broker        `json:"broker"`
+	P2P           P2P           `json:"P2P"`
+	Cache         Cache         `json:"cache"`
+	Limit         int64         `json:"limit"`
+	Debug         bool          `json:"debug"`
+	Development   Development   `json:"development"`
+	Contextionary Contextionary `json:"contextionary"`
+}
+
+type Contextionary struct {
+	KNNFile      string `json:"knn_file"`
+	IDXFile      string `json:"idx_file"`
+	failOnGerund bool   `json:"fail_ongerund"` // is false by default.
 }
 
 // P2P sets the Peer to Peer values of the Weaviate network

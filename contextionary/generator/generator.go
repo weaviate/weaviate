@@ -1,45 +1,43 @@
 package generator
 
 import (
-	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
 	"bufio"
-  "bytes"
+	"bytes"
 	"encoding/binary"
 	"encoding/gob"
-  "encoding/json"
+	"encoding/json"
+	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
 	"github.com/syndtr/goleveldb/leveldb"
 	"log"
 	"os"
-  "strconv"
-  "strings"
+	"strconv"
+	"strings"
 )
 
 type Options struct {
 	VectorCSVPath string `short:"c" long:"vector-csv-path" description:"Path to the output file of Glove" required:"true"`
-  TempDBPath    string `short:"t" long:"temp-db-path" description:"Location for the temporary database" default:".tmp_import"`
-  OutputPrefix  string `short:"p" long:"output-prefix" description:"The prefix of the names of the files" required:"true"`
-  K int `short:"k" description:"number of forrests to generate" default:"20"`
+	TempDBPath    string `short:"t" long:"temp-db-path" description:"Location for the temporary database" default:".tmp_import"`
+	OutputPrefix  string `short:"p" long:"output-prefix" description:"The prefix of the names of the files" required:"true"`
+	K             int    `short:"k" description:"number of forrests to generate" default:"20"`
 }
 
 type WordVectorInfo struct {
-  numberOfWords int
-  vectorWidth int
-  k int
-  metadata JsonMetadata
+	numberOfWords int
+	vectorWidth   int
+	k             int
+	metadata      JsonMetadata
 }
-
 
 type JsonMetadata struct {
-  K int `json:"k"` // the number of parallel forrests.
+	K int `json:"k"` // the number of parallel forrests.
 }
-
 
 func Generate(options Options) {
 	db, err := leveldb.OpenFile(options.TempDBPath, nil)
-  defer db.Close()
+	defer db.Close()
 
 	if err != nil {
-    log.Fatalf("Could not open temporary database file %+v", err)
+		log.Fatalf("Could not open temporary database file %+v", err)
 	}
 
 	file, err := os.Open(options.VectorCSVPath)
@@ -49,32 +47,31 @@ func Generate(options Options) {
 	defer file.Close()
 
 	log.Print("Processing and ordering raw trained data")
-  info := readVectorsFromFileAndInsertIntoLevelDB(db, file)
+	info := readVectorsFromFileAndInsertIntoLevelDB(db, file)
 
-  info.k = options.K
-  info.metadata = JsonMetadata { options.K }
+	info.k = options.K
+	info.metadata = JsonMetadata{options.K}
 
 	log.Print("Generating wordlist")
-	createWordList(db, info, options.OutputPrefix + ".idx")
+	createWordList(db, info, options.OutputPrefix+".idx")
 
 	log.Print("Generating k-nn index")
-	createKnn(db, info, options.OutputPrefix + ".knn")
+	createKnn(db, info, options.OutputPrefix+".knn")
 
-  db.Close()
-  os.RemoveAll(options.TempDBPath)
+	db.Close()
+	os.RemoveAll(options.TempDBPath)
 }
-
 
 // read word vectors, insert them into level db, also return the dimension of the vectors.
 func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) WordVectorInfo {
 	var vector_length int = -1
 	var nr_words int = 0
 
-  scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
 		nr_words += 1
-    parts := strings.Split(scanner.Text(), " ")
+		parts := strings.Split(scanner.Text(), " ")
 
 		word := parts[0]
 		if vector_length == -1 {
@@ -98,15 +95,15 @@ func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) Word
 			vector[i-1] = float32(float)
 		}
 
-    var buf bytes.Buffer
-    if err := gob.NewEncoder(&buf).Encode(vector); err != nil {
-      log.Fatal("Could not encode vector for temp db storage")
-    }
+		var buf bytes.Buffer
+		if err := gob.NewEncoder(&buf).Encode(vector); err != nil {
+			log.Fatal("Could not encode vector for temp db storage")
+		}
 
-    db.Put([]byte(word), buf.Bytes(), nil)
+		db.Put([]byte(word), buf.Bytes(), nil)
 	}
 
-  return WordVectorInfo { numberOfWords: nr_words, vectorWidth: vector_length }
+	return WordVectorInfo{numberOfWords: nr_words, vectorWidth: vector_length}
 }
 
 func createWordList(db *leveldb.DB, info WordVectorInfo, outputFileName string) {
@@ -129,94 +126,94 @@ func createWordList(db *leveldb.DB, info WordVectorInfo, outputFileName string) 
 		log.Fatal("Could not write with of the vector.")
 	}
 
-  metadata, err := json.Marshal(info.metadata)
-  if err != nil {
+	metadata, err := json.Marshal(info.metadata)
+	if err != nil {
 		log.Fatal("Could not serialize metadata.")
-  }
+	}
 
 	err = binary.Write(wbuf, binary.LittleEndian, uint64(len(metadata)))
 	if err != nil {
 		log.Fatal("Could not write with of the vector.")
 	}
 
-  _, err = wbuf.Write(metadata)
+	_, err = wbuf.Write(metadata)
 	if err != nil {
 		log.Fatal("Could not write the metadata")
 	}
 
-  var metadata_len = uint64(len(metadata))
-  var metadata_padding = 4 - (metadata_len % 4)
-  for i := 0; uint64(i) < metadata_padding; i++ {
-    wbuf.WriteByte(byte(0))
-  }
+	var metadata_len = uint64(len(metadata))
+	var metadata_padding = 4 - (metadata_len % 4)
+	for i := 0; uint64(i) < metadata_padding; i++ {
+		wbuf.WriteByte(byte(0))
+	}
 
 	var word_offset uint64 = (2 + uint64(info.numberOfWords)) * 8 // first two uint64's from the header, then the table of indices.
-  word_offset += 8 + metadata_len + metadata_padding // and the metadata length + content & padding
+	word_offset += 8 + metadata_len + metadata_padding            // and the metadata length + content & padding
 
-  var orig_word_offset = word_offset
+	var orig_word_offset = word_offset
 
-  // Iterate first time over all data, computing indices for all words.
-  iter := db.NewIterator(nil,nil)
-  for iter.Next() {
-    key := iter.Key()
-    word := string(key)
-    length := len(word)
-    err = binary.Write(wbuf, binary.LittleEndian, uint64(word_offset))
+	// Iterate first time over all data, computing indices for all words.
+	iter := db.NewIterator(nil, nil)
+	for iter.Next() {
+		key := iter.Key()
+		word := string(key)
+		length := len(word)
+		err = binary.Write(wbuf, binary.LittleEndian, uint64(word_offset))
 
-    if err != nil {
-      log.Fatal("Could not write word offset to wordlist")
-    }
+		if err != nil {
+			log.Fatal("Could not write word offset to wordlist")
+		}
 
-    word_offset += uint64(length) + 1
+		word_offset += uint64(length) + 1
 
-    // ensure padding on 4-bytes aligned memory
-    padding := 4 - (word_offset % 4)
-    word_offset += padding
-  }
+		// ensure padding on 4-bytes aligned memory
+		padding := 4 - (word_offset % 4)
+		word_offset += padding
+	}
 
-  iter.Release()
-  word_offset = orig_word_offset
+	iter.Release()
+	word_offset = orig_word_offset
 
-  // Iterate second time over all data, now inserting the words
-  iter = db.NewIterator(nil,nil)
-  for iter.Next() {
-    key := iter.Key()
-    word := string(key)
-    length := len(word)
-    wbuf.Write([]byte(word))
-    wbuf.WriteByte(byte(0))
-    word_offset += uint64(length) + 1
+	// Iterate second time over all data, now inserting the words
+	iter = db.NewIterator(nil, nil)
+	for iter.Next() {
+		key := iter.Key()
+		word := string(key)
+		length := len(word)
+		wbuf.Write([]byte(word))
+		wbuf.WriteByte(byte(0))
+		word_offset += uint64(length) + 1
 
-    // ensure padding on 4-bytes aligned memory
-    padding := 4 - (word_offset % 4)
-    for i := 0; uint64(i) < padding; i++ {
-      wbuf.WriteByte(byte(0))
-    }
+		// ensure padding on 4-bytes aligned memory
+		padding := 4 - (word_offset % 4)
+		for i := 0; uint64(i) < padding; i++ {
+			wbuf.WriteByte(byte(0))
+		}
 
-    word_offset += padding
-  }
-  wbuf.Flush()
-  iter.Release()
+		word_offset += padding
+	}
+	wbuf.Flush()
+	iter.Release()
 }
 
 func createKnn(db *leveldb.DB, info WordVectorInfo, outputFileName string) {
-  var knn annoy.AnnoyIndex = annoy.NewAnnoyIndexEuclidean(info.vectorWidth)
-  var idx int = -1
+	var knn annoy.AnnoyIndex = annoy.NewAnnoyIndexEuclidean(info.vectorWidth)
+	var idx int = -1
 
-  iter := db.NewIterator(nil,nil)
+	iter := db.NewIterator(nil, nil)
 
-  for iter.Next() {
-    idx += 1
+	for iter.Next() {
+		idx += 1
 
-    vector := make([]float32, info.vectorWidth)
-    err := gob.NewDecoder(bytes.NewBuffer(iter.Value())).Decode(&vector)
-    if err != nil {
-      log.Fatalf("Could not decode vector value %+v", err)
-    }
-    knn.AddItem(idx, vector)
-  }
+		vector := make([]float32, info.vectorWidth)
+		err := gob.NewDecoder(bytes.NewBuffer(iter.Value())).Decode(&vector)
+		if err != nil {
+			log.Fatalf("Could not decode vector value %+v", err)
+		}
+		knn.AddItem(idx, vector)
+	}
 
-  knn.Build(info.k) // Hardcoded for now. Must be tweaked.
-  knn.Save(outputFileName)
-  knn.Unload()
+	knn.Build(info.k) // Hardcoded for now. Must be tweaked.
+	knn.Save(outputFileName)
+	knn.Unload()
 }
