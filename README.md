@@ -393,7 +393,7 @@ The following steps are part of starting up a Weaviate.
 
 ##### New Weaviate
 
-1. If `"bootstrappedPeers": []` is set, make the New Weaviate known to _one of the peers_ in the array on the P2P endpoint (`"operationId": "weaviate.peers.announce"`). The peer responds with the contextionary in the body.
+1. If `"bootstrappedPeers": []` is set, make the New Weaviate known to _one of the peers_ in the array on the P2P endpoint (`"operationId": "weaviate.peers.announce"`). The peer responds with the contextionaryMD5 (as string) in the body.
 2. The New Weaviate validates the MD5 of the network-contextionary. If false and `requestContextionary == true` the contextionary is requested from the node in the network otherwise the Weaviate startup should fail.
 3. If successful (HTTP 200 received) the New Weaviate became a Bootstrapped Weaviate.
 
