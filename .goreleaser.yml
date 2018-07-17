@@ -3,26 +3,9 @@ builds:
   - binary: weaviate
     main: ./cmd/weaviate-server/main.go
     goos:
-      # - android
-      - windows
-      - darwin
       - linux
-      # - dragonfly
-      # - freebsd
-      # - netbsd
-      # - openbsd
-      # - plan9
-      # - solaris
     goarch:
-      - 386
-      - arm
       - amd64
-      - ppc64
-      - ppc64le
-      - mips
-      - mipsle
-      - mips64
-      - mips64le
 archive:
   format: zip
   name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
