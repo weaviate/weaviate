@@ -31,6 +31,8 @@ before_script:
   # Generate sample contextionary from seed file.
   - test/contextionary/gen_simple_contextionary.sh
 script: 
+  # Verify that the code is properly formatted.
+  - if [[ -n "$(gofmt -l .)" ]]; then echo "The following files were not formatted properly!"; gofmt -l .; exit 1; fi
   # Run unit-like tests
   - go test ./contextionary
   # Running Cassandra deamon
