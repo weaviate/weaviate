@@ -1,5 +1,3 @@
-// This file is safe to edit. Once it exists it will not be overwritten
-
 package restapi
 
 import (
@@ -11,6 +9,8 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 
 	"github.com/creativesoftwarefdn/weaviate/genesis/restapi/operations"
+
+   log "github.com/sirupsen/logrus"
 )
 
 //go:generate swagger generate server --target .. --name weaviate-genesis --spec ../openapi-spec.json --default-scheme https
@@ -27,7 +27,7 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 	// Expected interface func(string, ...interface{})
 	//
 	// Example:
-	// api.Logger = log.Printf
+	api.Logger = log.Infof
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
