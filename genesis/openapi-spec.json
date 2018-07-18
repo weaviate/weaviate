@@ -1,0 +1,152 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "contact": {
+      "email": "hello@creativesoftwarefdn.org",
+      "name": "Weaviate",
+      "url": "https://github.com/creativesoftwarefdn"
+    },
+    "description": "The Weaviate Genesis Server is used to bootstrap the P2P network of Weaviate instances",
+    "title": "Weaviate Genesis Server",
+    "version": "0.1.0"
+  },
+  "definitions": {
+    "Contextionary": {
+      "properties": {
+        "url": {
+          "description": "URL where the contextionary can be found",
+          "format": "url",
+          "type": "string"
+        },
+        "hash": {
+          "properties": {
+            "algorithm": {
+              "description": "Hash algorithm",
+              "type": "string"
+            },
+            "value": {
+              "description": "The actual hash",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "Peer": {
+      "properties": {
+        "peerName": {
+          "description": "Name of the peer, must be valid DNS name",
+          "type": "string"
+        },
+        "peerHost": {
+          "description": "Host or IP of the peer, defaults to peerName",
+          "type": "string",
+          "format": "hostname"
+        }
+      },
+      "type": "object"
+    },
+    "PeerRegistrationResponse": {
+      "properties": {
+        "peer": { 
+          "$ref": "#/definitions/Peer"
+        },
+        "contextionary": {
+          "$ref": "#/definitions/Contextionary"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "paths": {
+    "/peers/register": {
+      "post": {
+        "description": "Register a new Weaviate peer in the network",
+        "operationId": "genesis.peers.register",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Peer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully registred the peer to the network.",
+            "schema": {
+              "$ref": "#/definitions/PeerRegistrationResponse"
+            }
+          },
+          "403": {
+            "description": "You are not allowed on the network."
+          }
+        }
+      }
+    },
+    "/peers/{peerId}": {
+      "delete": {
+        "description": "Leave the weaviate network",
+        "operationId": "genesis.peers.leave",
+        "parameters": [
+          {
+            "description": "Name of the Weaviate peer",
+            "format": "hostname",
+            "in": "path",
+            "name": "peerId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful left the network."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no such peer was found."
+          }
+        }
+      }
+    },
+    "/peers/{peerId}/ping": {
+      "delete": {
+        "description": "Ping the Genesis server, to make mark the peer as alive",
+        "operationId": "genesis.peers.ping",
+        "parameters": [
+          {
+            "description": "Name of the Weaviate peer",
+            "format": "hostname",
+            "in": "path",
+            "name": "peerId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ping received"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no such peer was found."
+          }
+        }
+      }
+    }
+  }
+}
