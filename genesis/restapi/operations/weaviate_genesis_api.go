@@ -40,6 +40,9 @@ func NewWeaviateGenesisAPI(spec *loads.Document) *WeaviateGenesisAPI {
 		GenesisPeersLeaveHandler: GenesisPeersLeaveHandlerFunc(func(params GenesisPeersLeaveParams) middleware.Responder {
 			return middleware.NotImplemented("operation GenesisPeersLeave has not yet been implemented")
 		}),
+		GenesisPeersListHandler: GenesisPeersListHandlerFunc(func(params GenesisPeersListParams) middleware.Responder {
+			return middleware.NotImplemented("operation GenesisPeersList has not yet been implemented")
+		}),
 		GenesisPeersPingHandler: GenesisPeersPingHandlerFunc(func(params GenesisPeersPingParams) middleware.Responder {
 			return middleware.NotImplemented("operation GenesisPeersPing has not yet been implemented")
 		}),
@@ -79,6 +82,8 @@ type WeaviateGenesisAPI struct {
 
 	// GenesisPeersLeaveHandler sets the operation handler for the genesis peers leave operation
 	GenesisPeersLeaveHandler GenesisPeersLeaveHandler
+	// GenesisPeersListHandler sets the operation handler for the genesis peers list operation
+	GenesisPeersListHandler GenesisPeersListHandler
 	// GenesisPeersPingHandler sets the operation handler for the genesis peers ping operation
 	GenesisPeersPingHandler GenesisPeersPingHandler
 	// GenesisPeersRegisterHandler sets the operation handler for the genesis peers register operation
@@ -148,6 +153,10 @@ func (o *WeaviateGenesisAPI) Validate() error {
 
 	if o.GenesisPeersLeaveHandler == nil {
 		unregistered = append(unregistered, "GenesisPeersLeaveHandler")
+	}
+
+	if o.GenesisPeersListHandler == nil {
+		unregistered = append(unregistered, "GenesisPeersListHandler")
 	}
 
 	if o.GenesisPeersPingHandler == nil {
@@ -260,6 +269,11 @@ func (o *WeaviateGenesisAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/peers/{peerId}"] = NewGenesisPeersLeave(o.context, o.GenesisPeersLeaveHandler)
+
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/peers"] = NewGenesisPeersList(o.context, o.GenesisPeersListHandler)
 
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
