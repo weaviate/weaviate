@@ -72,23 +72,23 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 		var err error = nil
 
 		if err == nil {
-      peer, err := (state).RegisterPeer(params.Body.PeerName, params.Body.PeerHost)
+			peer, err := (state).RegisterPeer(params.Body.PeerName, params.Body.PeerHost)
 			if err != nil {
 				return operations.NewGenesisPeersRegisterForbidden()
 			} else {
-				 response_peer := models.Peer {
-          PeerUpdate: models.PeerUpdate {
-            PeerHost: peer.Host(),
-            PeerName: peer.Name(),
-          },
-          ID: peer.Id,
-          LastContactAt: peer.LastContactAt.Unix(),
+				response_peer := models.Peer{
+					PeerUpdate: models.PeerUpdate{
+						PeerHost: peer.Host(),
+						PeerName: peer.Name(),
+					},
+					ID:            peer.Id,
+					LastContactAt: peer.LastContactAt.Unix(),
 				}
-        payload := models.PeerRegistrationResponse {
-          Peer: &response_peer,
-        }
-        return operations.NewGenesisPeersRegisterOK().WithPayload(&payload)
-      }
+				payload := models.PeerRegistrationResponse{
+					Peer: &response_peer,
+				}
+				return operations.NewGenesisPeersRegisterOK().WithPayload(&payload)
+			}
 		} else {
 			return operations.NewGenesisPeersRegisterBadRequest()
 		}
@@ -103,13 +103,13 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 			return operations.NewGenesisPeersListInternalServerError()
 		} else {
 			for _, peer := range listed_peers {
-				p := models.Peer {
-          PeerUpdate: models.PeerUpdate {
-            PeerHost: peer.Host(),
-            PeerName: peer.Name(),
-          },
-          ID: peer.Id,
-          LastContactAt: peer.LastContactAt.Unix(),
+				p := models.Peer{
+					PeerUpdate: models.PeerUpdate{
+						PeerHost: peer.Host(),
+						PeerName: peer.Name(),
+					},
+					ID:            peer.Id,
+					LastContactAt: peer.LastContactAt.Unix(),
 				}
 
 				peers = append(peers, &p)

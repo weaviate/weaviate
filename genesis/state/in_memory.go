@@ -3,41 +3,37 @@ package state
 import (
 	"fmt"
 	"github.com/go-openapi/strfmt"
+	"github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
 	"sync"
 )
 
 type inMemoryState struct {
 	sync.Mutex
-	peers map[string]Peer
+	peers map[strfmt.UUID]Peer
 }
 
 func NewInMemoryState() State {
 	return State(inMemoryState{
-		peers: make(map[string]Peer),
+		peers: make(map[strfmt.UUID]Peer),
 	})
 }
 
-func (im inMemoryState) RegisterPeer(name string, host strfmt.Hostname) error {
+func (im inMemoryState) RegisterPeer(name string, host strfmt.Hostname) (*Peer, error) {
 	im.Lock()
 	defer im.Unlock()
-	log.Debugf("Registering peer '%v'", name)
-	_, ok := im.peers[name]
 
-	if ok {
-		log.Debugf("Already a peer named '%v'", name)
+	id := strfmt.UUID(uuid.NewV4().String())
 
-		return fmt.Errorf("Such a peer already exists")
-	} else {
-		log.Debugf("Added the peer '%v'", name)
-
-		im.peers[name] = Peer{
-			name: name,
-			host: host,
-		}
-
-		return nil
+	log.Debugf("Registering peer '%v' with id '%v'", name, id)
+	peer := Peer{
+		PeerInfo: PeerInfo{Id: id},
+		name:     name,
+		host:     host,
 	}
+
+	im.peers[id] = peer
+	return &peer, nil
 }
 
 func (im inMemoryState) ListPeers() ([]Peer, error) {
@@ -53,24 +49,24 @@ func (im inMemoryState) ListPeers() ([]Peer, error) {
 	return peers, nil
 }
 
-func (im inMemoryState) RemovePeer(name string) error {
+func (im inMemoryState) RemovePeer(id strfmt.UUID) error {
 	im.Lock()
 	defer im.Unlock()
 
-	_, ok := im.peers[name]
+	_, ok := im.peers[id]
 
 	if ok {
-		delete(im.peers, name)
+		delete(im.peers, id)
 	}
 
 	return nil
 }
 
-func (im inMemoryState) UpdatePeer(name string, update PeerInfo) error {
+func (im inMemoryState) UpdatePeer(id strfmt.UUID, update PeerInfo) error {
 	im.Lock()
 	defer im.Unlock()
 
-	peer, ok := im.peers[name]
+	peer, ok := im.peers[id]
 
 	if ok {
 		peer.LastContactAt = update.LastContactAt
