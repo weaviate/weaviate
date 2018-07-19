@@ -24,18 +24,18 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 )
 
-// NewWeaviatePeersEchoParams creates a new WeaviatePeersEchoParams object
+// NewWeaviateP2pHealthParams creates a new WeaviateP2pHealthParams object
 // no default values defined in spec.
-func NewWeaviatePeersEchoParams() WeaviatePeersEchoParams {
+func NewWeaviateP2pHealthParams() WeaviateP2pHealthParams {
 
-	return WeaviatePeersEchoParams{}
+	return WeaviateP2pHealthParams{}
 }
 
-// WeaviatePeersEchoParams contains all the bound params for the weaviate peers echo operation
+// WeaviateP2pHealthParams contains all the bound params for the weaviate p2p health operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters weaviate.peers.echo
-type WeaviatePeersEchoParams struct {
+// swagger:parameters weaviate.p2p.health
+type WeaviateP2pHealthParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -44,8 +44,8 @@ type WeaviatePeersEchoParams struct {
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewWeaviatePeersEchoParams() beforehand.
-func (o *WeaviatePeersEchoParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewWeaviateP2pHealthParams() beforehand.
+func (o *WeaviateP2pHealthParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r

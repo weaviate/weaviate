@@ -23,15 +23,15 @@ import (
 	golangswaggerpaths "path"
 )
 
-// WeaviatePeersAnnounceURL generates an URL for the weaviate peers announce operation
-type WeaviatePeersAnnounceURL struct {
+// WeaviateP2pHealthURL generates an URL for the weaviate p2p health operation
+type WeaviateP2pHealthURL struct {
 	_basePath string
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *WeaviatePeersAnnounceURL) WithBasePath(bp string) *WeaviatePeersAnnounceURL {
+func (o *WeaviateP2pHealthURL) WithBasePath(bp string) *WeaviateP2pHealthURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -39,15 +39,15 @@ func (o *WeaviatePeersAnnounceURL) WithBasePath(bp string) *WeaviatePeersAnnounc
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *WeaviatePeersAnnounceURL) SetBasePath(bp string) {
+func (o *WeaviateP2pHealthURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *WeaviatePeersAnnounceURL) Build() (*url.URL, error) {
+func (o *WeaviateP2pHealthURL) Build() (*url.URL, error) {
 	var result url.URL
 
-	var _path = "/peers"
+	var _path = "/p2p/health"
 
 	_basePath := o._basePath
 	if _basePath == "" {
@@ -59,7 +59,7 @@ func (o *WeaviatePeersAnnounceURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *WeaviatePeersAnnounceURL) Must(u *url.URL, err error) *url.URL {
+func (o *WeaviateP2pHealthURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -70,17 +70,17 @@ func (o *WeaviatePeersAnnounceURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *WeaviatePeersAnnounceURL) String() string {
+func (o *WeaviateP2pHealthURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *WeaviatePeersAnnounceURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *WeaviateP2pHealthURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on WeaviatePeersAnnounceURL")
+		return nil, errors.New("scheme is required for a full url on WeaviateP2pHealthURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on WeaviatePeersAnnounceURL")
+		return nil, errors.New("host is required for a full url on WeaviateP2pHealthURL")
 	}
 
 	base, err := o.Build()
@@ -94,6 +94,6 @@ func (o *WeaviatePeersAnnounceURL) BuildFull(scheme, host string) (*url.URL, err
 }
 
 // StringFull returns the string representation of a complete url
-func (o *WeaviatePeersAnnounceURL) StringFull(scheme, host string) string {
+func (o *WeaviateP2pHealthURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }
