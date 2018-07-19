@@ -13,3 +13,4 @@ if [ ! -f $SWAGGER ]; then
 fi
 
 (cd $DIR/..; $SWAGGER generate server --name=weaviate-genesis --spec=openapi-spec.json --default-scheme=https)
+(cd $DIR/..; $SWAGGER generate client --spec=openapi-spec.json --default-scheme=https)
