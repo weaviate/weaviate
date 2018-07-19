@@ -39,8 +39,8 @@ func main() {
 	defer server.Shutdown()
 
 	parser := flags.NewParser(server, flags.Default)
-	parser.ShortDescription = "Weaviate - Semantic Graphql, RESTful Web of Things platform."
-	parser.LongDescription = "Weaviate - Semantic Graphql, RESTful Web of Things platform."
+	parser.ShortDescription = "Weaviate - Decentralised Knowledge Graph"
+	parser.LongDescription = "Decentralised Knowledge Graph"
 
 	server.ConfigureFlags()
 	for _, optsGroup := range api.CommandLineOptionsGroups {

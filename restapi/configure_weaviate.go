@@ -1152,18 +1152,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
 	})
-	api.P2PWeaviatePeersAnnounceHandler = p2_p.WeaviatePeersAnnounceHandlerFunc(func(params p2_p.WeaviatePeersAnnounceParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation p2_p.WeaviatePeersAnnounce has not yet been implemented")
+
+	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 	})
-	api.P2PWeaviatePeersAnswersCreateHandler = p2_p.WeaviatePeersAnswersCreateHandlerFunc(func(params p2_p.WeaviatePeersAnswersCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation p2_p.WeaviatePeersAnswersCreate has not yet been implemented")
-	})
-	api.P2PWeaviatePeersEchoHandler = p2_p.WeaviatePeersEchoHandlerFunc(func(params p2_p.WeaviatePeersEchoParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation p2_p.WeaviatePeersEcho has not yet been implemented")
-	})
-	api.P2PWeaviatePeersQuestionsCreateHandler = p2_p.WeaviatePeersQuestionsCreateHandlerFunc(func(params p2_p.WeaviatePeersQuestionsCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation p2_p.WeaviatePeersQuestionsCreate has not yet been implemented")
-	})
+
 	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
 		// Get limit and page
 		limit := getLimit(params.MaxResults)

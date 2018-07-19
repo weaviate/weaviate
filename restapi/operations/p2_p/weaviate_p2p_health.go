@@ -23,42 +23,42 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-// WeaviatePeersAnnounceHandlerFunc turns a function with the right signature into a weaviate peers announce handler
-type WeaviatePeersAnnounceHandlerFunc func(WeaviatePeersAnnounceParams, interface{}) middleware.Responder
+// WeaviateP2pHealthHandlerFunc turns a function with the right signature into a weaviate p2p health handler
+type WeaviateP2pHealthHandlerFunc func(WeaviateP2pHealthParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviatePeersAnnounceHandlerFunc) Handle(params WeaviatePeersAnnounceParams, principal interface{}) middleware.Responder {
+func (fn WeaviateP2pHealthHandlerFunc) Handle(params WeaviateP2pHealthParams, principal interface{}) middleware.Responder {
 	return fn(params, principal)
 }
 
-// WeaviatePeersAnnounceHandler interface for that can handle valid weaviate peers announce params
-type WeaviatePeersAnnounceHandler interface {
-	Handle(WeaviatePeersAnnounceParams, interface{}) middleware.Responder
+// WeaviateP2pHealthHandler interface for that can handle valid weaviate p2p health params
+type WeaviateP2pHealthHandler interface {
+	Handle(WeaviateP2pHealthParams, interface{}) middleware.Responder
 }
 
-// NewWeaviatePeersAnnounce creates a new http.Handler for the weaviate peers announce operation
-func NewWeaviatePeersAnnounce(ctx *middleware.Context, handler WeaviatePeersAnnounceHandler) *WeaviatePeersAnnounce {
-	return &WeaviatePeersAnnounce{Context: ctx, Handler: handler}
+// NewWeaviateP2pHealth creates a new http.Handler for the weaviate p2p health operation
+func NewWeaviateP2pHealth(ctx *middleware.Context, handler WeaviateP2pHealthHandler) *WeaviateP2pHealth {
+	return &WeaviateP2pHealth{Context: ctx, Handler: handler}
 }
 
-/*WeaviatePeersAnnounce swagger:route POST /peers P2P weaviatePeersAnnounce
+/*WeaviateP2pHealth swagger:route GET /p2p/health P2P weaviateP2pHealth
 
-Announce a new peer.
+Check if a peer is alive.
 
-Announce a new peer, authentication not needed (all peers are allowed to try and connect). This endpoint will only be used in M2M communications.
+Check if a peer is alive and healthy
 
 */
-type WeaviatePeersAnnounce struct {
+type WeaviateP2pHealth struct {
 	Context *middleware.Context
-	Handler WeaviatePeersAnnounceHandler
+	Handler WeaviateP2pHealthHandler
 }
 
-func (o *WeaviatePeersAnnounce) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *WeaviateP2pHealth) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewWeaviatePeersAnnounceParams()
+	var Params = NewWeaviateP2pHealthParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
