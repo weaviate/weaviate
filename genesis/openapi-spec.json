@@ -67,6 +67,26 @@
     }
   },
   "paths": {
+    "/peers" : {
+      "get": {
+        "description": "List the registered peers",
+        "operationId": "genesis.peers.list",
+        "responses": {
+          "200": {
+            "description": "The list of registered peers",
+            "schema": {
+              "items": {
+                "$ref": "#/definitions/Peer"
+              },
+              "type": "array"
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
     "/peers/register": {
       "post": {
         "description": "Register a new Weaviate peer in the network",
