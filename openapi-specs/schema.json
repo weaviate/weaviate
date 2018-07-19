@@ -1423,16 +1423,16 @@
         "x-available-in-websocket": false
       }
     },
-    "/peers/meta/echo": {
+    "/p2p/health": {
       "get": {
-        "description": "Check if a peer is alive.",
-        "operationId": "weaviate.peers.meta.echo",
+        "description": "Check if a peer is alive and healthy",
+        "operationId": "weaviate.p2p.health",
         "responses": {
           "200": {
             "description": "Alive and kicking!"
           },
-          "501": {
-            "description": "Not (yet) implemented."
+          "500": {
+            "description": "Not healthy (yet)"
           }
         },
         "summary": "Check if a peer is alive.",
