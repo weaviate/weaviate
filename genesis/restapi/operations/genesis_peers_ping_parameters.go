@@ -35,7 +35,7 @@ type GenesisPeersPingParams struct {
 	  Required: true
 	  In: path
 	*/
-	PeerID strfmt.Hostname
+	PeerID strfmt.UUID
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -68,12 +68,12 @@ func (o *GenesisPeersPingParams) bindPeerID(rawData []string, hasKey bool, forma
 	// Required: true
 	// Parameter is provided by construction from the route
 
-	// Format: hostname
-	value, err := formats.Parse("hostname", raw)
+	// Format: uuid
+	value, err := formats.Parse("uuid", raw)
 	if err != nil {
-		return errors.InvalidType("peerId", "path", "strfmt.Hostname", raw)
+		return errors.InvalidType("peerId", "path", "strfmt.UUID", raw)
 	}
-	o.PeerID = *(value.(*strfmt.Hostname))
+	o.PeerID = *(value.(*strfmt.UUID))
 
 	if err := o.validatePeerID(formats); err != nil {
 		return err
@@ -85,7 +85,7 @@ func (o *GenesisPeersPingParams) bindPeerID(rawData []string, hasKey bool, forma
 // validatePeerID carries on validations for parameter PeerID
 func (o *GenesisPeersPingParams) validatePeerID(formats strfmt.Registry) error {
 
-	if err := validate.FormatOf("peerId", "path", "hostname", o.PeerID.String(), formats); err != nil {
+	if err := validate.FormatOf("peerId", "path", "uuid", o.PeerID.String(), formats); err != nil {
 		return err
 	}
 	return nil

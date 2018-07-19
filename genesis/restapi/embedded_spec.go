@@ -66,7 +66,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Peer"
+              "$ref": "#/definitions/PeerUpdate"
             }
           }
         ],
@@ -93,7 +93,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "format": "hostname",
+            "format": "uuid",
             "description": "Name of the Weaviate peer",
             "name": "peerId",
             "in": "path",
@@ -123,7 +123,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "format": "hostname",
+            "format": "uuid",
             "description": "Name of the Weaviate peer",
             "name": "peerId",
             "in": "path",
@@ -173,17 +173,26 @@ func init() {
     },
     "Peer": {
       "type": "object",
-      "properties": {
-        "peerHost": {
-          "description": "Host or IP of the peer, defaults to peerName",
-          "type": "string",
-          "format": "hostname"
+      "allOf": [
+        {
+          "$ref": "#/definitions/PeerUpdate"
         },
-        "peerName": {
-          "description": "Name of the peer, must be valid DNS name",
-          "type": "string"
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "Unique ID of this peer registration, will be updated if the peer conntects again to the network.",
+              "type": "string",
+              "format": "uuid"
+            },
+            "last_contact_at": {
+              "description": "When we were received a ping from this peer from the last time",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
         }
-      }
+      ]
     },
     "PeerRegistrationResponse": {
       "type": "object",
@@ -193,6 +202,20 @@ func init() {
         },
         "peer": {
           "$ref": "#/definitions/Peer"
+        }
+      }
+    },
+    "PeerUpdate": {
+      "type": "object",
+      "properties": {
+        "peerHost": {
+          "description": "Host or IP of the peer, defaults to peerName",
+          "type": "string",
+          "format": "hostname"
+        },
+        "peerName": {
+          "description": "Name of the peer, must be valid DNS name",
+          "type": "string"
         }
       }
     }
@@ -247,7 +270,7 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Peer"
+              "$ref": "#/definitions/PeerUpdate"
             }
           }
         ],
@@ -274,7 +297,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "format": "hostname",
+            "format": "uuid",
             "description": "Name of the Weaviate peer",
             "name": "peerId",
             "in": "path",
@@ -304,7 +327,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "format": "hostname",
+            "format": "uuid",
             "description": "Name of the Weaviate peer",
             "name": "peerId",
             "in": "path",
@@ -354,17 +377,26 @@ func init() {
     },
     "Peer": {
       "type": "object",
-      "properties": {
-        "peerHost": {
-          "description": "Host or IP of the peer, defaults to peerName",
-          "type": "string",
-          "format": "hostname"
+      "allOf": [
+        {
+          "$ref": "#/definitions/PeerUpdate"
         },
-        "peerName": {
-          "description": "Name of the peer, must be valid DNS name",
-          "type": "string"
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "description": "Unique ID of this peer registration, will be updated if the peer conntects again to the network.",
+              "type": "string",
+              "format": "uuid"
+            },
+            "last_contact_at": {
+              "description": "When we were received a ping from this peer from the last time",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
         }
-      }
+      ]
     },
     "PeerRegistrationResponse": {
       "type": "object",
@@ -374,6 +406,20 @@ func init() {
         },
         "peer": {
           "$ref": "#/definitions/Peer"
+        }
+      }
+    },
+    "PeerUpdate": {
+      "type": "object",
+      "properties": {
+        "peerHost": {
+          "description": "Host or IP of the peer, defaults to peerName",
+          "type": "string",
+          "format": "hostname"
+        },
+        "peerName": {
+          "description": "Name of the peer, must be valid DNS name",
+          "type": "string"
         }
       }
     }

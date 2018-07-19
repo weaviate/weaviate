@@ -65,7 +65,7 @@ for the genesis peers register operation typically these are written to a http.R
 type GenesisPeersRegisterParams struct {
 
 	/*Body*/
-	Body *models.Peer
+	Body *models.PeerUpdate
 
 	timeout    time.Duration
 	Context    context.Context
@@ -106,13 +106,13 @@ func (o *GenesisPeersRegisterParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithBody adds the body to the genesis peers register params
-func (o *GenesisPeersRegisterParams) WithBody(body *models.Peer) *GenesisPeersRegisterParams {
+func (o *GenesisPeersRegisterParams) WithBody(body *models.PeerUpdate) *GenesisPeersRegisterParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the genesis peers register params
-func (o *GenesisPeersRegisterParams) SetBody(body *models.Peer) {
+func (o *GenesisPeersRegisterParams) SetBody(body *models.PeerUpdate) {
 	o.Body = body
 }
 
