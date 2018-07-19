@@ -36,7 +36,7 @@ type GenesisPeersRegisterParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.Peer
+	Body *models.PeerUpdate
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -50,7 +50,7 @@ func (o *GenesisPeersRegisterParams) BindRequest(r *http.Request, route *middlew
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.Peer
+		var body models.PeerUpdate
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))

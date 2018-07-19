@@ -66,7 +66,7 @@ type GenesisPeersPingParams struct {
 	  Name of the Weaviate peer
 
 	*/
-	PeerID strfmt.Hostname
+	PeerID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
@@ -107,13 +107,13 @@ func (o *GenesisPeersPingParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithPeerID adds the peerID to the genesis peers ping params
-func (o *GenesisPeersPingParams) WithPeerID(peerID strfmt.Hostname) *GenesisPeersPingParams {
+func (o *GenesisPeersPingParams) WithPeerID(peerID strfmt.UUID) *GenesisPeersPingParams {
 	o.SetPeerID(peerID)
 	return o
 }
 
 // SetPeerID adds the peerId to the genesis peers ping params
-func (o *GenesisPeersPingParams) SetPeerID(peerID strfmt.Hostname) {
+func (o *GenesisPeersPingParams) SetPeerID(peerID strfmt.UUID) {
 	o.PeerID = peerID
 }
 

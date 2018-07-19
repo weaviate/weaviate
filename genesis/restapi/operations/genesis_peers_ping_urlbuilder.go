@@ -16,7 +16,7 @@ import (
 
 // GenesisPeersPingURL generates an URL for the genesis peers ping operation
 type GenesisPeersPingURL struct {
-	PeerID strfmt.Hostname
+	PeerID strfmt.UUID
 
 	_basePath string
 	// avoid unkeyed usage

@@ -44,7 +44,7 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 	api.JSONProducer = runtime.JSONProducer()
 
 	api.GenesisPeersLeaveHandler = operations.GenesisPeersLeaveHandlerFunc(func(params operations.GenesisPeersLeaveParams) middleware.Responder {
-		err := (state).RemovePeer(string(params.PeerID))
+		err := (state).RemovePeer(params.PeerID)
 
 		if err == nil {
 			return operations.NewGenesisPeersLeaveNoContent()
@@ -58,7 +58,7 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 			LastContactAt: time.Now(),
 		}
 
-		err := (state).UpdatePeer(string(params.PeerID), update)
+		err := (state).UpdatePeer(params.PeerID, update)
 
 		if err == nil {
 			return operations.NewGenesisPeersPingOK()
@@ -72,11 +72,23 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 		var err error = nil
 
 		if err == nil {
-			err = (state).RegisterPeer(params.Body.PeerName, params.Body.PeerHost)
+      peer, err := (state).RegisterPeer(params.Body.PeerName, params.Body.PeerHost)
 			if err != nil {
 				return operations.NewGenesisPeersRegisterForbidden()
-			}
-			return operations.NewGenesisPeersRegisterOK()
+			} else {
+				 response_peer := models.Peer {
+          PeerUpdate: models.PeerUpdate {
+            PeerHost: peer.Host(),
+            PeerName: peer.Name(),
+          },
+          ID: peer.Id,
+          LastContactAt: peer.LastContactAt.Unix(),
+				}
+        payload := models.PeerRegistrationResponse {
+          Peer: &response_peer,
+        }
+        return operations.NewGenesisPeersRegisterOK().WithPayload(&payload)
+      }
 		} else {
 			return operations.NewGenesisPeersRegisterBadRequest()
 		}
@@ -91,9 +103,13 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 			return operations.NewGenesisPeersListInternalServerError()
 		} else {
 			for _, peer := range listed_peers {
-				p := models.Peer{
-					PeerHost: peer.Host(),
-					PeerName: peer.Name(),
+				p := models.Peer {
+          PeerUpdate: models.PeerUpdate {
+            PeerHost: peer.Host(),
+            PeerName: peer.Name(),
+          },
+          ID: peer.Id,
+          LastContactAt: peer.LastContactAt.Unix(),
 				}
 
 				peers = append(peers, &p)

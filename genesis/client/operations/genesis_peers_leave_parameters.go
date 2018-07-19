@@ -66,7 +66,7 @@ type GenesisPeersLeaveParams struct {
 	  Name of the Weaviate peer
 
 	*/
-	PeerID strfmt.Hostname
+	PeerID strfmt.UUID
 
 	timeout    time.Duration
 	Context    context.Context
@@ -107,13 +107,13 @@ func (o *GenesisPeersLeaveParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithPeerID adds the peerID to the genesis peers leave params
-func (o *GenesisPeersLeaveParams) WithPeerID(peerID strfmt.Hostname) *GenesisPeersLeaveParams {
+func (o *GenesisPeersLeaveParams) WithPeerID(peerID strfmt.UUID) *GenesisPeersLeaveParams {
 	o.SetPeerID(peerID)
 	return o
 }
 
 // SetPeerID adds the peerId to the genesis peers leave params
-func (o *GenesisPeersLeaveParams) SetPeerID(peerID strfmt.Hostname) {
+func (o *GenesisPeersLeaveParams) SetPeerID(peerID strfmt.UUID) {
 	o.PeerID = peerID
 }
 

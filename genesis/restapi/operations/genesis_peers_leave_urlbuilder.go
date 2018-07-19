@@ -16,7 +16,7 @@ import (
 
 // GenesisPeersLeaveURL generates an URL for the genesis peers leave operation
 type GenesisPeersLeaveURL struct {
-	PeerID strfmt.Hostname
+	PeerID strfmt.UUID
 
 	_basePath string
 	// avoid unkeyed usage
