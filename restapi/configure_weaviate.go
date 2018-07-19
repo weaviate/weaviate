@@ -59,6 +59,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/validation"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
+	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 )
 
 const pageOverride int = 1
@@ -66,6 +67,7 @@ const pageOverride int = 1
 var connectorOptionGroup *swag.CommandLineOptionsGroup
 var databaseSchema schema.WeaviateSchema
 var contextionary *libcontextionary.Contextionary
+var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
 var dbConnector dbconnector.DatabaseConnector
 var graphQLSchema *graphqlapi.GraphQLSchema
@@ -1294,6 +1296,8 @@ func configureServer(s *http.Server, scheme, addr string) {
 
 	loadContextionary()
 
+	connectToNetwork()
+
 	// Connect to MQTT via Broker
 	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
 
@@ -1422,4 +1426,20 @@ func loadContextionary() {
 	contextionary = &x
 
 	// whoop!
+}
+
+func connectToNetwork() {
+	if serverConfig.Environment.Network == nil {
+		messaging.InfoMessage(fmt.Sprintf("No network configured, not joining one"))
+		network = libnetwork.FakeNetwork{}
+	} else {
+		genesis_url := strfmt.URI(serverConfig.Environment.Network.GenesisURL)
+		messaging.InfoMessage(fmt.Sprintf("Network configured, connecting to Genesis '%v'", genesis_url))
+		new_net, err := libnetwork.BootstrapNetwork(messaging, genesis_url)
+		if err != nil {
+			messaging.ExitError(78, fmt.Sprintf("Could not connect to network! Reason: %+v", err))
+		} else {
+			network = new_net
+		}
+	}
 }

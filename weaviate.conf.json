@@ -124,6 +124,9 @@
 			"knn_file" : "test/contextionary/example.knn",
 			"idx_file" : "test/contextionary/example.idx"
 		},
+    "network": {
+      "genesis_url": "http://localhost:8001"
+    },
 		"schemas": {
 			"Thing": "./test/schema/test-thing-schema.json",
 			"Action": "./test/schema/test-action-schema.json"
