@@ -108,6 +108,9 @@
               "$ref": "#/definitions/PeerRegistrationResponse"
             }
           },
+          "400": {
+            "description": "The weaviate peer is not reachable from the Gensis service."
+          },
           "403": {
             "description": "You are not allowed on the network."
           }
