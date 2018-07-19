@@ -41,6 +41,29 @@
       "type": "object"
     },
     "Peer": {
+      "allOf":  [
+        {
+          "$ref": "#/definitions/PeerUpdate"
+        },
+        {
+          "properties": {
+            "id" : {
+              "description": "Unique ID of this peer registration, will be updated if the peer conntects again to the network.",
+              "format": "uuid",
+              "type": "string"
+            },
+            "last_contact_at" : {
+              "description": "When we were received a ping from this peer from the last time",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        }
+      ],
+      "type": "object"
+    },
+    "PeerUpdate": {
       "properties": {
         "peerName": {
           "description": "Name of the peer, must be valid DNS name",
@@ -97,7 +120,7 @@
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/Peer"
+              "$ref": "#/definitions/PeerUpdate"
             }
           }
         ],
@@ -124,7 +147,7 @@
         "parameters": [
           {
             "description": "Name of the Weaviate peer",
-            "format": "hostname",
+            "format": "uuid",
             "in": "path",
             "name": "peerId",
             "required": true,
@@ -154,7 +177,7 @@
         "parameters": [
           {
             "description": "Name of the Weaviate peer",
-            "format": "hostname",
+            "format": "uuid",
             "in": "path",
             "name": "peerId",
             "required": true,
