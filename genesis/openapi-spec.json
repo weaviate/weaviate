@@ -10,6 +10,12 @@
     "title": "Weaviate Genesis Server",
     "version": "0.1.0"
   },
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
   "definitions": {
     "Contextionary": {
       "properties": {
