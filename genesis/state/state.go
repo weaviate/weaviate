@@ -6,6 +6,7 @@ import (
 )
 
 type PeerInfo struct {
+	Id            strfmt.UUID
 	LastContactAt time.Time
 }
 
@@ -25,11 +26,11 @@ func (p Peer) Host() strfmt.Hostname {
 
 // Abstract interface over how the Genesis server should store state.
 type State interface {
-	RegisterPeer(name string, host strfmt.Hostname) error
+	RegisterPeer(name string, host strfmt.Hostname) (*Peer, error)
 	ListPeers() ([]Peer, error)
 
 	// Idempotent remove; removing a non-existing peer should not fail.
-	RemovePeer(name string) error
+	RemovePeer(id strfmt.UUID) error
 
-	UpdatePeer(name string, peer PeerInfo) error
+	UpdatePeer(id strfmt.UUID, peer PeerInfo) error
 }
