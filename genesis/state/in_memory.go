@@ -4,31 +4,32 @@ import (
   "fmt"
    log "github.com/sirupsen/logrus"
   "github.com/go-openapi/strfmt"
+  "sync"
 )
 
 type inMemoryState struct {
+  sync.Mutex
   peers map[string]Peer
 }
 
-func NewInMemoryState() *State {
-  s := State(inMemoryState {
+func NewInMemoryState() State {
+  return State(inMemoryState {
     peers: make(map[string]Peer),
   })
-
-  log.Debug("Created in memory state")
-
-  return  &s
 }
 
 func (im inMemoryState) RegisterPeer(name string, host strfmt.Hostname) error {
+  im.Lock()
+  defer im.Unlock()
+  log.Debugf("Registering peer '%v'", name)
   _, ok := im.peers[name]
 
   if ok {
-    log.Debugf("Already a peer named %v", name)
+    log.Debugf("Already a peer named '%v'", name)
 
     return fmt.Errorf("Such a peer already exists")
   } else {
-    log.Debugf("Added the peer %v", name)
+    log.Debugf("Added the peer '%v'", name)
 
     im.peers[name] = Peer {
       name: name,
@@ -40,6 +41,9 @@ func (im inMemoryState) RegisterPeer(name string, host strfmt.Hostname) error {
 }
 
 func (im inMemoryState) ListPeers() ([]Peer, error) {
+  im.Lock()
+  defer im.Unlock()
+
   peers := make([]Peer, 0)
 
   for _, v := range(im.peers) {
@@ -50,6 +54,9 @@ func (im inMemoryState) ListPeers() ([]Peer, error) {
 }
 
 func (im inMemoryState) RemovePeer(name string) error {
+  im.Lock()
+  defer im.Unlock()
+
   _, ok := im.peers[name]
 
   if ok {
@@ -60,6 +67,9 @@ func (im inMemoryState) RemovePeer(name string) error {
 }
 
 func (im inMemoryState) UpdatePeer(name string, update PeerInfo) error {
+  im.Lock()
+  defer im.Unlock()
+
   peer, ok := im.peers[name]
 
   if ok {
