@@ -18,6 +18,12 @@ var (
 
 func init() {
 	SwaggerJSON = json.RawMessage([]byte(`{
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
   "swagger": "2.0",
   "info": {
     "description": "The Weaviate Genesis Server is used to bootstrap the P2P network of Weaviate instances",
@@ -30,6 +36,26 @@ func init() {
     "version": "0.1.0"
   },
   "paths": {
+    "/peers": {
+      "get": {
+        "description": "List the registered peers",
+        "operationId": "genesis.peers.list",
+        "responses": {
+          "200": {
+            "description": "The list of registered peers",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Peer"
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
     "/peers/register": {
       "post": {
         "description": "Register a new Weaviate peer in the network",
@@ -50,6 +76,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/PeerRegistrationResponse"
             }
+          },
+          "400": {
+            "description": "The weaviate peer is not reachable from the Gensis service."
           },
           "403": {
             "description": "You are not allowed on the network."
@@ -170,6 +199,12 @@ func init() {
   }
 }`))
 	FlatSwaggerJSON = json.RawMessage([]byte(`{
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
   "swagger": "2.0",
   "info": {
     "description": "The Weaviate Genesis Server is used to bootstrap the P2P network of Weaviate instances",
@@ -182,6 +217,26 @@ func init() {
     "version": "0.1.0"
   },
   "paths": {
+    "/peers": {
+      "get": {
+        "description": "List the registered peers",
+        "operationId": "genesis.peers.list",
+        "responses": {
+          "200": {
+            "description": "The list of registered peers",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/Peer"
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        }
+      }
+    },
     "/peers/register": {
       "post": {
         "description": "Register a new Weaviate peer in the network",
@@ -202,6 +257,9 @@ func init() {
             "schema": {
               "$ref": "#/definitions/PeerRegistrationResponse"
             }
+          },
+          "400": {
+            "description": "The weaviate peer is not reachable from the Gensis service."
           },
           "403": {
             "description": "You are not allowed on the network."

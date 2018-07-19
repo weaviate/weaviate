@@ -57,6 +57,30 @@ func (o *GenesisPeersRegisterOK) WriteResponse(rw http.ResponseWriter, producer 
 	}
 }
 
+// GenesisPeersRegisterBadRequestCode is the HTTP code returned for type GenesisPeersRegisterBadRequest
+const GenesisPeersRegisterBadRequestCode int = 400
+
+/*GenesisPeersRegisterBadRequest The weaviate peer is not reachable from the Gensis service.
+
+swagger:response genesisPeersRegisterBadRequest
+*/
+type GenesisPeersRegisterBadRequest struct {
+}
+
+// NewGenesisPeersRegisterBadRequest creates GenesisPeersRegisterBadRequest with default headers values
+func NewGenesisPeersRegisterBadRequest() *GenesisPeersRegisterBadRequest {
+
+	return &GenesisPeersRegisterBadRequest{}
+}
+
+// WriteResponse to the client
+func (o *GenesisPeersRegisterBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+
+	rw.WriteHeader(400)
+}
+
 // GenesisPeersRegisterForbiddenCode is the HTTP code returned for type GenesisPeersRegisterForbidden
 const GenesisPeersRegisterForbiddenCode int = 403
 
