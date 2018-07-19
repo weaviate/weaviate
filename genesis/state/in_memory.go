@@ -3,6 +3,7 @@ package state
 import (
   "fmt"
    log "github.com/sirupsen/logrus"
+  "github.com/go-openapi/strfmt"
 )
 
 type inMemoryState struct {
@@ -19,8 +20,7 @@ func NewInMemoryState() *State {
   return  &s
 }
 
-func (im inMemoryState) RegisterPeer(name string, host string) error {
-  log.Debugf("Registering peer %v", name)
+func (im inMemoryState) RegisterPeer(name string, host strfmt.Hostname) error {
   _, ok := im.peers[name]
 
   if ok {
