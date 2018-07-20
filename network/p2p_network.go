@@ -8,6 +8,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/go-openapi/strfmt"
 
+	"net/url"
+
 	genesis_client "github.com/creativesoftwarefdn/weaviate/genesis/client"
 	client_ops "github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
 	genesis_models "github.com/creativesoftwarefdn/weaviate/genesis/models"
@@ -24,7 +26,9 @@ type network struct {
 	sync.Mutex
 
 	// Peer ID assigned by genesis server
-	peer_id strfmt.UUID
+	peer_id    strfmt.UUID
+	peer_name  string
+	public_url strfmt.URI
 
 	state       string
 	genesis_url strfmt.URI
@@ -33,15 +37,40 @@ type network struct {
 	peers       []Peer
 }
 
-func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI) (Network, error) {
-	transport_config := genesis_client.TransportConfig{
-		Host:     "localhost:8001",
-		BasePath: "/",
-		Schemes:  []string{"http"},
+func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI, public_url strfmt.URI, peer_name string) (*Network, error) {
+	if genesis_url == "" {
+		return nil, fmt.Errorf("No genesis URL provided in network configuration")
 	}
+
+	genesis_uri, err := url.Parse(string(genesis_url))
+	if err != nil {
+		return nil, fmt.Errorf("Could not parse genesis URL '%v'", genesis_url)
+	}
+
+	if public_url == "" {
+		return nil, fmt.Errorf("No public URL provided in network configuration")
+	}
+
+	_, err = url.Parse(string(public_url))
+	if err != nil {
+		return nil, fmt.Errorf("Could not parse public URL '%v'", public_url)
+	}
+
+	if peer_name == "" {
+		return nil, fmt.Errorf("No peer name specified in network configuration")
+	}
+
+	transport_config := genesis_client.TransportConfig{
+		Host:     genesis_uri.Host,
+		BasePath: genesis_uri.Path,
+		Schemes:  []string{genesis_uri.Scheme},
+	}
+
 	client := genesis_client.NewHTTPClientWithConfig(nil, &transport_config)
 
 	n := network{
+		public_url:  public_url,
+		peer_name:   peer_name,
 		state:       NETWORK_STATE_BOOTSTRAPPING,
 		genesis_url: genesis_url,
 		messaging:   m,
@@ -52,7 +81,8 @@ func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI) (Network, e
 	// Bootstrap the network in the background.
 	go n.bootstrap()
 
-	return &n, nil
+	nw := Network(&n)
+	return &nw, nil
 }
 
 func (n *network) bootstrap() {
@@ -60,9 +90,10 @@ func (n *network) bootstrap() {
 	n.messaging.InfoMessage("Bootstrapping network")
 
 	new_peer := genesis_models.PeerUpdate{
-		PeerName: "test",
-		PeerHost: "test",
+		PeerName: n.peer_name,
+		PeerURI:  n.public_url,
 	}
+
 	params := client_ops.NewGenesisPeersRegisterParams()
 	params.Body = &new_peer
 	response, err := n.client.Operations.GenesisPeersRegister(params)

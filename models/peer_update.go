@@ -29,46 +29,33 @@ import (
 // swagger:model PeerUpdate
 type PeerUpdate struct {
 
-	// host where the peer is exposed to the internet
-	// Format: hostname
-	Host strfmt.Hostname `json:"host,omitempty"`
-
 	// The session ID of the peer
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
 
 	// Human readable name
 	Name string `json:"name,omitempty"`
+
+	// The location where the peer is exposed to the internet
+	// Format: uri
+	URI strfmt.URI `json:"uri,omitempty"`
 }
 
 // Validate validates this peer update
 func (m *PeerUpdate) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateHost(formats); err != nil {
+	if err := m.validateID(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateID(formats); err != nil {
+	if err := m.validateURI(formats); err != nil {
 		res = append(res, err)
 	}
 
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *PeerUpdate) validateHost(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Host) { // not required
-		return nil
-	}
-
-	if err := validate.FormatOf("host", "body", "hostname", m.Host.String(), formats); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -79,6 +66,19 @@ func (m *PeerUpdate) validateID(formats strfmt.Registry) error {
 	}
 
 	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *PeerUpdate) validateURI(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.URI) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("uri", "body", "uri", m.URI.String(), formats); err != nil {
 		return err
 	}
 

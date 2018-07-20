@@ -13,20 +13,20 @@ type PeerInfo struct {
 type Peer struct {
 	PeerInfo
 	name string
-	host strfmt.Hostname
+	uri  strfmt.URI
 }
 
 func (p Peer) Name() string {
 	return p.name
 }
 
-func (p Peer) Host() strfmt.Hostname {
-	return p.host
+func (p Peer) URI() strfmt.URI {
+	return p.uri
 }
 
 // Abstract interface over how the Genesis server should store state.
 type State interface {
-	RegisterPeer(name string, host strfmt.Hostname) (*Peer, error)
+	RegisterPeer(name string, uri strfmt.URI) (*Peer, error)
 	ListPeers() ([]Peer, error)
 
 	// Idempotent remove; removing a non-existing peer should not fail.

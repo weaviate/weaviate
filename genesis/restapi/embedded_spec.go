@@ -208,14 +208,14 @@ func init() {
     "PeerUpdate": {
       "type": "object",
       "properties": {
-        "peerHost": {
-          "description": "Host or IP of the peer, defaults to peerName",
-          "type": "string",
-          "format": "hostname"
-        },
         "peerName": {
           "description": "Name of the peer, must be valid DNS name",
           "type": "string"
+        },
+        "peerUri": {
+          "description": "Host or IP of the peer, defaults to peerName",
+          "type": "string",
+          "format": "uri"
         }
       }
     }
@@ -412,14 +412,14 @@ func init() {
     "PeerUpdate": {
       "type": "object",
       "properties": {
-        "peerHost": {
-          "description": "Host or IP of the peer, defaults to peerName",
-          "type": "string",
-          "format": "hostname"
-        },
         "peerName": {
           "description": "Name of the peer, must be valid DNS name",
           "type": "string"
+        },
+        "peerUri": {
+          "description": "Host or IP of the peer, defaults to peerName",
+          "type": "string",
+          "format": "uri"
         }
       }
     }

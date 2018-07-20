@@ -22,7 +22,7 @@ func NewInMemoryState() State {
 	return State(&state)
 }
 
-func (im *inMemoryState) RegisterPeer(name string, host strfmt.Hostname) (*Peer, error) {
+func (im *inMemoryState) RegisterPeer(name string, uri strfmt.URI) (*Peer, error) {
 	im.Lock()
 	defer im.Unlock()
 
@@ -35,7 +35,7 @@ func (im *inMemoryState) RegisterPeer(name string, host strfmt.Hostname) (*Peer,
 			LastContactAt: time.Now(),
 		},
 		name: name,
-		host: host,
+		uri:  uri,
 	}
 
 	im.peers[id] = peer

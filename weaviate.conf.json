@@ -125,7 +125,9 @@
 			"idx_file" : "test/contextionary/example.idx"
 		},
     "network": {
-      "genesis_url": "http://localhost:8001"
+      "genesis_url": "http://localhost:8001",
+      "public_url": "http://localhost:8000",
+      "peer_name": "toffe peer"
     },
 		"schemas": {
 			"Thing": "./test/schema/test-thing-schema.json",

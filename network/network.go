@@ -8,7 +8,7 @@ import (
 type Peer struct {
 	Id   strfmt.UUID
 	Name string
-	Host strfmt.Hostname
+	URI  strfmt.URI
 }
 
 // Minimal abstraction over the network. This is the only API exposed to the rest of Weaviate.
