@@ -81,6 +81,7 @@ func (im *inMemoryState) UpdateLastContact(id strfmt.UUID, contact_at time.Time)
 
 	if ok {
 		peer.LastContactAt = contact_at
+		im.peers[id] = peer
 		return nil
 	} else {
 		return fmt.Errorf("No such peer exists")
