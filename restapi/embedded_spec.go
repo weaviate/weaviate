@@ -1585,11 +1585,6 @@ func init() {
     "PeerUpdate": {
       "description": "A single peer in the network",
       "properties": {
-        "host": {
-          "description": "host where the peer is exposed to the internet",
-          "type": "string",
-          "format": "hostname"
-        },
         "id": {
           "description": "The session ID of the peer",
           "type": "string",
@@ -1598,6 +1593,11 @@ func init() {
         "name": {
           "description": "Human readable name",
           "type": "string"
+        },
+        "uri": {
+          "description": "The location where the peer is exposed to the internet",
+          "type": "string",
+          "format": "uri"
         }
       }
     },
@@ -3560,11 +3560,6 @@ func init() {
     "PeerUpdate": {
       "description": "A single peer in the network",
       "properties": {
-        "host": {
-          "description": "host where the peer is exposed to the internet",
-          "type": "string",
-          "format": "hostname"
-        },
         "id": {
           "description": "The session ID of the peer",
           "type": "string",
@@ -3573,6 +3568,11 @@ func init() {
         "name": {
           "description": "Human readable name",
           "type": "string"
+        },
+        "uri": {
+          "description": "The location where the peer is exposed to the internet",
+          "type": "string",
+          "format": "uri"
         }
       }
     },

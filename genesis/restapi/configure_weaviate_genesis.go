@@ -68,13 +68,13 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 		var err error = nil
 
 		if err == nil {
-			peer, err := (state).RegisterPeer(params.Body.PeerName, params.Body.PeerHost)
+			peer, err := (state).RegisterPeer(params.Body.PeerName, params.Body.PeerURI)
 			if err != nil {
 				return operations.NewGenesisPeersRegisterForbidden()
 			} else {
 				response_peer := models.Peer{
 					PeerUpdate: models.PeerUpdate{
-						PeerHost: peer.Host(),
+						PeerURI:  peer.URI(),
 						PeerName: peer.Name(),
 					},
 					ID:            peer.Id,
@@ -101,7 +101,7 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 			for _, peer := range listed_peers {
 				p := models.Peer{
 					PeerUpdate: models.PeerUpdate{
-						PeerHost: peer.Host(),
+						PeerURI:  peer.URI(),
 						PeerName: peer.Name(),
 					},
 					ID:            peer.Id,

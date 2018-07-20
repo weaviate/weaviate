@@ -17,19 +17,19 @@ import (
 // swagger:model PeerUpdate
 type PeerUpdate struct {
 
-	// Host or IP of the peer, defaults to peerName
-	// Format: hostname
-	PeerHost strfmt.Hostname `json:"peerHost,omitempty"`
-
 	// Name of the peer, must be valid DNS name
 	PeerName string `json:"peerName,omitempty"`
+
+	// Host or IP of the peer, defaults to peerName
+	// Format: uri
+	PeerURI strfmt.URI `json:"peerUri,omitempty"`
 }
 
 // Validate validates this peer update
 func (m *PeerUpdate) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validatePeerHost(formats); err != nil {
+	if err := m.validatePeerURI(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -39,13 +39,13 @@ func (m *PeerUpdate) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *PeerUpdate) validatePeerHost(formats strfmt.Registry) error {
+func (m *PeerUpdate) validatePeerURI(formats strfmt.Registry) error {
 
-	if swag.IsZero(m.PeerHost) { // not required
+	if swag.IsZero(m.PeerURI) { // not required
 		return nil
 	}
 
-	if err := validate.FormatOf("peerHost", "body", "hostname", m.PeerHost.String(), formats); err != nil {
+	if err := validate.FormatOf("peerUri", "body", "uri", m.PeerURI.String(), formats); err != nil {
 		return err
 	}
 

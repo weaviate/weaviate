@@ -1162,7 +1162,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			peer := libnetwork.Peer{
 				Id:   genesis_peer.ID,
 				Name: genesis_peer.Name,
-				Host: genesis_peer.Host,
+				URI:  genesis_peer.URI,
 			}
 
 			new_peers = append(new_peers, peer)
@@ -1466,12 +1466,15 @@ func connectToNetwork() {
 		network = libnetwork.FakeNetwork{}
 	} else {
 		genesis_url := strfmt.URI(serverConfig.Environment.Network.GenesisURL)
+		public_url := strfmt.URI(serverConfig.Environment.Network.PublicURL)
+		peer_name := serverConfig.Environment.Network.PeerName
+
 		messaging.InfoMessage(fmt.Sprintf("Network configured, connecting to Genesis '%v'", genesis_url))
-		new_net, err := libnetwork.BootstrapNetwork(messaging, genesis_url)
+		new_net, err := libnetwork.BootstrapNetwork(messaging, genesis_url, public_url, peer_name)
 		if err != nil {
 			messaging.ExitError(78, fmt.Sprintf("Could not connect to network! Reason: %+v", err))
 		} else {
-			network = new_net
+			network = *new_net
 		}
 	}
 }
