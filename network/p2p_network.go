@@ -2,6 +2,7 @@ package network
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -20,6 +21,8 @@ const (
 
 // The real network implementation. Se also `fake_network.go`
 type network struct {
+	sync.Mutex
+
 	// Peer ID assigned by genesis server
 	peer_id strfmt.UUID
 
@@ -27,6 +30,7 @@ type network struct {
 	genesis_url strfmt.URI
 	messaging   *messages.Messaging
 	client      genesis_client.WeaviateGenesisServer
+	peers       []Peer
 }
 
 func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI) (Network, error) {
@@ -42,6 +46,7 @@ func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI) (Network, e
 		genesis_url: genesis_url,
 		messaging:   m,
 		client:      *client,
+		peers:       make([]Peer, 0),
 	}
 
 	// Bootstrap the network in the background.
@@ -81,4 +86,15 @@ func (n network) GetStatus() string {
 
 func (n network) ListPeers() ([]Peer, error) {
 	return nil, fmt.Errorf("Cannot list peers, because there is no network configured")
+}
+
+func (n network) UpdatePeers(new_peers []Peer) error {
+	n.Lock()
+	defer n.Unlock()
+
+	n.messaging.InfoMessage(fmt.Sprintf("Received updated peer list with %v peers", len(new_peers)))
+
+	n.peers = new_peers
+
+	return nil
 }
