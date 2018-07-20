@@ -68,7 +68,7 @@ type GenesisPeersPingOK struct {
 }
 
 func (o *GenesisPeersPingOK) Error() string {
-	return fmt.Sprintf("[DELETE /peers/{peerId}/ping][%d] genesisPeersPingOK ", 200)
+	return fmt.Sprintf("[POST /peers/{peerId}/ping][%d] genesisPeersPingOK ", 200)
 }
 
 func (o *GenesisPeersPingOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -89,7 +89,7 @@ type GenesisPeersPingUnauthorized struct {
 }
 
 func (o *GenesisPeersPingUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /peers/{peerId}/ping][%d] genesisPeersPingUnauthorized ", 401)
+	return fmt.Sprintf("[POST /peers/{peerId}/ping][%d] genesisPeersPingUnauthorized ", 401)
 }
 
 func (o *GenesisPeersPingUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -110,7 +110,7 @@ type GenesisPeersPingForbidden struct {
 }
 
 func (o *GenesisPeersPingForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /peers/{peerId}/ping][%d] genesisPeersPingForbidden ", 403)
+	return fmt.Sprintf("[POST /peers/{peerId}/ping][%d] genesisPeersPingForbidden ", 403)
 }
 
 func (o *GenesisPeersPingForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -131,7 +131,7 @@ type GenesisPeersPingNotFound struct {
 }
 
 func (o *GenesisPeersPingNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /peers/{peerId}/ping][%d] genesisPeersPingNotFound ", 404)
+	return fmt.Sprintf("[POST /peers/{peerId}/ping][%d] genesisPeersPingNotFound ", 404)
 }
 
 func (o *GenesisPeersPingNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {

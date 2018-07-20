@@ -117,7 +117,7 @@ func init() {
       }
     },
     "/peers/{peerId}/ping": {
-      "delete": {
+      "post": {
         "description": "Ping the Genesis server, to make mark the peer as alive",
         "operationId": "genesis.peers.ping",
         "parameters": [
@@ -321,7 +321,7 @@ func init() {
       }
     },
     "/peers/{peerId}/ping": {
-      "delete": {
+      "post": {
         "description": "Ping the Genesis server, to make mark the peer as alive",
         "operationId": "genesis.peers.ping",
         "parameters": [

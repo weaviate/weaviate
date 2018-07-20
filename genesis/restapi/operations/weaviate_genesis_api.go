@@ -275,10 +275,10 @@ func (o *WeaviateGenesisAPI) initHandlerCache() {
 	}
 	o.handlers["GET"]["/peers"] = NewGenesisPeersList(o.context, o.GenesisPeersListHandler)
 
-	if o.handlers["DELETE"] == nil {
-		o.handlers["DELETE"] = make(map[string]http.Handler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/peers/{peerId}/ping"] = NewGenesisPeersPing(o.context, o.GenesisPeersPingHandler)
+	o.handlers["POST"]["/peers/{peerId}/ping"] = NewGenesisPeersPing(o.context, o.GenesisPeersPingHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

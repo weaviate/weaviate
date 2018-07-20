@@ -91,7 +91,7 @@ func (a *Client) GenesisPeersPing(params *GenesisPeersPingParams) (*GenesisPeers
 
 	result, err := a.transport.Submit(&runtime.ClientOperation{
 		ID:                 "genesis.peers.ping",
-		Method:             "DELETE",
+		Method:             "POST",
 		PathPattern:        "/peers/{peerId}/ping",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json"},
