@@ -719,6 +719,38 @@ func init() {
         "x-available-in-websocket": false
       }
     },
+    "/p2p/genesis": {
+      "put": {
+        "description": "Receive an update from the Genesis server.",
+        "tags": [
+          "P2P"
+        ],
+        "operationId": "weaviate.p2p.genesis_update",
+        "parameters": [
+          {
+            "name": "peers",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PeerUpdateList"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alive and kicking!"
+          },
+          "401": {
+            "description": "Unauthorized update"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
     "/p2p/health": {
       "get": {
         "description": "Check if a peer is alive and healthy",
@@ -1546,6 +1578,32 @@ func init() {
           "description": "The value to be used within the operations.",
           "type": "object"
         }
+      }
+    },
+    "PeerUpdate": {
+      "description": "A single peer in the network",
+      "properties": {
+        "host": {
+          "description": "host where the peer is exposed to the internet",
+          "type": "string",
+          "format": "hostname"
+        },
+        "id": {
+          "description": "The session ID of the peer",
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "description": "Human readable name",
+          "type": "string"
+        }
+      }
+    },
+    "PeerUpdateList": {
+      "description": "Lisf of known peers",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PeerUpdate"
       }
     },
     "Schema": {
@@ -2618,6 +2676,38 @@ func init() {
         "x-available-in-websocket": false
       }
     },
+    "/p2p/genesis": {
+      "put": {
+        "description": "Receive an update from the Genesis server.",
+        "tags": [
+          "P2P"
+        ],
+        "operationId": "weaviate.p2p.genesis_update",
+        "parameters": [
+          {
+            "name": "peers",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PeerUpdateList"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alive and kicking!"
+          },
+          "401": {
+            "description": "Unauthorized update"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
     "/p2p/health": {
       "get": {
         "description": "Check if a peer is alive and healthy",
@@ -3461,6 +3551,32 @@ func init() {
           "description": "The value to be used within the operations.",
           "type": "object"
         }
+      }
+    },
+    "PeerUpdate": {
+      "description": "A single peer in the network",
+      "properties": {
+        "host": {
+          "description": "host where the peer is exposed to the internet",
+          "type": "string",
+          "format": "hostname"
+        },
+        "id": {
+          "description": "The session ID of the peer",
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "description": "Human readable name",
+          "type": "string"
+        }
+      }
+    },
+    "PeerUpdateList": {
+      "description": "Lisf of known peers",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PeerUpdate"
       }
     },
     "Schema": {
