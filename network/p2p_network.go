@@ -52,10 +52,10 @@ func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI) (Network, e
 	// Bootstrap the network in the background.
 	go n.bootstrap()
 
-	return n, nil
+	return &n, nil
 }
 
-func (n network) bootstrap() {
+func (n *network) bootstrap() {
 	time.Sleep(10) //TODO: Use channel close to listen for when complete configuration is done.
 	n.messaging.InfoMessage("Bootstrapping network")
 
@@ -74,21 +74,23 @@ func (n network) bootstrap() {
 		n.peer_id = response.Payload.Peer.ID
 		n.messaging.InfoMessage(fmt.Sprintf("Registered at Genesis server with id '%v'", n.peer_id))
 	}
+
+	go n.keep_pinging()
 }
 
-func (n network) IsReady() bool {
+func (n *network) IsReady() bool {
 	return false
 }
 
-func (n network) GetStatus() string {
+func (n *network) GetStatus() string {
 	return n.state
 }
 
-func (n network) ListPeers() ([]Peer, error) {
+func (n *network) ListPeers() ([]Peer, error) {
 	return nil, fmt.Errorf("Cannot list peers, because there is no network configured")
 }
 
-func (n network) UpdatePeers(new_peers []Peer) error {
+func (n *network) UpdatePeers(new_peers []Peer) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -97,4 +99,20 @@ func (n network) UpdatePeers(new_peers []Peer) error {
 	n.peers = new_peers
 
 	return nil
+}
+
+func (n *network) keep_pinging() {
+	for {
+		time.Sleep(30 * time.Second)
+		n.messaging.InfoMessage("Pinging Genesis server")
+
+		n.Lock()
+		params := client_ops.NewGenesisPeersPingParams()
+		params.PeerID = n.peer_id
+		n.Unlock()
+		_, err := n.client.Operations.GenesisPeersPing(params)
+		if err != nil {
+			n.messaging.InfoMessage(fmt.Sprintf("Could not ping Genesis server; %+v", err))
+		}
+	}
 }
