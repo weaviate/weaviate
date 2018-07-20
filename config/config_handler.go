@@ -65,6 +65,8 @@ type Contextionary struct {
 
 type Network struct {
 	GenesisURL string `json:"genesis_url"`
+	PublicURL  string `json:"public_url"`
+	PeerName   string `json:"peer_name"`
 }
 
 // Broker checks if broker details are set
