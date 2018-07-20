@@ -24,16 +24,16 @@ import (
 )
 
 // WeaviateP2pHealthHandlerFunc turns a function with the right signature into a weaviate p2p health handler
-type WeaviateP2pHealthHandlerFunc func(WeaviateP2pHealthParams, interface{}) middleware.Responder
+type WeaviateP2pHealthHandlerFunc func(WeaviateP2pHealthParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateP2pHealthHandlerFunc) Handle(params WeaviateP2pHealthParams, principal interface{}) middleware.Responder {
-	return fn(params, principal)
+func (fn WeaviateP2pHealthHandlerFunc) Handle(params WeaviateP2pHealthParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateP2pHealthHandler interface for that can handle valid weaviate p2p health params
 type WeaviateP2pHealthHandler interface {
-	Handle(WeaviateP2pHealthParams, interface{}) middleware.Responder
+	Handle(WeaviateP2pHealthParams) middleware.Responder
 }
 
 // NewWeaviateP2pHealth creates a new http.Handler for the weaviate p2p health operation
@@ -60,25 +60,12 @@ func (o *WeaviateP2pHealth) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	}
 	var Params = NewWeaviateP2pHealthParams()
 
-	uprinc, aCtx, err := o.Context.Authorize(r, route)
-	if err != nil {
-		o.Context.Respond(rw, r, route.Produces, route, err)
-		return
-	}
-	if aCtx != nil {
-		r = aCtx
-	}
-	var principal interface{}
-	if uprinc != nil {
-		principal = uprinc
-	}
-
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params, principal) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
