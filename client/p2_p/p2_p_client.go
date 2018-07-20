@@ -25,6 +25,35 @@ type Client struct {
 }
 
 /*
+WeaviateP2pGenesisUpdate Receive an update from the Genesis server.
+*/
+func (a *Client) WeaviateP2pGenesisUpdate(params *WeaviateP2pGenesisUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateP2pGenesisUpdateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateP2pGenesisUpdateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.p2p.genesis_update",
+		Method:             "PUT",
+		PathPattern:        "/p2p/genesis",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateP2pGenesisUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateP2pGenesisUpdateOK), nil
+
+}
+
+/*
 WeaviateP2pHealth checks if a peer is alive
 
 Check if a peer is alive and healthy

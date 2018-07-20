@@ -104,6 +104,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		MetaWeaviateMetaGetHandler: meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation MetaWeaviateMetaGet has not yet been implemented")
 		}),
+		P2PWeaviateP2pGenesisUpdateHandler: p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation P2PWeaviateP2pGenesisUpdate has not yet been implemented")
+		}),
 		P2PWeaviateP2pHealthHandler: p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 		}),
@@ -220,6 +223,8 @@ type WeaviateAPI struct {
 	KeysWeaviateKeysRenewTokenHandler keys.WeaviateKeysRenewTokenHandler
 	// MetaWeaviateMetaGetHandler sets the operation handler for the weaviate meta get operation
 	MetaWeaviateMetaGetHandler meta.WeaviateMetaGetHandler
+	// P2PWeaviateP2pGenesisUpdateHandler sets the operation handler for the weaviate p2p genesis update operation
+	P2PWeaviateP2pGenesisUpdateHandler p2_p.WeaviateP2pGenesisUpdateHandler
 	// P2PWeaviateP2pHealthHandler sets the operation handler for the weaviate p2p health operation
 	P2PWeaviateP2pHealthHandler p2_p.WeaviateP2pHealthHandler
 	// ThingsWeaviateThingHistoryGetHandler sets the operation handler for the weaviate thing history get operation
@@ -373,6 +378,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.MetaWeaviateMetaGetHandler == nil {
 		unregistered = append(unregistered, "meta.WeaviateMetaGetHandler")
+	}
+
+	if o.P2PWeaviateP2pGenesisUpdateHandler == nil {
+		unregistered = append(unregistered, "p2_p.WeaviateP2pGenesisUpdateHandler")
 	}
 
 	if o.P2PWeaviateP2pHealthHandler == nil {
@@ -606,6 +615,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/meta"] = meta.NewWeaviateMetaGet(o.context, o.MetaWeaviateMetaGetHandler)
+
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/p2p/genesis"] = p2_p.NewWeaviateP2pGenesisUpdate(o.context, o.P2PWeaviateP2pGenesisUpdateHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)

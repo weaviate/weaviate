@@ -402,6 +402,32 @@
         "path"
       ]
     },
+    "PeerUpdate": {
+      "description": "A single peer in the network",
+      "properties": {
+        "id": {
+          "description": "The session ID of the peer",
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "description": "Human readable name",
+          "type": "string"
+        },
+        "host": {
+          "description": "host where the peer is exposed to the internet",
+          "type": "string",
+          "format": "hostname"
+        }
+      }
+    },
+    "PeerUpdateList": {
+      "description": "Lisf of known peers",
+      "items": {
+        "$ref": "#/definitions/PeerUpdate"
+      },
+      "type": "array"
+    },
     "Schema": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
       "type": "object"
@@ -1436,6 +1462,38 @@
           }
         },
         "summary": "Check if a peer is alive.",
+        "tags": [
+          "P2P"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/p2p/genesis": {
+      "put": {
+        "description": "Receive an update from the Genesis server.",
+        "operationId": "weaviate.p2p.genesis_update",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "peers",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PeerUpdateList"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Alive and kicking!"
+          },
+          "401": {
+            "description": "Unauthorized update"
+          },
+          "500": {
+            "description": "Internal error"
+          }
+        },
         "tags": [
           "P2P"
         ],
