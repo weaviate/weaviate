@@ -32,5 +32,5 @@ type State interface {
 	// Idempotent remove; removing a non-existing peer should not fail.
 	RemovePeer(id strfmt.UUID) error
 
-	UpdatePeer(id strfmt.UUID, peer PeerInfo) error
+	UpdateLastContact(id strfmt.UUID, contact_time time.Time) error
 }
