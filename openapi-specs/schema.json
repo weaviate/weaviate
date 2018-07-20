@@ -414,10 +414,10 @@
           "description": "Human readable name",
           "type": "string"
         },
-        "host": {
-          "description": "host where the peer is exposed to the internet",
+        "uri": {
+          "description": "The location where the peer is exposed to the internet",
           "type": "string",
-          "format": "hostname"
+          "format": "uri"
         }
       }
     },

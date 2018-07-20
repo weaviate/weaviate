@@ -69,10 +69,10 @@
           "description": "Name of the peer, must be valid DNS name",
           "type": "string"
         },
-        "peerHost": {
+        "peerUri": {
           "description": "Host or IP of the peer, defaults to peerName",
           "type": "string",
-          "format": "hostname"
+          "format": "uri"
         }
       },
       "type": "object"
