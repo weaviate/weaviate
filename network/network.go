@@ -6,8 +6,9 @@ import (
 
 // A peer represents a known peer, given to us by the Genesis service.
 type Peer struct {
-	name string
-	host strfmt.Hostname
+	Id   strfmt.UUID
+	Name string
+	Host strfmt.Hostname
 }
 
 // Minimal abstraction over the network. This is the only API exposed to the rest of Weaviate.
@@ -16,6 +17,9 @@ type Network interface {
 	GetStatus() string
 
 	ListPeers() ([]Peer, error)
+
+	// Invoked by the Genesis server via an HTTP endpoint.
+	UpdatePeers(new_peers []Peer) error
 
 	// TODO: We'll add functions like
 	// - QueryNetwork(q NetworkQuery, timeout int) (chan NetworkResponse, error)
