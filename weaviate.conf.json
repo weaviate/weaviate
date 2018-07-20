@@ -126,7 +126,7 @@
 		},
     "network": {
       "genesis_url": "http://localhost:8001",
-      "public_url": "http://localhost:8000",
+      "public_url": "http://localhost:8000/weaviate/v1",
       "peer_name": "toffe peer"
     },
 		"schemas": {
