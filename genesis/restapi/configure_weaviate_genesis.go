@@ -54,11 +54,7 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 	})
 
 	api.GenesisPeersPingHandler = operations.GenesisPeersPingHandlerFunc(func(params operations.GenesisPeersPingParams) middleware.Responder {
-		update := libstate.PeerInfo{
-			LastContactAt: time.Now(),
-		}
-
-		err := (state).UpdatePeer(params.PeerID, update)
+		err := state.UpdateLastContact(params.PeerID, time.Now())
 
 		if err == nil {
 			return operations.NewGenesisPeersPingOK()

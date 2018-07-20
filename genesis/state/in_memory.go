@@ -6,6 +6,7 @@ import (
 	"github.com/satori/go.uuid"
 	log "github.com/sirupsen/logrus"
 	"sync"
+	"time"
 )
 
 type inMemoryState struct {
@@ -14,12 +15,14 @@ type inMemoryState struct {
 }
 
 func NewInMemoryState() State {
-	return State(inMemoryState{
+	state := inMemoryState{
 		peers: make(map[strfmt.UUID]Peer),
-	})
+	}
+	go state.garbage_collect()
+	return State(&state)
 }
 
-func (im inMemoryState) RegisterPeer(name string, host strfmt.Hostname) (*Peer, error) {
+func (im *inMemoryState) RegisterPeer(name string, host strfmt.Hostname) (*Peer, error) {
 	im.Lock()
 	defer im.Unlock()
 
@@ -27,16 +30,20 @@ func (im inMemoryState) RegisterPeer(name string, host strfmt.Hostname) (*Peer, 
 
 	log.Debugf("Registering peer '%v' with id '%v'", name, id)
 	peer := Peer{
-		PeerInfo: PeerInfo{Id: id},
-		name:     name,
-		host:     host,
+		PeerInfo: PeerInfo{
+			Id:            id,
+			LastContactAt: time.Now(),
+		},
+		name: name,
+		host: host,
 	}
 
 	im.peers[id] = peer
+	go im.broadcast_update()
 	return &peer, nil
 }
 
-func (im inMemoryState) ListPeers() ([]Peer, error) {
+func (im *inMemoryState) ListPeers() ([]Peer, error) {
 	im.Lock()
 	defer im.Unlock()
 
@@ -49,7 +56,7 @@ func (im inMemoryState) ListPeers() ([]Peer, error) {
 	return peers, nil
 }
 
-func (im inMemoryState) RemovePeer(id strfmt.UUID) error {
+func (im *inMemoryState) RemovePeer(id strfmt.UUID) error {
 	im.Lock()
 	defer im.Unlock()
 
@@ -59,19 +66,61 @@ func (im inMemoryState) RemovePeer(id strfmt.UUID) error {
 		delete(im.peers, id)
 	}
 
+	go im.broadcast_update()
+
 	return nil
 }
 
-func (im inMemoryState) UpdatePeer(id strfmt.UUID, update PeerInfo) error {
+func (im *inMemoryState) UpdateLastContact(id strfmt.UUID, contact_at time.Time) error {
+	log.Debugf("Updating last contact for %v", id)
+
 	im.Lock()
 	defer im.Unlock()
 
 	peer, ok := im.peers[id]
 
 	if ok {
-		peer.LastContactAt = update.LastContactAt
+		peer.LastContactAt = contact_at
 		return nil
 	} else {
 		return fmt.Errorf("No such peer exists")
+	}
+}
+
+func (im *inMemoryState) garbage_collect() {
+	for {
+		time.Sleep(1 * time.Second)
+		deleted_some := false
+
+		im.Lock()
+		for key, peer := range im.peers {
+			peer_times_out_at := peer.PeerInfo.LastContactAt.Add(time.Second * 60)
+			if time.Now().After(peer_times_out_at) {
+				log.Infof("Garbage collecting peer %v", peer.Id)
+				delete(im.peers, key)
+				deleted_some = true
+			}
+		}
+		im.Unlock()
+
+		if deleted_some {
+			im.broadcast_update()
+		}
+	}
+}
+
+func (im *inMemoryState) broadcast_update() {
+	log.Info("Broadcasting peer update")
+	im.Lock()
+	defer im.Unlock()
+
+	peers := make([]Peer, 0)
+
+	for _, peer := range im.peers {
+		peers = append(peers, peer)
+	}
+
+	for _, peer := range peers {
+		go broadcast_update(peer, peers)
 	}
 }
