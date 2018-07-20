@@ -1155,7 +1155,30 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
 	})
 
-	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams, principal interface{}) middleware.Responder {
+	api.P2PWeaviateP2pGenesisUpdateHandler = p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
+		new_peers := make([]libnetwork.Peer, 0)
+
+		for _, genesis_peer := range params.Peers {
+			peer := libnetwork.Peer{
+				Id:   genesis_peer.ID,
+				Name: genesis_peer.Name,
+				Host: genesis_peer.Host,
+			}
+
+			new_peers = append(new_peers, peer)
+		}
+
+		err := network.UpdatePeers(new_peers)
+
+		if err == nil {
+			return p2_p.NewWeaviateP2pGenesisUpdateOK()
+		} else {
+			return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()
+		}
+	})
+
+	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
+		// For now, always just return success.
 		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 	})
 

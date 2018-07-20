@@ -721,6 +721,7 @@ func init() {
     },
     "/p2p/genesis": {
       "put": {
+        "security": [],
         "description": "Receive an update from the Genesis server.",
         "tags": [
           "P2P"
@@ -753,6 +754,7 @@ func init() {
     },
     "/p2p/health": {
       "get": {
+        "security": [],
         "description": "Check if a peer is alive and healthy",
         "tags": [
           "P2P"
@@ -2678,6 +2680,7 @@ func init() {
     },
     "/p2p/genesis": {
       "put": {
+        "security": [],
         "description": "Receive an update from the Genesis server.",
         "tags": [
           "P2P"
@@ -2710,6 +2713,7 @@ func init() {
     },
     "/p2p/health": {
       "get": {
+        "security": [],
         "description": "Check if a peer is alive and healthy",
         "tags": [
           "P2P"

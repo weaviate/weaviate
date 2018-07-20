@@ -104,10 +104,10 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		MetaWeaviateMetaGetHandler: meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation MetaWeaviateMetaGet has not yet been implemented")
 		}),
-		P2PWeaviateP2pGenesisUpdateHandler: p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams, principal interface{}) middleware.Responder {
+		P2PWeaviateP2pGenesisUpdateHandler: p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
 			return middleware.NotImplemented("operation P2PWeaviateP2pGenesisUpdate has not yet been implemented")
 		}),
-		P2PWeaviateP2pHealthHandler: p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams, principal interface{}) middleware.Responder {
+		P2PWeaviateP2pHealthHandler: p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
 			return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 		}),
 		ThingsWeaviateThingHistoryGetHandler: things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal interface{}) middleware.Responder {

@@ -27,7 +27,7 @@ type Client struct {
 /*
 WeaviateP2pGenesisUpdate Receive an update from the Genesis server.
 */
-func (a *Client) WeaviateP2pGenesisUpdate(params *WeaviateP2pGenesisUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateP2pGenesisUpdateOK, error) {
+func (a *Client) WeaviateP2pGenesisUpdate(params *WeaviateP2pGenesisUpdateParams) (*WeaviateP2pGenesisUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateP2pGenesisUpdateParams()
@@ -42,7 +42,6 @@ func (a *Client) WeaviateP2pGenesisUpdate(params *WeaviateP2pGenesisUpdateParams
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateP2pGenesisUpdateReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -58,7 +57,7 @@ WeaviateP2pHealth checks if a peer is alive
 
 Check if a peer is alive and healthy
 */
-func (a *Client) WeaviateP2pHealth(params *WeaviateP2pHealthParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateP2pHealthOK, error) {
+func (a *Client) WeaviateP2pHealth(params *WeaviateP2pHealthParams) (*WeaviateP2pHealthOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateP2pHealthParams()
@@ -73,7 +72,6 @@ func (a *Client) WeaviateP2pHealth(params *WeaviateP2pHealthParams, authInfo run
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateP2pHealthReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
