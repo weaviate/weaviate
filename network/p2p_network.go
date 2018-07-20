@@ -20,6 +20,9 @@ const (
 
 // The real network implementation. Se also `fake_network.go`
 type network struct {
+	// Peer ID assigned by genesis server
+	peer_id strfmt.UUID
+
 	state       string
 	genesis_url strfmt.URI
 	messaging   *messages.Messaging
@@ -59,11 +62,12 @@ func (n network) bootstrap() {
 	params.Body = &new_peer
 	response, err := n.client.Operations.GenesisPeersRegister(params)
 	if err != nil {
-		// TODO error numbers?
 		n.messaging.ErrorMessage(fmt.Sprintf("Could not register this peer in the network, because: %+v", err))
 		n.state = NETWORK_STATE_FAILED
 	} else {
-		fmt.Printf("YES %+v\n", response)
+		n.state = NETWORK_STATE_HEALTHY
+		n.peer_id = response.Payload.Peer.ID
+		n.messaging.InfoMessage(fmt.Sprintf("Registered at Genesis server with id '%v'", n.peer_id))
 	}
 }
 
@@ -72,7 +76,7 @@ func (n network) IsReady() bool {
 }
 
 func (n network) GetStatus() string {
-	return "not configured"
+	return n.state
 }
 
 func (n network) ListPeers() ([]Peer, error) {
