@@ -124,10 +124,53 @@
 			"knn_file" : "test/contextionary/example.knn",
 			"idx_file" : "test/contextionary/example.idx"
 		},
+ 		"schemas": {
+			"Thing": "./test/schema/test-thing-schema.json",
+			"Action": "./test/schema/test-action-schema.json"
+		},
+		"limit": 100,
+		"debug": true
+	}, {
+		"name": "dummy_net_1",
+		"database": {
+			"name": "foobar",
+			"database_config": {
+				"host": "localhost",
+				"port": 1
+			}
+		},
+		"contextionary": {
+			"knn_file" : "test/contextionary/example.knn",
+			"idx_file" : "test/contextionary/example.idx"
+		},
     "network": {
-      "genesis_url": "http://localhost:8001",
-      "public_url": "http://localhost:8000/weaviate/v1",
+      "genesis_url": "http://localhost:8000",
+      "public_url": "http://localhost:8001/weaviate/v1",
       "peer_name": "toffe peer"
+    },
+		"schemas": {
+			"Thing": "./test/schema/test-thing-schema.json",
+			"Action": "./test/schema/test-action-schema.json"
+		},
+		"limit": 100,
+		"debug": true
+	}, {
+		"name": "dummy_net_2",
+		"database": {
+			"name": "foobar",
+			"database_config": {
+				"host": "localhost",
+				"port": 1
+			}
+		},
+		"contextionary": {
+			"knn_file" : "test/contextionary/example.knn",
+			"idx_file" : "test/contextionary/example.idx"
+		},
+    "network": {
+      "genesis_url": "http://localhost:8000",
+      "public_url": "http://localhost:8002/weaviate/v1",
+      "peer_name": "andere toffe peer"
     },
 		"schemas": {
 			"Thing": "./test/schema/test-thing-schema.json",
