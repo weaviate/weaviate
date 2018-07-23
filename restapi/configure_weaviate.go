@@ -61,6 +61,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/validation"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
+
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
 )
 
 const pageOverride int = 1
@@ -1393,8 +1395,9 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 func setupGlobalMiddleware(handler http.Handler) http.Handler {
 
 	handleCORS := cors.Default().Handler
-
-	return handleCORS(handler)
+	handler = handleCORS(handler)
+	handler = graphiql.AddMiddleware(handler)
+	return handler
 }
 
 // This function loads the Contextionary database, and creates

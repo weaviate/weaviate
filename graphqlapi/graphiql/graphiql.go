@@ -6,21 +6,41 @@ import (
 	"encoding/json"
 	"html/template"
 	"net/http"
-
-	"github.com/graphql-go/graphql"
+	"strings"
 )
 
 // graphiqlData is the page data structure of the rendered GraphiQL page
 type graphiqlData struct {
 	GraphiqlVersion string
 	QueryString     string
-	VariablesString string
+	Variables       string
 	OperationName   string
-	ResultString    string
+	AuthKey         string
+	AuthToken       string
+}
+
+func AddMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/weaviate/v1/graphql") && r.Method == http.MethodGet {
+			renderGraphiQL(w, r)
+		} else {
+			next.ServeHTTP(w, r)
+		}
+	})
 }
 
 // renderGraphiQL renders the GraphiQL GUI
-func RenderGraphiQL(w http.ResponseWriter, params graphql.Params) {
+func renderGraphiQL(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("WWW-Authenticate", `Basic realm="Provide your key and token (as username as password respectively)"`)
+
+	user, password, authOk := r.BasicAuth()
+	if !authOk {
+		http.Error(w, "Not authorized", 401)
+		return
+	}
+
+	query_params := r.URL.Query()
+
 	t := template.New("GraphiQL")
 	t, err := t.Parse(graphiqlTemplate)
 	if err != nil {
@@ -28,36 +48,31 @@ func RenderGraphiQL(w http.ResponseWriter, params graphql.Params) {
 		return
 	}
 
-	// Create variables string
-	vars, err := json.MarshalIndent(params.VariableValues, "", "  ")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	varsString := string(vars)
-	if varsString == "null" {
-		varsString = ""
-	}
+	// Attempt to deserialize the 'variables' query key to something reasonable.
+	var query_vars interface{}
+	err = json.Unmarshal([]byte(query_params.Get("variables")), &query_vars)
 
-	// Create result string
-	var resString string
-	if params.RequestString == "" {
-		resString = ""
-	} else {
-		result, err := json.MarshalIndent(graphql.Do(params), "", "  ")
+	var varsString string
+	if err == nil {
+		vars, err := json.MarshalIndent(query_vars, "", "  ")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		resString = string(result)
+		varsString = string(vars)
+		if varsString == "null" {
+			varsString = ""
+		}
 	}
 
+	// Create result string
 	d := graphiqlData{
 		GraphiqlVersion: graphiqlVersion,
-		QueryString:     params.RequestString,
-		ResultString:    resString,
-		VariablesString: varsString,
-		OperationName:   params.OperationName,
+		QueryString:     query_params.Get("query"),
+		Variables:       varsString,
+		OperationName:   query_params.Get("operationName"),
+		AuthKey:         user,
+		AuthToken:       password,
 	}
 	err = t.ExecuteTemplate(w, "index", d)
 	if err != nil {
@@ -150,7 +165,9 @@ add "&raw" to the end of the URL within a browser.
         method: 'post',
         headers: {
           'Accept': 'application/json',
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-API-KEY': {{ .AuthKey }},
+          'X-API-TOKEN': {{ .AuthToken }}
         },
         body: JSON.stringify(graphQLParams),
         credentials: 'include',
@@ -194,8 +211,8 @@ add "&raw" to the end of the URL within a browser.
         onEditVariables: onEditVariables,
         onEditOperationName: onEditOperationName,
         query: {{ .QueryString }},
-        response: {{ .ResultString }},
-        variables: {{ .VariablesString }},
+        response: null,
+        variables: {{ .Variables }},
         operationName: {{ .OperationName }},
       }),
       document.getElementById('graphiql')
