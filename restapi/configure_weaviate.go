@@ -37,6 +37,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	gographql "github.com/graphql-go/graphql"
+	"github.com/rs/cors"
 	"google.golang.org/grpc/grpclog"
 
 	"github.com/creativesoftwarefdn/weaviate/auth"
@@ -59,6 +60,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/validation"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 )
 
@@ -1401,6 +1403,9 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 func setupGlobalMiddleware(handler http.Handler) http.Handler {
+	handleCORS := cors.Default().Handler
+	handler = handleCORS(handler)
+	handler = graphiql.AddMiddleware(handler)
 
 	return addLogging(handler)
 }
