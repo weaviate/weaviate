@@ -56,9 +56,10 @@ type InMemory struct {
 	schema    *schema.WeaviateSchema
 	messaging *messages.Messaging
 
-	keys    map[strfmt.UUID]models.Key
-	actions map[strfmt.UUID]models.Action
-	things  map[strfmt.UUID]models.Thing
+	keys       map[strfmt.UUID]models.Key
+	key_tokens map[strfmt.UUID]string
+	actions    map[strfmt.UUID]models.Action
+	things     map[strfmt.UUID]models.Thing
 
 	Config InMemoryConfig
 }
@@ -122,6 +123,7 @@ func (f *InMemory) Connect() error {
 	// We'll initialise the top-level maps.
 
 	f.keys = make(map[strfmt.UUID]models.Key, 0)
+	f.key_tokens = make(map[strfmt.UUID]string, 0)
 	f.actions = make(map[strfmt.UUID]models.Action, 0)
 	f.things = make(map[strfmt.UUID]models.Thing, 0)
 
@@ -138,15 +140,17 @@ func (f *InMemory) Init() error {
 	 */
 	keyObject := models.Key{}
 
-	var token string
+	var key_id strfmt.UUID
+	var hashed_token string
 
 	if f.Config.RootKey != "" && f.Config.RootToken != "" {
-		token, _ = connutils.CreateRootKeyObjectWithKeyAndToken(&keyObject, strfmt.UUID(f.Config.RootKey), strfmt.UUID(f.Config.RootToken))
+		f.messaging.InfoMessage("Using user-provided key and token")
+		hashed_token, key_id = connutils.CreateRootKeyObjectWithKeyAndToken(&keyObject, strfmt.UUID(f.Config.RootKey), strfmt.UUID(f.Config.RootToken))
 	} else {
-		token, _ = connutils.CreateRootKeyObject(&keyObject)
+		hashed_token, key_id = connutils.CreateRootKeyObject(&keyObject)
 	}
 
-	err := f.AddKey(nil, &keyObject, connutils.GenerateUUID(), token)
+	err := f.AddKey(nil, &keyObject, key_id, hashed_token)
 	return err
 }
 
@@ -354,28 +358,48 @@ func (f *InMemory) AddKey(ctx context.Context, key *models.Key, UUID strfmt.UUID
 	// Key struct should be stored
 
 	// If success return nil, otherwise return the error
-	//TODO
-	return nil
+
+	_, found := f.keys[UUID]
+	if found {
+		return fmt.Errorf("Key already exists")
+	} else {
+		f.keys[UUID] = *key
+		f.key_tokens[UUID] = token
+		return nil
+	}
 }
 
 // ValidateToken validates/gets a key to the InMemory database with the given token (=UUID)
 func (f *InMemory) ValidateToken(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
 
-	// key (= models.KeyGetResponse) should be populated with the response that comes from the DB.
-
-	// in case the key is not found, return an error like:
-	// return errors_.New("Key not found in database.")
-
-	// If success return nil, otherwise return the error
-	//TODO
-	return "", nil
+	token, found := f.key_tokens[UUID]
+	if found {
+		err := f.GetKey(ctx, UUID, keyResponse)
+		if err != nil {
+			return "", err
+		} else {
+			return token, nil
+		}
+	} else {
+		return "", errors_.New(connutils.StaticKeyNotFound)
+	}
 }
 
 // GetKey fills the given KeyGetResponse with the values from the database, based on the given UUID.
 func (f *InMemory) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
 
-	//TODO
-	return nil
+	key, found := f.keys[UUID]
+	if found {
+		response := models.KeyGetResponse{
+			Key:   key,
+			KeyID: UUID,
+		}
+
+		*keyResponse = response
+		return nil
+	} else {
+		return errors_.New(connutils.StaticKeyNotFound)
+	}
 }
 
 // GetKeys fills the given []KeyGetResponse with the values from the database, based on the given UUIDs.
