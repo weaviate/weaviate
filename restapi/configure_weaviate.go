@@ -19,8 +19,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"math"
 	"net/http"
 	"os"
@@ -80,9 +79,7 @@ type keyTokenHeader struct {
 }
 
 func init() {
-	discard := ioutil.Discard
-	myGRPCLogger := log.New(discard, "", log.LstdFlags)
-	grpclog.SetLogger(myGRPCLogger)
+	grpclog.SetLogger(log.StandardLogger())
 
 	// Create temp folder if it does not exist
 	tempFolder := "temp"
