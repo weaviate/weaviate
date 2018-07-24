@@ -446,18 +446,14 @@ func (f *InMemory) DeleteKey(ctx context.Context, key *models.Key, UUID strfmt.U
 
 // GetKeyChildren fills the given KeyGetResponse array with the values from the database, based on the given UUID.
 func (f *InMemory) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
-	my_children := make([]*models.KeyGetResponse, 0)
-
 	for _, child_id := range f.key_children[UUID] {
 		var response models.KeyGetResponse
 		err := f.GetKey(ctx, child_id, &response)
 		if err != nil {
 			return fmt.Errorf("Could not fetch child key %v, because: %v", UUID, err)
 		}
-		my_children = append(my_children, &response)
+		*children = append(*children, &response)
 	}
-
-	children = &my_children
 
 	return nil
 }
