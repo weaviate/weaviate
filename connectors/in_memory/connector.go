@@ -112,18 +112,18 @@ func (f *InMemory) SetMessaging(m *messages.Messaging) error {
 // to do some custom actions.
 // Does not return anything
 func (f *InMemory) SetServerAddress(addr string) {
-  // no-op; don't care about the server address.
+	// no-op; don't care about the server address.
 }
 
 // Connect creates a connection to the database and tables if not already available.
 // The connections could not be closed because it is used more often.
 func (f *InMemory) Connect() error {
 
-  // We'll initialise the top-level maps.
+	// We'll initialise the top-level maps.
 
-  f.keys    = make(map[strfmt.UUID]models.Key, 0)
-  f.actions = make(map[strfmt.UUID]models.Action, 0)
-  f.things  = make(map[strfmt.UUID]models.Thing, 0)
+	f.keys = make(map[strfmt.UUID]models.Key, 0)
+	f.actions = make(map[strfmt.UUID]models.Action, 0)
+	f.things = make(map[strfmt.UUID]models.Thing, 0)
 
 	return nil
 }
@@ -159,85 +159,85 @@ func (f *InMemory) Attach(ctx context.Context) (context.Context, error) {
 // Takes the thing and a UUID as input.
 // Thing is already validated against the ontology
 func (f *InMemory) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
-  _, found := f.things[UUID]
+	_, found := f.things[UUID]
 
-  if found {
-    return fmt.Errorf("There is already a thing with UUID %v", UUID)
-  } else {
-    f.things[UUID] = *thing
-    return nil
-  }
+	if found {
+		return fmt.Errorf("There is already a thing with UUID %v", UUID)
+	} else {
+		f.things[UUID] = *thing
+		return nil
+	}
 }
 
 // GetThing fills the given ThingGetResponse with the values from the database, based on the given UUID.
 func (f *InMemory) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
 
-  thing, found := f.things[UUID]
+	thing, found := f.things[UUID]
 
-  if found {
-    fillThingGetResponseWithThing(UUID, thingResponse, &thing)
-    return nil
-  } else {
+	if found {
+		fillThingGetResponseWithThing(UUID, thingResponse, &thing)
+		return nil
+	} else {
 		return errors_.New(connutils.StaticThingNotFound)
 	}
 }
 
 func fillThingGetResponseWithThing(uuid strfmt.UUID, thingResponse *models.ThingGetResponse, thing *models.Thing) {
-    thingResponse.ThingID = uuid
-    thingResponse.AtClass = thing.AtClass
-    thingResponse.AtContext = thing.AtContext
-    thingResponse.Schema = thing.Schema
-    thingResponse.CreationTimeUnix = thing.CreationTimeUnix
-    thingResponse.Key = thing.Key
-    thingResponse.LastUpdateTimeUnix = thing.LastUpdateTimeUnix
+	thingResponse.ThingID = uuid
+	thingResponse.AtClass = thing.AtClass
+	thingResponse.AtContext = thing.AtContext
+	thingResponse.Schema = thing.Schema
+	thingResponse.CreationTimeUnix = thing.CreationTimeUnix
+	thingResponse.Key = thing.Key
+	thingResponse.LastUpdateTimeUnix = thing.LastUpdateTimeUnix
 }
 
 // GetThings fills the given ThingsListResponse with the values from the database, based on the given UUIDs.
 func (f *InMemory) GetThings(ctx context.Context, UUIDs []strfmt.UUID, response *models.ThingsListResponse) error {
 	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
 
-  response.TotalResults = 0
-  response.Things = make([]*models.ThingGetResponse, 0)
+	response.TotalResults = 0
+	response.Things = make([]*models.ThingGetResponse, 0)
 
-  for _, uuid := range(UUIDs) {
-    thing, found := f.things[uuid]
+	for _, uuid := range UUIDs {
+		thing, found := f.things[uuid]
 
-    if found {
-      response.TotalResults += 1
-      var thing_response models.ThingGetResponse
-      fillThingGetResponseWithThing(uuid, &thing_response, &thing)
+		if found {
+			response.TotalResults += 1
+			var thing_response models.ThingGetResponse
+			fillThingGetResponseWithThing(uuid, &thing_response, &thing)
 
-      response.Things = append(response.Things, &thing_response)
-    }
-  }
+			response.Things = append(response.Things, &thing_response)
+		}
+	}
 
 	// If success return nil, otherwise return the error
 	return nil
 }
 
 // ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
-func (f *InMemory) ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
+func (f *InMemory) ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
 
 	// thingsResponse should be populated with the response that comes from the DB.
 	// thingsResponse = based on the ontology
 
-  response.TotalResults = 0
-  response.Things = make([]*models.ThingGetResponse, 0)
+	response.TotalResults = 0
+	response.Things = make([]*models.ThingGetResponse, 0)
 
-  for uuid, thing := range(f.things) {
-    ok := true
-    if wheres != nil {
-      // TODO: implement
-      return fmt.Errorf("Where queries not supported")
-    }
-    if ok {
-      response.TotalResults += 1
-      var thing_response models.ThingGetResponse
-      fillThingGetResponseWithThing(uuid, &thing_response, &thing)
+	for uuid, thing := range f.things {
+		ok := true
+		if wheres != nil {
+			// TODO: implement
+			return fmt.Errorf("Where queries not supported")
+		}
+		if ok {
+			response.TotalResults += 1
+			var thing_response models.ThingGetResponse
+			fillThingGetResponseWithThing(uuid, &thing_response, &thing)
 
-      response.Things = append(response.Things, &thing_response)
-    }
-  }
+			response.Things = append(response.Things, &thing_response)
+		}
+	}
 
 	// If success return nil, otherwise return the error
 	return nil
@@ -245,37 +245,37 @@ func (f *InMemory) ListThings(ctx context.Context, first int, offset int, keyID 
 
 // UpdateThing updates the Thing in the DB at the given UUID.
 func (f *InMemory) UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
-  _, found := f.things[UUID]
+	_, found := f.things[UUID]
 
-  if !found {
-    return fmt.Errorf("There is no such thing with UUID %v", UUID)
-  } else {
-    f.things[UUID] = *thing
-    return nil
-  }
+	if !found {
+		return fmt.Errorf("There is no such thing with UUID %v", UUID)
+	} else {
+		f.things[UUID] = *thing
+		return nil
+	}
 }
 
 // DeleteThing deletes the Thing in the DB at the given UUID.
 func (f *InMemory) DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
-  _, found := f.things[UUID]
+	_, found := f.things[UUID]
 
-  if !found {
-    return fmt.Errorf("There is no such thing with UUID %v", UUID)
-  } else {
-    delete(f.things, UUID)
-    return nil
-  }
+	if !found {
+		return fmt.Errorf("There is no such thing with UUID %v", UUID)
+	} else {
+		delete(f.things, UUID)
+		return nil
+	}
 }
 
 // HistoryThing fills the history of a thing based on its UUID
 func (f *InMemory) HistoryThing(ctx context.Context, UUID strfmt.UUID, history *models.ThingHistory) error {
-  //TODO
+	//TODO
 	return nil
 }
 
 // MoveToHistoryThing moves a thing to history
 func (f *InMemory) MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
-  //TODO
+	//TODO
 	return nil
 }
 
@@ -285,7 +285,7 @@ func (f *InMemory) MoveToHistoryThing(ctx context.Context, thing *models.Thing, 
 func (f *InMemory) AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 
 	// If success return nil, otherwise return the error
-  //TODO
+	//TODO
 	return nil
 }
 
@@ -295,14 +295,14 @@ func (f *InMemory) GetAction(ctx context.Context, UUID strfmt.UUID, actionRespon
 	// actionResponse = based on the ontology
 
 	// If success return nil, otherwise return the error
-  //TODO
+	//TODO
 	return nil
 }
 
 // GetActions fills the given ActionsListResponse with the values from the database, based on the given UUIDs.
 func (f *InMemory) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsResponse *models.ActionsListResponse) error {
 	// If success return nil, otherwise return the error
-  //TODO
+	//TODO
 	return nil
 }
 
@@ -312,7 +312,7 @@ func (f *InMemory) ListActions(ctx context.Context, UUID strfmt.UUID, first int,
 	// actionsResponse = based on the ontology
 
 	// If success return nil, otherwise return the error
-  //TODO
+	//TODO
 	return nil
 }
 
@@ -320,7 +320,7 @@ func (f *InMemory) ListActions(ctx context.Context, UUID strfmt.UUID, first int,
 func (f *InMemory) UpdateAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 
 	// If success return nil, otherwise return the error
-  //TODO
+	//TODO
 	return nil
 }
 
@@ -330,19 +330,19 @@ func (f *InMemory) DeleteAction(ctx context.Context, action *models.Action, UUID
 	// Run the query to delete the action based on its UUID.
 
 	// If success return nil, otherwise return the error
-  //TODO
+	//TODO
 	return nil
 }
 
 // HistoryAction fills the history of a Action based on its UUID
 func (f *InMemory) HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error {
-  //TODO
+	//TODO
 	return nil
 }
 
 // MoveToHistoryAction moves an action to history
 func (f *InMemory) MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error {
-  //TODO
+	//TODO
 	return nil
 }
 
@@ -354,7 +354,7 @@ func (f *InMemory) AddKey(ctx context.Context, key *models.Key, UUID strfmt.UUID
 	// Key struct should be stored
 
 	// If success return nil, otherwise return the error
-  //TODO
+	//TODO
 	return nil
 }
 
@@ -367,26 +367,26 @@ func (f *InMemory) ValidateToken(ctx context.Context, UUID strfmt.UUID, keyRespo
 	// return errors_.New("Key not found in database.")
 
 	// If success return nil, otherwise return the error
-  //TODO
+	//TODO
 	return "", nil
 }
 
 // GetKey fills the given KeyGetResponse with the values from the database, based on the given UUID.
 func (f *InMemory) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
 
-  //TODO
+	//TODO
 	return nil
 }
 
 // GetKeys fills the given []KeyGetResponse with the values from the database, based on the given UUIDs.
 func (f *InMemory) GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keysResponse *[]*models.KeyGetResponse) error {
-  //TODO
+	//TODO
 	return nil
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
 func (f *InMemory) DeleteKey(ctx context.Context, key *models.Key, UUID strfmt.UUID) error {
-  //TODO
+	//TODO
 	return nil
 }
 
@@ -396,12 +396,12 @@ func (f *InMemory) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, childre
 	// for examle: `children = [OBJECT-A, OBJECT-B, OBJECT-C]`
 	// Where an OBJECT = models.KeyGetResponse
 
-  //TODO
+	//TODO
 	return nil
 }
 
 // UpdateKey updates the Key in the DB at the given UUID.
 func (f *InMemory) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
-  //TODO
+	//TODO
 	return nil
 }
