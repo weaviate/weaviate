@@ -458,9 +458,53 @@ func (f *InMemory) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, childre
 	return nil
 }
 
+func remove_uuid_from_list(l []strfmt.UUID, item strfmt.UUID) []strfmt.UUID {
+	for i, other := range l {
+		if other == item {
+			return append(l[:i], l[i+1:]...)
+		}
+	}
+	return l
+}
+
 // UpdateKey updates the Key in the DB at the given UUID.
 func (f *InMemory) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
-	panic(" not implemented")
-	//TODO
-	return nil
+	existing_key, found := f.keys[UUID]
+	if !found {
+		return fmt.Errorf("Key does not exists")
+	} else {
+		if existing_key.Parent != nil {
+			old_parent_id := key.Parent.NrDollarCref
+			remove_uuid_from_list(f.key_children[old_parent_id], UUID)
+		}
+
+		if key.Parent != nil {
+			if key.Parent.Type != "Key" {
+				f.messaging.DebugMessage("AddKey FAILED: parent of a key should be of type key!")
+				return fmt.Errorf("Parent of a key should be of type Key!")
+			}
+
+			if key.Parent.LocationURL != nil && *key.Parent.LocationURL != "http://localhost" {
+				f.messaging.ErrorMessage(fmt.Sprintf("AddKey added non-local locations for parents are not supported, location is: %+v", *key.Parent.LocationURL))
+			}
+
+			parent_id := key.Parent.NrDollarCref
+
+			err := f.GetKey(ctx, parent_id, nil)
+			if err != nil {
+				f.messaging.DebugMessage(fmt.Sprintf("AddKey FAILED: Parent %v does not exist; %+v", parent_id, err))
+				return fmt.Errorf("Parent does not exist")
+			}
+
+			f.key_children[parent_id] = append(f.key_children[parent_id], UUID)
+
+			f.messaging.DebugMessage(fmt.Sprintf("KEY_CHILDREN: %v", f.key_children))
+		}
+
+		f.keys[UUID] = *key
+		f.key_tokens[UUID] = token
+		log.Debugf("Updated key %v %+v", UUID, *key)
+
+		return nil
+	}
 }
