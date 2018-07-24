@@ -12,11 +12,6 @@
  */
 
 /*
- * THIS IS A DEMO CONNECTOR!
- * USE IT TO LEARN HOW TO CREATE YOUR OWN CONNECTOR.
- */
-
-/*
 When starting Weaviate, functions are called in the following order;
 (find the function in this document to understand what it is that they do)
  - GetName
@@ -40,6 +35,8 @@ import (
 	errors_ "errors"
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/mitchellh/mapstructure"
 
@@ -56,10 +53,11 @@ type InMemory struct {
 	schema    *schema.WeaviateSchema
 	messaging *messages.Messaging
 
-	keys       map[strfmt.UUID]models.Key
-	key_tokens map[strfmt.UUID]string
-	actions    map[strfmt.UUID]models.Action
-	things     map[strfmt.UUID]models.Thing
+	keys         map[strfmt.UUID]models.Key
+	key_tokens   map[strfmt.UUID]string
+	key_children map[strfmt.UUID][]strfmt.UUID
+	actions      map[strfmt.UUID]models.Action
+	things       map[strfmt.UUID]models.Thing
 
 	Config InMemoryConfig
 }
@@ -124,6 +122,7 @@ func (f *InMemory) Connect() error {
 
 	f.keys = make(map[strfmt.UUID]models.Key, 0)
 	f.key_tokens = make(map[strfmt.UUID]string, 0)
+	f.key_children = make(map[strfmt.UUID][]strfmt.UUID)
 	f.actions = make(map[strfmt.UUID]models.Action, 0)
 	f.things = make(map[strfmt.UUID]models.Thing, 0)
 
@@ -232,6 +231,10 @@ func (f *InMemory) ListThings(ctx context.Context, first int, offset int, keyID 
 		ok := true
 		if wheres != nil {
 			// TODO: implement
+			for key, value := range f.keys {
+				fmt.Printf("key: %+v: %+v\n", key, value)
+			}
+
 			return fmt.Errorf("Where queries not supported")
 		}
 		if ok {
@@ -354,24 +357,46 @@ func (f *InMemory) MoveToHistoryAction(ctx context.Context, action *models.Actio
 // UUID  = reference to the key
 // token = is the actual access token used in the API's header
 func (f *InMemory) AddKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
-
 	// Key struct should be stored
-
 	// If success return nil, otherwise return the error
 
 	_, found := f.keys[UUID]
 	if found {
 		return fmt.Errorf("Key already exists")
 	} else {
+		if key.Parent != nil {
+			if key.Parent.Type != "Key" {
+				f.messaging.DebugMessage("AddKey FAILED: parent of a key should be of type key!")
+				return fmt.Errorf("Parent of a key should be of type Key!")
+			}
+
+			if key.Parent.LocationURL != nil && *key.Parent.LocationURL != "http://localhost" {
+				f.messaging.ErrorMessage(fmt.Sprintf("AddKey added non-local locations for parents are not supported, location is: %+v", *key.Parent.LocationURL))
+			}
+
+			parent_id := key.Parent.NrDollarCref
+
+			err := f.GetKey(ctx, parent_id, nil)
+			if err != nil {
+				f.messaging.DebugMessage(fmt.Sprintf("AddKey FAILED: Parent %v does not exist; %+v", parent_id, err))
+				return fmt.Errorf("Parent does not exist")
+			}
+
+			f.key_children[parent_id] = append(f.key_children[parent_id], UUID)
+
+			f.messaging.DebugMessage(fmt.Sprintf("KEY_CHILDREN: %v", f.key_children))
+		}
+
 		f.keys[UUID] = *key
 		f.key_tokens[UUID] = token
+		log.Debugf("Added key %v %+v", UUID, *key)
+
 		return nil
 	}
 }
 
 // ValidateToken validates/gets a key to the InMemory database with the given token (=UUID)
 func (f *InMemory) ValidateToken(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
-
 	token, found := f.key_tokens[UUID]
 	if found {
 		err := f.GetKey(ctx, UUID, keyResponse)
@@ -387,7 +412,6 @@ func (f *InMemory) ValidateToken(ctx context.Context, UUID strfmt.UUID, keyRespo
 
 // GetKey fills the given KeyGetResponse with the values from the database, based on the given UUID.
 func (f *InMemory) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
-
 	key, found := f.keys[UUID]
 	if found {
 		response := models.KeyGetResponse{
@@ -395,7 +419,10 @@ func (f *InMemory) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *mo
 			KeyID: UUID,
 		}
 
-		*keyResponse = response
+		if keyResponse != nil {
+			*keyResponse = response
+		}
+
 		return nil
 	} else {
 		return errors_.New(connutils.StaticKeyNotFound)
@@ -404,28 +431,40 @@ func (f *InMemory) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *mo
 
 // GetKeys fills the given []KeyGetResponse with the values from the database, based on the given UUIDs.
 func (f *InMemory) GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keysResponse *[]*models.KeyGetResponse) error {
+	panic("NOT IMPLEMENTED")
+	fmt.Printf("GET KEYS%v\n", UUIDs)
 	//TODO
 	return nil
 }
 
 // DeleteKey deletes the Key in the DB at the given UUID.
 func (f *InMemory) DeleteKey(ctx context.Context, key *models.Key, UUID strfmt.UUID) error {
+	panic("not supported")
 	//TODO
 	return nil
 }
 
 // GetKeyChildren fills the given KeyGetResponse array with the values from the database, based on the given UUID.
 func (f *InMemory) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
+	my_children := make([]*models.KeyGetResponse, 0)
 
-	// for examle: `children = [OBJECT-A, OBJECT-B, OBJECT-C]`
-	// Where an OBJECT = models.KeyGetResponse
+	for _, child_id := range f.key_children[UUID] {
+		var response models.KeyGetResponse
+		err := f.GetKey(ctx, child_id, &response)
+		if err != nil {
+			return fmt.Errorf("Could not fetch child key %v, because: %v", UUID, err)
+		}
+		my_children = append(my_children, &response)
+	}
 
-	//TODO
+	children = &my_children
+
 	return nil
 }
 
 // UpdateKey updates the Key in the DB at the given UUID.
 func (f *InMemory) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
+	panic(" not implemented")
 	//TODO
 	return nil
 }

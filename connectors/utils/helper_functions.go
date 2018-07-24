@@ -56,6 +56,9 @@ func CreateRootKeyObjectWithKeyAndToken(key *models.Key, key_uuid, token strfmt.
 	UUID = key_uuid
 
 	// Do not set any parent
+	key.Parent = nil
+	is_true := true
+	key.IsRoot = &is_true
 
 	// Set expiry to unlimited
 	key.KeyExpiresUnix = -1
