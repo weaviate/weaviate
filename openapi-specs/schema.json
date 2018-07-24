@@ -402,71 +402,31 @@
         "path"
       ]
     },
-    "PeerAnnouncement": {
-      "description": "Announcent of a peer on the network",
+    "PeerUpdate": {
+      "description": "A single peer in the network",
       "properties": {
-        "peerUuid": {
-          "description": "Uuid of the peer.",
+        "id": {
+          "description": "The session ID of the peer",
           "type": "string",
           "format": "uuid"
         },
-        "peerName": {
-          "description": "Name of the peer in readable format",
+        "name": {
+          "description": "Human readable name",
           "type": "string"
         },
-        "peerHost": {
-          "description": "Host or IP of the peer.",
+        "uri": {
+          "description": "The location where the peer is exposed to the internet",
           "type": "string",
-          "format": "hostname"
-        },
-        "networkUuid": {
-          "description": "Uuid of the network.",
-          "type": "string",
-          "format": "uuid"
-        },
-        "networkVoucherUuid": {
-          "description": "Voucher that allows access or not to the network.",
-          "type": "string",
-          "format": "uuid"
+          "format": "uri"
         }
-      },
-      "type": "object"
+      }
     },
-    "QuestionCreate": {
-      "properties": {
-        "answerUuid": {
-          "description": "The Uuid of the answer when generated and returned to the /answer endpoint.",
-          "type": "string",
-          "format": "uuid"
-        },
-        "question": {
-          "$ref": "#/definitions/VectorBasedQuestion"
-        },
-        "returnTo": {
-          "properties": {
-            "host": {
-              "description": "The answer should be returned to which host?",
-              "type": "string"
-            },
-            "port": {
-              "description": "The answer should be returned to which port?",
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
+    "PeerUpdateList": {
+      "description": "Lisf of known peers",
+      "items": {
+        "$ref": "#/definitions/PeerUpdate"
       },
-      "type": "object"
-    },
-    "QuestionResponse": {
-      "properties": {
-        "answerUuid": {
-          "description": "The Uuid of the answer when generated and returned to the /answer endpoint.",
-          "type": "string",
-          "format": "uuid"
-        }
-      },
-      "type": "object"
+      "type": "array"
     },
     "Schema": {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
@@ -799,9 +759,9 @@
       "name": "Weaviate",
       "url": "https://github.com/creativesoftwarefdn"
     },
-    "description": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
-    "title": "Weaviate - Semantic Graphql, RESTful Web of Things platform.",
-    "version": "0.9.2"
+    "description": "Decentralised Knowledge Graph",
+    "title": "Weaviate - Decentralised Knowledge Graph",
+    "version": "0.9.4"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
@@ -1489,100 +1449,20 @@
         "x-available-in-websocket": false
       }
     },
-    "/peers": {
-      "post": {
-        "description": "Announce a new peer, authentication not needed (all peers are allowed to try and connect). This endpoint will only be used in M2M communications.",
-        "operationId": "weaviate.peers.announce",
-        "parameters": [
-          {
-            "description": "The announcement message",
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/PeerAnnouncement"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully registred the peer to the network."
-          },
-          "403": {
-            "description": "You are not allowed on the network."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "summary": "Announce a new peer.",
-        "tags": [
-          "P2P"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/peers/answers/{answerId}": {
-      "post": {
-        "description": "Receive an answer based on a question from a peer in the network.",
-        "operationId": "weaviate.peers.answers.create",
-        "parameters": [
-          {
-            "description": "The Uuid of the answer.",
-            "in": "path",
-            "name": "answerId",
-            "required": true,
-            "type": "string",
-            "format": "uuid"
-          },
-          {
-            "description": "The answer.",
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/Schema"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "description": "Successfully received."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "summary": "Receiving a new answer from a peer.",
-        "tags": [
-          "P2P"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/peers/echo": {
+    "/p2p/health": {
       "get": {
-        "description": "Check if a peer is alive.",
-        "operationId": "weaviate.peers.echo",
+        "description": "Check if a peer is alive and healthy",
+        "operationId": "weaviate.p2p.health",
         "responses": {
           "200": {
             "description": "Alive and kicking!"
           },
-          "501": {
-            "description": "Not (yet) implemented."
+          "500": {
+            "description": "Not healthy (yet)"
           }
         },
+        "security": [
+        ],
         "summary": "Check if a peer is alive.",
         "tags": [
           "P2P"
@@ -1591,36 +1471,33 @@
         "x-available-in-websocket": false
       }
     },
-    "/peers/questions": {
-      "post": {
-        "description": "Receive a question from a peer in the network.",
-        "operationId": "weaviate.peers.questions.create",
+    "/p2p/genesis": {
+      "put": {
+        "description": "Receive an update from the Genesis server.",
+        "operationId": "weaviate.p2p.genesis_update",
         "parameters": [
           {
-            "description": "The question.",
             "in": "body",
-            "name": "body",
+            "name": "peers",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/QuestionCreate"
+              "$ref": "#/definitions/PeerUpdateList"
             }
           }
         ],
         "responses": {
-          "202": {
-            "description": "Successfully received the question and answer might be send back.",
-            "schema": {
-              "$ref": "#/definitions/QuestionResponse"
-            }
+          "200": {
+            "description": "Alive and kicking!"
           },
-          "403": {
-            "description": "You are not allowed on the network."
+          "401": {
+            "description": "Unauthorized update"
           },
-          "501": {
-            "description": "Not (yet) implemented."
+          "500": {
+            "description": "Internal error"
           }
         },
-        "summary": "Receive a question from a peer in the network.",
+        "security": [
+        ],
         "tags": [
           "P2P"
         ],

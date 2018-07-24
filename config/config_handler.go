@@ -49,7 +49,7 @@ type Environment struct {
 	Database      Database      `json:"database"`
 	Schemas       Schemas       `json:"schemas"`
 	Broker        Broker        `json:"broker"`
-	P2P           P2P           `json:"P2P"`
+	Network       *Network      `json:"network"`
 	Cache         Cache         `json:"cache"`
 	Limit         int64         `json:"limit"`
 	Debug         bool          `json:"debug"`
@@ -63,13 +63,10 @@ type Contextionary struct {
 	failOnGerund bool   `json:"fail_ongerund"` // is false by default.
 }
 
-// P2P sets the Peer to Peer values of the Weaviate network
-type P2P struct {
-	FriendlyPeer string `json:"friendlyPeer"`
-	Vectors      struct {
-		Cbor string `json:"cbor"`
-		MD5  string `json:"MD5"`
-	}
+type Network struct {
+	GenesisURL string `json:"genesis_url"`
+	PublicURL  string `json:"public_url"`
+	PeerName   string `json:"peer_name"`
 }
 
 // Broker checks if broker details are set
