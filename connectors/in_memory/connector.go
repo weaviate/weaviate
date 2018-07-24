@@ -41,6 +41,7 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/mitchellh/mapstructure"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
@@ -49,17 +50,22 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/schema"
 )
 
-
-
 // inmemory has some basic variables.
 // This is mandatory, only change it if you need aditional, global variables
 type InMemory struct {
-	schema        *schema.WeaviateSchema
-	messaging     *messages.Messaging
+	schema    *schema.WeaviateSchema
+	messaging *messages.Messaging
 
-  keys    map[strfmt.UUID]models.Key
-  actions map[strfmt.UUID]models.Action
-  things  map[strfmt.UUID]models.Thing
+	keys    map[strfmt.UUID]models.Key
+	actions map[strfmt.UUID]models.Action
+	things  map[strfmt.UUID]models.Thing
+
+	Config InMemoryConfig
+}
+
+type InMemoryConfig struct {
+	RootKey   string `json:"root_key"`
+	RootToken string `json:"root_token"`
 }
 
 // GetName returns a unique connector name, this name is used to define the connector in the weaviate config
@@ -67,9 +73,17 @@ func (f *InMemory) GetName() string {
 	return "in-memory"
 }
 
-
 func (f *InMemory) SetConfig(configInput *config.Environment) error {
-  // We ignore configuration for the in-memory connector.
+	err := mapstructure.Decode(configInput.Database.DatabaseConfig, &f.Config)
+	if err != nil {
+		return fmt.Errorf("Could not configure in-memory connector; %v", err)
+	}
+
+	if f.Config.RootKey == "" || f.Config.RootToken == "" {
+		f.messaging.InfoMessage("No RootKey or RootToken provided; will generate random tokes")
+	}
+
+	// We ignore configuration for the in-memory connector.
 	return nil
 }
 
@@ -123,10 +137,17 @@ func (f *InMemory) Init() error {
 	 * 2.  Create a root key.
 	 */
 	keyObject := models.Key{}
-	token, _:= connutils.CreateRootKeyObject(&keyObject)
 
-  err := f.AddKey(nil, &keyObject, connutils.GenerateUUID(), token)
-  return err
+	var token string
+
+	if f.Config.RootKey != "" && f.Config.RootToken != "" {
+		token, _ = connutils.CreateRootKeyObjectWithKeyAndToken(&keyObject, strfmt.UUID(f.Config.RootKey), strfmt.UUID(f.Config.RootToken))
+	} else {
+		token, _ = connutils.CreateRootKeyObject(&keyObject)
+	}
+
+	err := f.AddKey(nil, &keyObject, connutils.GenerateUUID(), token)
+	return err
 }
 
 // Attach can attach something to the request-context

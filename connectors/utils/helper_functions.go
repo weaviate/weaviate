@@ -49,6 +49,11 @@ func CreateRootKeyObject(key *models.Key) (hashedToken string, UUID strfmt.UUID)
 	// Create key token and UUID
 	token := GenerateUUID()
 	UUID = GenerateUUID()
+	return CreateRootKeyObjectWithKeyAndToken(key, UUID, token)
+}
+
+func CreateRootKeyObjectWithKeyAndToken(key *models.Key, key_uuid, token strfmt.UUID) (hashedToken string, UUID strfmt.UUID) {
+	UUID = key_uuid
 
 	// Do not set any parent
 

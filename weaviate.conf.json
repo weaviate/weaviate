@@ -178,5 +178,24 @@
 		},
 		"limit": 100,
 		"debug": true
+	}, {
+		"name": "in-mem-test",
+		"database": {
+			"name": "in-memory",
+			"database_config": { 
+        "RootKey": "2be5fb5b-3558-45b0-93f4-0acdeee13dca",
+        "RootToken": "968a9716-4ad0-43b4-8f8a-db014e04a49c"
+      }
+		},
+		"contextionary": {
+			"knn_file" : "test/contextionary/example.knn",
+			"idx_file" : "test/contextionary/example.idx"
+		},
+ 		"schemas": {
+			"Thing": "./test/schema/test-thing-schema.json",
+			"Action": "./test/schema/test-action-schema.json"
+		},
+		"limit": 100,
+		"debug": true
 	}]
 }
