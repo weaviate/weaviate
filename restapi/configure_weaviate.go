@@ -59,6 +59,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/validation"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
+	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 )
 
 const pageOverride int = 1
@@ -66,6 +67,7 @@ const pageOverride int = 1
 var connectorOptionGroup *swag.CommandLineOptionsGroup
 var databaseSchema schema.WeaviateSchema
 var contextionary *libcontextionary.Contextionary
+var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
 var dbConnector dbconnector.DatabaseConnector
 var graphQLSchema *graphqlapi.GraphQLSchema
@@ -1152,18 +1154,34 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
 	})
-	api.P2PWeaviatePeersAnnounceHandler = p2_p.WeaviatePeersAnnounceHandlerFunc(func(params p2_p.WeaviatePeersAnnounceParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation p2_p.WeaviatePeersAnnounce has not yet been implemented")
+
+	api.P2PWeaviateP2pGenesisUpdateHandler = p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
+		new_peers := make([]libnetwork.Peer, 0)
+
+		for _, genesis_peer := range params.Peers {
+			peer := libnetwork.Peer{
+				Id:   genesis_peer.ID,
+				Name: genesis_peer.Name,
+				URI:  genesis_peer.URI,
+			}
+
+			new_peers = append(new_peers, peer)
+		}
+
+		err := network.UpdatePeers(new_peers)
+
+		if err == nil {
+			return p2_p.NewWeaviateP2pGenesisUpdateOK()
+		} else {
+			return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()
+		}
 	})
-	api.P2PWeaviatePeersAnswersCreateHandler = p2_p.WeaviatePeersAnswersCreateHandlerFunc(func(params p2_p.WeaviatePeersAnswersCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation p2_p.WeaviatePeersAnswersCreate has not yet been implemented")
+
+	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
+		// For now, always just return success.
+		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 	})
-	api.P2PWeaviatePeersEchoHandler = p2_p.WeaviatePeersEchoHandlerFunc(func(params p2_p.WeaviatePeersEchoParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation p2_p.WeaviatePeersEcho has not yet been implemented")
-	})
-	api.P2PWeaviatePeersQuestionsCreateHandler = p2_p.WeaviatePeersQuestionsCreateHandlerFunc(func(params p2_p.WeaviatePeersQuestionsCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation p2_p.WeaviatePeersQuestionsCreate has not yet been implemented")
-	})
+
 	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
 		// Get limit and page
 		limit := getLimit(params.MaxResults)
@@ -1301,6 +1319,8 @@ func configureServer(s *http.Server, scheme, addr string) {
 
 	loadContextionary()
 
+	connectToNetwork()
+
 	// Connect to MQTT via Broker
 	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
 
@@ -1385,7 +1405,16 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 func setupGlobalMiddleware(handler http.Handler) http.Handler {
-	return handler
+	return addLogging(handler)
+}
+
+func addLogging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serverConfig.Environment.Debug {
+			log.Printf("Received request: %+v %+v\n", r.Method, r.URL)
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // This function loads the Contextionary database, and creates
@@ -1429,4 +1458,23 @@ func loadContextionary() {
 	contextionary = &x
 
 	// whoop!
+}
+
+func connectToNetwork() {
+	if serverConfig.Environment.Network == nil {
+		messaging.InfoMessage(fmt.Sprintf("No network configured, not joining one"))
+		network = libnetwork.FakeNetwork{}
+	} else {
+		genesis_url := strfmt.URI(serverConfig.Environment.Network.GenesisURL)
+		public_url := strfmt.URI(serverConfig.Environment.Network.PublicURL)
+		peer_name := serverConfig.Environment.Network.PeerName
+
+		messaging.InfoMessage(fmt.Sprintf("Network configured, connecting to Genesis '%v'", genesis_url))
+		new_net, err := libnetwork.BootstrapNetwork(messaging, genesis_url, public_url, peer_name)
+		if err != nil {
+			messaging.ExitError(78, fmt.Sprintf("Could not connect to network! Reason: %+v", err))
+		} else {
+			network = *new_net
+		}
+	}
 }
