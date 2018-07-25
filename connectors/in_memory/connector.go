@@ -228,15 +228,12 @@ func (f *InMemory) ListThings(ctx context.Context, first int, offset int, keyID 
 	response.Things = make([]*models.ThingGetResponse, 0)
 
 	for uuid, thing := range f.things {
-		ok := true
-		if wheres != nil {
+		ok := true // should we add this thing to the result list?
+		if len(wheres) > 0 {
 			// TODO: implement
-			for key, value := range f.keys {
-				fmt.Printf("key: %+v: %+v\n", key, value)
-			}
-
 			return fmt.Errorf("Where queries not supported")
 		}
+
 		if ok {
 			response.TotalResults += 1
 			var thing_response models.ThingGetResponse
