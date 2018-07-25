@@ -243,6 +243,15 @@ func (f *InMemory) ListThings(ctx context.Context, first int, offset int, keyID 
 		}
 	}
 
+	// Higher offset than what's available? Nope.
+	if offset > len(response.Things) {
+		response.Things = make([]*models.ThingGetResponse, 0)
+	} else if offset+limit > len(response.Things) {
+		response.Things = response.Things[offset:]
+	} else {
+		response.Things = response.Things[offset:(offset + limit)]
+	}
+
 	// If success return nil, otherwise return the error
 	return nil
 }
