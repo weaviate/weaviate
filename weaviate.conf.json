@@ -196,6 +196,15 @@
 			"Action": "./test/schema/test-action-schema.json"
 		},
 		"limit": 100,
-		"debug": true
+		"debug": true,
+		"development": {
+			"external_instances": [{
+					"url": "http://localhost:8080"
+				},
+				{
+					"url": "http://127.0.0.1:8080"
+				}
+			]
+		}
 	}]
 }
