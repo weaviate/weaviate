@@ -45,6 +45,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema"
+
+	"sort"
 )
 
 // inmemory has some basic variables.
@@ -218,8 +220,25 @@ func (f *InMemory) GetThings(ctx context.Context, UUIDs []strfmt.UUID, response 
 	return nil
 }
 
+type thingsCreationTimeSorter struct {
+	things []*models.ThingGetResponse
+}
+
+func (t *thingsCreationTimeSorter) Len() int {
+	return len(t.things)
+}
+
+// Sort in descending order, so newest first.
+func (t *thingsCreationTimeSorter) Less(i, j int) bool {
+	return t.things[i].CreationTimeUnix < t.things[j].CreationTimeUnix
+}
+
+func (t *thingsCreationTimeSorter) Swap(i, j int) {
+	t.things[i].CreationTimeUnix, t.things[j].CreationTimeUnix = t.things[j].CreationTimeUnix, t.things[i].CreationTimeUnix
+}
+
 // ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
-func (f *InMemory) ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
+func (f *InMemory) ListThings(ctx context.Context, limit int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
 
 	// thingsResponse should be populated with the response that comes from the DB.
 	// thingsResponse = based on the ontology
@@ -241,6 +260,19 @@ func (f *InMemory) ListThings(ctx context.Context, first int, offset int, keyID 
 
 			response.Things = append(response.Things, &thing_response)
 		}
+	}
+
+	sorter := thingsCreationTimeSorter{
+		things: response.Things,
+	}
+
+	sort.Sort(&sorter)
+	response.Things = sorter.things
+
+	// now reverse the things, because there is an undocumented requirement
+	// that the newest things should be returned first.
+	for i, j := 0, len(response.Things)-1; i < j; i, j = i+1, j-1 {
+		response.Things[i], response.Things[j] = response.Things[j], response.Things[i]
 	}
 
 	// Higher offset than what's available? Nope.
