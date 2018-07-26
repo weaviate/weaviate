@@ -72,7 +72,7 @@ var databaseSchema schema.WeaviateSchema
 var contextionary *libcontextionary.Contextionary
 var serverConfig *config.WeaviateConfig
 var dbConnector dbconnector.DatabaseConnector
-var graphQLSchema *graphqlapi.GraphQLSchema
+var graphQL graphqlapi.GraphQL
 var messaging *messages.Messaging
 
 type keyTokenHeader struct {
@@ -1229,21 +1229,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			variables = params.Body.Variables.(map[string]interface{})
 		}
 
-		// Get the results by doing a request with the given parameters and the initialized schema.
-		//graphQLSchema.SetKey(principal.(*models.KeyTokenGetResponse))
-		gqlSchema, err := graphQLSchema.GetGraphQLSchema()
-
-		if err != nil {
-			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
-		}
+		// Add security principal to context that we pass on to the GraphQL resolver.
+		graphql_context := context.WithValue(params.HTTPRequest.Context(), "principal", (principal.(*models.KeyTokenGetResponse)))
 
 		// Do the request
 		result := gographql.Do(gographql.Params{
-			Schema:         gqlSchema,
+			Schema:         *graphQL.Schema(),
 			RequestString:  query,
 			OperationName:  operationName,
 			VariableValues: variables,
-			Context:        params.HTTPRequest.Context(),
+			Context:        graphql_context,
 		})
 
 		// Marshal the JSON
@@ -1354,14 +1349,11 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
 	}
 
-	// Init the GraphQL schema [FIX THIS]
-	// graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, serverConfig, &databaseSchema, messaging)
+	graphQL, err = graphqlapi.CreateSchema(&dbConnector, serverConfig, &databaseSchema, messaging)
 
-	// Error init [FIX THIS]
-	// errInitGQL := graphQLSchema.InitSchema()
-	// if errInitGQL != nil {
-	// 	messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+errInitGQL.Error())
-	// }
+	if err != nil {
+		messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+err.Error())
+	}
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.

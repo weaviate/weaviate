@@ -17,29 +17,36 @@ import (
 	"github.com/graphql-go/graphql"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
-	"github.com/creativesoftwarefdn/weaviate/connectors"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
 	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema"
 )
 
-// GraphQLSchema has some basic variables.
-type GraphQLSchema struct {
+type GraphQL struct {
 	weaviateGraphQLSchema graphql.Schema
 	serverConfig          *config.WeaviateConfig
-	serverSchema          *schema.WeaviateSchema
-	dbConnector           dbconnector.DatabaseConnector
-	usedKey               *models.KeyGetResponse
-	usedKeyToken          *models.KeyTokenGetResponse
+	databaseSchema        *schema.WeaviateSchema
+	dbConnector           *dbconnector.DatabaseConnector
 	messaging             *messages.Messaging
 }
 
-// GetGraphQLSchema returns the schema if it is set
-func (f *GraphQLSchema) GetGraphQLSchema() (graphql.Schema, error) {
+// The RestAPI handler calls this function to receive the schema.
+func (g *GraphQL) Schema() *graphql.Schema {
+	return &g.weaviateGraphQLSchema
+}
 
-	rootQuery := graphql.ObjectConfig{Name: "Weaviate", Fields: fields}
-	schemaConfig := graphql.SchemaConfig{Query: graphql.NewObject(rootQuery)}
-	schema, err := graphql.NewSchema(schemaConfig)
+// Initialize the Graphl
+func CreateSchema(dbConnector *dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, databaseSchema *schema.WeaviateSchema, messaging *messages.Messaging) (GraphQL, error) {
+	messaging.InfoMessage("Creating GraphQL schema...")
+	var g GraphQL
 
-	return schema, err
+	// Store for later use.
+	g.dbConnector = dbConnector
+	g.serverConfig = serverConfig
+	g.databaseSchema = databaseSchema
+	g.messaging = messaging
+
+	// Now build the graphql schema
+	err := g.buildGraphqlSchema()
+	return g, err
 }
