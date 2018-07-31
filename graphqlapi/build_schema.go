@@ -245,26 +245,26 @@ func (g *GraphQL) genGenericsFieldForWeaviateLocalMetaFetchObj(localMetaFetchObj
 }
 
 // EXAMPLE: How to iterate through the
-func (g *GraphQL) buildExampleActionClassFields() (graphql.Fields, error) {
-	fields := graphql.Fields{}
-
-	for _, class := range g.databaseSchema.ActionSchema.Schema.Classes {
-		field, err := buildExampleActionClassField(class)
-		if err != nil {
-			return nil, err
-		} else {
-			fields[class.Class] = field
-		}
-	}
-
-	return fields, nil
-}
-
-func buildExampleActionClassField(class *models.SemanticSchemaClass) (*graphql.Field, error) {
-	return &graphql.Field{
-		Type: graphql.String,
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("Not supported")
-		},
-	}, nil
-}
+//func (g *GraphQL) buildExampleActionClassFields() (graphql.Fields, error) {
+//	fields := graphql.Fields{}
+//
+//	for _, class := range g.databaseSchema.ActionSchema.Schema.Classes {
+//		field, err := buildExampleActionClassField(class)
+//		if err != nil {
+//			return nil, err
+//		} else {
+//			fields[class.Class] = field
+//		}
+//	}
+//
+//	return fields, nil
+//}
+//
+//func buildExampleActionClassField(class *models.SemanticSchemaClass) (*graphql.Field, error) {
+//	return &graphql.Field{
+//		Type: graphql.String,
+//		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+//			return nil, fmt.Errorf("Not supported")
+//		},
+//	}, nil
+//}
