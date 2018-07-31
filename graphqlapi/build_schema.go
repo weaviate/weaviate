@@ -24,18 +24,21 @@ import (
 // 2) the (dynamic) database schema from Weaviate
 
 func (g *GraphQL) buildGraphqlSchema() error {
-	local_field, err := g.buildLocalField()
+
+	var err error
+	var rootFields graphql.Fields
+
+	rootFields, err = g.genRootQueryFields()
 
 	if err != nil {
 		return fmt.Errorf("Could not build GraphQL schema, because: %v", err)
 	}
 
-	var root_fields = graphql.Fields{
-		"Local": local_field,
-		// "Network" : etc
+	rootQuery := graphql.ObjectConfig{
+		Name:        "WeaviateObj",
+		Fields:      rootFields,
+		Description: "Location of the root query",
 	}
-
-	rootQuery := graphql.ObjectConfig{Name: "WeaviateObj", Fields: root_fields}
 
 	g.weaviateGraphQLSchema, err = graphql.NewSchema(graphql.SchemaConfig{
 		Query: graphql.NewObject(rootQuery),
@@ -48,37 +51,197 @@ func (g *GraphQL) buildGraphqlSchema() error {
 	}
 }
 
+func (g *GraphQL) genRootQueryFields() (graphql.Fields, error) {
+	localField, err := g.buildLocalField()
+
+	if err != nil {
+		return nil, fmt.Errorf("Could not build GraphQL schema, because: %v", err)
+	}
+
+	var rootFields = graphql.Fields{
+		"Local":   localField,
+		"Network": nil,
+	}
+
+	return rootFields, nil
+}
+
 func (g *GraphQL) buildLocalField() (*graphql.Field, error) {
-	action_class_fields, err := g.buildExampleActionClassFields()
+
+	// sample code for dynamic generation of action and thing fields
+	//	action_class_fields, err := g.buildExampleActionClassFields()
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	
+	// TODO move these function calls to a central, high level function. Should contain only field declarations and return value, just like the rest
+	// TODO refactor: rename these variables(?)
+
+	actionClassFields, err := g.buildActionClassFields()
 
 	if err != nil {
 		return nil, err
 	}
 
-	local_fields := graphql.Fields{
+	localConvertedFetchActions := graphql.ObjectConfig{
+		Name:        "WeaviateLocalConvertedFetchActionsObj",
+		Fields:      actionClassFields,
+		Description: "Fetch Actions on the internal Weaviate",
+	}
+	//localConvertedFetchThings := g.buildThingClassFields()
+
+	localConvertedFetchObject := g.genThingsAndActionsFieldsForWeaviateLocalConvertedFetchObj(localConvertedFetchActions)
+
+	localMetaFetchObject := g.genThingsAndActionsFieldsForWeaviateLocalMetaFetchGenericsObj()
+
+	localMetaGenericsObject := g.genGenericsFieldForWeaviateLocalMetaFetchObj(localMetaFetchObject)
+
+	// TODO: make this a separate function
+	localFields := graphql.Fields{
+
 		"ConvertedFetch": &graphql.Field{
-			Type: graphql.String,
+			Name:        "WeaviateLocalConvertedFetch",
+			Type:        graphql.NewObject(localConvertedFetchObject),
+			Description: "Do a converted fetch to search Things or Actions on the local weaviate",
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
-		"ActionClasses": &graphql.Field{
-			Type: graphql.NewObject(graphql.ObjectConfig{Name: "SampleActionClass", Fields: action_class_fields}),
+		"MetaFetch": &graphql.Field{
+			Name:        "WeaviateLocalMetaFetch",
+			Type:        graphql.NewObject(localMetaGenericsObject),
+			Description: "Fetch meta information about Things or Actions on the local weaviate",
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+		// stub for implementing HelpersFetch. Commented out to avoid confusion.
+		//		"HelpersFetch": &graphql.Field{
+		//			Name: "WeaviateLocalHelpersFetch",
+		//			Type: graphql.String, // TODO: make HelpersFetch have actual content
+		//			Description: "Do a helpers fetch to search Things or Actions on the local weaviate",
+		//			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+		//				return nil, fmt.Errorf("Not supported")
+		//			},
+		//		},
 	}
 
-	local_object := graphql.ObjectConfig{Name: "WeaviateLocal", Fields: local_fields}
+	weaviateLocalObject := graphql.ObjectConfig{
+		Name:        "WeaviateLocalObj",
+		Fields:      localFields,
+		Description: "Type of fetch on the internal Weaviate",
+	}
+
 	field := graphql.Field{
-		Type: graphql.NewObject(local_object),
+		Type:        graphql.NewObject(weaviateLocalObject),
+		Description: "Locate on the local Weaviate",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return nil, fmt.Errorf("Not supported")
 		},
 	}
 
 	return &field, nil
+}
+
+func (g *GraphQL) buildActionClassFields() (graphql.Fields, error) {
+	fields := graphql.Fields{}
+	for _, class := range g.databaseSchema.ActionSchema.Schema.Classes {
+		field, err := buildActionClassField(class)
+		if err != nil {
+			return nil, err
+		} else {
+			fields[class.Class] = field
+		}
+	}
+	return fields, nil
+}
+
+func buildActionClassField(class *models.SemanticSchemaClass) (*graphql.Field, error) {
+	return &graphql.Field{
+		Type: graphql.String,
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			return nil, fmt.Errorf("Not supported")
+		},
+	}, nil
+}
+
+// TODO: implement error handling in all functions below; return Field, error and parse to objectconf -> object on a higher level
+func (g *GraphQL) genThingsAndActionsFieldsForWeaviateLocalConvertedFetchObj(localConvertedFetchActions graphql.ObjectConfig) graphql.ObjectConfig {
+	fields := graphql.Fields{
+		"Actions": &graphql.Field{
+			Name:        "WeaviateLocalConvertedFetchActions",
+			Description: "Locate Actions on the local Weaviate",
+			Type:        graphql.NewObject(localConvertedFetchActions),
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				return nil, fmt.Errorf("Not supported")
+			},
+		},
+		"Things": &graphql.Field{
+			Name:        "WeaviateLocalConvertedFetchThings",
+			Description: "Locate Things on the local Weaviate",
+			Type:        graphql.String, //graphql.NewObject(localConvertedFetchThings),
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				return nil, fmt.Errorf("Not supported")
+			},
+		},
+	}
+	fieldsObject := graphql.ObjectConfig{
+		Name:        "WeaviateLocalConvertedFetchObj",
+		Fields:      fields,
+		Description: "Fetch things or actions on the internal Weaviate",
+	}
+	return fieldsObject
+}
+
+func (g *GraphQL) genThingsAndActionsFieldsForWeaviateLocalMetaFetchGenericsObj() graphql.ObjectConfig {
+
+	fields := graphql.Fields{
+		"Actions": &graphql.Field{
+			Name:        "WeaviateLocalMetaFetchGenericsActions",
+			Description: "Action to fetch for meta generic fetch",
+			Type:        graphql.String,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				return nil, fmt.Errorf("Not supported")
+			},
+		},
+		"Things": &graphql.Field{
+			Name:        "WeaviateLocalMetaFetchGenericsThings",
+			Description: "Thing to fetch for meta generic fetch",
+			Type:        graphql.String,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				return nil, fmt.Errorf("Not supported")
+			},
+		},
+	}
+
+	fieldsObject := graphql.ObjectConfig{
+		Name:        "WeaviateLocalMetaFetchGenericsObj",
+		Fields:      fields,
+		Description: "Object type to fetch",
+	}
+
+	return fieldsObject
+}
+
+func (g *GraphQL) genGenericsFieldForWeaviateLocalMetaFetchObj(localMetaFetchObject graphql.ObjectConfig) graphql.ObjectConfig {
+
+	fields := graphql.Fields{
+		"Generics": &graphql.Field{
+			Name:        "WeaviateLocalMetaFetchGenericsObj",
+			Description: "Fetch generic meta information based on the type",
+			Type:        graphql.NewObject(localMetaFetchObject),
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				return nil, fmt.Errorf("Not supported")
+			},
+		},
+	}
+
+	fieldsObject := graphql.ObjectConfig{
+		Name:        "WeaviateLocalMetaFetchObj",
+		Fields:      fields,
+		Description: "Fetch things or actions on the internal Weaviate",
+	}
+	return fieldsObject
 }
 
 // EXAMPLE: How to iterate through the
