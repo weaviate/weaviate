@@ -19,8 +19,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"math"
 	"net/http"
 	"os"
@@ -46,6 +45,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra"
 	"github.com/creativesoftwarefdn/weaviate/connectors/dataloader"
 	"github.com/creativesoftwarefdn/weaviate/connectors/foobar"
+	"github.com/creativesoftwarefdn/weaviate/connectors/in_memory"
 	"github.com/creativesoftwarefdn/weaviate/connectors/kvcache"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
@@ -79,9 +79,7 @@ type keyTokenHeader struct {
 }
 
 func init() {
-	discard := ioutil.Discard
-	myGRPCLogger := log.New(discard, "", log.LstdFlags)
-	grpclog.SetLogger(myGRPCLogger)
+	grpclog.SetLogger(log.StandardLogger())
 
 	// Create temp folder if it does not exist
 	tempFolder := "temp"
@@ -162,6 +160,7 @@ func GetAllConnectors() []dbconnector.DatabaseConnector {
 	connectors := []dbconnector.DatabaseConnector{
 		&foobar.Foobar{},
 		&cassandra.Cassandra{},
+		&inmemory.InMemory{},
 	}
 
 	return connectors

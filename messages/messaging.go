@@ -15,7 +15,7 @@ package messages
 
 import (
 	"fmt"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"os"
 	"regexp"
 	"runtime"
@@ -32,7 +32,7 @@ type Messaging struct {
 func (f *Messaging) ExitError(code int, message interface{}) {
 	// Print Error
 	f.ErrorMessage(message.(string))
-	log.Println("ERROR: This error needs to be resolved. For more info, check creativesoftwarefdn.org/weaviate. Exiting now...")
+	log.Errorln("ERROR: This error needs to be resolved. For more info, check creativesoftwarefdn.org/weaviate. Exiting now...")
 
 	// Exit with code
 	os.Exit(code)
@@ -41,21 +41,21 @@ func (f *Messaging) ExitError(code int, message interface{}) {
 // InfoMessage sends a message with 'INFO:' in front of it
 func (f *Messaging) InfoMessage(message interface{}) {
 	// Print Message
-	log.Println("INFO: " + fmt.Sprint(message) + ".")
+	log.Info(message)
 }
 
 // DebugMessage sends a message with 'DEBUG:' in front of it
 func (f *Messaging) DebugMessage(message interface{}) {
 	// Print Message
 	if f.Debug {
-		log.Println("DEBUG: " + fmt.Sprint(message) + ".")
+		log.Debug(message)
 	}
 }
 
 // ErrorMessage exit the program and give standard weaviate-error message.
 func (f *Messaging) ErrorMessage(message interface{}) {
 	// Print Error
-	log.Println("ERROR: " + fmt.Sprint(message) + ".")
+	log.Error(message)
 }
 
 // TimeTrack tracks the time from execution to return of the function

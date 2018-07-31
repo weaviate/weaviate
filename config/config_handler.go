@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -183,6 +184,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 	m.Debug = f.Environment.Debug
 	if f.Environment.Debug {
 		m.InfoMessage("Running in DEBUG-mode")
+		log.SetLevel(log.DebugLevel)
 	}
 
 	return nil
