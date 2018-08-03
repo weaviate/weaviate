@@ -19,8 +19,9 @@ import (
 	//"reflect"
 	//"strconv"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/graphql-go/graphql"
-	"strings"
+	//"strings"
 )
 
 // Build the GraphQL schema based on
@@ -181,7 +182,11 @@ func buildSingleActionClassPropertyFields(class *models.SemanticSchemaClass, con
 
 	for _, property := range class.Properties {
 
-		if propertyDataTypeIsClass(property) {
+		propertyType, err := schema.GetPropertyDataType(class, property.Name)
+		if err != nil {
+			return nil, err
+		}
+		if *propertyType == schema.DataTypeCRef {
 			numberOfDataTypes := len(property.AtDataType)
 
 			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
@@ -213,7 +218,7 @@ func buildSingleActionClassPropertyFields(class *models.SemanticSchemaClass, con
 				},
 			}
 		} else {
-			convertedDataType, err := handleNonObjectDataTypes(property.AtDataType[0], property)
+			convertedDataType, err := handleNonObjectDataTypes(*propertyType, property)
 
 			if err != nil {
 				return nil, err
@@ -289,7 +294,11 @@ func buildSingleThingClassPropertyFields(class *models.SemanticSchemaClass, conv
 
 	for _, property := range class.Properties {
 
-		if propertyDataTypeIsClass(property) {
+		propertyType, err := schema.GetPropertyDataType(class, property.Name)
+		if err != nil {
+			return nil, err
+		}
+		if *propertyType == schema.DataTypeCRef {
 			numberOfDataTypes := len(property.AtDataType)
 
 			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
@@ -323,7 +332,7 @@ func buildSingleThingClassPropertyFields(class *models.SemanticSchemaClass, conv
 				},
 			}
 		} else {
-			convertedDataType, err := handleNonObjectDataTypes(property.AtDataType[0], property)
+			convertedDataType, err := handleNonObjectDataTypes(*propertyType, property)
 
 			if err != nil {
 				return nil, err
@@ -334,21 +343,11 @@ func buildSingleThingClassPropertyFields(class *models.SemanticSchemaClass, conv
 	return singleThingClassPropertyFields, nil
 }
 
-func propertyDataTypeIsClass(property *models.SemanticSchemaClassProperty) bool {
-
-	firstChar := string([]rune(property.AtDataType[0])[0]) // get first char from first element using utf-8
-
-	if firstChar == strings.ToUpper(firstChar) {
-		return true
-	}
-	return false
-}
-
-func handleNonObjectDataTypes(dataType string, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
+func handleNonObjectDataTypes(dataType schema.DataType, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
 
 	switch dataType {
 
-	case "string":
+	case schema.DataTypeString:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.String,
@@ -357,7 +356,7 @@ func handleNonObjectDataTypes(dataType string, property *models.SemanticSchemaCl
 			},
 		}, nil
 
-	case "int":
+	case schema.DataTypeInt:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.Int,
@@ -366,7 +365,7 @@ func handleNonObjectDataTypes(dataType string, property *models.SemanticSchemaCl
 			},
 		}, nil
 
-	case "number":
+	case schema.DataTypeNumber:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.Float,
@@ -375,7 +374,7 @@ func handleNonObjectDataTypes(dataType string, property *models.SemanticSchemaCl
 			},
 		}, nil
 
-	case "boolean":
+	case schema.DataTypeBoolean:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.Boolean,
@@ -384,7 +383,7 @@ func handleNonObjectDataTypes(dataType string, property *models.SemanticSchemaCl
 			},
 		}, nil
 
-	case "date":
+	case schema.DataTypeDate:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.String, // String since no graphql date datatype exists
@@ -397,7 +396,7 @@ func handleNonObjectDataTypes(dataType string, property *models.SemanticSchemaCl
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.String,
-		}, fmt.Errorf("I DON'T KNOW THIS VALUE!")
+		}, fmt.Errorf(schema.ErrorNoSuchDatatype)
 	}
 }
 
