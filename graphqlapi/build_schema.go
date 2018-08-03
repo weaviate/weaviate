@@ -81,11 +81,13 @@ func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
 	convertedFetchActionsAndThings := make(map[string]*graphql.Object)
 
 	localConvertedFetchActions, err := g.buildActionClassFieldsFromSchema(&convertedFetchActionsAndThings)
+
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate action fields from schema for local convertedfetch because: %v", err)
 	}
 
 	localConvertedFetchThings, err := g.buildThingClassFieldsFromSchema(&convertedFetchActionsAndThings)
+
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate action fields from schema for local convertedfetch because: %v", err)
 	}
@@ -129,12 +131,14 @@ func (g *GraphQL) buildActionClassFieldsFromSchema(convertedFetchActionsAndThing
 	actionClassFields := graphql.Fields{}
 
 	for _, class := range g.databaseSchema.ActionSchema.Schema.Classes {
+
 		field, obj, err := buildSingleActionClassField(class, convertedFetchActionsAndThings)
 
 		if err != nil {
 			return nil, err
 		}
 		actionClassFields[class.Class] = field
+
 		(*convertedFetchActionsAndThings)[class.Class] = obj
 	}
 
@@ -143,6 +147,7 @@ func (g *GraphQL) buildActionClassFieldsFromSchema(convertedFetchActionsAndThing
 		Fields:      actionClassFields,
 		Description: "Fetch Actions on the internal Weaviate",
 	}
+
 	return graphql.NewObject(localConvertedFetchActions), nil
 }
 
@@ -174,7 +179,7 @@ func buildSingleActionClassPropertyFields(class *models.SemanticSchemaClass, con
 
 	singleActionClassPropertyFields := graphql.Fields{}
 
-	for index, property := range class.Properties {
+	for _, property := range class.Properties {
 
 		if propertyDataTypeIsClass(property) {
 			numberOfDataTypes := len(property.AtDataType)
@@ -249,6 +254,7 @@ func (g *GraphQL) buildThingClassFieldsFromSchema(convertedFetchActionsAndThings
 		Fields:      thingClassFields,
 		Description: "Fetch Things on the internal Weaviate",
 	}
+
 	return graphql.NewObject(localConvertedFetchThings), nil
 }
 
@@ -281,7 +287,7 @@ func buildSingleThingClassPropertyFields(class *models.SemanticSchemaClass, conv
 
 	singleThingClassPropertyFields := graphql.Fields{}
 
-	for index, property := range class.Properties {
+	for _, property := range class.Properties {
 
 		if propertyDataTypeIsClass(property) {
 			numberOfDataTypes := len(property.AtDataType)
