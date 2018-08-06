@@ -23,7 +23,7 @@ import (
 // 1) the static query structure (e.g. LocalFetch)
 // 2) the (dynamic) database schema from Weaviate
 
-func (g *GraphQL) genGraphqlSchema() error {
+func (g *GraphQL) buildGraphqlSchema() error {
 
 	rootFieldsObject, err := g.assembleFullSchema()
 
