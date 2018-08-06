@@ -16,8 +16,6 @@ package graphqlapi
 import (
 	"bytes"
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/graphql-go/graphql"
 )
 
@@ -25,9 +23,7 @@ import (
 // 1) the static query structure (e.g. LocalFetch)
 // 2) the (dynamic) database schema from Weaviate
 
-//TODO: place localconvertedfetch stuff in a different file, leave only the high level functions in here
-
-func (g *GraphQL) buildGraphqlSchema() error {
+func (g *GraphQL) genGraphqlSchema() error {
 
 	rootFieldsObject, err := g.assembleFullSchema()
 
@@ -71,8 +67,8 @@ func (g *GraphQL) buildGraphqlSchema() error {
 // check: maak dit ook voor Things
 // check: refactor naar objects returnen ipv object configs
 // check: check all Things strings
-// TODO: confirm output of dynamic schema generation; classes as properties in lists y/n?
-// TODO: implement metafetch
+// check: confirm output of dynamic schema generation; classes as properties in lists y/n?
+// check: implement metafetch
 // TODO: implement filters
 
 func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
@@ -80,31 +76,31 @@ func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
 	// This map is used to store all the Thing and Action ObjectConfigs, so that we can use them in references.
 	convertedFetchActionsAndThings := make(map[string]*graphql.Object)
 
-	localConvertedFetchActions, err := g.buildActionClassFieldsFromSchema(&convertedFetchActionsAndThings)
+	localConvertedFetchActions, err := g.genActionClassFieldsFromSchema(&convertedFetchActionsAndThings)
 
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate action fields from schema for local convertedfetch because: %v", err)
 	}
 
-	localConvertedFetchThings, err := g.buildThingClassFieldsFromSchema(&convertedFetchActionsAndThings)
+	localConvertedFetchThings, err := g.genThingClassFieldsFromSchema(&convertedFetchActionsAndThings)
 
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate thing fields from schema for local convertedfetch because: %v", err)
 	}
 
-	localMetaFetchActions, err := g.buildMetaClassFieldsFromSchema(g.databaseSchema.ActionSchema.Schema.Classes, true)
+	localMetaFetchActions, err := g.genMetaClassFieldsFromSchema(g.databaseSchema.ActionSchema.Schema.Classes, true)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate action fields from schema for local metafetch because: %v", err)
 	}
 
-	localMetaFetchThings, err := g.buildMetaClassFieldsFromSchema(g.databaseSchema.ThingSchema.Schema.Classes, false)
+	localMetaFetchThings, err := g.genMetaClassFieldsFromSchema(g.databaseSchema.ThingSchema.Schema.Classes, false)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate thing fields from schema for local metafetch because: %v", err)
 	}
 
 	localConvertedFetchObject, err := g.genThingsAndActionsFieldsForWeaviateLocalConvertedFetchObj(localConvertedFetchActions, localConvertedFetchThings)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to generate things and action fields for local convertedfetch because: %v", err) // TODO: update error strings from here on
+		return nil, fmt.Errorf("Failed to generate things and action fields for local convertedfetch because: %v", err)
 	}
 
 	localMetaFetchObject, err := g.genThingsAndActionsFieldsForWeaviateLocalMetaFetchGenericsObj(localMetaFetchActions, localMetaFetchThings)
@@ -122,7 +118,7 @@ func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
 		return nil, fmt.Errorf("Failed to generate meta and convertedfetch fields for local weaviateobject because: %v", err)
 	}
 
-	localObject, err := g.buildLocalField(localMetaAndConvertedFetchObject)
+	localObject, err := g.genLocalField(localMetaAndConvertedFetchObject)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate local field for local weaviateobject because: %v", err)
 	}
@@ -135,280 +131,7 @@ func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
 	return rootFieldsObject, nil
 }
 
-// Build the dynamically generated ConvertedFetch Actions part of the schema
-func (g *GraphQL) buildActionClassFieldsFromSchema(convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
-
-	actionClassFields := graphql.Fields{}
-
-	for _, class := range g.databaseSchema.ActionSchema.Schema.Classes {
-
-		field, obj, err := buildSingleActionClassField(class, convertedFetchActionsAndThings)
-
-		if err != nil {
-			return nil, err
-		}
-		actionClassFields[class.Class] = field
-
-		(*convertedFetchActionsAndThings)[class.Class] = obj
-	}
-
-	localConvertedFetchActions := graphql.ObjectConfig{
-		Name:        "WeaviateLocalConvertedFetchActionsObj",
-		Fields:      actionClassFields,
-		Description: "Fetch Actions on the internal Weaviate",
-	}
-
-	return graphql.NewObject(localConvertedFetchActions), nil
-}
-
-func buildSingleActionClassField(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object, error) {
-	singleActionClassPropertyFieldsObj := graphql.ObjectConfig{
-		Name: class.Class,
-		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
-			singleActionClassPropertyFields, err := buildSingleActionClassPropertyFields(class, convertedFetchActionsAndThings)
-			if err != nil {
-				panic("oops")
-			}
-			return singleActionClassPropertyFields
-		}),
-		Description: "Type of fetch on the internal Weaviate",
-	}
-
-	obj := graphql.NewObject(singleActionClassPropertyFieldsObj)
-	field := &graphql.Field{
-		Type:        obj,
-		Description: class.Description,
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("Not supported")
-		},
-	}
-	return field, obj, nil
-}
-
-func buildSingleActionClassPropertyFields(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (graphql.Fields, error) {
-
-	singleActionClassPropertyFields := graphql.Fields{}
-
-	for _, property := range class.Properties {
-
-		propertyType, err := schema.GetPropertyDataType(class, property.Name)
-		if err != nil {
-			return nil, err
-		}
-		if *propertyType == schema.DataTypeCRef {
-			numberOfDataTypes := len(property.AtDataType)
-
-			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
-
-			for index, dataType := range property.AtDataType {
-
-				thingOrActionType, ok := (*convertedFetchActionsAndThings)[dataType]
-				if !ok {
-					panic(fmt.Errorf("No such thing/action class '%s'", property.AtDataType[index]))
-				}
-
-				dataTypeClasses[index] = thingOrActionType
-			}
-			dataTypeUnionConf := graphql.UnionConfig{
-				Name:  genClassPropertyClassName(class, property),
-				Types: dataTypeClasses,
-				ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-					return nil
-				},
-				Description: property.Description,
-			}
-			multipleClassDataTypesUnion := graphql.NewUnion(dataTypeUnionConf)
-
-			singleActionClassPropertyFields[property.Name] = &graphql.Field{
-				Type:        multipleClassDataTypesUnion,
-				Description: property.Description,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					return nil, fmt.Errorf("Not supported")
-				},
-			}
-		} else {
-			convertedDataType, err := handleConvertedFetchNonObjectDataTypes(*propertyType, property)
-
-			if err != nil {
-				return nil, err
-			}
-			singleActionClassPropertyFields[property.Name] = convertedDataType
-		}
-	}
-	return singleActionClassPropertyFields, nil
-}
-
-func genClassPropertyClassName(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) string {
-
-	var buffer bytes.Buffer
-
-	buffer.WriteString(class.Class)
-	buffer.WriteString(property.Name)
-	buffer.WriteString("Obj")
-
-	return buffer.String()
-}
-
-// Build the dynamically generated ConvertedFetch Things part of the schema
-func (g *GraphQL) buildThingClassFieldsFromSchema(convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
-
-	thingClassFields := graphql.Fields{}
-
-	for _, class := range g.databaseSchema.ThingSchema.Schema.Classes {
-		field, obj, err := buildSingleThingClassField(class, convertedFetchActionsAndThings)
-
-		if err != nil {
-			return nil, err
-		}
-		thingClassFields[class.Class] = field
-		(*convertedFetchActionsAndThings)[class.Class] = obj
-	}
-	localConvertedFetchThings := graphql.ObjectConfig{
-		Name:        "WeaviateLocalConvertedFetchThingsObj",
-		Fields:      thingClassFields,
-		Description: "Fetch Things on the internal Weaviate",
-	}
-
-	return graphql.NewObject(localConvertedFetchThings), nil
-}
-
-func buildSingleThingClassField(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object, error) {
-
-	singleThingClassPropertyFieldsObj := graphql.ObjectConfig{
-		Name: class.Class,
-		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
-			singleThingClassPropertyFields, err := buildSingleThingClassPropertyFields(class, convertedFetchActionsAndThings)
-			if err != nil {
-				panic("oops")
-			}
-			return singleThingClassPropertyFields
-		}),
-		Description: "Type of fetch on the internal Weaviate",
-	}
-
-	obj := graphql.NewObject(singleThingClassPropertyFieldsObj)
-	field := &graphql.Field{
-		Type:        obj,
-		Description: class.Description,
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("Not supported")
-		},
-	}
-	return field, obj, nil
-}
-
-func buildSingleThingClassPropertyFields(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (graphql.Fields, error) {
-
-	singleThingClassPropertyFields := graphql.Fields{}
-
-	for _, property := range class.Properties {
-
-		propertyType, err := schema.GetPropertyDataType(class, property.Name)
-		if err != nil {
-			return nil, err
-		}
-		if *propertyType == schema.DataTypeCRef {
-			numberOfDataTypes := len(property.AtDataType)
-
-			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
-
-			for index, dataType := range property.AtDataType {
-
-				thingOrActionType, ok := (*convertedFetchActionsAndThings)[dataType]
-				if !ok {
-					panic(fmt.Errorf("No such thing/action class '%s'", property.AtDataType[index]))
-				}
-
-				dataTypeClasses[index] = thingOrActionType
-			}
-
-			dataTypeUnionConf := graphql.UnionConfig{
-				Name:  genClassPropertyClassName(class, property),
-				Types: dataTypeClasses,
-				ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-					return nil
-				},
-				Description: property.Description,
-			}
-
-			multipleClassDataTypesUnion := graphql.NewUnion(dataTypeUnionConf)
-
-			singleThingClassPropertyFields[property.Name] = &graphql.Field{
-				Type:        multipleClassDataTypesUnion,
-				Description: property.Description,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					return nil, fmt.Errorf("Not supported")
-				},
-			}
-		} else {
-			convertedDataType, err := handleConvertedFetchNonObjectDataTypes(*propertyType, property)
-
-			if err != nil {
-				return nil, err
-			}
-			singleThingClassPropertyFields[property.Name] = convertedDataType
-		}
-	}
-	return singleThingClassPropertyFields, nil
-}
-
-func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
-
-	switch dataType {
-
-	case schema.DataTypeString:
-		return &graphql.Field{
-			Description: property.Description,
-			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
-			},
-		}, nil
-
-	case schema.DataTypeInt:
-		return &graphql.Field{
-			Description: property.Description,
-			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
-			},
-		}, nil
-
-	case schema.DataTypeNumber:
-		return &graphql.Field{
-			Description: property.Description,
-			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
-			},
-		}, nil
-
-	case schema.DataTypeBoolean:
-		return &graphql.Field{
-			Description: property.Description,
-			Type:        graphql.Boolean,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
-			},
-		}, nil
-
-	case schema.DataTypeDate:
-		return &graphql.Field{
-			Description: property.Description,
-			Type:        graphql.String, // String since no graphql date datatype exists
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
-			},
-		}, nil
-
-	default:
-		return &graphql.Field{
-			Description: property.Description,
-			Type:        graphql.String,
-		}, fmt.Errorf(schema.ErrorNoSuchDatatype)
-	}
-}
-
+// generate the static parts of the schema
 func (g *GraphQL) genThingsAndActionsFieldsForWeaviateLocalConvertedFetchObj(localConvertedFetchActions *graphql.Object,
 	localConvertedFetchThings *graphql.Object) (*graphql.Object, error) {
 
@@ -516,7 +239,7 @@ func (g *GraphQL) genConvertedFetchAndMetaGenericsFields(
 	return graphql.NewObject(*weaviateLocalObject), nil
 }
 
-func (g *GraphQL) buildLocalField(localMetaAndConvertedFetchObject *graphql.Object) (*graphql.Field, error) {
+func (g *GraphQL) genLocalField(localMetaAndConvertedFetchObject *graphql.Object) (*graphql.Field, error) {
 
 	field := graphql.Field{
 		Type:        localMetaAndConvertedFetchObject,
