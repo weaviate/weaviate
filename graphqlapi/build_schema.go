@@ -63,14 +63,6 @@ func (g *GraphQL) buildGraphqlSchema() error {
 	}
 }
 
-// check: regel class refs voor meerdere objecten als datatype (union)
-// check: maak dit ook voor Things
-// check: refactor naar objects returnen ipv object configs
-// check: check all Things strings
-// check: confirm output of dynamic schema generation; classes as properties in lists y/n?
-// check: implement metafetch
-// TODO: implement filters
-
 func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
 
 	// This map is used to store all the Thing and Action ObjectConfigs, so that we can use them in references.
@@ -213,11 +205,48 @@ func (g *GraphQL) genConvertedFetchAndMetaGenericsFields(
 	localConvertedFetchObject *graphql.Object,
 	localMetaGenericsObject *graphql.Object) (*graphql.Object, error) {
 
+	filterFields, err := genFilterFields()
+	if err != nil {
+		return nil, fmt.Errorf("Not supported: %v", err)
+	}
+
 	convertedAndMetaFetchFields := graphql.Fields{
 		"ConvertedFetch": &graphql.Field{
 			Name:        "WeaviateLocalConvertedFetch",
 			Type:        localConvertedFetchObject,
 			Description: "Do a converted fetch to search Things or Actions on the local weaviate",
+
+			Args: graphql.FieldConfigArgument{
+				"_filter": &graphql.ArgumentConfig{
+					Description: "Filter options for the converted fetch search, to convert the data to the filter input",
+					Type:        filterFields,
+				},
+				"first": &graphql.ArgumentConfig{
+
+					Description: "First X items from the given offset, when none given, it will be .",
+
+					Type: graphql.Int,
+
+					DefaultValue: 3,
+				},
+
+				"offset": &graphql.ArgumentConfig{
+
+					Description: "Offset from the most recent item.",
+
+					Type: graphql.Int,
+
+					DefaultValue: 0,
+				},
+
+				"class": &graphql.ArgumentConfig{
+
+					Description: "Class filter options.",
+
+					Type: graphql.String,
+				},
+			},
+
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
