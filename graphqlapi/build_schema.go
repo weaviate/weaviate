@@ -69,6 +69,7 @@ func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
 	convertedFetchActionsAndThings := make(map[string]*graphql.Object)
 	// this map is used to store all the Filter InputObjects, so that we can use them in references.
 	filterOptions := make(map[string]*graphql.InputObject)
+	filterFetchOptions := make(map[string]*graphql.InputObject)
 
 	localConvertedFetchActions, err := g.genActionClassFieldsFromSchema(&convertedFetchActionsAndThings)
 
@@ -107,7 +108,7 @@ func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
 		return nil, fmt.Errorf("Failed to generate generics field for local metafetch because: %v", err)
 	}
 
-	localMetaAndConvertedFetchObject, err := g.genConvertedFetchAndMetaGenericsFields(localConvertedFetchObject, localMetaGenericsObject, filterOptions)
+	localMetaAndConvertedFetchObject, err := g.genConvertedFetchAndMetaGenericsFields(localConvertedFetchObject, localMetaGenericsObject, filterOptions, filterFetchOptions)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate meta and convertedfetch fields for local weaviateobject because: %v", err)
 	}
@@ -206,12 +207,10 @@ func (g *GraphQL) genGenericsFieldForWeaviateLocalMetaFetchObj(localMetaFetchObj
 func (g *GraphQL) genConvertedFetchAndMetaGenericsFields(
 	localConvertedFetchObject *graphql.Object,
 	localMetaGenericsObject *graphql.Object,
-	filterOptions map[string]*graphql.InputObject) (*graphql.Object, error) {
+	filterOptions map[string]*graphql.InputObject,
+	filterFetchOptions map[string]*graphql.InputObject) (*graphql.Object, error) {
 
-	filterFields /*, err*/ := genFilterFields(filterOptions)
-	//	if err != nil {
-	//		return nil, fmt.Errorf("Not supported: %v", err)
-	//	}
+	filterFields := genFilterFields(filterOptions, filterFetchOptions)
 
 	convertedAndMetaFetchFields := graphql.Fields{
 		"ConvertedFetch": &graphql.Field{
@@ -221,10 +220,15 @@ func (g *GraphQL) genConvertedFetchAndMetaGenericsFields(
 			Args: graphql.FieldConfigArgument{
 				"_filter": &graphql.ArgumentConfig{
 					Description: "Filter options for the converted fetch search, to convert the data to the filter input",
-					Type:        filterFields,
+					Type: graphql.NewInputObject(
+						graphql.InputObjectConfig{
+							Name:        "WeaviateLocalConvertedFetchFilterInpObj",
+							Fields:      filterFields,
+							Description: "Filter options for the converted fetch search, to convert the data to the filter input",
+						},
+					),
 				},
 			},
-
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
@@ -233,6 +237,18 @@ func (g *GraphQL) genConvertedFetchAndMetaGenericsFields(
 			Name:        "WeaviateLocalMetaFetch",
 			Type:        localMetaGenericsObject,
 			Description: "Fetch meta information about Things or Actions on the local weaviate",
+			Args: graphql.FieldConfigArgument{
+				"_filter": &graphql.ArgumentConfig{
+					Description: "Filter options for the converted fetch search, to convert the data to the filter input",
+					Type: graphql.NewInputObject(
+						graphql.InputObjectConfig{
+							Name:        "WeaviateLocalMetaFetchFilterInpObj",
+							Fields:      filterFields,
+							Description: "Filter options for the meta fetch search, to convert the data to the filter input",
+						},
+					),
+				},
+			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
