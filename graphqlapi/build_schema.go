@@ -65,8 +65,10 @@ func (g *GraphQL) buildGraphqlSchema() error {
 
 func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
 
-	// This map is used to store all the Thing and Action ObjectConfigs, so that we can use them in references.
+	// This map is used to store all the Thing and Action Objects, so that we can use them in references.
 	convertedFetchActionsAndThings := make(map[string]*graphql.Object)
+	// this map is used to store all the Filter InputObjects, so that we can use them in references.
+	filterOptions := make(map[string]*graphql.InputObject)
 
 	localConvertedFetchActions, err := g.genActionClassFieldsFromSchema(&convertedFetchActionsAndThings)
 
@@ -105,7 +107,7 @@ func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
 		return nil, fmt.Errorf("Failed to generate generics field for local metafetch because: %v", err)
 	}
 
-	localMetaAndConvertedFetchObject, err := g.genConvertedFetchAndMetaGenericsFields(localConvertedFetchObject, localMetaGenericsObject)
+	localMetaAndConvertedFetchObject, err := g.genConvertedFetchAndMetaGenericsFields(localConvertedFetchObject, localMetaGenericsObject, filterOptions)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate meta and convertedfetch fields for local weaviateobject because: %v", err)
 	}
@@ -203,47 +205,23 @@ func (g *GraphQL) genGenericsFieldForWeaviateLocalMetaFetchObj(localMetaFetchObj
 
 func (g *GraphQL) genConvertedFetchAndMetaGenericsFields(
 	localConvertedFetchObject *graphql.Object,
-	localMetaGenericsObject *graphql.Object) (*graphql.Object, error) {
+	localMetaGenericsObject *graphql.Object,
+	filterOptions map[string]*graphql.InputObject) (*graphql.Object, error) {
 
-	filterFields, err := genFilterFields()
-	if err != nil {
-		return nil, fmt.Errorf("Not supported: %v", err)
-	}
+	filterFields /*, err*/ := genFilterFields(filterOptions)
+	//	if err != nil {
+	//		return nil, fmt.Errorf("Not supported: %v", err)
+	//	}
 
 	convertedAndMetaFetchFields := graphql.Fields{
 		"ConvertedFetch": &graphql.Field{
 			Name:        "WeaviateLocalConvertedFetch",
 			Type:        localConvertedFetchObject,
 			Description: "Do a converted fetch to search Things or Actions on the local weaviate",
-
 			Args: graphql.FieldConfigArgument{
 				"_filter": &graphql.ArgumentConfig{
 					Description: "Filter options for the converted fetch search, to convert the data to the filter input",
 					Type:        filterFields,
-				},
-				"first": &graphql.ArgumentConfig{
-
-					Description: "First X items from the given offset, when none given, it will be .",
-
-					Type: graphql.Int,
-
-					DefaultValue: 3,
-				},
-
-				"offset": &graphql.ArgumentConfig{
-
-					Description: "Offset from the most recent item.",
-
-					Type: graphql.Int,
-
-					DefaultValue: 0,
-				},
-
-				"class": &graphql.ArgumentConfig{
-
-					Description: "Class filter options.",
-
-					Type: graphql.String,
 				},
 			},
 
