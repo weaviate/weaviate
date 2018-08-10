@@ -156,6 +156,18 @@ func (g *GraphQL) genThingsAndActionsFieldsForWeaviateLocalConvertedFetchObj(loc
 	return graphql.NewObject(convertedFetchThingsAndActionFieldsObject), nil
 }
 
+/*Args: graphql.FieldConfigArgument{
+	"_filter": &graphql.ArgumentConfig{
+		Description: "Filter options for the converted fetch search, to convert the data to the filter input",
+		Type: graphql.NewInputObject(
+			graphql.InputObjectConfig{
+				Name:        "WeaviateLocalConvertedFetchFilterInpObj",
+				Fields:      filterFields,
+				Description: "Filter options for the converted fetch search, to convert the data to the filter input",
+			},
+		),
+	},
+},*/
 func (g *GraphQL) genThingsAndActionsFieldsForWeaviateLocalMetaFetchGenericsObj(localMetaFetchActions *graphql.Object, localMetaFetchThings *graphql.Object) (*graphql.Object, error) {
 
 	metaFetchGenericsThingsAndActionFields := graphql.Fields{
@@ -163,6 +175,12 @@ func (g *GraphQL) genThingsAndActionsFieldsForWeaviateLocalMetaFetchGenericsObj(
 			Name:        "WeaviateLocalMetaFetchGenericsActions",
 			Description: "Action to fetch for meta generic fetch",
 			Type:        localMetaFetchActions,
+			Args: graphql.FieldConfigArgument{
+				"_maxArraySize": &graphql.ArgumentConfig{
+					Description: "If there are arrays in the result, limit them to this size",
+					Type:        graphql.String,
+				},
+			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
@@ -171,6 +189,12 @@ func (g *GraphQL) genThingsAndActionsFieldsForWeaviateLocalMetaFetchGenericsObj(
 			Name:        "WeaviateLocalMetaFetchGenericsThings",
 			Description: "Thing to fetch for meta generic fetch",
 			Type:        localMetaFetchThings,
+			Args: graphql.FieldConfigArgument{
+				"_maxArraySize": &graphql.ArgumentConfig{
+					Description: "If there are arrays in the result, limit them to this size",
+					Type:        graphql.String,
+				},
+			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
