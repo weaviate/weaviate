@@ -12,6 +12,7 @@ type filterDescriptorsContainer struct {
 }
 
 // TODO: store string values in constants
+// TODO: think of a better name for this struct
 func initializeFilterDescriptor() *filterDescriptorsContainer {
 
 	filterDescriptor := filterDescriptorsContainer{
@@ -44,8 +45,6 @@ func initializeFilterDescriptor() *filterDescriptorsContainer {
 	}
 	return &filterDescriptor
 }
-
-// TODO: bij doorklikken cyclus I verdwijnt type list bij eq neq en ie
 
 // generate the AND/OR/EQ/NEQ/IE filter fields for the ConvertedFetch and MetaFetch fields
 func genFilterFields(filterOptions map[string]*graphql.InputObject, filterFetchOptions map[string]*graphql.InputObject) graphql.InputObjectConfigFieldMap {
@@ -81,7 +80,9 @@ func genFilterFields(filterOptions map[string]*graphql.InputObject, filterFetchO
 }
 
 // use a thunk to avoid a cyclical relationship (filters refer to filters refer to .... ad infinitum)
-func genSingleFilterField(filterOptions map[string]*graphql.InputObject, filterFetchOptions map[string]*graphql.InputObject, filterOptionName string, filterDescriptor *filterDescriptorsContainer /*, filterOptionName string, filterName string, filterDescription string*/) *graphql.InputObject {
+func genSingleFilterField(filterOptions map[string]*graphql.InputObject, filterFetchOptions map[string]*graphql.InputObject,
+	filterOptionName string, filterDescriptor *filterDescriptorsContainer) *graphql.InputObject {
+
 	outputObject := graphql.NewInputObject(
 		graphql.InputObjectConfig{
 			Name: filterDescriptor.filterNames[filterOptionName],
@@ -95,7 +96,9 @@ func genSingleFilterField(filterOptions map[string]*graphql.InputObject, filterF
 	return outputObject
 }
 
-func genFilterObjectFields(filterOptions map[string]*graphql.InputObject, filterFetchOptions map[string]*graphql.InputObject, filterOptionName string, filterDescriptor *filterDescriptorsContainer) graphql.InputObjectConfigFieldMap {
+func genFilterObjectFields(filterOptions map[string]*graphql.InputObject, filterFetchOptions map[string]*graphql.InputObject,
+	filterOptionName string, filterDescriptor *filterDescriptorsContainer) graphql.InputObjectConfigFieldMap {
+
 	outputFieldConfigMap := graphql.InputObjectConfigFieldMap{}
 
 	if filterOptionName == "AND" || filterOptionName == "OR" {
@@ -133,7 +136,9 @@ func genFilterObjectFields(filterOptions map[string]*graphql.InputObject, filter
 }
 
 // gen the filter field subset available from the EQ, NEQ and IE filters
-func genSingleFilterFetchField(filterFetchOptions map[string]*graphql.InputObject, filterOptionName string, filterDescriptor *filterDescriptorsContainer) *graphql.InputObject {
+func genSingleFilterFetchField(filterFetchOptions map[string]*graphql.InputObject, filterOptionName string,
+	filterDescriptor *filterDescriptorsContainer) *graphql.InputObject {
+
 	outputObject := graphql.NewInputObject(
 		graphql.InputObjectConfig{
 			Name: filterDescriptor.filterFetchNames[filterOptionName],
@@ -147,7 +152,9 @@ func genSingleFilterFetchField(filterFetchOptions map[string]*graphql.InputObjec
 	return outputObject
 }
 
-func genFilterFetchObjectFields(filterFetchOptions map[string]*graphql.InputObject, filterOptionName string, filterDescriptor *filterDescriptorsContainer) graphql.InputObjectConfigFieldMap {
+func genFilterFetchObjectFields(filterFetchOptions map[string]*graphql.InputObject, filterOptionName string,
+	filterDescriptor *filterDescriptorsContainer) graphql.InputObjectConfigFieldMap {
+
 	outputFieldConfigMap := graphql.InputObjectConfigFieldMap{}
 
 	for optionName, optionObject := range filterFetchOptions {

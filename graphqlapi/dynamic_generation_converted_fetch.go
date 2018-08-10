@@ -61,8 +61,22 @@ func genSingleActionClassField(class *models.SemanticSchemaClass, convertedFetch
 
 	singleActionClassPropertyFieldsObj := graphql.NewObject(singleActionClassPropertyFields)
 	singleActionClassPropertyFieldsField := &graphql.Field{
-		Type:        singleActionClassPropertyFieldsObj,
+		Type:        graphql.NewList(singleActionClassPropertyFieldsObj),
 		Description: class.Description,
+		Args: graphql.FieldConfigArgument{
+			"_certainty": &graphql.ArgumentConfig{
+				Description: "How certain about these values?",
+				Type:        graphql.Float,
+			},
+			"_limit": &graphql.ArgumentConfig{
+				Description: "define the max returned values",
+				Type:        graphql.Int,
+			},
+			"_skip": &graphql.ArgumentConfig{
+				Description: "define the amount of values to skip",
+				Type:        graphql.Int,
+			},
+		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return nil, fmt.Errorf("Not supported")
 		},
@@ -95,7 +109,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, conve
 				dataTypeClasses[index] = thingOrActionType
 			}
 			dataTypeUnionConf := graphql.UnionConfig{
-				Name:  mergeStrings(class.Class, property.Name),
+				Name:  mergeStrings(class.Class, property.Name, "Obj"),
 				Types: dataTypeClasses,
 				ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
 					return nil
@@ -162,8 +176,22 @@ func genSingleThingClassField(class *models.SemanticSchemaClass, convertedFetchA
 
 	thingClassPropertyFieldsObject := graphql.NewObject(singleThingClassPropertyFieldsObj)
 	thingClassPropertyFieldsField := &graphql.Field{
-		Type:        thingClassPropertyFieldsObject,
+		Type:        graphql.NewList(thingClassPropertyFieldsObject),
 		Description: class.Description,
+		Args: graphql.FieldConfigArgument{
+			"_certainty": &graphql.ArgumentConfig{
+				Description: "How certain about these values?",
+				Type:        graphql.Float,
+			},
+			"_limit": &graphql.ArgumentConfig{
+				Description: "define the max returned values",
+				Type:        graphql.Int,
+			},
+			"_skip": &graphql.ArgumentConfig{
+				Description: "define the amount of values to skip",
+				Type:        graphql.Int,
+			},
+		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return nil, fmt.Errorf("Not supported")
 		},
@@ -197,7 +225,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, conver
 			}
 
 			dataTypeUnionConf := graphql.UnionConfig{
-				Name:  mergeStrings(class.Class, property.Name),
+				Name:  mergeStrings(class.Class, property.Name, "Obj"),
 				Types: dataTypeClasses,
 				ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
 					return nil
