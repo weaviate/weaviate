@@ -3,7 +3,7 @@ package test
 // Acceptance tests for GraphQL Schema
 
 // There is a helper struct called GraphQLResult that helps to navigate through the output,
-// and a few helper see thelper functions to access the GraphQL endpoint.
+// and a few helper functions to access the GraphQL endpoint.
 // See the end of this file for more details on how those work.
 
 import (
@@ -17,7 +17,10 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 )
 
+// Test that the types we expect there to be are actually generated.
 func TestGettingTypeNames(t *testing.T) {
+	t.Parallel()
+
 	query := `{ 
     __schema { 
       types {
@@ -32,6 +35,8 @@ func TestGettingTypeNames(t *testing.T) {
 
 	for _, expected := range expectedTypes {
 		found := false
+
+		// Check if this expected type is in the response
 		for _, type_ := range response.AssertKey(t, "__schema").AssertKey(t, "types").AssertSlice(t) {
 			foundType := type_.AssertKey(t, "name").AssertString(t)
 			if expected == foundType {
@@ -52,7 +57,7 @@ type GraphQLResult struct {
 	Result interface{}
 }
 
-// Asserts thtat the result is a map, and index in this key
+// Asserts that the result is a map, and index in this key
 func (g *GraphQLResult) AssertKey(t *testing.T, key string) *GraphQLResult {
 	m, ok := g.Result.(map[string]interface{})
 	if !ok {

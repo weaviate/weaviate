@@ -11,7 +11,7 @@ package helper
 // Example:
 //     func TestSomething(t *testing.T) {
 //         // Use specific key & token
-//         auth := CreateAuth(key, token)
+//         auth := helper.CreateAuth(key, token)
 //         helper.Client(t).SomeScope.SomeOperation(&someParams, auth)
 //
 //         // Use root key & token
