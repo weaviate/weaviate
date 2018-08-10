@@ -3,7 +3,7 @@ package test
 // Acceptance tests for GraphQL Schema
 
 // There is a helper struct called GraphQLResult that helps to navigate through the output,
-// and a few helper see thelper functions to access the GraphQL endpoint.
+// and a few helper functions to access the GraphQL endpoint.
 // See the end of this file for more details on how those work.
 
 import (
@@ -19,8 +19,13 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 )
 
+<<<<<<< HEAD
 // Checks if the types defined in the schema are also in the actual schema
 func TestStaticTypeNames(t *testing.T) {
+=======
+// Test that the types we expect there to be are actually generated.
+func TestGettingTypeNames(t *testing.T) {
+>>>>>>> 3a7036163aec9950a429ceab8173ff346911f5c5
 	t.Parallel()
 
 	query := `{ 
@@ -37,6 +42,8 @@ func TestStaticTypeNames(t *testing.T) {
 
 	for _, expected := range expectedTypes {
 		found := false
+
+		// Check if this expected type is in the response
 		for _, type_ := range response.AssertKey(t, "__schema").AssertKey(t, "types").AssertSlice(t) {
 			foundType := type_.AssertKey(t, "name").AssertString(t)
 			if expected == foundType {
