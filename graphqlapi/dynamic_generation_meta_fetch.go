@@ -69,6 +69,20 @@ func genMetaSingleClassField(class *models.SemanticSchemaClass) (*graphql.Field,
 	singleClassPropertyFieldsField := &graphql.Field{
 		Type:        singleClassPropertyFieldsObject,
 		Description: class.Description,
+		Args: graphql.FieldConfigArgument{
+			"_certainty": &graphql.ArgumentConfig{
+				Description: "How certain about these values?",
+				Type:        graphql.Float,
+			},
+			"_limit": &graphql.ArgumentConfig{
+				Description: "define the max returned values",
+				Type:        graphql.Int,
+			},
+			"_skip": &graphql.ArgumentConfig{
+				Description: "define the amount of values to skip",
+				Type:        graphql.Int,
+			},
+		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return nil, fmt.Errorf("Not supported")
 		},
@@ -76,7 +90,6 @@ func genMetaSingleClassField(class *models.SemanticSchemaClass) (*graphql.Field,
 	return singleClassPropertyFieldsField, nil
 }
 
-// TODO: replace "obj" variable name with an actual name
 func genMetaSingleClassPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, error) {
 
 	singleClassPropertyFields := graphql.Fields{}
