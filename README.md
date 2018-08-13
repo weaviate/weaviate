@@ -23,6 +23,8 @@ Weaviate is not fully production ready yet. Follow this repo or sign up for the 
 	- [Database Connector & Graph Interface](#database-connector--graph-interface)
 	- [Ontology](#ontology)
 	- [Peer to Peer (P2P) network](#p2p-network)
+	- [Authorisation](#authorisation)
+	- [Authentication](#authentication)
 - [Usage](#usage)
 - [Roadmap](#roadmap)
 
@@ -325,18 +327,30 @@ _Also see [this](https://github.com/creativesoftwarefdn/weaviate-semantic-schema
 
 Weaviate can run as a stand-alone service or as a node on a peer to peer (P2P) network.
 
-#### Definitions
+The P2P network is a [Hybrid P2P system](https://en.wikipedia.org/wiki/Peer-to-peer#Hybrid_models), that consists of a small [Genesis Server](./genesis/)
+and the Weaviate peers. The Genesis Server is the only used to bootstrap and maintain the Peer to Peer network, the peers communicate directly with each other.
 
-- The P2P network is a [hybrid](https://en.wikipedia.org/wiki/Peer-to-peer#Hybrid_models) HTTP(S) network. And uses the `/p2p/*` endpoints of the [Weaviate API's](#) to communicate.
-- The P2P network can be used through the `Network` search in the GraphQL endpoint.
-- Any node can be a bootstrap node to onboard another node on the network.
-- The P2P-network can be open or closed for other nodes.
-- Except for the Genesis Weaviate, contextionaries will be shared over the network.
-- Once a contextionary is defined, the network is fixed. Changing the contextionary means creating a new network.
-- The naming of the network is based on 3 random words of the Contextionary. (For example: `plane-banana-fries`)
-- On an open network, the `X-API-KEY` and `X-API-TOKEN` are both "weaviate-p2p" for the `/P2P/*` endpoints.
+The system uses the following simple protocols to ensure that peers get registered, and that all peers are informed about all the other peers in the network.
 
-##### Nomenclature
+** Registration protocol**
+1. The Genesis service is running, and has no registered nodes.
+2. A weaviate configured to connect to the network run by the Genesis service starts up. It registers itself in the Genesis service. (via `/peers/register`).
+3. The genesis server checks that it can connect to the peer (via `/p2p/ping ), if so, it will update it's list of peers and notifies all known peers that an updated list of peers is available.
+3. The new weaviate service will then receive information about which contextionary is used by the network. This is the response to the same `/peers/register` request it performed to register itself.  For now, the weaviate instance will abort if this is another contextionary than that is configured in the local Weaviate.
+
+At the same time, we need to keep making sure that all the peers are up and running, this happens via the liveness protocol:
+
+** Liveness protocol **
+1. Each registered weaviate peer will ping the Genesis server every once in a while to make sure that it is not considered to be dead. (via `/peers/$peer_id/ping`)
+2. The Genesis server will check  when the last communcation occured with each peer. If this is too long ago for some peer, it will remove that peer from the list of known peers, and issue another update to all remaining peers.
+
+
+We also support gracefull deregistrations:
+
+** Deregistration protocol **
+1. If the Weaviate server is being stopped, it will deregister itself with the Genesis server via a DELETE on `/peers/$peer_id`.
+2. The Geneses server updates its list of peers and issues an update to remaining peers.
+
 
 | Name               | Definition |
 |--------------------|------------|
@@ -425,6 +439,34 @@ _*- The end-user defines a "networkTimeout". This is the time it might take for 
 ### Network Questionnaires
 
 _TBD_
+
+### Authorisation
+
+The following scheme is a simple authorisation tree scheme used for authorizing things and actions.
+
+#### Why this scheme?
+
+The goal is to make communication as simple as possible. You can have multiple use-cases based on this scheme. For example: a branch of keys can represent location, time, individuals, etcetera.
+
+#### Definitions & Design
+
+1. There is one root key (accompanied by a token).
+2. With every key, a child key can be generated.
+3. A child key can have write, read, delete, and execution rights.
+4. A parent has access to a child, a child its children, etcetera.
+5. A child has no access to a parent.
+6. A child can have an expiration timestamp which, when expired, all children expire too.
+7. A child can inherit all values from a parent except for the actual key.
+
+#### Miscellaneous
+
+- An object can have multiple keys.
+- If you want to have a parent that can't write, read, delete or execute on a child. You can set these values to `false` and within the child to `true`.
+- This is [_not_](https://serverfault.com/a/57082) and authentication but an authorisation scheme.
+
+### Authentication
+
+TBD
 
 ## Usage
 
