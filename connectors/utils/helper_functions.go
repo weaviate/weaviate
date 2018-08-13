@@ -129,7 +129,17 @@ func MakeUnixMillisecond(t time.Time) int64 {
 
 // GenerateUUID returns a new UUID
 func GenerateUUID() strfmt.UUID {
-	return strfmt.UUID(fmt.Sprintf("%v", gouuid.NewV4()))
+
+	// generate the uuid
+	uuid, err := gouuid.NewV4()
+
+	// panic, can't create uuid
+	if err != nil {
+		panic("PANIC: Can't create UUID")
+	}
+
+	// return the uuid and the error
+	return strfmt.UUID(fmt.Sprintf("%v", uuid))
 }
 
 // Must panics if error, otherwise returns value
