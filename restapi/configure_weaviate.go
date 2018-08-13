@@ -30,8 +30,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
 
-	"github.com/rs/cors"
-
 	jsonpatch "github.com/evanphx/json-patch"
 	errors "github.com/go-openapi/errors"
 	runtime "github.com/go-openapi/runtime"
@@ -61,7 +59,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/validation"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 )
 
