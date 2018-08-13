@@ -19,13 +19,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 )
 
-<<<<<<< HEAD
-// Checks if the types defined in the schema are also in the actual schema
-func TestStaticTypeNames(t *testing.T) {
-=======
 // Test that the types we expect there to be are actually generated.
 func TestGettingTypeNames(t *testing.T) {
->>>>>>> 3a7036163aec9950a429ceab8173ff346911f5c5
 	t.Parallel()
 
 	query := `{ 
