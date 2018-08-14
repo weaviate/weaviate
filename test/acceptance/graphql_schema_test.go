@@ -264,6 +264,27 @@ func (g *GraphQLResult) AssertKey(t *testing.T, key string) *GraphQLResult {
 	return &GraphQLResult{Result: x}
 }
 
+// TODO Use this function instead of AssertKey(t, "x").AssetKey(t, "y"):
+//  AssertKeys(t, []string{"x","y",})
+func (g* GraphQLResult) AsserKeyPath(t *testing.T, keys []string) *GraphQLResult {
+  // currently found result.
+  r := g.Result
+
+  for _, key := range keys {
+    m, ok := r.(map[string]interface{})
+    if !ok {
+      t.Fatalf("Can't index into key %s, because this is not a map", key)
+    }
+
+    r, ok = m[key]
+    if !ok {
+      t.Fatalf("Can't index into key %s, because no such key exists", key)
+    }
+  }
+
+	return &GraphQLResult{Result: r}
+}
+
 // Assert that this is a slice.
 // Wraps a GraphQLResult over all children too.
 func (g *GraphQLResult) AssertSlice(t *testing.T) []*GraphQLResult {
