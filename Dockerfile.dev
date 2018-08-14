@@ -1,0 +1,37 @@
+# Dockerfile for development purposes.
+# Read docs/development.md for more information
+
+# vi: ft=dockerfile
+
+FROM golang:1.11-rc-alpine AS build_base
+RUN apk add bash ca-certificates git gcc g++ libc-dev
+WORKDIR /go/src/github.com/creativesoftwarefdn/weaviate
+ENV GO111MODULE=on
+
+# Populate the module cache based on the go.{mod,sum} files.
+COPY go.mod .
+COPY go.sum .
+RUN go list -e $(go list -f '{{.Path}}' -m all)
+
+FROM build_base AS acceptance_test
+COPY . .
+ENTRYPOINT ["go", "test", "./test/acceptance"]
+
+FROM build_base AS builder
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go install -a -tags netgo -ldflags '-w -extldflags "-static"' ./cmd/weaviate-server
+
+FROM build_base AS contextionary_fixture_builder
+COPY . .
+RUN ./test/contextionary/gen_simple_contextionary.sh
+RUN find ./test/contextionary
+
+FROM alpine AS base_prod
+COPY --from=builder /go/bin/weaviate-server /bin/weaviate
+COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
+COPY --from=contextionary_fixture_builder /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.idx /test/contextionary/example.idx
+COPY --from=contextionary_fixture_builder /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.knn /test/contextionary/example.knn
+COPY ./weaviate.conf.json /weaviate.conf.json
+COPY ./test/schema /test/schema
+ENTRYPOINT ["/bin/weaviate"]
+CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config", "dummy"]
