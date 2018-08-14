@@ -7,16 +7,18 @@ The schema is based on GraphQLObjects. These GraphQLObjects have a property that
 ## The code
 The code is divided in functions that return a single GraphQLObject and its properties (including the Fields property, which can contain Field objects with GraphQLObject types). The aim of this is to make the code easier to read. The code for schema generation is divided in a statically generated part, a dynamically generated part and filter functionality.
 
-The static part is generated in: 
+Both filters and Things/Actions can contain cyclical relationships; these cases are solved by using thunks.
+
+
+
+#### The static part is generated in: 
 - build_schema.go 
 
-The dynamic parts are generated in: 
+#### The dynamic parts are generated in: 
 - dynamic_generation_converted_fetch.go
 - dynamic_generation_meta_fetch.go
 
-The filters are generated in:
+#### The filters are generated in:
 - filters.go
 		
-
-both filters and Things/Actions can contain cyclical relationships; these cases are solved by using thunks.
 
