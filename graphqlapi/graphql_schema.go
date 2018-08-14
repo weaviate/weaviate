@@ -14,12 +14,11 @@
 package graphqlapi
 
 import (
-	"github.com/graphql-go/graphql"
-
 	"github.com/creativesoftwarefdn/weaviate/config"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/schema"
+	"github.com/graphql-go/graphql"
 )
 
 type GraphQL struct {
