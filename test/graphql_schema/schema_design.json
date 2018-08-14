@@ -1,0 +1,5125 @@
+{
+	"data": {
+	  "__schema": {
+		"queryType": {
+		  "name": "WeaviateObj"
+		},
+		"types": [
+		  {
+			"kind": "OBJECT",
+			"name": "WeaviateObj",
+			"description": "Location of the root query",
+			"fields": [
+			  {
+				"name": "Local",
+				"description": "Locate on the local Weaviate",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "WeaviateLocalObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "WeaviateLocalObj",
+			"description": "Type of fetch on the internal Weaviate",
+			"fields": [
+			  {
+				"name": "ConvertedFetch",
+				"description": "Do a converted fetch to search Things or Actions on the local weaviate",
+				"args": [
+				  {
+					"name": "_filter",
+					"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+					"type": {
+					  "kind": "INPUT_OBJECT",
+					  "name": "WeaviateLocalConvertedFetchFilterInpObj",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "WeaviateLocalConvertedFetchObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "HelpersFetch",
+				"description": "Do a helpers fetch to search Things or Actions on the local weaviate",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "MetaFetch",
+				"description": "Fetch meta infromation about Things or Actions on the local weaviate",
+				"args": [
+				  {
+					"name": "_filter",
+					"description": "Filter options for the meta fetch search, to convert the data to the filter input",
+					"type": {
+					  "kind": "INPUT_OBJECT",
+					  "name": "WeaviateLocalMetaFetchFilterInpObj",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "WeaviateLocalMetaFetchObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "INPUT_OBJECT",
+			"name": "WeaviateLocalConvertedFetchFilterInpObj",
+			"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+			"fields": null,
+			"inputFields": [
+			  {
+				"name": "AND",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "INPUT_OBJECT",
+				  "name": "FetchFilterANDInpObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "OR",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "INPUT_OBJECT",
+				  "name": "FetchFilterORInpObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "EQ",
+				"description": "filter where the path end should be equal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterEQInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "NEQ",
+				"description": "filter where the path end should NOT be equal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterNEQInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "IE",
+				"description": "filter where the path end should be inequal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterIEInpObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "INPUT_OBJECT",
+			"name": "FetchFilterANDInpObj",
+			"description": null,
+			"fields": null,
+			"inputFields": [
+			  {
+				"name": "AND",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "INPUT_OBJECT",
+				  "name": "FetchFilterANDInpObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "OR",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "INPUT_OBJECT",
+				  "name": "FetchFilterORInpObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "EQ",
+				"description": "filter where the path end should be equal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterEQInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "NEQ",
+				"description": "filter where the path end should NOT be equal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterNEQInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "IE",
+				"description": "filter where the path end should be inequal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterIEInpObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "INPUT_OBJECT",
+			"name": "FetchFilterORInpObj",
+			"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+			"fields": null,
+			"inputFields": [
+			  {
+				"name": "AND",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "INPUT_OBJECT",
+				  "name": "FetchFilterANDInpObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "OR",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "INPUT_OBJECT",
+				  "name": "FetchFilterORInpObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "EQ",
+				"description": "filter where the path end should be equal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterEQInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "NEQ",
+				"description": "filter where the path end should NOT be equal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterNEQInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "IE",
+				"description": "filter where the path end should be inequal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterIEInpObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "INPUT_OBJECT",
+			"name": "FetchFilterEQInpObj",
+			"description": "filter where the path end should be equal to the value",
+			"fields": null,
+			"inputFields": [
+			  {
+				"name": "AND",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterFieldANDInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "OR",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterFieldORInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "path",
+				"description": "path from the root Thing or Action until class property",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "SCALAR",
+					"name": "String",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "value",
+				"description": "the value to class property should be filtered at",
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  }
+			],
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "INPUT_OBJECT",
+			"name": "FetchFilterFieldANDInpObj",
+			"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+			"fields": null,
+			"inputFields": [
+			  {
+				"name": "AND",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterFieldANDInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "OR",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterFieldORInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "path",
+				"description": "path from the root Thing or Action until class property",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "SCALAR",
+					"name": "String",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "value",
+				"description": "the value to class property should be filtered at",
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  }
+			],
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "INPUT_OBJECT",
+			"name": "FetchFilterFieldORInpObj",
+			"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+			"fields": null,
+			"inputFields": [
+			  {
+				"name": "AND",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterFieldANDInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "OR",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterFieldORInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "path",
+				"description": "path from the root Thing or Action until class property",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "SCALAR",
+					"name": "String",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "value",
+				"description": "the value to class property should be filtered at",
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  }
+			],
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "SCALAR",
+			"name": "String",
+			"description": "The `String` scalar type represents textual data, represented as UTF-8 character sequences. The String type is most often used by GraphQL to represent free-form human-readable text.",
+			"fields": null,
+			"inputFields": null,
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "INPUT_OBJECT",
+			"name": "FetchFilterNEQInpObj",
+			"description": "filter where the path end should be not equal to the value",
+			"fields": null,
+			"inputFields": [
+			  {
+				"name": "AND",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterFieldANDInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "OR",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterFieldORInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "path",
+				"description": "path from the root Thing or Action until class property",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "SCALAR",
+					"name": "String",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "value",
+				"description": "the value to class property should be filtered at",
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  }
+			],
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "INPUT_OBJECT",
+			"name": "FetchFilterIEInpObj",
+			"description": "filter where the path end should be inequal to the value",
+			"fields": null,
+			"inputFields": [
+			  {
+				"name": "AND",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterFieldANDInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "OR",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterFieldORInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "path",
+				"description": "path from the root Thing or Action until class property",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "SCALAR",
+					"name": "String",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "value",
+				"description": "the value to class property should be filtered at",
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  }
+			],
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "WeaviateLocalConvertedFetchObj",
+			"description": "Fetch things or actions on the internal Weaviate",
+			"fields": [
+			  {
+				"name": "Things",
+				"description": "Locate Things on the local Weaviate",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "WeaviateLocalConvertedFetchThingsObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "Actions",
+				"description": "Locate Actions on the local Weaviate",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "WeaviateLocalConvertedFetchActionsObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "WeaviateLocalConvertedFetchThingsObj",
+			"description": "Fetch things on the internal Weaviate",
+			"fields": [
+			  {
+				"name": "TestThing",
+				"description": "This is a Test",
+				"args": [
+				  {
+					"name": "_certainty",
+					"description": "How certain about these values?",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Float",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "TestThing",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "TestThing2",
+				"description": "This is a Test",
+				"args": [
+				  {
+					"name": "_certainty",
+					"description": "How certain about these values?",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Float",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "TestThing2",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "SCALAR",
+			"name": "Float",
+			"description": "The `Float` scalar type represents signed double-precision fractional values as specified by [IEEE 754](http://en.wikipedia.org/wiki/IEEE_floating_point). ",
+			"fields": null,
+			"inputFields": null,
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "SCALAR",
+			"name": "Int",
+			"description": "The `Int` scalar type represents non-fractional signed whole numeric values. Int can represent values between -(2^31) and 2^31 - 1. ",
+			"fields": null,
+			"inputFields": null,
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "TestThing",
+			"description": "This is a Test",
+			"fields": [
+			  {
+				"name": "uuid",
+				"description": "uuid of the thing given by the local Weaviate instance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testString",
+				"description": "Value of testString.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testInt",
+				"description": "Value of testInt.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testBoolean",
+				"description": "Value of testBoolean.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Boolean",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testNumber",
+				"description": "Value of testNumber.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testDateTime",
+				"description": "Value of testDateTime.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "TestCref",
+				"description": "Value of testCref.",
+				"args": [],
+				"type": {
+				  "kind": "UNION",
+				  "name": "TestThingTestCrefObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testRandomType",
+				"description": "Same name, different datatypes.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "SCALAR",
+			"name": "Boolean",
+			"description": "The `Boolean` scalar type represents `true` or `false`.",
+			"fields": null,
+			"inputFields": null,
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "UNION",
+			"name": "TestThingTestCrefObj",
+			"description": "Value of testCref.",
+			"fields": null,
+			"inputFields": null,
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": [
+			  {
+				"kind": "OBJECT",
+				"name": "TestThing2",
+				"ofType": null
+			  }
+			]
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "TestThing2",
+			"description": "This is a Test",
+			"fields": [
+			  {
+				"name": "uuid",
+				"description": "uuid of the thing given by the local Weaviate instance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testString",
+				"description": "Value of testString.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testInt",
+				"description": "Value of testInt.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testBoolean",
+				"description": "Value of testBoolean.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Boolean",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testNumber",
+				"description": "Value of testNumber.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testDateTime",
+				"description": "Value of testDateTime.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "TestCref",
+				"description": "Value of testCref.",
+				"args": [],
+				"type": {
+				  "kind": "UNION",
+				  "name": "TestThing2TestCrefObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testRandomType",
+				"description": "Same name, different datatypes.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "UNION",
+			"name": "TestThing2TestCrefObj",
+			"description": "Value of testCref.",
+			"fields": null,
+			"inputFields": null,
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": [
+			  {
+				"kind": "OBJECT",
+				"name": "TestThing",
+				"ofType": null
+			  }
+			]
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "WeaviateLocalConvertedFetchActionsObj",
+			"description": "Fetch Actions on the internal Weaviate",
+			"fields": [
+			  {
+				"name": "TestAction",
+				"description": "This is a Test",
+				"args": [
+				  {
+					"name": "_certainty",
+					"description": "How certain about these values?",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Float",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "TestAction",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "TestAction2",
+				"description": "This is a Test",
+				"args": [
+				  {
+					"name": "_certainty",
+					"description": "How certain about these values?",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Float",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "TestAction2",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "TestAction",
+			"description": "This is a Test",
+			"fields": [
+			  {
+				"name": "uuid",
+				"description": "uuid of the thing given by the local Weaviate instance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testString",
+				"description": "Value of testString.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testInt",
+				"description": "Value of testInt.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testBoolean",
+				"description": "Value of testBoolean.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Boolean",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testNumber",
+				"description": "Value of testNumber.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testDateTime",
+				"description": "Value of testDateTime.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "TestCref",
+				"description": "Value of testCref.",
+				"args": [],
+				"type": {
+				  "kind": "UNION",
+				  "name": "TestActionTestCrefObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "UNION",
+			"name": "TestActionTestCrefObj",
+			"description": "Value of testCref.",
+			"fields": null,
+			"inputFields": null,
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": [
+			  {
+				"kind": "OBJECT",
+				"name": "TestThing",
+				"ofType": null
+			  }
+			]
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "TestAction2",
+			"description": "This is a Test",
+			"fields": [
+			  {
+				"name": "uuid",
+				"description": "uuid of the thing given by the local Weaviate instance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testString",
+				"description": "Value of testString.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testInt",
+				"description": "Value of testInt.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testBoolean",
+				"description": "Value of testBoolean.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Boolean",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testNumber",
+				"description": "Value of testNumber.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testDateTime",
+				"description": "Value of testDateTime.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "TestCref",
+				"description": "Value of testCref.",
+				"args": [],
+				"type": {
+				  "kind": "UNION",
+				  "name": "TestAction2TestCrefObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "UNION",
+			"name": "TestAction2TestCrefObj",
+			"description": "Value of testCref.",
+			"fields": null,
+			"inputFields": null,
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": [
+			  {
+				"kind": "OBJECT",
+				"name": "TestThing",
+				"ofType": null
+			  }
+			]
+		  },
+		  {
+			"kind": "INPUT_OBJECT",
+			"name": "WeaviateLocalMetaFetchFilterInpObj",
+			"description": "Filter options for the meta fetch search, to convert the data to the filter input",
+			"fields": null,
+			"inputFields": [
+			  {
+				"name": "AND",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "INPUT_OBJECT",
+				  "name": "FetchFilterANDInpObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "OR",
+				"description": "Filter options for the converted fetch search, to convert the data to the filter input",
+				"type": {
+				  "kind": "INPUT_OBJECT",
+				  "name": "FetchFilterORInpObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "EQ",
+				"description": "filter where the path end should be equal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterEQInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "NEQ",
+				"description": "filter where the path end should NOT be equal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterNEQInpObj",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "IE",
+				"description": "filter where the path end should be inequal to the value",
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "INPUT_OBJECT",
+					"name": "FetchFilterIEInpObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"interfaces": null,
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "WeaviateLocalMetaFetchObj",
+			"description": "Fetch things or actions on the internal Weaviate",
+			"fields": [
+			  {
+				"name": "Generics",
+				"description": "Fetch generic meta information based on the type",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "WeaviateLocalMetaFetchGenericsObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "WeaviateLocalMetaFetchGenericsObj",
+			"description": "Object type to fetch",
+			"fields": [
+			  {
+				"name": "Things",
+				"description": "Thing to fetch for meta generic fetch",
+				"args": [
+				  {
+					"name": "_maxArraySize",
+					"description": "If there are arrays in the result, limit them to this size",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "String",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "WeaviateLocalMetaFetchGenericsThingsObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "Actions",
+				"description": "Action to fetch for meta generic fetch",
+				"args": [
+				  {
+					"name": "_maxArraySize",
+					"description": "If there are arrays in the result, limit them to this size",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "String",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "WeaviateLocalMetaFetchGenericsActionsObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "WeaviateLocalMetaFetchGenericsThingsObj",
+			"description": "Thing to fetch for meta generic fetch",
+			"fields": [
+			  {
+				"name": "TestThing",
+				"description": "This is a Test",
+				"args": [
+				  {
+					"name": "_certainty",
+					"description": "How certain about these values?",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Float",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "TestThing2",
+				"description": "This is a Test",
+				"args": [
+				  {
+					"name": "_certainty",
+					"description": "How certain about these values?",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Float",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing2",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing",
+			"description": "This is a Test",
+			"fields": [
+			  {
+				"name": "meta",
+				"description": "meta information about class object",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThingMetaObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testString",
+				"description": "Meta information about the property \"testString\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThingtestStringObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testInt",
+				"description": "Meta information about the property \"testInt\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThingtestIntObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testBoolean",
+				"description": "Meta information about the property \"testBoolean\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThingtestBooleanObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testNumber",
+				"description": "Meta information about the property \"testNumber\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThingtestNumberObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testDateTime",
+				"description": "Meta information about the property \"testDateTime\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThingtestDateTimeObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testCref",
+				"description": "Meta information about the property \"testCref\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThingtestCrefObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testRandomType",
+				"description": "Meta information about the property \"testRandomType\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThingtestRandomTypeObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingMetaObj",
+			"description": "meta information about class object",
+			"fields": [
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the class.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "how many class instances are there",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "pointing",
+				"description": "pointing to and from how many other things",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThingMetaPointingObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingMetaPointingObj",
+			"description": "pointing to and from how many other things",
+			"fields": [
+			  {
+				"name": "to",
+				"description": "how many other classes the class is pointing to",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "from",
+				"description": "how many other classes the class is pointing from",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingtestStringObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "topOccurrences",
+				"description": "most frequent property values",
+				"args": [
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "MetaTestThingtestStringTopOccurrencesObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingtestStringTopOccurrencesObj",
+			"description": null,
+			"fields": [
+			  {
+				"name": "value",
+				"description": "property value of the most frequent properties",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "occurs",
+				"description": "number of occurrance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingtestIntObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "lowest",
+				"description": "path from the root Thing or Action until class property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "highest",
+				"description": "Lowest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "average",
+				"description": "Highest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "sum",
+				"description": "sum of values of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingtestBooleanObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "totalTrue",
+				"description": "total amount of boolean value is true",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "percentageTrue",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingtestNumberObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "lowest",
+				"description": "path from the root Thing or Action until class property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "highest",
+				"description": "Lowest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "average",
+				"description": "Highest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "sum",
+				"description": "sum of values of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingtestDateTimeObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "topOccurrences",
+				"description": "most frequent property values",
+				"args": [
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "MetaTestThingtestDateTimeTopOccurrencesObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingtestDateTimeTopOccurrencesObj",
+			"description": null,
+			"fields": [
+			  {
+				"name": "value",
+				"description": "property value of the most frequent properties",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "occurs",
+				"description": "number of occurrance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingtestCrefObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "pointing",
+				"description": "pointing to and from how many other things",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThingtestCrefPointingObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingtestCrefPointingObj",
+			"description": "pointing to and from how many other things",
+			"fields": [
+			  {
+				"name": "to",
+				"description": "how many other classes the class is pointing to",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "from",
+				"description": "how many other classes the class is pointing from",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingtestRandomTypeObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "topOccurrences",
+				"description": "most frequent property values",
+				"args": [
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "MetaTestThingtestRandomTypeTopOccurrencesObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThingtestRandomTypeTopOccurrencesObj",
+			"description": null,
+			"fields": [
+			  {
+				"name": "value",
+				"description": "property value of the most frequent properties",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "occurs",
+				"description": "number of occurrance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2",
+			"description": "This is a Test",
+			"fields": [
+			  {
+				"name": "meta",
+				"description": "meta information about class object",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing2MetaObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testString",
+				"description": "Meta information about the property \"testString\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing2testStringObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testInt",
+				"description": "Meta information about the property \"testInt\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing2testIntObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testBoolean",
+				"description": "Meta information about the property \"testBoolean\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing2testBooleanObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testNumber",
+				"description": "Meta information about the property \"testNumber\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing2testNumberObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testDateTime",
+				"description": "Meta information about the property \"testDateTime\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing2testDateTimeObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testCref",
+				"description": "Meta information about the property \"testCref\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing2testCrefObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testRandomType",
+				"description": "Meta information about the property \"testRandomType\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing2testRandomTypeObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2MetaObj",
+			"description": "meta information about class object",
+			"fields": [
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the class.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "how many class instances are there",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "pointing",
+				"description": "pointing to and from how many other things",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing2MetaPointingObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2MetaPointingObj",
+			"description": "pointing to and from how many other things",
+			"fields": [
+			  {
+				"name": "to",
+				"description": "how many other classes the class is pointing to",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "from",
+				"description": "how many other classes the class is pointing from",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2testStringObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "topOccurrences",
+				"description": "most frequent property values",
+				"args": [
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "MetaTestThing2testStringTopOccurrencesObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2testStringTopOccurrencesObj",
+			"description": null,
+			"fields": [
+			  {
+				"name": "value",
+				"description": "property value of the most frequent properties",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "occurs",
+				"description": "number of occurrance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2testIntObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "lowest",
+				"description": "path from the root Thing or Action until class property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "highest",
+				"description": "Lowest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "average",
+				"description": "Highest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "sum",
+				"description": "sum of values of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2testBooleanObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "totalTrue",
+				"description": "total amount of boolean value is true",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "percentageTrue",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2testNumberObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "lowest",
+				"description": "path from the root Thing or Action until class property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "highest",
+				"description": "Lowest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "average",
+				"description": "Highest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "sum",
+				"description": "sum of values of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2testDateTimeObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "topOccurrences",
+				"description": "most frequent property values",
+				"args": [
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "MetaTestThing2testDateTimeTopOccurrencesObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2testDateTimeTopOccurrencesObj",
+			"description": null,
+			"fields": [
+			  {
+				"name": "value",
+				"description": "property value of the most frequent properties",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "occurs",
+				"description": "number of occurrance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2testCrefObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "pointing",
+				"description": "pointing to and from how many other things",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestThing2testCrefPointingObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2testCrefPointingObj",
+			"description": "pointing to and from how many other things",
+			"fields": [
+			  {
+				"name": "to",
+				"description": "how many other classes the class is pointing to",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "from",
+				"description": "how many other classes the class is pointing from",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestThing2testRandomTypeObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "lowest",
+				"description": "path from the root Thing or Action until class property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "highest",
+				"description": "Lowest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "average",
+				"description": "Highest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "sum",
+				"description": "sum of values of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "WeaviateLocalMetaFetchGenericsActionsObj",
+			"description": "Action to fetch for meta generic fetch",
+			"fields": [
+			  {
+				"name": "TestAction",
+				"description": "This is a Test",
+				"args": [
+				  {
+					"name": "_certainty",
+					"description": "How certain about these values?",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Float",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestAction",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "TestAction2",
+				"description": "This is a Test",
+				"args": [
+				  {
+					"name": "_certainty",
+					"description": "How certain about these values?",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Float",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestAction2",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction",
+			"description": "This is a Test",
+			"fields": [
+			  {
+				"name": "meta",
+				"description": "meta information about class object",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestActionMetaObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testString",
+				"description": "Meta information about the property \"testString\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestActiontestStringObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testInt",
+				"description": "Meta information about the property \"testInt\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestActiontestIntObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testBoolean",
+				"description": "Meta information about the property \"testBoolean\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestActiontestBooleanObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testNumber",
+				"description": "Meta information about the property \"testNumber\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestActiontestNumberObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testDateTime",
+				"description": "Meta information about the property \"testDateTime\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestActiontestDateTimeObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testCref",
+				"description": "Meta information about the property \"testCref\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestActiontestCrefObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestActionMetaObj",
+			"description": "meta information about class object",
+			"fields": [
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the class.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "how many class instances are there",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "pointing",
+				"description": "pointing to and from how many other things",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestActionMetaPointingObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestActionMetaPointingObj",
+			"description": "pointing to and from how many other things",
+			"fields": [
+			  {
+				"name": "to",
+				"description": "how many other classes the class is pointing to",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "from",
+				"description": "how many other classes the class is pointing from",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestActiontestStringObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "topOccurrences",
+				"description": "most frequent property values",
+				"args": [
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "MetaTestActiontestStringTopOccurrencesObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestActiontestStringTopOccurrencesObj",
+			"description": null,
+			"fields": [
+			  {
+				"name": "value",
+				"description": "property value of the most frequent properties",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "occurs",
+				"description": "number of occurrance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestActiontestIntObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "lowest",
+				"description": "path from the root Thing or Action until class property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "highest",
+				"description": "Lowest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "average",
+				"description": "Highest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "sum",
+				"description": "sum of values of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestActiontestBooleanObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "totalTrue",
+				"description": "total amount of boolean value is true",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "percentageTrue",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestActiontestNumberObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "lowest",
+				"description": "path from the root Thing or Action until class property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "highest",
+				"description": "Lowest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "average",
+				"description": "Highest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "sum",
+				"description": "sum of values of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestActiontestDateTimeObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "topOccurrences",
+				"description": "most frequent property values",
+				"args": [
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "MetaTestActiontestDateTimeTopOccurrencesObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestActiontestDateTimeTopOccurrencesObj",
+			"description": null,
+			"fields": [
+			  {
+				"name": "value",
+				"description": "property value of the most frequent properties",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "occurs",
+				"description": "number of occurrance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestActiontestCrefObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "pointing",
+				"description": "pointing to and from how many other things",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestActiontestCrefPointingObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestActiontestCrefPointingObj",
+			"description": "pointing to and from how many other things",
+			"fields": [
+			  {
+				"name": "to",
+				"description": "how many other classes the class is pointing to",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "from",
+				"description": "how many other classes the class is pointing from",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2",
+			"description": "This is a Test",
+			"fields": [
+			  {
+				"name": "meta",
+				"description": "meta information about class object",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestAction2MetaObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testString",
+				"description": "Meta information about the property \"testString\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestAction2testStringObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testInt",
+				"description": "Meta information about the property \"testInt\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestAction2testIntObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testBoolean",
+				"description": "Meta information about the property \"testBoolean\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestAction2testBooleanObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testNumber",
+				"description": "Meta information about the property \"testNumber\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestAction2testNumberObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testDateTime",
+				"description": "Meta information about the property \"testDateTime\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestAction2testDateTimeObj",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "testCref",
+				"description": "Meta information about the property \"testCref\"",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestAction2testCrefObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2MetaObj",
+			"description": "meta information about class object",
+			"fields": [
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the class.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "how many class instances are there",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "pointing",
+				"description": "pointing to and from how many other things",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestAction2MetaPointingObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2MetaPointingObj",
+			"description": "pointing to and from how many other things",
+			"fields": [
+			  {
+				"name": "to",
+				"description": "how many other classes the class is pointing to",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "from",
+				"description": "how many other classes the class is pointing from",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2testStringObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "topOccurrences",
+				"description": "most frequent property values",
+				"args": [
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "MetaTestAction2testStringTopOccurrencesObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2testStringTopOccurrencesObj",
+			"description": null,
+			"fields": [
+			  {
+				"name": "value",
+				"description": "property value of the most frequent properties",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "occurs",
+				"description": "number of occurrance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2testIntObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "lowest",
+				"description": "path from the root Thing or Action until class property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "highest",
+				"description": "Lowest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "average",
+				"description": "Highest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "sum",
+				"description": "sum of values of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2testBooleanObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "totalTrue",
+				"description": "total amount of boolean value is true",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "percentageTrue",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2testNumberObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "lowest",
+				"description": "path from the root Thing or Action until class property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "highest",
+				"description": "Lowest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "average",
+				"description": "Highest value occurrence",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "sum",
+				"description": "sum of values of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Float",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2testDateTimeObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "topOccurrences",
+				"description": "most frequent property values",
+				"args": [
+				  {
+					"name": "_limit",
+					"description": "define the max returned values.",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  },
+				  {
+					"name": "_skip",
+					"description": "define the amount of values to skip",
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Int",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "MetaTestAction2testDateTimeTopOccurrencesObj",
+					"ofType": null
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2testDateTimeTopOccurrencesObj",
+			"description": null,
+			"fields": [
+			  {
+				"name": "value",
+				"description": "property value of the most frequent properties",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "occurs",
+				"description": "number of occurrance",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2testCrefObj",
+			"description": "Property meta information",
+			"fields": [
+			  {
+				"name": "type",
+				"description": "datatype of the property",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "counter",
+				"description": "total amount of found instances",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "kind",
+				"description": "The kind or suggested format based on the contextionairy attached to the property.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "pointing",
+				"description": "pointing to and from how many other things",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "MetaTestAction2testCrefPointingObj",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "MetaTestAction2testCrefPointingObj",
+			"description": "pointing to and from how many other things",
+			"fields": [
+			  {
+				"name": "to",
+				"description": "how many other classes the class is pointing to",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "from",
+				"description": "how many other classes the class is pointing from",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "Int",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "__Schema",
+			"description": "A GraphQL Schema defines the capabilities of a GraphQL server. It exposes all available types and directives on the server, as well as the entry points for query, mutation, and subscription operations.",
+			"fields": [
+			  {
+				"name": "types",
+				"description": "A list of all types supported by this server.",
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "LIST",
+					"name": null,
+					"ofType": {
+					  "kind": "NON_NULL",
+					  "name": null,
+					  "ofType": {
+						"kind": "OBJECT",
+						"name": "__Type",
+						"ofType": null
+					  }
+					}
+				  }
+				}
+			  },
+			  {
+				"name": "queryType",
+				"description": "The type that query operations will be rooted at.",
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "__Type",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "mutationType",
+				"description": "If this server supports mutation, the type that mutation operations will be rooted at.",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "__Type",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "subscriptionType",
+				"description": "If this server support subscription, the type that subscription operations will be rooted at.",
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "__Type",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "directives",
+				"description": "A list of all directives supported by this server.",
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "LIST",
+					"name": null,
+					"ofType": {
+					  "kind": "NON_NULL",
+					  "name": null,
+					  "ofType": {
+						"kind": "OBJECT",
+						"name": "__Directive",
+						"ofType": null
+					  }
+					}
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "__Type",
+			"description": "The fundamental unit of any GraphQL Schema is the type. There are many kinds of types in GraphQL as represented by the `__TypeKind` enum.\n\nDepending on the kind of a type, certain fields describe information about that type. Scalar types provide no information beyond a name and description, while Enum types provide their values. Object and Interface types provide the fields they describe. Abstract types, Union and Interface, provide the Object types possible at runtime. List and NonNull types compose other types.",
+			"fields": [
+			  {
+				"name": "kind",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "ENUM",
+					"name": "__TypeKind",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "name",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "description",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "fields",
+				"description": null,
+				"args": [
+				  {
+					"name": "includeDeprecated",
+					"description": null,
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Boolean",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "NON_NULL",
+					"name": null,
+					"ofType": {
+					  "kind": "OBJECT",
+					  "name": "__Field",
+					  "ofType": null
+					}
+				  }
+				}
+			  },
+			  {
+				"name": "interfaces",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "NON_NULL",
+					"name": null,
+					"ofType": {
+					  "kind": "OBJECT",
+					  "name": "__Type",
+					  "ofType": null
+					}
+				  }
+				}
+			  },
+			  {
+				"name": "possibleTypes",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "NON_NULL",
+					"name": null,
+					"ofType": {
+					  "kind": "OBJECT",
+					  "name": "__Type",
+					  "ofType": null
+					}
+				  }
+				}
+			  },
+			  {
+				"name": "enumValues",
+				"description": null,
+				"args": [
+				  {
+					"name": "includeDeprecated",
+					"description": null,
+					"type": {
+					  "kind": "SCALAR",
+					  "name": "Boolean",
+					  "ofType": null
+					}
+				  }
+				],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "NON_NULL",
+					"name": null,
+					"ofType": {
+					  "kind": "OBJECT",
+					  "name": "__EnumValue",
+					  "ofType": null
+					}
+				  }
+				}
+			  },
+			  {
+				"name": "inputFields",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "LIST",
+				  "name": null,
+				  "ofType": {
+					"kind": "NON_NULL",
+					"name": null,
+					"ofType": {
+					  "kind": "OBJECT",
+					  "name": "__InputValue",
+					  "ofType": null
+					}
+				  }
+				}
+			  },
+			  {
+				"name": "ofType",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "OBJECT",
+				  "name": "__Type",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "ENUM",
+			"name": "__TypeKind",
+			"description": "An enum describing what kind of type a given `__Type` is.",
+			"fields": null,
+			"inputFields": null,
+			"interfaces": null,
+			"enumValues": [
+			  {
+				"name": "SCALAR",
+				"description": "Indicates this type is a scalar."
+			  },
+			  {
+				"name": "OBJECT",
+				"description": "Indicates this type is an object. `fields` and `interfaces` are valid fields."
+			  },
+			  {
+				"name": "INTERFACE",
+				"description": "Indicates this type is an interface. `fields` and `possibleTypes` are valid fields."
+			  },
+			  {
+				"name": "UNION",
+				"description": "Indicates this type is a union. `possibleTypes` is a valid field."
+			  },
+			  {
+				"name": "ENUM",
+				"description": "Indicates this type is an enum. `enumValues` is a valid field."
+			  },
+			  {
+				"name": "INPUT_OBJECT",
+				"description": "Indicates this type is an input object. `inputFields` is a valid field."
+			  },
+			  {
+				"name": "LIST",
+				"description": "Indicates this type is a list. `ofType` is a valid field."
+			  },
+			  {
+				"name": "NON_NULL",
+				"description": "Indicates this type is a non-null. `ofType` is a valid field."
+			  }
+			],
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "__Field",
+			"description": "Object and Interface types are described by a list of Fields, each of which has a name, potentially a list of arguments, and a return type.",
+			"fields": [
+			  {
+				"name": "name",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "SCALAR",
+					"name": "String",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "description",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "args",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "LIST",
+					"name": null,
+					"ofType": {
+					  "kind": "NON_NULL",
+					  "name": null,
+					  "ofType": {
+						"kind": "OBJECT",
+						"name": "__InputValue",
+						"ofType": null
+					  }
+					}
+				  }
+				}
+			  },
+			  {
+				"name": "type",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "__Type",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "isDeprecated",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "SCALAR",
+					"name": "Boolean",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "deprecationReason",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "__InputValue",
+			"description": "Arguments provided to Fields or Directives and the input fields of an InputObject are represented as Input Values which describe their type and optionally a default value.",
+			"fields": [
+			  {
+				"name": "name",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "SCALAR",
+					"name": "String",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "description",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "type",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "OBJECT",
+					"name": "__Type",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "defaultValue",
+				"description": "A GraphQL-formatted string representing the default value for this input value.",
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "__EnumValue",
+			"description": "One possible value for a given Enum. Enum values are unique values, not a placeholder for a string or numeric value. However an Enum value is returned in a JSON response as a string.",
+			"fields": [
+			  {
+				"name": "name",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "SCALAR",
+					"name": "String",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "description",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "isDeprecated",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "SCALAR",
+					"name": "Boolean",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "deprecationReason",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "OBJECT",
+			"name": "__Directive",
+			"description": "A Directive provides a way to describe alternate runtime execution and type validation behavior in a GraphQL document.\n\nIn some cases, you need to provide options to alter GraphQL's execution behavior in ways field arguments will not suffice, such as conditionally including or skipping a field. Directives provide this by describing additional information to the executor.",
+			"fields": [
+			  {
+				"name": "name",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "SCALAR",
+					"name": "String",
+					"ofType": null
+				  }
+				}
+			  },
+			  {
+				"name": "description",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "SCALAR",
+				  "name": "String",
+				  "ofType": null
+				}
+			  },
+			  {
+				"name": "locations",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "LIST",
+					"name": null,
+					"ofType": {
+					  "kind": "NON_NULL",
+					  "name": null,
+					  "ofType": {
+						"kind": "ENUM",
+						"name": "__DirectiveLocation",
+						"ofType": null
+					  }
+					}
+				  }
+				}
+			  },
+			  {
+				"name": "args",
+				"description": null,
+				"args": [],
+				"type": {
+				  "kind": "NON_NULL",
+				  "name": null,
+				  "ofType": {
+					"kind": "LIST",
+					"name": null,
+					"ofType": {
+					  "kind": "NON_NULL",
+					  "name": null,
+					  "ofType": {
+						"kind": "OBJECT",
+						"name": "__InputValue",
+						"ofType": null
+					  }
+					}
+				  }
+				}
+			  }
+			],
+			"inputFields": null,
+			"interfaces": [],
+			"enumValues": null,
+			"possibleTypes": null
+		  },
+		  {
+			"kind": "ENUM",
+			"name": "__DirectiveLocation",
+			"description": "A Directive can be adjacent to many parts of the GraphQL language, a __DirectiveLocation describes one such possible adjacencies.",
+			"fields": null,
+			"inputFields": null,
+			"interfaces": null,
+			"enumValues": [
+			  {
+				"name": "QUERY",
+				"description": "Location adjacent to a query operation."
+			  },
+			  {
+				"name": "MUTATION",
+				"description": "Location adjacent to a mutation operation."
+			  },
+			  {
+				"name": "SUBSCRIPTION",
+				"description": "Location adjacent to a subscription operation."
+			  },
+			  {
+				"name": "FIELD",
+				"description": "Location adjacent to a field."
+			  },
+			  {
+				"name": "FRAGMENT_DEFINITION",
+				"description": "Location adjacent to a fragment definition."
+			  },
+			  {
+				"name": "FRAGMENT_SPREAD",
+				"description": "Location adjacent to a fragment spread."
+			  },
+			  {
+				"name": "INLINE_FRAGMENT",
+				"description": "Location adjacent to an inline fragment."
+			  },
+			  {
+				"name": "SCHEMA",
+				"description": "Location adjacent to a schema definition."
+			  },
+			  {
+				"name": "SCALAR",
+				"description": "Location adjacent to a scalar definition."
+			  },
+			  {
+				"name": "OBJECT",
+				"description": "Location adjacent to an object type definition."
+			  },
+			  {
+				"name": "FIELD_DEFINITION",
+				"description": "Location adjacent to a field definition."
+			  },
+			  {
+				"name": "ARGUMENT_DEFINITION",
+				"description": "Location adjacent to an argument definition."
+			  },
+			  {
+				"name": "INTERFACE",
+				"description": "Location adjacent to an interface definition."
+			  },
+			  {
+				"name": "UNION",
+				"description": "Location adjacent to a union definition."
+			  },
+			  {
+				"name": "ENUM",
+				"description": "Location adjacent to an enum definition."
+			  },
+			  {
+				"name": "ENUM_VALUE",
+				"description": "Location adjacent to an enum value definition."
+			  },
+			  {
+				"name": "INPUT_OBJECT",
+				"description": "Location adjacent to an input object type definition."
+			  },
+			  {
+				"name": "INPUT_FIELD_DEFINITION",
+				"description": "Location adjacent to an input object field definition."
+			  }
+			],
+			"possibleTypes": null
+		  }
+		]
+	  }
+	}
+  }
