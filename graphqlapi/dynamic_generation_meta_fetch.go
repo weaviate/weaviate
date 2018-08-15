@@ -22,7 +22,6 @@ import (
 
 // Build the dynamically generated MetaFetch Things part of the schema
 func (g *GraphQL) genMetaClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, classParentTypeIsAction bool) (*graphql.Object, error) {
-
 	classFields := graphql.Fields{}
 
 	for _, class := range databaseSchema {
@@ -31,15 +30,18 @@ func (g *GraphQL) genMetaClassFieldsFromSchema(databaseSchema []*models.Semantic
 		if err != nil {
 			return nil, err
 		}
+
 		classFields[class.Class] = field
 	}
 
 	name := "WeaviateLocalMetaFetchGenericsThingsObj"
 	description := "Thing to fetch for meta generic fetch"
+
 	if classParentTypeIsAction {
 		name = "WeaviateLocalMetaFetchGenericsActionsObj"
 		description = "Action to fetch for meta generic fetch"
 	}
+
 	localMetaFetchClasses := graphql.ObjectConfig{
 		Name:        name,
 		Fields:      classFields,
@@ -50,16 +52,17 @@ func (g *GraphQL) genMetaClassFieldsFromSchema(databaseSchema []*models.Semantic
 }
 
 func genMetaSingleClassField(class *models.SemanticSchemaClass) (*graphql.Field, error) {
-
-	metaClassName := mergeStrings("Meta", class.Class)
+	metaClassName := fmt.Sprintf("%s%s", "Meta", class.Class)
 
 	singleClassPropertyFields := graphql.ObjectConfig{
 		Name: metaClassName,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			singleClassPropertyFields, err := genMetaSingleClassPropertyFields(class)
+
 			if err != nil {
-				panic("oops")
+				panic("Failed to assemble single Meta Class field")
 			}
+
 			return singleClassPropertyFields
 		}),
 		Description: "Type of fetch on the internal Weaviate",
@@ -87,17 +90,14 @@ func genMetaSingleClassField(class *models.SemanticSchemaClass) (*graphql.Field,
 			return nil, fmt.Errorf("Not supported")
 		},
 	}
+
 	return singleClassPropertyFieldsField, nil
 }
 
 func genMetaSingleClassPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, error) {
-
 	singleClassPropertyFields := graphql.Fields{}
+	metaPropertyObj := genMetaPropertyObj(class)
 
-	metaPropertyObj, err := genMetaPropertyObj(class)
-	if err != nil {
-		return nil, fmt.Errorf("Could not build GraphQL schema, because: %v", err)
-	}
 	metaPropertyObjField := &graphql.Field{
 		Description: "meta information about class object",
 		Type:        metaPropertyObj,
@@ -105,11 +105,12 @@ func genMetaSingleClassPropertyFields(class *models.SemanticSchemaClass) (graphq
 			return nil, fmt.Errorf("Not supported")
 		},
 	}
+
 	singleClassPropertyFields["Meta"] = metaPropertyObjField
 
 	for _, property := range class.Properties {
-
 		propertyType, err := schema.GetPropertyDataType(class, property.Name)
+
 		if err != nil {
 			return nil, err
 		}
@@ -119,43 +120,26 @@ func genMetaSingleClassPropertyFields(class *models.SemanticSchemaClass) (graphq
 		if err != nil {
 			return nil, err
 		}
+
 		singleClassPropertyFields[property.Name] = convertedDataType
 	}
+
 	return singleClassPropertyFields, nil
 }
 
 func handleMetaFetchNonObjectDataTypes(dataType schema.DataType, class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
-
-	metaClassStringPropertyFields, err := genMetaClassStringPropertyFields(class, property)
-	if err != nil {
-		return nil, err
-	}
-	metaClassIntPropertyFields, err := genMetaClassIntPropertyFields(class, property)
-	if err != nil {
-		return nil, err
-	}
-	metaClassNumberPropertyFields, err := genMetaClassNumberPropertyFields(class, property)
-	if err != nil {
-		return nil, err
-	}
-	metaClassBooleanPropertyFields, err := genMetaClassBooleanPropertyFields(class, property)
-	if err != nil {
-		return nil, err
-	}
-	metaClassDatePropertyFields, err := genMetaClassDatePropertyFields(class, property)
-	if err != nil {
-		return nil, err
-	}
-	metaClassCRefPropertyFields, err := genMetaClassCRefPropertyObj(class, property)
-	if err != nil {
-		return nil, err
-	}
+	metaClassStringPropertyFields := genMetaClassStringPropertyFields(class, property)
+	metaClassIntPropertyFields := genMetaClassIntPropertyFields(class, property)
+	metaClassNumberPropertyFields := genMetaClassNumberPropertyFields(class, property)
+	metaClassBooleanPropertyFields := genMetaClassBooleanPropertyFields(class, property)
+	metaClassDatePropertyFields := genMetaClassDatePropertyFields(class, property)
+	metaClassCRefPropertyFields := genMetaClassCRefPropertyObj(class, property)
 
 	switch dataType {
 
 	case schema.DataTypeString:
 		return &graphql.Field{
-			Description: mergeStrings("Meta information about the property \"", property.Name, "\""),
+			Description: fmt.Sprintf(`%s"%s"`, "Meta information about the property ", property.Name),
 			Type:        metaClassStringPropertyFields,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
@@ -164,7 +148,7 @@ func handleMetaFetchNonObjectDataTypes(dataType schema.DataType, class *models.S
 
 	case schema.DataTypeInt:
 		return &graphql.Field{
-			Description: mergeStrings("Meta information about the property \"", property.Name, "\""),
+			Description: fmt.Sprintf(`%s"%s"`, "Meta information about the property ", property.Name),
 			Type:        metaClassIntPropertyFields,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
@@ -173,7 +157,7 @@ func handleMetaFetchNonObjectDataTypes(dataType schema.DataType, class *models.S
 
 	case schema.DataTypeNumber:
 		return &graphql.Field{
-			Description: mergeStrings("Meta information about the property \"", property.Name, "\""),
+			Description: fmt.Sprintf(`%s"%s"`, "Meta information about the property ", property.Name),
 			Type:        metaClassNumberPropertyFields,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
@@ -182,7 +166,7 @@ func handleMetaFetchNonObjectDataTypes(dataType schema.DataType, class *models.S
 
 	case schema.DataTypeBoolean:
 		return &graphql.Field{
-			Description: mergeStrings("Meta information about the property \"", property.Name, "\""),
+			Description: fmt.Sprintf(`%s"%s"`, "Meta information about the property ", property.Name),
 			Type:        metaClassBooleanPropertyFields,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
@@ -191,7 +175,7 @@ func handleMetaFetchNonObjectDataTypes(dataType schema.DataType, class *models.S
 
 	case schema.DataTypeDate:
 		return &graphql.Field{
-			Description: mergeStrings("Meta information about the property \"", property.Name, "\""),
+			Description: fmt.Sprintf(`%s"%s"`, "Meta information about the property ", property.Name),
 			Type:        metaClassDatePropertyFields,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
@@ -208,126 +192,133 @@ func handleMetaFetchNonObjectDataTypes(dataType schema.DataType, class *models.S
 		}, nil
 
 	default:
-		return &graphql.Field{
-			Description: property.Description,
-			Type:        graphql.String,
-		}, fmt.Errorf(schema.ErrorNoSuchDatatype)
+		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype)
 	}
 }
 
-func genMetaClassStringPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Object, error) {
+func genMetaClassStringPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
+	topOccurrencesFields := genMetaClassStringPropertyTopOccurrencesFields(class, property)
 
-	topOccurencesFields, err := genMetaClassStringPropertyTopOccurrencesFields(class, property)
-	if err != nil {
-		return nil, err
-	}
 	metaFetchMetaPointingFields := graphql.Fields{
+
 		"type": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "MetaPointingTo"),
-			Description: "datatype of the property",
+			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaPointingTo"),
+			Description: "how many other classes the class is pointing to",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"counter": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "MetaPointingFrom"),
-			Description: "total amount of found instances",
+			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaPointingFrom"),
+			Description: "how many other classes the class is pointing from",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
-		"topOccurences": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "MetaPointingFrom"),
+
+		"topOccurrences": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "TopOccurrences"),
 			Description: "most frequent property values",
-			Type:        topOccurencesFields,
+			Type:        topOccurrencesFields,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
 	}
+
 	metaFetchStringProperty := graphql.ObjectConfig{
-		Name:        mergeStrings("Meta", class.Class, property.Name, "Obj"),
+		Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Obj"),
 		Fields:      metaFetchMetaPointingFields,
 		Description: "Property meta information",
 	}
-	return graphql.NewObject(metaFetchStringProperty), nil
+
+	return graphql.NewObject(metaFetchStringProperty)
 }
 
-func genMetaClassStringPropertyTopOccurrencesFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Object, error) {
-
+func genMetaClassStringPropertyTopOccurrencesFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	metaFetchMetaPointingFields := graphql.Fields{
+
 		"value": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, property.Name, "TopOccurencesValue"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TopOccurrencesValue"),
 			Description: "property value of the most frequent properties",
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"occurs": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, property.Name, "TopOccurencesOccurs"),
-			Description: "number of occurrance",
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TopOccurrencesOccurs"),
+			Description: "number of occurrence",
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
 	}
+
 	metaFetchMetaPointing := graphql.ObjectConfig{
-		Name:        mergeStrings("Meta", class.Class, property.Name, "TopOccurencesObj"),
+		Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TopOccurrencesObj"),
 		Fields:      metaFetchMetaPointingFields,
 		Description: "most frequent property values",
 	}
-	return graphql.NewObject(metaFetchMetaPointing), nil
+
+	return graphql.NewObject(metaFetchMetaPointing)
 }
 
-func genMetaClassIntPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Object, error) {
-
+func genMetaClassIntPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	metaFetchMetaIntFields := graphql.Fields{
+
 		"sum": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, property.Name, "Sum"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Sum"),
 			Description: "sum of values of found instances",
-			Type:        graphql.Float,
+			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"type": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Type"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Type"),
 			Description: "datatype of the property",
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"lowest": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Lowest"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Lowest"),
 			Description: "Lowest value occurence",
-			Type:        graphql.Float,
+			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"highest": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Highest"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Highest"),
 			Description: "Highest value occurence",
-			Type:        graphql.Float,
+			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"average": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Average"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Average"),
 			Description: "average number",
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"counter": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Counter"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Counter"),
 			Description: "total amount of found instances",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -335,60 +326,66 @@ func genMetaClassIntPropertyFields(class *models.SemanticSchemaClass, property *
 			},
 		},
 	}
+
 	metaFetchIntProperty := graphql.ObjectConfig{
-		Name:        mergeStrings("Meta", class.Class, property.Name, "Obj"),
+		Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Obj"),
 		Fields:      metaFetchMetaIntFields,
 		Description: "Property meta information",
 	}
-	return graphql.NewObject(metaFetchIntProperty), nil
+
+	return graphql.NewObject(metaFetchIntProperty)
 }
 
-// a duplicate of the int function, this is a separate function to account for future expansions of functionality
-func genMetaClassNumberPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Object, error) {
-
+func genMetaClassNumberPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	metaFetchMetaNumberFields := graphql.Fields{
+
 		"sum": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, property.Name, "Sum"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Sum"),
 			Description: "sum of values of found instances",
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"type": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Type"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Type"),
 			Description: "datatype of the property",
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"lowest": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Lowest"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Lowest"),
 			Description: "Lowest value occurence",
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"highest": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Highest"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Highest"),
 			Description: "Highest value occurence",
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"average": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Average"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Average"),
 			Description: "average number",
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"counter": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Counter"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Counter"),
 			Description: "total amount of found instances",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -396,84 +393,91 @@ func genMetaClassNumberPropertyFields(class *models.SemanticSchemaClass, propert
 			},
 		},
 	}
+
 	metaFetchNumberProperty := graphql.ObjectConfig{
-		Name:        mergeStrings("Meta", class.Class, property.Name, "Obj"),
+		Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Obj"),
 		Fields:      metaFetchMetaNumberFields,
 		Description: "Property meta information",
 	}
-	return graphql.NewObject(metaFetchNumberProperty), nil
+
+	return graphql.NewObject(metaFetchNumberProperty)
 }
 
-func genMetaClassBooleanPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Object, error) {
-
+func genMetaClassBooleanPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	metaFetchMetaBooleanFields := graphql.Fields{
+
 		"type": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Type"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Type"),
 			Description: "datatype of the property",
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"counter": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Counter"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Counter"),
 			Description: "total amount of found instances",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"totalTrue": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Highest"),
-			Description: "total amount of boolean value is true",
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Highest"),
+			Description: "total amount of boolean values that are true",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"percentageTrue": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "Average"),
-			Description: "percentage of boolean = true",
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Average"),
+			Description: "percentage of boolean values that is true",
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
 	}
+
 	metaFetchBooleanProperty := graphql.ObjectConfig{
-		Name:        mergeStrings("Meta", class.Class, property.Name, "Obj"),
+		Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Obj"),
 		Fields:      metaFetchMetaBooleanFields,
 		Description: "Property meta information",
 	}
-	return graphql.NewObject(metaFetchBooleanProperty), nil
+
+	return graphql.NewObject(metaFetchBooleanProperty)
 }
 
 // a duplicate of the string function, this is a separate function to account for future expansions of functionality
-func genMetaClassDatePropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Object, error) {
+func genMetaClassDatePropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
+	topOccurencesFields := genMetaClassDatePropertyTopOccurrencesFields(class, property)
 
-	topOccurencesFields, err := genMetaClassDatePropertyTopOccurrencesFields(class, property)
-	if err != nil {
-		return nil, err
-	}
 	metaFetchDatePointingFields := graphql.Fields{
+
 		"type": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "MetaPointingTo"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "MetaPointingTo"),
 			Description: "datatype of the property",
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"counter": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "MetaPointingFrom"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "MetaPointingFrom"),
 			Description: "total amount of found instances",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"topOccurences": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "MetaPointingFrom"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "MetaPointingFrom"),
 			Description: "most frequent property values",
 			Type:        topOccurencesFields,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -481,27 +485,30 @@ func genMetaClassDatePropertyFields(class *models.SemanticSchemaClass, property 
 			},
 		},
 	}
+
 	metaFetchDateProperty := graphql.ObjectConfig{
-		Name:        mergeStrings("Meta", class.Class, property.Name, "Obj"),
+		Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Obj"),
 		Fields:      metaFetchDatePointingFields,
 		Description: "Property meta information",
 	}
-	return graphql.NewObject(metaFetchDateProperty), nil
+
+	return graphql.NewObject(metaFetchDateProperty)
 }
 
-func genMetaClassDatePropertyTopOccurrencesFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Object, error) {
-
+func genMetaClassDatePropertyTopOccurrencesFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	metaFetchMetaPointingFields := graphql.Fields{
+
 		"value": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, property.Name, "TopOccurencesValue"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TopOccurencesValue"),
 			Description: "property value of the most frequent properties",
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"occurs": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, property.Name, "TopOccurencesOccurs"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TopOccurencesOccurs"),
 			Description: "number of occurrance",
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -509,40 +516,41 @@ func genMetaClassDatePropertyTopOccurrencesFields(class *models.SemanticSchemaCl
 			},
 		},
 	}
+
 	metaFetchMetaPointing := graphql.ObjectConfig{
-		Name:        mergeStrings("Meta", class.Class, property.Name, "TopOccurencesObj"),
+		Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TopOccurencesObj"),
 		Fields:      metaFetchMetaPointingFields,
 		Description: "most frequent property values",
 	}
-	return graphql.NewObject(metaFetchMetaPointing), nil
+
+	return graphql.NewObject(metaFetchMetaPointing)
 }
 
-func genMetaClassCRefPropertyObj(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Object, error) {
-
-	metaCRefPointingObj, err := genMetaCRefPointingObj(class, property)
-	if err != nil {
-		return nil, fmt.Errorf("Could not build GraphQL schema, because: %v", err)
-	}
+func genMetaClassCRefPropertyObj(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
+	metaCRefPointingObj := genMetaCRefPointingObj(class, property)
 
 	metaFetchCRefPropertyFields := graphql.Fields{
+
 		"type": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, property.Name, "PointingTo"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "PointingTo"),
 			Description: "datatype of the property",
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"counter": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, property.Name, "Counter"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Counter"),
 			Description: "total amount of found instances",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"pointing": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, property.Name, "Pointing"),
+			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Pointing"),
 			Description: "pointing to and from how many other things",
 			Type:        metaCRefPointingObj,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -552,17 +560,17 @@ func genMetaClassCRefPropertyObj(class *models.SemanticSchemaClass, property *mo
 	}
 
 	metaClassCRefPropertyConf := graphql.ObjectConfig{
-		Name:        mergeStrings("Meta", class.Class, property.Name, "Obj"),
+		Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Obj"),
 		Fields:      metaFetchCRefPropertyFields,
 		Description: "meta information about class object",
 	}
 
-	return graphql.NewObject(metaClassCRefPropertyConf), nil
+	return graphql.NewObject(metaClassCRefPropertyConf)
 }
 
-func genMetaCRefPointingObj(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Object, error) {
-
+func genMetaCRefPointingObj(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	metaFetchCRefPointingFields := graphql.Fields{
+
 		"to": &graphql.Field{
 			Description: "how many other classes the class is pointing to",
 			Type:        graphql.Int,
@@ -570,6 +578,7 @@ func genMetaCRefPointingObj(class *models.SemanticSchemaClass, property *models.
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"from": &graphql.Field{
 			Description: "how many other classes the class is pointing from",
 			Type:        graphql.Int,
@@ -578,32 +587,32 @@ func genMetaCRefPointingObj(class *models.SemanticSchemaClass, property *models.
 			},
 		},
 	}
+
 	metaFetchCRefPointing := graphql.ObjectConfig{
-		Name:        mergeStrings("Meta", class.Class, property.Name, "PointingObj"),
+		Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "PointingObj"),
 		Fields:      metaFetchCRefPointingFields,
 		Description: "pointing to and from how many other things",
 	}
-	return graphql.NewObject(metaFetchCRefPointing), nil
+
+	return graphql.NewObject(metaFetchCRefPointing)
 }
 
-func genMetaPropertyObj(class *models.SemanticSchemaClass) (*graphql.Object, error) {
-
-	metaPointingObj, err := genMetaPointingObj(class)
-	if err != nil {
-		return nil, fmt.Errorf("Could not build GraphQL schema, because: %v", err)
-	}
+func genMetaPropertyObj(class *models.SemanticSchemaClass) *graphql.Object {
+	metaPointingObj := genMetaPointingObj(class)
 
 	metaFetchMetaPropertyFields := graphql.Fields{
+
 		"counter": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "MetaCounter"),
+			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaCounter"),
 			Description: "how many class instances are there",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"pointing": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "MetaPointing"),
+			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaPointing"),
 			Description: "pointing to and from how many other things",
 			Type:        metaPointingObj,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -613,27 +622,28 @@ func genMetaPropertyObj(class *models.SemanticSchemaClass) (*graphql.Object, err
 	}
 
 	metaPropertyFields := graphql.ObjectConfig{
-		Name:        mergeStrings("Meta", class.Class, "MetaObj"),
+		Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaObj"),
 		Fields:      metaFetchMetaPropertyFields,
 		Description: "meta information about class object",
 	}
 
-	return graphql.NewObject(metaPropertyFields), nil
+	return graphql.NewObject(metaPropertyFields)
 }
 
-func genMetaPointingObj(class *models.SemanticSchemaClass) (*graphql.Object, error) {
-
+func genMetaPointingObj(class *models.SemanticSchemaClass) *graphql.Object {
 	metaFetchMetaPointingFields := graphql.Fields{
+
 		"to": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "MetaPointingTo"),
+			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaPointingTo"),
 			Description: "how many other classes the class is pointing to",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
+
 		"from": &graphql.Field{
-			Name:        mergeStrings("Meta", class.Class, "MetaPointingFrom"),
+			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaPointingFrom"),
 			Description: "how many other classes the class is pointing from",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -641,10 +651,12 @@ func genMetaPointingObj(class *models.SemanticSchemaClass) (*graphql.Object, err
 			},
 		},
 	}
+
 	metaFetchMetaPointing := graphql.ObjectConfig{
-		Name:        mergeStrings("Meta", class.Class, "MetaPointingObj"),
+		Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaPointingObj"),
 		Fields:      metaFetchMetaPointingFields,
 		Description: "pointing to and from how many other things",
 	}
-	return graphql.NewObject(metaFetchMetaPointing), nil
+
+	return graphql.NewObject(metaFetchMetaPointing)
 }

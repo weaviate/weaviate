@@ -22,18 +22,12 @@ import (
 
 // Build the dynamically generated ConvertedFetch Actions part of the schema
 func (g *GraphQL) genActionClassFieldsFromSchema(convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
-
 	actionClassFields := graphql.Fields{}
 
 	for _, class := range g.databaseSchema.ActionSchema.Schema.Classes {
-
-		singleActionClassField, singleActionClassObject, err := genSingleActionClassField(class, convertedFetchActionsAndThings)
-
-		if err != nil {
-			return nil, err
-		}
+		singleActionClassField, singleActionClassObject := genSingleActionClassField(class, convertedFetchActionsAndThings)
 		actionClassFields[class.Class] = singleActionClassField
-
+		// this line assigns the created class to a Hashmap which is used in thunks to handle cyclical relationships (Classes with other Classes as properties)
 		(*convertedFetchActionsAndThings)[class.Class] = singleActionClassObject
 	}
 
@@ -46,14 +40,16 @@ func (g *GraphQL) genActionClassFieldsFromSchema(convertedFetchActionsAndThings 
 	return graphql.NewObject(localConvertedFetchActions), nil
 }
 
-func genSingleActionClassField(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object, error) {
+func genSingleActionClassField(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object) {
 	singleActionClassPropertyFields := graphql.ObjectConfig{
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			singleActionClassPropertyFields, err := genSingleActionClassPropertyFields(class, convertedFetchActionsAndThings)
+
 			if err != nil {
-				panic("oops")
+				panic("Failed to generate single Action Class property fields")
 			}
+
 			return singleActionClassPropertyFields
 		}),
 		Description: "Type of fetch on the internal Weaviate",
@@ -81,41 +77,42 @@ func genSingleActionClassField(class *models.SemanticSchemaClass, convertedFetch
 			return nil, fmt.Errorf("Not supported")
 		},
 	}
-	return singleActionClassPropertyFieldsField, singleActionClassPropertyFieldsObj, nil
+	return singleActionClassPropertyFieldsField, singleActionClassPropertyFieldsObj
 }
 
 func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (graphql.Fields, error) {
-
 	singleActionClassPropertyFields := graphql.Fields{}
 
 	for _, property := range class.Properties {
-
 		propertyType, err := schema.GetPropertyDataType(class, property.Name)
+
 		if err != nil {
 			return nil, err
 		}
+
 		if *propertyType == schema.DataTypeCRef {
 			numberOfDataTypes := len(property.AtDataType)
-
 			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
 
 			for index, dataType := range property.AtDataType {
-
 				thingOrActionType, ok := (*convertedFetchActionsAndThings)[dataType]
+
 				if !ok {
-					panic(fmt.Errorf("No such thing/action class '%s'", property.AtDataType[index]))
+					return nil, fmt.Errorf("No such thing/action class '%s'", property.AtDataType[index])
 				}
 
 				dataTypeClasses[index] = thingOrActionType
 			}
+
 			dataTypeUnionConf := graphql.UnionConfig{
-				Name:  mergeStrings(class.Class, property.Name, "Obj"),
+				Name:  fmt.Sprintf("%s%s%s", class.Class, property.Name, "Obj"),
 				Types: dataTypeClasses,
 				ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
 					return nil
 				},
 				Description: property.Description,
 			}
+
 			multipleClassDataTypesUnion := graphql.NewUnion(dataTypeUnionConf)
 
 			singleActionClassPropertyFields[property.Name] = &graphql.Field{
@@ -131,26 +128,25 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, conve
 			if err != nil {
 				return nil, err
 			}
+
 			singleActionClassPropertyFields[property.Name] = convertedDataType
 		}
 	}
+
 	return singleActionClassPropertyFields, nil
 }
 
-// build the dynamically generated ConvertedFetch Things part of the schema
+// Build the dynamically generated ConvertedFetch Things part of the schema
 func (g *GraphQL) genThingClassFieldsFromSchema(convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
-
 	thingClassFields := graphql.Fields{}
 
 	for _, class := range g.databaseSchema.ThingSchema.Schema.Classes {
-		SingleThingClassField, SingleThingClassObject, err := genSingleThingClassField(class, convertedFetchActionsAndThings)
-
-		if err != nil {
-			return nil, err
-		}
-		thingClassFields[class.Class] = SingleThingClassField
-		(*convertedFetchActionsAndThings)[class.Class] = SingleThingClassObject
+		singleThingClassField, singleThingClassObject := genSingleThingClassField(class, convertedFetchActionsAndThings)
+		thingClassFields[class.Class] = singleThingClassField
+		// this line assigns the created class to a Hashmap which is used in thunks to handle cyclical relationships (Classes with other Classes as properties)
+		(*convertedFetchActionsAndThings)[class.Class] = singleThingClassObject
 	}
+
 	localConvertedFetchThings := graphql.ObjectConfig{
 		Name:        "WeaviateLocalConvertedFetchThingsObj",
 		Fields:      thingClassFields,
@@ -160,14 +156,13 @@ func (g *GraphQL) genThingClassFieldsFromSchema(convertedFetchActionsAndThings *
 	return graphql.NewObject(localConvertedFetchThings), nil
 }
 
-func genSingleThingClassField(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object, error) {
-
+func genSingleThingClassField(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object) {
 	singleThingClassPropertyFieldsObj := graphql.ObjectConfig{
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			singleThingClassPropertyFields, err := genSingleThingClassPropertyFields(class, convertedFetchActionsAndThings)
 			if err != nil {
-				panic("oops")
+				panic(fmt.Errorf("Failed to assemble single Thing Class field for Class %s", class.Class))
 			}
 			return singleThingClassPropertyFields
 		}),
@@ -196,36 +191,36 @@ func genSingleThingClassField(class *models.SemanticSchemaClass, convertedFetchA
 			return nil, fmt.Errorf("Not supported")
 		},
 	}
-	return thingClassPropertyFieldsField, thingClassPropertyFieldsObject, nil
+	return thingClassPropertyFieldsField, thingClassPropertyFieldsObject
 }
 
 func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (graphql.Fields, error) {
-
 	singleThingClassPropertyFields := graphql.Fields{}
 
 	for _, property := range class.Properties {
 
 		propertyType, err := schema.GetPropertyDataType(class, property.Name)
+
 		if err != nil {
 			return nil, err
 		}
+
 		if *propertyType == schema.DataTypeCRef {
 			numberOfDataTypes := len(property.AtDataType)
-
 			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
 
 			for index, dataType := range property.AtDataType {
-
 				thingOrActionType, ok := (*convertedFetchActionsAndThings)[dataType]
+
 				if !ok {
-					panic(fmt.Errorf("No such thing/action class '%s'", property.AtDataType[index]))
+					return nil, fmt.Errorf("No such thing/action class '%s'", property.AtDataType[index])
 				}
 
 				dataTypeClasses[index] = thingOrActionType
 			}
 
 			dataTypeUnionConf := graphql.UnionConfig{
-				Name:  mergeStrings(class.Class, property.Name, "Obj"),
+				Name:  fmt.Sprintf("%s%s%s", class.Class, property.Name, "Obj"),
 				Types: dataTypeClasses,
 				ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
 					return nil
@@ -248,6 +243,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, conver
 			if err != nil {
 				return nil, err
 			}
+
 			singleThingClassPropertyFields[property.Name] = convertedDataType
 		}
 	}
@@ -304,9 +300,6 @@ func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *
 		}, nil
 
 	default:
-		return &graphql.Field{
-			Description: property.Description,
-			Type:        graphql.String,
-		}, fmt.Errorf(schema.ErrorNoSuchDatatype)
+		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype)
 	}
 }
