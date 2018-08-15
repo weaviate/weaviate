@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// graphiqlVersion is the current version of GraphiQL
+const graphiqlVersion = "0.11.11"
+
 // graphiqlData is the page data structure of the rendered GraphiQL page
 type graphiqlData struct {
 	GraphiqlVersion string
@@ -78,12 +81,7 @@ func renderGraphiQL(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-
-	return
 }
-
-// graphiqlVersion is the current version of GraphiQL
-const graphiqlVersion = "0.11.11"
 
 // tmpl is the page template to render GraphiQL
 const graphiqlTemplate = `

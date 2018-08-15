@@ -96,6 +96,15 @@ func genSingleFilterField(filterOptions map[string]*graphql.InputObject, filterF
 	return outputObject
 }
 
+/*
+AND_OR = [AND, OR, EQ, NEQ, IE]
+OTHER = [AND2, OR2, path, value]
+
+AND and OR filters only have AND_OR options (cyclical referral)
+EQ, NEQ and IE (and AND2 and OR2) filters only have OTHER options (cyclical referral)
+
+This function determines what type the current filter is and generates the according subset of filters
+*/
 func genFilterObjectFields(filterOptions map[string]*graphql.InputObject, filterFetchOptions map[string]*graphql.InputObject,
 	filterOptionName string, filterDescriptor *filterDescriptorsContainer) graphql.InputObjectConfigFieldMap {
 
@@ -135,7 +144,7 @@ func genFilterObjectFields(filterOptions map[string]*graphql.InputObject, filter
 	return outputFieldConfigMap
 }
 
-// gen the filter field subset available from the EQ, NEQ and IE filters
+// gen the filter field subset available to the EQ, NEQ and IE filters
 func genSingleFilterFetchField(filterFetchOptions map[string]*graphql.InputObject, filterOptionName string,
 	filterDescriptor *filterDescriptorsContainer) *graphql.InputObject {
 
