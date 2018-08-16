@@ -1,0 +1,2 @@
+# Force UNIX line encoding; no crlf.
+* text eol=lf
