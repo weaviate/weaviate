@@ -251,9 +251,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, conver
 }
 
 func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
-
 	switch dataType {
-
 	case schema.DataTypeString:
 		return &graphql.Field{
 			Description: property.Description,
@@ -262,7 +260,6 @@ func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *
 				return nil, fmt.Errorf("Not supported")
 			},
 		}, nil
-
 	case schema.DataTypeInt:
 		return &graphql.Field{
 			Description: property.Description,
@@ -271,7 +268,6 @@ func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *
 				return nil, fmt.Errorf("Not supported")
 			},
 		}, nil
-
 	case schema.DataTypeNumber:
 		return &graphql.Field{
 			Description: property.Description,
@@ -280,7 +276,6 @@ func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *
 				return nil, fmt.Errorf("Not supported")
 			},
 		}, nil
-
 	case schema.DataTypeBoolean:
 		return &graphql.Field{
 			Description: property.Description,
@@ -289,7 +284,6 @@ func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *
 				return nil, fmt.Errorf("Not supported")
 			},
 		}, nil
-
 	case schema.DataTypeDate:
 		return &graphql.Field{
 			Description: property.Description,
@@ -298,7 +292,6 @@ func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *
 				return nil, fmt.Errorf("Not supported")
 			},
 		}, nil
-
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype)
 	}
