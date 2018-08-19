@@ -14,7 +14,6 @@ type filterDescriptorsContainer struct {
 // TODO: store string values in constants
 // TODO: think of a better name for this struct
 func initializeFilterDescriptor() *filterDescriptorsContainer {
-
 	filterDescriptor := filterDescriptorsContainer{
 
 		filterNames: map[string]string{
@@ -107,7 +106,6 @@ This function determines what type the current filter is and generates the accor
 */
 func genFilterObjectFields(filterOptions map[string]*graphql.InputObject, filterFetchOptions map[string]*graphql.InputObject,
 	filterOptionName string, filterDescriptor *filterDescriptorsContainer) graphql.InputObjectConfigFieldMap {
-
 	outputFieldConfigMap := graphql.InputObjectConfigFieldMap{}
 
 	if filterOptionName == "AND" || filterOptionName == "OR" {

@@ -21,7 +21,7 @@ import (
 )
 
 // Build the dynamically generated ConvertedFetch Actions part of the schema
-func (g *GraphQL) genActionClassFieldsFromSchema(convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
+func genActionClassFieldsFromSchema(g *GraphQL, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
 	actionClassFields := graphql.Fields{}
 
 	for _, class := range g.databaseSchema.ActionSchema.Schema.Classes {
@@ -60,10 +60,6 @@ func genSingleActionClassField(class *models.SemanticSchemaClass, convertedFetch
 		Type:        graphql.NewList(singleActionClassPropertyFieldsObj),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
-			"_certainty": &graphql.ArgumentConfig{
-				Description: "How certain about these values?",
-				Type:        graphql.Float,
-			},
 			"_limit": &graphql.ArgumentConfig{
 				Description: "define the max returned values",
 				Type:        graphql.Int,
@@ -137,7 +133,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, conve
 }
 
 // Build the dynamically generated ConvertedFetch Things part of the schema
-func (g *GraphQL) genThingClassFieldsFromSchema(convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
+func genThingClassFieldsFromSchema(g *GraphQL, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
 	thingClassFields := graphql.Fields{}
 
 	for _, class := range g.databaseSchema.ThingSchema.Schema.Classes {
@@ -174,10 +170,6 @@ func genSingleThingClassField(class *models.SemanticSchemaClass, convertedFetchA
 		Type:        graphql.NewList(thingClassPropertyFieldsObject),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
-			"_certainty": &graphql.ArgumentConfig{
-				Description: "How certain about these values?",
-				Type:        graphql.Float,
-			},
 			"_limit": &graphql.ArgumentConfig{
 				Description: "define the max returned values",
 				Type:        graphql.Int,
@@ -251,7 +243,9 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, conver
 }
 
 func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
+
 	switch dataType {
+
 	case schema.DataTypeString:
 		return &graphql.Field{
 			Description: property.Description,
@@ -260,6 +254,7 @@ func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *
 				return nil, fmt.Errorf("Not supported")
 			},
 		}, nil
+
 	case schema.DataTypeInt:
 		return &graphql.Field{
 			Description: property.Description,
@@ -268,6 +263,7 @@ func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *
 				return nil, fmt.Errorf("Not supported")
 			},
 		}, nil
+
 	case schema.DataTypeNumber:
 		return &graphql.Field{
 			Description: property.Description,
@@ -276,6 +272,7 @@ func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *
 				return nil, fmt.Errorf("Not supported")
 			},
 		}, nil
+
 	case schema.DataTypeBoolean:
 		return &graphql.Field{
 			Description: property.Description,
@@ -284,6 +281,7 @@ func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *
 				return nil, fmt.Errorf("Not supported")
 			},
 		}, nil
+
 	case schema.DataTypeDate:
 		return &graphql.Field{
 			Description: property.Description,
@@ -292,6 +290,7 @@ func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *
 				return nil, fmt.Errorf("Not supported")
 			},
 		}, nil
+
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype)
 	}

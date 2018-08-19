@@ -23,7 +23,7 @@ import (
 // 2) the (dynamic) database schema from Weaviate
 
 func (g *GraphQL) buildGraphqlSchema() error {
-	rootFieldsObject, err := g.assembleFullSchema()
+	rootFieldsObject, err := assembleFullSchema(g)
 
 	if err != nil {
 		return fmt.Errorf("Could not build GraphQL schema, because: %v", err)
@@ -65,46 +65,46 @@ func (g *GraphQL) buildGraphqlSchema() error {
 	}
 }
 
-func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
+func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
 	// This map is used to store all the Thing and Action Objects, so that we can use them in references.
 	convertedFetchActionsAndThings := make(map[string]*graphql.Object)
 	// this map is used to store all the Filter InputObjects, so that we can use them in references.
 	filterOptions := make(map[string]*graphql.InputObject)
 	filterFetchOptions := make(map[string]*graphql.InputObject)
 
-	localConvertedFetchActions, err := g.genActionClassFieldsFromSchema(&convertedFetchActionsAndThings)
+	localConvertedFetchActions, err := genActionClassFieldsFromSchema(g, &convertedFetchActionsAndThings)
 
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate action fields from schema for local convertedfetch because: %v", err)
 	}
 
-	localConvertedFetchThings, err := g.genThingClassFieldsFromSchema(&convertedFetchActionsAndThings)
+	localConvertedFetchThings, err := genThingClassFieldsFromSchema(g, &convertedFetchActionsAndThings)
 
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate thing fields from schema for local convertedfetch because: %v", err)
 	}
 
 	classParentTypeIsAction := true
-	localMetaFetchActions, err := g.genMetaClassFieldsFromSchema(g.databaseSchema.ActionSchema.Schema.Classes, classParentTypeIsAction)
+	localMetaFetchActions, err := genMetaClassFieldsFromSchema(g.databaseSchema.ActionSchema.Schema.Classes, classParentTypeIsAction)
 
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate action fields from schema for local metafetch because: %v", err)
 	}
 
 	classParentTypeIsAction = false
-	localMetaFetchThings, err := g.genMetaClassFieldsFromSchema(g.databaseSchema.ThingSchema.Schema.Classes, classParentTypeIsAction)
+	localMetaFetchThings, err := genMetaClassFieldsFromSchema(g.databaseSchema.ThingSchema.Schema.Classes, classParentTypeIsAction)
 
 	if err != nil {
 		return nil, fmt.Errorf("Failed to generate thing fields from schema for local metafetch because: %v", err)
 	}
 
-	localConvertedFetchObject := g.genThingsAndActionsFieldsForWeaviateLocalConvertedFetchObj(localConvertedFetchActions, localConvertedFetchThings)
+	localConvertedFetchObject := genThingsAndActionsFieldsForWeaviateLocalConvertedFetchObj(localConvertedFetchActions, localConvertedFetchThings)
 
-	localMetaFetchObject := g.genThingsAndActionsFieldsForWeaviateLocalMetaFetchGenericsObj(localMetaFetchActions, localMetaFetchThings)
+	localMetaFetchObject := genThingsAndActionsFieldsForWeaviateLocalMetaFetchGenericsObj(localMetaFetchActions, localMetaFetchThings)
 
-	localMetaGenericsObject := g.genGenericsFieldForWeaviateLocalMetaFetchObj(localMetaFetchObject)
+	localMetaGenericsObject := genGenericsFieldForWeaviateLocalMetaFetchObj(localMetaFetchObject)
 
-	localMetaAndConvertedFetchObject := g.genConvertedFetchAndMetaGenericsFields(localConvertedFetchObject, localMetaGenericsObject, filterOptions, filterFetchOptions)
+	localMetaAndConvertedFetchObject := genConvertedFetchAndMetaGenericsFields(localConvertedFetchObject, localMetaGenericsObject, filterOptions, filterFetchOptions)
 
 	localField := &graphql.Field{
 		Type:        localMetaAndConvertedFetchObject,
@@ -123,7 +123,7 @@ func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
 }
 
 // generate the static parts of the schema
-func (g *GraphQL) genThingsAndActionsFieldsForWeaviateLocalConvertedFetchObj(localConvertedFetchActions *graphql.Object, localConvertedFetchThings *graphql.Object) *graphql.Object {
+func genThingsAndActionsFieldsForWeaviateLocalConvertedFetchObj(localConvertedFetchActions *graphql.Object, localConvertedFetchThings *graphql.Object) *graphql.Object {
 	convertedFetchThingsAndActionFields := graphql.Fields{
 
 		"Actions": &graphql.Field{
@@ -154,7 +154,7 @@ func (g *GraphQL) genThingsAndActionsFieldsForWeaviateLocalConvertedFetchObj(loc
 	return graphql.NewObject(convertedFetchThingsAndActionFieldsObject)
 }
 
-func (g *GraphQL) genThingsAndActionsFieldsForWeaviateLocalMetaFetchGenericsObj(localMetaFetchActions *graphql.Object, localMetaFetchThings *graphql.Object) *graphql.Object {
+func genThingsAndActionsFieldsForWeaviateLocalMetaFetchGenericsObj(localMetaFetchActions *graphql.Object, localMetaFetchThings *graphql.Object) *graphql.Object {
 	metaFetchGenericsThingsAndActionFields := graphql.Fields{
 
 		"Actions": &graphql.Field{
@@ -197,7 +197,7 @@ func (g *GraphQL) genThingsAndActionsFieldsForWeaviateLocalMetaFetchGenericsObj(
 	return graphql.NewObject(metaFetchGenericsThingsAndActionFieldsObject)
 }
 
-func (g *GraphQL) genGenericsFieldForWeaviateLocalMetaFetchObj(localMetaFetchObject *graphql.Object) *graphql.Object {
+func genGenericsFieldForWeaviateLocalMetaFetchObj(localMetaFetchObject *graphql.Object) *graphql.Object {
 	metaFetchGenericsField := graphql.Fields{
 
 		"Generics": &graphql.Field{
@@ -219,7 +219,7 @@ func (g *GraphQL) genGenericsFieldForWeaviateLocalMetaFetchObj(localMetaFetchObj
 	return graphql.NewObject(metaFetchGenericsFieldObject)
 }
 
-func (g *GraphQL) genConvertedFetchAndMetaGenericsFields(localConvertedFetchObject *graphql.Object, localMetaGenericsObject *graphql.Object, filterOptions map[string]*graphql.InputObject, filterFetchOptions map[string]*graphql.InputObject) *graphql.Object {
+func genConvertedFetchAndMetaGenericsFields(localConvertedFetchObject *graphql.Object, localMetaGenericsObject *graphql.Object, filterOptions map[string]*graphql.InputObject, filterFetchOptions map[string]*graphql.InputObject) *graphql.Object {
 	filterFields := genFilterFields(filterOptions, filterFetchOptions)
 
 	convertedAndMetaFetchFields := graphql.Fields{

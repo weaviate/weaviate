@@ -21,7 +21,7 @@ import (
 )
 
 // Build the dynamically generated MetaFetch Things part of the schema
-func (g *GraphQL) genMetaClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, classParentTypeIsAction bool) (*graphql.Object, error) {
+func genMetaClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, classParentTypeIsAction bool) (*graphql.Object, error) {
 	classFields := graphql.Fields{}
 
 	for _, class := range databaseSchema {
@@ -73,10 +73,6 @@ func genMetaSingleClassField(class *models.SemanticSchemaClass) (*graphql.Field,
 		Type:        singleClassPropertyFieldsObject,
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
-			"_certainty": &graphql.ArgumentConfig{
-				Description: "How certain about these values?",
-				Type:        graphql.Float,
-			},
 			"_limit": &graphql.ArgumentConfig{
 				Description: "define the max returned values",
 				Type:        graphql.Int,
