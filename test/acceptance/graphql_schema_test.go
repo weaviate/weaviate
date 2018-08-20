@@ -9,10 +9,10 @@ package test
 import (
 	"testing"
 
-  "io/ioutil"
-  "fmt"
-  "os"
-  "encoding/json"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"os"
 
 	"github.com/go-openapi/runtime"
 
@@ -91,19 +91,19 @@ func TestSchemaTypes(t *testing.T) {
 
 	// Read entire grapql schema descriptions file into an array of bytes
 	expected_schema_file, err := ioutil.ReadFile("../graphql_schema/schema_design.json")
-	if (err != nil) {
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed read file: %s\n", err)
 		os.Exit(1)
 	}
 	var f interface{}
 	err = json.Unmarshal(expected_schema_file, &f)
-	if (err != nil) {
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to parse JSON: %s\n", err)
 		os.Exit(1)
 	}
 
-  // Use the same helper functions to navigate through the fixture as we use to navigate through responses from Weaviate.
-  expected_schema := &GraphQLResult { Result: f }
+	// Use the same helper functions to navigate through the fixture as we use to navigate through responses from Weaviate.
+	expected_schema := &GraphQLResult{Result: f}
 
 	// loop through all expected types
 	for _, expected_type := range expected_schema.AssertKey(t, "data").AssertKey(t, "__schema").AssertKey(t, "types").AssertSlice(t) {
@@ -115,7 +115,7 @@ func TestSchemaTypes(t *testing.T) {
 		assert.Equal(t, response.AssertKey(t, "__type").AssertKey(t, "description"), expected_type.AssertKey(t, "description"), "The object's description should be the same as expected.")
 
 		var fields string
-    _ = fields
+		_ = fields
 		if response.AssertKey(t, "__type").AssertKey(t, "kind").AssertString(t) == "OBJECT" {
 			fields = "fields"
 		} else if response.AssertKey(t, "__type").AssertKey(t, "kind").AssertString(t) == "INPUT_OBJECT" {
@@ -130,108 +130,108 @@ func TestSchemaTypes(t *testing.T) {
 						// assert description
 						assert.Equal(t, actualEnumValue.AssertKey(t, "description").AssertString(t), expectedEnumValue.AssertKey(t, "description").AssertString(t), "The enum description should be the same as expected.")
 						break
-          }
-        }
+					}
+				}
 			}
 		} else if response.AssertKey(t, "__type").AssertKey(t, "kind").AssertString(t) == "UNION" {
-//			// assert type
-//			for _, expected_possible_type := range expected_type.AssertKey(t, fields).AssertSlice(t) {
-//				found := false
-//				for _, actual_possible_type := range response.AssertKey(t, "__type").AssertKey(t, "fields").AssertSlice(t) {
-//					if expected_possible_type.AssertKey(t, "name").AssertString(t) == actual_possible_type.AssertKey(t, "name").AssertString(t) {
-//						found = true
-//						// possible type is found
-//
-//						// assert field type
-//						hasName := actual_possible_type.HasKey(t,"name")
-//						hasOfType := actual_possible_type.HasKey(t, "ofType")
-//						if hasName {
-//							assert.Equal(t, name, expected_possible_type.AssertKey(t, "type").AssertKey(t, "name").AssertString(t), "The field type's name should be the same as expected.")
-//						}
-//						if ofType {
-//							for true {
-//								assert.Equal(t, actual_possible_type(t, "ofType").AssertKey(t, "name").AssertString(t), expected_possible_type.AssertKey(t, "ofType").AssertKey(t, "name").AssertString(t), "The field type's name should be the same as expected.")
-//								actual_possible_type := actual_possible_type.AssertKey(t, "ofType").AssertKey(t)
-//								name := actual_possible_type.AssertKey(t, "name").AssertKey(t)
-//								if name != nil {
-//									break
-//								}
-//							}
-//						}
-//						break
-//					}
-//				}
-//			}
+			//			// assert type
+			//			for _, expected_possible_type := range expected_type.AssertKey(t, fields).AssertSlice(t) {
+			//				found := false
+			//				for _, actual_possible_type := range response.AssertKey(t, "__type").AssertKey(t, "fields").AssertSlice(t) {
+			//					if expected_possible_type.AssertKey(t, "name").AssertString(t) == actual_possible_type.AssertKey(t, "name").AssertString(t) {
+			//						found = true
+			//						// possible type is found
+			//
+			//						// assert field type
+			//						hasName := actual_possible_type.HasKey(t,"name")
+			//						hasOfType := actual_possible_type.HasKey(t, "ofType")
+			//						if hasName {
+			//							assert.Equal(t, name, expected_possible_type.AssertKey(t, "type").AssertKey(t, "name").AssertString(t), "The field type's name should be the same as expected.")
+			//						}
+			//						if ofType {
+			//							for true {
+			//								assert.Equal(t, actual_possible_type(t, "ofType").AssertKey(t, "name").AssertString(t), expected_possible_type.AssertKey(t, "ofType").AssertKey(t, "name").AssertString(t), "The field type's name should be the same as expected.")
+			//								actual_possible_type := actual_possible_type.AssertKey(t, "ofType").AssertKey(t)
+			//								name := actual_possible_type.AssertKey(t, "name").AssertKey(t)
+			//								if name != nil {
+			//									break
+			//								}
+			//							}
+			//						}
+			//						break
+			//					}
+			//				}
+			//			}
 		}
 
-//		if fields {
-//			for _, expected_field := range expected_type.AssertKey(t, fields).AssertSlice(t) {
-//				found := false
-//				for _, actual_field := range response.AssertKey(t, "__type").AssertKey(t, "fields").AssertSlice(t) {
-//					if expected_field.AssertKey(t, "name").AssertString(t) == actual_field.AssertKey(t, "name").AssertString(t) {
-//						// field is found
-//						found = true
-//
-//						// assert field description
-//						assert.Equal(t, actual_field.AssertKey(t, "description").AssertString(t), expected_field.AssertKey(t, "description").AssertString(t), "The fields description should be the same as expected.")
-//
-//						// assert field type
-//						actual_field_type := actual_field.AssertKey(t, "type").AssertString(t)
-//						name := actual_field_type.AssertKey(t, "name").AssertString(t)
-//						ofType := actual_field_type.AssertKey(t, "ofType").AssertString(t)
-//						if name {
-//							assert.Equal(t, name, expected_field.AssertKey(t, "type").AssertKey(t, "name").AsserString(t), "The field type's name should be the same as expected.")
-//						}
-//						if ofType {
-//							for true {
-//								assert.Equal(t, actual_field_type(t, "ofType").AssertKey(t, "name").AssertString(t), expected_field.AssertKey(t, "ofType").AssertKey(t, "name").AssertString(t), "The field type's name should be the same as expected.")
-//								actual_field_type := actual_field_type.AssertKey(t, "ofType").AssertString(t)
-//								name := actual_field_type.AssertKey(t, "name").AssertString(t)
-//								if name != nil {
-//									break
-//								}
-//							}
-//						}
-//
-//						// assert field args
-//						for _, expected_arg := range expected_field.AssertKey(t, "args").AssertSlice(t) {
-//							found := false
-//							for _, actual_arg := range actual_field.AssertKey(t, "args").AssertSlice(t) {
-//								if expected_arg.AssertKey(t, "name").AssertString(t)  == actual_arg.AssertKey(t, "name").AssertString(t) {
-//									found = true
-//
-//									// assert arg description
-//									assert.Equal(t, actual_arg.AssertKey(t, "description").AssertString(t) , expected_arg.AssertKey(t, "description").AssertString(t) , "the arg's description should be the same as expected.")
-//
-//									// assert arg type
-//									actual_arg_type := actual_arg.AssertKey(t, "type").AssertString(t) 
-//									name := actual_arg_type.AssertKey(t, "name").AssertString(t) 
-//									ofType := actual_arg_type.AssertKey(t, "ofType").AssertString(t) 
-//									if name {
-//										assert.Equal(t, name, expected_arg.AssertKey(t, "type").AssertKey(t, "name").AssertString(t) , "The field type's name should be the same as expected.")
-//									}
-//									if ofType {
-//										for true {
-//											assert.Equal(t, actual_arg_type(t, "ofType").AssertKey(t, "name").AssertString(t) , expected_arg.AssertKey(t, "ofType").AssertKey(t, "name").AssertString(t) , "The field type's name should be the same as expected.")
-//											actual_arg_type := actual_arg_type.AssertKey(t, "ofType").AssertString(t) 
-//											name := actual_arg_type.AssertKey(t, "name").AssertString(t) 
-//											if name != nil {
-//												break
-//											}
-//										}
-//									}
-//
-//									break
-//								}
-//							}
-//						}
-//
-//
-//						break
-//					}
-//				}
-//			}
-//		}
+		//		if fields {
+		//			for _, expected_field := range expected_type.AssertKey(t, fields).AssertSlice(t) {
+		//				found := false
+		//				for _, actual_field := range response.AssertKey(t, "__type").AssertKey(t, "fields").AssertSlice(t) {
+		//					if expected_field.AssertKey(t, "name").AssertString(t) == actual_field.AssertKey(t, "name").AssertString(t) {
+		//						// field is found
+		//						found = true
+		//
+		//						// assert field description
+		//						assert.Equal(t, actual_field.AssertKey(t, "description").AssertString(t), expected_field.AssertKey(t, "description").AssertString(t), "The fields description should be the same as expected.")
+		//
+		//						// assert field type
+		//						actual_field_type := actual_field.AssertKey(t, "type").AssertString(t)
+		//						name := actual_field_type.AssertKey(t, "name").AssertString(t)
+		//						ofType := actual_field_type.AssertKey(t, "ofType").AssertString(t)
+		//						if name {
+		//							assert.Equal(t, name, expected_field.AssertKey(t, "type").AssertKey(t, "name").AsserString(t), "The field type's name should be the same as expected.")
+		//						}
+		//						if ofType {
+		//							for true {
+		//								assert.Equal(t, actual_field_type(t, "ofType").AssertKey(t, "name").AssertString(t), expected_field.AssertKey(t, "ofType").AssertKey(t, "name").AssertString(t), "The field type's name should be the same as expected.")
+		//								actual_field_type := actual_field_type.AssertKey(t, "ofType").AssertString(t)
+		//								name := actual_field_type.AssertKey(t, "name").AssertString(t)
+		//								if name != nil {
+		//									break
+		//								}
+		//							}
+		//						}
+		//
+		//						// assert field args
+		//						for _, expected_arg := range expected_field.AssertKey(t, "args").AssertSlice(t) {
+		//							found := false
+		//							for _, actual_arg := range actual_field.AssertKey(t, "args").AssertSlice(t) {
+		//								if expected_arg.AssertKey(t, "name").AssertString(t)  == actual_arg.AssertKey(t, "name").AssertString(t) {
+		//									found = true
+		//
+		//									// assert arg description
+		//									assert.Equal(t, actual_arg.AssertKey(t, "description").AssertString(t) , expected_arg.AssertKey(t, "description").AssertString(t) , "the arg's description should be the same as expected.")
+		//
+		//									// assert arg type
+		//									actual_arg_type := actual_arg.AssertKey(t, "type").AssertString(t)
+		//									name := actual_arg_type.AssertKey(t, "name").AssertString(t)
+		//									ofType := actual_arg_type.AssertKey(t, "ofType").AssertString(t)
+		//									if name {
+		//										assert.Equal(t, name, expected_arg.AssertKey(t, "type").AssertKey(t, "name").AssertString(t) , "The field type's name should be the same as expected.")
+		//									}
+		//									if ofType {
+		//										for true {
+		//											assert.Equal(t, actual_arg_type(t, "ofType").AssertKey(t, "name").AssertString(t) , expected_arg.AssertKey(t, "ofType").AssertKey(t, "name").AssertString(t) , "The field type's name should be the same as expected.")
+		//											actual_arg_type := actual_arg_type.AssertKey(t, "ofType").AssertString(t)
+		//											name := actual_arg_type.AssertKey(t, "name").AssertString(t)
+		//											if name != nil {
+		//												break
+		//											}
+		//										}
+		//									}
+		//
+		//									break
+		//								}
+		//							}
+		//						}
+		//
+		//
+		//						break
+		//					}
+		//				}
+		//			}
+		//		}
 	}
 }
 
@@ -239,8 +239,6 @@ func TestSchemaTypes(t *testing.T) {
 // Test naming convention camel case
 // func TestSchemaNamingConvention(t *testing.T) {
 // 	t.Parallel()
-
-
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // Helper functions
@@ -266,21 +264,21 @@ func (g *GraphQLResult) AssertKey(t *testing.T, key string) *GraphQLResult {
 
 // TODO Use this function instead of AssertKey(t, "x").AssetKey(t, "y"):
 //  AssertKeys(t, []string{"x","y",})
-func (g* GraphQLResult) AsserKeyPath(t *testing.T, keys []string) *GraphQLResult {
-  // currently found result.
-  r := g.Result
+func (g *GraphQLResult) AsserKeyPath(t *testing.T, keys []string) *GraphQLResult {
+	// currently found result.
+	r := g.Result
 
-  for _, key := range keys {
-    m, ok := r.(map[string]interface{})
-    if !ok {
-      t.Fatalf("Can't index into key %s, because this is not a map", key)
-    }
+	for _, key := range keys {
+		m, ok := r.(map[string]interface{})
+		if !ok {
+			t.Fatalf("Can't index into key %s, because this is not a map", key)
+		}
 
-    r, ok = m[key]
-    if !ok {
-      t.Fatalf("Can't index into key %s, because no such key exists", key)
-    }
-  }
+		r, ok = m[key]
+		if !ok {
+			t.Fatalf("Can't index into key %s, because no such key exists", key)
+		}
+	}
 
 	return &GraphQLResult{Result: r}
 }
