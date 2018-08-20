@@ -37,6 +37,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 	gographql "github.com/graphql-go/graphql"
+	"github.com/rs/cors"
 	"google.golang.org/grpc/grpclog"
 
 	"github.com/creativesoftwarefdn/weaviate/auth"
@@ -59,6 +60,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/validation"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 )
 
@@ -70,7 +72,7 @@ var contextionary *libcontextionary.Contextionary
 var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
 var dbConnector dbconnector.DatabaseConnector
-var graphQLSchema *graphqlapi.GraphQLSchema
+var graphQL graphqlapi.GraphQL
 var messaging *messages.Messaging
 
 type keyTokenHeader struct {
@@ -1226,13 +1228,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL resolving")
 
+		errorResponse := &models.ErrorResponse{}
+
 		// Get all input from the body of the request, as it is a POST.
 		query := params.Body.Query
 		operationName := params.Body.OperationName
 
 		// If query is empty, the request is unprocessable
 		if query == "" {
-			return graphql.NewWeaviateGraphqlPostUnprocessableEntity()
+			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
 		// Only set variables if exists in request
@@ -1241,17 +1245,16 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			variables = params.Body.Variables.(map[string]interface{})
 		}
 
-		// Get the results by doing a request with the given parameters and the initialized schema.
-		graphQLSchema.SetKey(principal.(*models.KeyTokenGetResponse))
-		gqlSchema, _ := graphQLSchema.GetGraphQLSchema()
+		// Add security principal to context that we pass on to the GraphQL resolver.
+		graphql_context := context.WithValue(params.HTTPRequest.Context(), "principal", (principal.(*models.KeyTokenGetResponse)))
 
 		// Do the request
 		result := gographql.Do(gographql.Params{
-			Schema:         gqlSchema,
+			Schema:         *graphQL.Schema(),
 			RequestString:  query,
 			OperationName:  operationName,
 			VariableValues: variables,
-			Context:        params.HTTPRequest.Context(),
+			Context:        graphql_context,
 		})
 
 		// Marshal the JSON
@@ -1259,19 +1262,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// If json gave error, return nothing.
 		if jsonErr != nil {
-			return graphql.NewWeaviateGraphqlPostUnprocessableEntity()
+			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
 		// Put the data in a response ready object
 		graphQLResponse := &models.GraphQLResponse{}
-		err := json.Unmarshal(resultJSON, graphQLResponse)
+		marshallErr := json.Unmarshal(resultJSON, graphQLResponse)
 
 		// If json gave error, return nothing.
-		if err != nil {
-			return graphql.NewWeaviateGraphqlPostUnprocessableEntity()
+		if marshallErr != nil {
+			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
-
-		messaging.DebugMessage("Ending GraphQL resolving")
 
 		// Return the response
 		return graphql.NewWeaviateGraphqlPostOK().WithPayload(graphQLResponse)
@@ -1366,13 +1367,10 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
 	}
 
-	// Init the GraphQL schema
-	graphQLSchema = graphqlapi.NewGraphQLSchema(dbConnector, serverConfig, &databaseSchema, messaging)
+	graphQL, err = graphqlapi.CreateSchema(&dbConnector, serverConfig, &databaseSchema, messaging)
 
-	// Error init
-	errInitGQL := graphQLSchema.InitSchema()
-	if errInitGQL != nil {
-		messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+errInitGQL.Error())
+	if err != nil {
+		messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+err.Error())
 	}
 }
 
@@ -1405,6 +1403,10 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 func setupGlobalMiddleware(handler http.Handler) http.Handler {
+	handleCORS := cors.Default().Handler
+	handler = handleCORS(handler)
+	handler = graphiql.AddMiddleware(handler)
+
 	return addLogging(handler)
 }
 
