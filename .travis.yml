@@ -20,11 +20,12 @@ deploy:
       - master
       - develop
 go: 
-  # Always ONLY use latest Go version
-  - "1.10"
+  - "1.11rc1"
+env:
+  - GO111MODULE=on
 language: go
 install:  
-  - go get -t ./...
+  - go list -e $(go list -f '{{.Path}}' -m all)
 before_script:
   - sudo apt-get -qq -y update
   - sudo apt-get -qq -y install jq coreutils
