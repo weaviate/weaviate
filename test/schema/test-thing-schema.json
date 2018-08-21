@@ -68,7 +68,19 @@
                         "TestThing2"
                     ],
                     "description": "Value of testCref."
-                }, {
+                },
+                {
+                    "name": "testCref2",
+                    "keywords": [
+                      { "kind": "test", "weight": 1.0 },
+                      { "kind": "reference", "weight": 1.0 }
+                    ],
+                    "@dataType": [
+                        "TestThing2"
+                    ],
+                    "description": "Value of testCref."
+                },
+                {
                     "name": "testRandomType",
                     "@dataType": [
                         "string"
