@@ -48,3 +48,7 @@ func init() {
 
 	RootAuth = CreateAuth(RootApiKey, RootApiToken)
 }
+
+func GetWeaviateURL() string {
+	return fmt.Sprintf("%s://%s:%s", ServerScheme, ServerHost, ServerPort)
+}
