@@ -5,6 +5,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra"
 	"github.com/creativesoftwarefdn/weaviate/connectors/dataloader"
 	"github.com/creativesoftwarefdn/weaviate/connectors/foobar"
+	"github.com/creativesoftwarefdn/weaviate/connectors/janusgraph"
 	"github.com/creativesoftwarefdn/weaviate/connectors/kvcache"
 )
 
@@ -14,6 +15,7 @@ func GetAllConnectors() []dbconnector.DatabaseConnector {
 	connectors := []dbconnector.DatabaseConnector{
 		&foobar.Foobar{},
 		&cassandra.Cassandra{},
+		&janusgraph.Janusgraph{},
 	}
 
 	return connectors
