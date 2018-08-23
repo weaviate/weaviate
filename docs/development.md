@@ -18,17 +18,22 @@
 
 ## Dockerized development environment
 
-### Build and run Weaviate
+Want to quickly build & run the currently checked out version of weaviate?
+Check the instructions in the [docker-compose-dev.yml](../docker-compose-dev.yml) file.
 
-```
-docker build -f Dockerfile.dev -t weaviate/development .
-docker run --rm -p 8080:8080 weaviate/development
-```
+### Build and run the acceptance tests in Docker
+Be sure to run a weaviate instance backed by the schema in test/schema.
 
-
-### Build and run the acceptance tests
+Then run the acceptance tests:
 
 ```
 docker build -f Dockerfile.dev --target acceptance_test -t weaviate/acceptance_test .
 docker run --net=host --rm weaviate/acceptance_test -args -server-port=8080 -server-host=localhost -api-token=blah -api-key=blah
+```
+
+and the refactored (and faster, but incomplete) acceptance tests:
+
+```
+docker build -f Dockerfile.dev --target new_acceptance_test -t weaviate/new_acceptance_test .
+docker run --net=host --rm weaviate/new_acceptance_test -args -server-port=8080 -server-host=localhost -api-token=blah -api-key=blah
 ```

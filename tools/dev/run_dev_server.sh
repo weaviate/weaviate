@@ -3,7 +3,7 @@
 # Jump to root directory
 cd "$( dirname "${BASH_SOURCE[0]}" )"/../..
 
-vgo run ./cmd/weaviate-server \
+go run ./cmd/weaviate-server \
   --scheme http \
   --host "127.0.0.1" \
   --port 8080 \

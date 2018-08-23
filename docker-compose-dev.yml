@@ -1,0 +1,73 @@
+# With this compose file you'll be able to start a development version of Weaviate,
+# including it's backing database, contextionary, and demo data set.
+#
+# Usage:
+#   $ docker-compose -f docker-compose-dev.yml up
+#
+# You'll be able connect to Weaviate with the following key/token pair:
+# 
+#  Key:   657a48b9-e000-4d9a-b51d-69a0b621c1b9
+#  Token: 57ac8392-1ecc-4e17-9350-c9c866ac832b
+#
+# NOTE:
+#   If you abort the janusstack hard (not a clean shutdown), it won't come up again;
+#   destroy the containers and retry.
+version: '3.4'
+services:
+  weaviate:
+    image: weaviate/dev-server
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: development
+    depends_on:
+      - janus
+    network_mode: host
+    restart: on-failure:0
+  weaviate_demo_importer:
+    image: weaviate/demo_importer
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: data_importer
+    depends_on:
+      - weaviate
+    network_mode: host
+    restart: on-failure:0
+  janus:
+    image: janusgraph:0.2.0-hadoop2
+    build:
+      dockerfile: Dockerfile.janus
+      args:
+        version: 0.2.0
+        hadoop: hadoop2
+      context: ./tools/dev/janusgraph-docker/
+    ports:
+      - "8182:8182"
+      - "8184:8184"
+    depends_on:
+      - db
+      - index
+  db:
+    image: scylladb/scylla:2.0.1
+    ports:
+     # http://docs.scylladb.com/kb/posix/
+     # REST API
+     - "10000:10000"
+     # CQL ports (native_transport_port)
+     - "9042:9042"
+     # Thrift (rpc_port)
+     - "9160:9160"
+     # Internode
+     - "7000:7000"
+     - "7001:7001"
+     # JMX
+     - "7199:7199"
+     # Prometheus monitoring
+     - "9180:9180"
+     - "9100:9100"
+  index:
+    image: elasticsearch:5
+    ports:
+     - "9200:9200"
+     - "9300:9300"

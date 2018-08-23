@@ -1,0 +1,46 @@
+host: 0.0.0.0
+port: 8182
+threadPoolWorker: 1
+gremlinPool: 8
+scriptEvaluationTimeout: 30000
+serializedResponseTimeout: 30000
+#channelizer: org.apache.tinkerpop.gremlin.server.channel.HttpChannelizer
+channelizer: org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer
+graphs: {
+  graph: janusgraph.properties
+}
+plugins:
+  - janusgraph.imports
+scriptEngines: {
+  gremlin-groovy: {
+    imports: [java.lang.Math],
+    staticImports: [java.lang.Math.PI],
+    scripts: [scripts/empty-sample.groovy]},
+  gremlin-python: {}}
+serializers:
+  - { className: org.apache.tinkerpop.gremlin.driver.ser.GryoMessageSerializerV1d0, config: { useMapperFromGraph: graph }}
+  - { className: org.apache.tinkerpop.gremlin.driver.ser.GryoMessageSerializerV1d0, config: { serializeResultToString: true }}
+  - { className: org.apache.tinkerpop.gremlin.driver.ser.GraphSONMessageSerializerGremlinV1d0, config: { useMapperFromGraph: graph }}
+  - { className: org.apache.tinkerpop.gremlin.driver.ser.GraphSONMessageSerializerGremlinV2d0, config: { useMapperFromGraph: graph }}
+  - { className: org.apache.tinkerpop.gremlin.driver.ser.GraphSONMessageSerializerV1d0, config: { useMapperFromGraph: graph }}
+  - { className: org.apache.tinkerpop.gremlin.driver.ser.GraphSONMessageSerializerV2d0, config: { useMapperFromGraph: graph }}
+processors:
+  - { className: org.apache.tinkerpop.gremlin.server.op.session.SessionOpProcessor, config: { sessionTimeout: 28800000 }}
+metrics: {
+  consoleReporter: {enabled: false, interval: 180000},
+  csvReporter: {enabled: false, interval: 180000, fileName: /tmp/gremlin-server-metrics.csv},
+  jmxReporter: {enabled: false},
+  slf4jReporter: {enabled: true, interval: 180000},
+  gangliaReporter: {enabled: false, interval: 180000, addressingMode: MULTICAST},
+  graphiteReporter: {enabled: false, interval: 180000}}
+threadPoolBoss: 1
+maxInitialLineLength: 4096
+maxHeaderSize: 8192
+maxChunkSize: 8192
+maxContentLength: 65536
+maxAccumulationBufferComponents: 1024
+resultIterationBatchSize: 64
+writeBufferHighWaterMark: 32768
+writeBufferHighWaterMark: 65536
+ssl: {
+  enabled: false}
