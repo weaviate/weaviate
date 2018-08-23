@@ -124,7 +124,7 @@ func createThings() {
 
 	// The things might not be persisted in the database yet.
 	// So as a _very_ _ugly_ _hack_, we sleep for 1 second to give the weaviate instance enough time to persist everything to the backing database.
-	time.Sleep(1 * time.Second)
+	time.Sleep(10 * time.Second)
 
 	// Now fix up refs
 	op := "add"
