@@ -59,9 +59,7 @@ services:
         version: 0.2.0
         hadoop: hadoop2
       context: ./tools/dev/janusgraph-docker/
-    ports:
-      - "8182:8182"
-      - "8184:8184"
+    network_mode: host
     depends_on:
       - db
       - index
