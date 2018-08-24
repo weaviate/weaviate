@@ -125,11 +125,34 @@ func createThings() {
 		fmt.Printf("Created Thing %s\n", thing.ThingID)
 	}
 
-	// The things might not be persisted in the database yet.
-	// So as a _very_ _ugly_ _hack_, we sleep for 1 second to give the weaviate instance enough time to persist everything to the backing database.
-	var waitSecondsUntilSettled time.Duration = 30 * time.Second
-	fmt.Printf("Done! Now waiting for %v to settle\n", waitSecondsUntilSettled)
-	time.Sleep(waitSecondsUntilSettled)
+	fmt.Printf("Checking if all things that need a patch are created.\n")
+	for {
+		allExist := true
+
+		for _, fixup := range fixups {
+			if !checkThingExists(idMap[fixup.fromId]) {
+				allExist = false
+				fmt.Printf("From does not exist! %v\n", idMap[fixup.fromId])
+			}
+			if !checkThingExists(idMap[fixup.toId]) {
+				allExist = false
+				fmt.Printf("To does not exist! %v\n", idMap[fixup.toId])
+				break
+			}
+		}
+
+		if allExist {
+			fmt.Printf("Everything that needs to be patched exists!\n")
+			break
+		} else {
+			fmt.Printf("Not everything that needs to be patched exists\n")
+
+			var waitSecondsUntilSettled time.Duration = 2 * time.Second
+			fmt.Printf("Waiting for %v to settle\n", waitSecondsUntilSettled)
+			time.Sleep(waitSecondsUntilSettled)
+			continue
+		}
+	}
 
 	// Now fix up refs
 	op := "add"
@@ -149,6 +172,22 @@ func createThings() {
 		assertPatchThing(idMap[fixup.fromId], patch)
 		fmt.Printf("Patched %s\n", idMap[fixup.fromId])
 	}
+}
+
+func checkThingExists(id string) bool {
+	params := things.NewWeaviateThingsGetParams().WithThingID(strfmt.UUID(id))
+	resp, err := client.Things.WeaviateThingsGet(params, auth)
+
+	if err != nil {
+		switch v := err.(type) {
+		case *things.WeaviateThingsGetNotFound:
+			return false
+		default:
+			panic(fmt.Sprintf("Can't create thing %#v, because %#v", resp, spew.Sdump(v)))
+		}
+	}
+
+	return true
 }
 
 func findClass(schema *models.SemanticSchema, className string) *models.SemanticSchemaClass {
