@@ -8,8 +8,10 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -24,8 +26,8 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-const ROOTTOKEN string = "57ac8392-1ecc-4e17-9350-c9c866ac832b"
-const ROOTKEY string = "657a48b9-e000-4d9a-b51d-69a0b621c1b9"
+var APITOKEN string
+var APIKEY string
 
 // Schema of a weaviate database.
 type Schema struct {
@@ -34,6 +36,7 @@ type Schema struct {
 }
 
 var schema Schema
+var weaviateUrl url.URL
 
 type DemoDataset struct {
 	Things []DemoInstance `json:"Things"`
@@ -124,7 +127,9 @@ func createThings() {
 
 	// The things might not be persisted in the database yet.
 	// So as a _very_ _ugly_ _hack_, we sleep for 1 second to give the weaviate instance enough time to persist everything to the backing database.
-	time.Sleep(10 * time.Second)
+	var waitSecondsUntilSettled time.Duration = 30 * time.Second
+	fmt.Printf("Done! Now waiting for %v to settle\n", waitSecondsUntilSettled)
+	time.Sleep(waitSecondsUntilSettled)
 
 	// Now fix up refs
 	op := "add"
@@ -225,16 +230,28 @@ func initSchema() {
 }
 
 func initClient() {
-	transport := httptransport.New("localhost:8080", "/weaviate/v1", []string{"http"})
+	var weaviateUrlString string
+	flag.StringVar(&weaviateUrlString, "weaviate-url", "http://localhost:8080/weaviate/v1/", "The address where weaviate can be reached")
+	flag.StringVar(&APIKEY, "api-key", "657a48b9-e000-4d9a-b51d-69a0b621c1b9", "The key used to connect to weaviate")
+	flag.StringVar(&APITOKEN, "api-token", "57ac8392-1ecc-4e17-9350-c9c866ac832b", "The token used to authenticate the key")
+	flag.Parse()
+
+	weaviateUrl, err := url.Parse(weaviateUrlString)
+
+	if err != nil {
+		panic("URL provided is illegal")
+	}
+
+	transport := httptransport.New(weaviateUrl.Host, weaviateUrl.RequestURI(), []string{weaviateUrl.Scheme})
 	client = apiclient.New(transport, strfmt.Default)
 
 	auth = func(r runtime.ClientRequest, _ strfmt.Registry) error {
-		err := r.SetHeaderParam("X-API-KEY", ROOTKEY)
+		err := r.SetHeaderParam("X-API-KEY", APIKEY)
 		if err != nil {
 			return err
 		}
 
-		return r.SetHeaderParam("X-API-TOKEN", ROOTTOKEN)
+		return r.SetHeaderParam("X-API-TOKEN", APITOKEN)
 	}
 }
 
