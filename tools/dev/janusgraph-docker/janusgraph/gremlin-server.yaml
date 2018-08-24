@@ -4,19 +4,17 @@ threadPoolWorker: 1
 gremlinPool: 8
 scriptEvaluationTimeout: 30000
 serializedResponseTimeout: 30000
-#channelizer: org.apache.tinkerpop.gremlin.server.channel.HttpChannelizer
 channelizer: org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer
 graphs: {
   graph: janusgraph.properties
 }
 plugins:
   - janusgraph.imports
-scriptEngines: {
-  gremlin-groovy: {
-    imports: [java.lang.Math],
-    staticImports: [java.lang.Math.PI],
-    scripts: [scripts/empty-sample.groovy]},
-  gremlin-python: {}}
+scriptEngines:
+  gremlin-groovy:
+    imports: [java.lang.Math]
+    staticImports: [java.lang.Math.PI]
+    scripts: [scripts/empty-sample.groovy]
 serializers:
   - { className: org.apache.tinkerpop.gremlin.driver.ser.GryoMessageSerializerV1d0, config: { useMapperFromGraph: graph }}
   - { className: org.apache.tinkerpop.gremlin.driver.ser.GryoMessageSerializerV1d0, config: { serializeResultToString: true }}
@@ -42,5 +40,5 @@ maxAccumulationBufferComponents: 1024
 resultIterationBatchSize: 64
 writeBufferHighWaterMark: 32768
 writeBufferHighWaterMark: 65536
-ssl: {
-  enabled: false}
+ssl:
+  enabled: false

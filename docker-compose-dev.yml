@@ -39,17 +39,18 @@ services:
       target: development
     depends_on:
       - janus
-    network_mode: host
     restart: on-failure:0
+    ports:
+     - "8080:8080"
   weaviate_demo_importer:
     image: weaviate/demo_importer
+    command: ["-weaviate-url", "http://weaviate:8080/weaviate/v1/"]
     build:
       context: .
       dockerfile: Dockerfile.dev
       target: data_importer
     depends_on:
       - weaviate
-    network_mode: host
     restart: on-failure:0
   janus:
     image: janusgraph:0.2.0-hadoop2
@@ -59,10 +60,12 @@ services:
         version: 0.2.0
         hadoop: hadoop2
       context: ./tools/dev/janusgraph-docker/
-    network_mode: host
     depends_on:
       - db
       - index
+    ports:
+     - "8182:8182"
+     - "8184:8184"
   db:
     image: scylladb/scylla:2.0.1
     ports:
@@ -81,8 +84,12 @@ services:
      # Prometheus monitoring
      - "9180:9180"
      - "9100:9100"
+    volumes:
+     - ./data/scylla/data:/var/lib/scylla
   index:
     image: elasticsearch:5
     ports:
      - "9200:9200"
      - "9300:9300"
+    volumes:
+     - ./data/elasticsearch/data:/usr/share/elasticsearch/data
