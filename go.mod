@@ -4,7 +4,7 @@ require (
 	github.com/PuerkitoBio/purell v1.1.0 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20180720115003-f9ffefc3facf // indirect
-	github.com/davecgh/go-spew v1.1.0 // indirect
+	github.com/davecgh/go-spew v1.1.0
 	github.com/docker/go-units v0.3.3 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.1.1
 	github.com/evanphx/json-patch v3.0.0+incompatible
@@ -35,6 +35,7 @@ require (
 	github.com/pborman/uuid v0.0.0-20180122190007-c65b2f87fee3 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/qasaur/gremgo v0.0.0-20180719101618-fa23ada7c5da
+	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
 	github.com/sirupsen/logrus v1.0.6
 	github.com/stretchr/objx v0.1.1 // indirect
