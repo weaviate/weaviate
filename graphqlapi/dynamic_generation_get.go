@@ -20,31 +20,31 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
-// Build the dynamically generated ConvertedFetch Actions part of the schema
-func genActionClassFieldsFromSchema(g *GraphQL, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
+// Build the dynamically generated Get Actions part of the schema
+func genActionClassFieldsFromSchema(g *GraphQL, getActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
 	actionClassFields := graphql.Fields{}
 
 	for _, class := range g.databaseSchema.ActionSchema.Schema.Classes {
-		singleActionClassField, singleActionClassObject := genSingleActionClassField(class, convertedFetchActionsAndThings)
+		singleActionClassField, singleActionClassObject := genSingleActionClassField(class, getActionsAndThings)
 		actionClassFields[class.Class] = singleActionClassField
 		// this line assigns the created class to a Hashmap which is used in thunks to handle cyclical relationships (Classes with other Classes as properties)
-		(*convertedFetchActionsAndThings)[class.Class] = singleActionClassObject
+		(*getActionsAndThings)[class.Class] = singleActionClassObject
 	}
 
-	localConvertedFetchActions := graphql.ObjectConfig{
-		Name:        "WeaviateLocalConvertedFetchActionsObj",
+	localGetActions := graphql.ObjectConfig{
+		Name:        "WeaviateLocalGetActionsObj",
 		Fields:      actionClassFields,
-		Description: "Fetch Actions on the internal Weaviate",
+		Description: "Type of Actions i.e. Actions classes on the Local Weaviate",
 	}
 
-	return graphql.NewObject(localConvertedFetchActions), nil
+	return graphql.NewObject(localGetActions), nil
 }
 
-func genSingleActionClassField(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object) {
+func genSingleActionClassField(class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object) {
 	singleActionClassPropertyFields := graphql.ObjectConfig{
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
-			singleActionClassPropertyFields, err := genSingleActionClassPropertyFields(class, convertedFetchActionsAndThings)
+			singleActionClassPropertyFields, err := genSingleActionClassPropertyFields(class, getActionsAndThings)
 
 			if err != nil {
 				panic("Failed to generate single Action Class property fields")
@@ -52,20 +52,21 @@ func genSingleActionClassField(class *models.SemanticSchemaClass, convertedFetch
 
 			return singleActionClassPropertyFields
 		}),
-		Description: "Type of fetch on the internal Weaviate",
+		Description: class.Description,
 	}
 
 	singleActionClassPropertyFieldsObj := graphql.NewObject(singleActionClassPropertyFields)
+
 	singleActionClassPropertyFieldsField := &graphql.Field{
 		Type:        graphql.NewList(singleActionClassPropertyFieldsObj),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
-			"_limit": &graphql.ArgumentConfig{
-				Description: "define the max returned values",
+			"first": &graphql.ArgumentConfig{
+				Description: "Pagination option, show the first x results",
 				Type:        graphql.Int,
 			},
-			"_skip": &graphql.ArgumentConfig{
-				Description: "define the amount of values to skip",
+			"after": &graphql.ArgumentConfig{
+				Description: "Pagination option, show the results after the first x results",
 				Type:        graphql.Int,
 			},
 		},
@@ -76,7 +77,7 @@ func genSingleActionClassField(class *models.SemanticSchemaClass, convertedFetch
 	return singleActionClassPropertyFieldsField, singleActionClassPropertyFieldsObj
 }
 
-func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (graphql.Fields, error) {
+func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object) (graphql.Fields, error) {
 	singleActionClassPropertyFields := graphql.Fields{}
 
 	for _, property := range class.Properties {
@@ -91,7 +92,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, conve
 			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
 
 			for index, dataType := range property.AtDataType {
-				thingOrActionType, ok := (*convertedFetchActionsAndThings)[dataType]
+				thingOrActionType, ok := (*getActionsAndThings)[dataType]
 
 				if !ok {
 					return nil, fmt.Errorf("No such thing/action class '%s'", property.AtDataType[index])
@@ -119,7 +120,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, conve
 				},
 			}
 		} else {
-			convertedDataType, err := handleConvertedFetchNonObjectDataTypes(*propertyType, property)
+			convertedDataType, err := handleGetNonObjectDataTypes(*propertyType, property)
 
 			if err != nil {
 				return nil, err
@@ -129,40 +130,48 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, conve
 		}
 	}
 
+	singleActionClassPropertyFields["uuid"] = &graphql.Field{
+		Description: "UUID of the action given by the local Weaviate instance",
+		Type:        graphql.String,
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			return nil, fmt.Errorf("Not supported")
+		},
+	}
+
 	return singleActionClassPropertyFields, nil
 }
 
-// Build the dynamically generated ConvertedFetch Things part of the schema
-func genThingClassFieldsFromSchema(g *GraphQL, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
+// Build the dynamically generated Get Things part of the schema
+func genThingClassFieldsFromSchema(g *GraphQL, getActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
 	thingClassFields := graphql.Fields{}
 
 	for _, class := range g.databaseSchema.ThingSchema.Schema.Classes {
-		singleThingClassField, singleThingClassObject := genSingleThingClassField(class, convertedFetchActionsAndThings)
+		singleThingClassField, singleThingClassObject := genSingleThingClassField(class, getActionsAndThings)
 		thingClassFields[class.Class] = singleThingClassField
 		// this line assigns the created class to a Hashmap which is used in thunks to handle cyclical relationships (Classes with other Classes as properties)
-		(*convertedFetchActionsAndThings)[class.Class] = singleThingClassObject
+		(*getActionsAndThings)[class.Class] = singleThingClassObject
 	}
 
-	localConvertedFetchThings := graphql.ObjectConfig{
-		Name:        "WeaviateLocalConvertedFetchThingsObj",
+	localGetThings := graphql.ObjectConfig{
+		Name:        "WeaviateLocalGetThingsObj",
 		Fields:      thingClassFields,
-		Description: "Fetch Things on the internal Weaviate",
+		Description: "Type of Things i.e. Things classes on the Local Weaviate", // TODO ie or eg?
 	}
 
-	return graphql.NewObject(localConvertedFetchThings), nil
+	return graphql.NewObject(localGetThings), nil
 }
 
-func genSingleThingClassField(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object) {
+func genSingleThingClassField(class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object) {
 	singleThingClassPropertyFieldsObj := graphql.ObjectConfig{
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
-			singleThingClassPropertyFields, err := genSingleThingClassPropertyFields(class, convertedFetchActionsAndThings)
+			singleThingClassPropertyFields, err := genSingleThingClassPropertyFields(class, getActionsAndThings)
 			if err != nil {
 				panic(fmt.Errorf("Failed to assemble single Thing Class field for Class %s", class.Class))
 			}
 			return singleThingClassPropertyFields
 		}),
-		Description: "Type of fetch on the internal Weaviate",
+		Description: class.Description,
 	}
 
 	thingClassPropertyFieldsObject := graphql.NewObject(singleThingClassPropertyFieldsObj)
@@ -170,12 +179,12 @@ func genSingleThingClassField(class *models.SemanticSchemaClass, convertedFetchA
 		Type:        graphql.NewList(thingClassPropertyFieldsObject),
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
-			"_limit": &graphql.ArgumentConfig{
-				Description: "define the max returned values",
+			"first": &graphql.ArgumentConfig{
+				Description: "Pagination option, show the first x results",
 				Type:        graphql.Int,
 			},
-			"_skip": &graphql.ArgumentConfig{
-				Description: "define the amount of values to skip",
+			"after": &graphql.ArgumentConfig{
+				Description: "Pagination option, show the results after the first x results",
 				Type:        graphql.Int,
 			},
 		},
@@ -186,7 +195,7 @@ func genSingleThingClassField(class *models.SemanticSchemaClass, convertedFetchA
 	return thingClassPropertyFieldsField, thingClassPropertyFieldsObject
 }
 
-func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, convertedFetchActionsAndThings *map[string]*graphql.Object) (graphql.Fields, error) {
+func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object) (graphql.Fields, error) {
 	singleThingClassPropertyFields := graphql.Fields{}
 
 	for _, property := range class.Properties {
@@ -202,7 +211,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, conver
 			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
 
 			for index, dataType := range property.AtDataType {
-				thingOrActionType, ok := (*convertedFetchActionsAndThings)[dataType]
+				thingOrActionType, ok := (*getActionsAndThings)[dataType]
 
 				if !ok {
 					return nil, fmt.Errorf("No such thing/action class '%s'", property.AtDataType[index])
@@ -230,7 +239,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, conver
 				},
 			}
 		} else {
-			convertedDataType, err := handleConvertedFetchNonObjectDataTypes(*propertyType, property)
+			convertedDataType, err := handleGetNonObjectDataTypes(*propertyType, property)
 
 			if err != nil {
 				return nil, err
@@ -239,10 +248,19 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, conver
 			singleThingClassPropertyFields[property.Name] = convertedDataType
 		}
 	}
+
+	singleThingClassPropertyFields["uuid"] = &graphql.Field{
+		Description: "UUID of the thing given by the local Weaviate instance",
+		Type:        graphql.String,
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			return nil, fmt.Errorf("Not supported")
+		},
+	}
+
 	return singleThingClassPropertyFields, nil
 }
 
-func handleConvertedFetchNonObjectDataTypes(dataType schema.DataType, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
+func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
 
 	switch dataType {
 
