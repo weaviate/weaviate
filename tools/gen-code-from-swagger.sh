@@ -19,4 +19,4 @@ fi
 (cd $DIR/..; $SWAGGER generate client --spec=openapi-specs/schema.json --default-scheme=https)
 
 # Now add the header to the generated code too.
-$DIR/add_header.sh
+$DIR/add_header.py
