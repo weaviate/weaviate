@@ -20,7 +20,7 @@ deploy:
       - master
       - develop
 go: 
-  - "1.11rc1"
+  - "1.11"
 env:
   - GO111MODULE=on
 language: go
