@@ -210,3 +210,23 @@ func (d *Datum) AssertEdge() *Edge {
 
 	return v
 }
+
+func (d *Datum) AssertStringSlice() []string {
+	var stringSlice []string
+	slice, ok := d.Datum.([]interface{})
+
+	if !ok {
+		panic("Expected this datum to be a slice")
+	}
+
+	for _, mightBeStr := range slice {
+		str, ok := mightBeStr.(string)
+		if !ok {
+			panic("epxected this to be a string of slices")
+		}
+
+		stringSlice = append(stringSlice, str)
+	}
+
+	return stringSlice
+}

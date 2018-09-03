@@ -130,7 +130,6 @@ func (f *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingRespon
 	}
 
 	if len(result.Data) == 0 {
-		fmt.Printf("\n\n\n\n\n\n\n\nNOTHING FOUND\n\n\n\n\n")
 		return errors.New(connutils.StaticThingNotFound)
 	}
 
@@ -164,7 +163,7 @@ func (f *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, respons
 		var thing_response models.ThingGetResponse
 		err := f.GetThing(ctx, uuid, &thing_response)
 
-		if err != nil {
+		if err == nil {
 			response.TotalResults += 1
 			response.Things = append(response.Things, &thing_response)
 		} else {
@@ -176,10 +175,41 @@ func (f *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, respons
 }
 
 // TODO check
-func (f *Janusgraph) ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
+func (f *Janusgraph) ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
+
 	if len(wheres) > 0 {
-		panic("Wheres are not supported in LisThings")
+		return errors.New("Wheres are not supported in LisThings")
 	}
+
+	q := gremlin.G.V().
+		HasLabel(THING_LABEL).
+		Range(offset, first).
+		Values([]string{"uuid"})
+
+	result, err := f.client.Execute(q)
+
+	if err != nil {
+		return err
+	}
+
+	response.TotalResults = 0
+	response.Things = make([]*models.ThingGetResponse, 0)
+
+	// Get the UUIDs from the first query.
+	UUIDs := result.AssertStringSlice()
+
+	for _, uuid := range UUIDs {
+		var thing_response models.ThingGetResponse
+		err := f.GetThing(ctx, strfmt.UUID(uuid), &thing_response)
+
+		if err == nil {
+			response.TotalResults += 1
+			response.Things = append(response.Things, &thing_response)
+		} else {
+			// skip silently; it's probably deleted.
+		}
+	}
+
 	return nil
 }
 
