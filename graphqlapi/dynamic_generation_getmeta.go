@@ -22,8 +22,8 @@ import (
 
 const propertyType string = "Datatype of the property"
 const propertyCount string = "Total amount of found instances"
-const propertyTopOccurrences string = "Most frequent property values"
-const propertyTopOccurrencesValue string = "Property value of the most frequent properties" // TODO reword this? // the most frequently occurring value of this property in the data set
+const propertyTopOccurrences string = "Object for the most frequent property values"
+const propertyTopOccurrencesValue string = "The most frequently occurring value of this property in the dataset"
 const propertyTopOccurrencesOccurs string = "Number of occurrence of this property value"
 const propertyLowest string = "Lowest value found in the dataset for this property"
 const propertyHighest string = "Highest value found in the dataset for this property"
@@ -42,7 +42,7 @@ func genMetaClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, 
 	}
 
 	for _, class := range databaseSchema {
-		field, err := genMetaSingleClassField(class, description)
+		field, err := genMetaSingleClassField(class, class.Description)
 
 		if err != nil {
 			return nil, err
@@ -60,10 +60,8 @@ func genMetaClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, 
 	return graphql.NewObject(localGetMetaClasses), nil
 }
 
-// TODO WeaviateLocalGetMetaThingsObj has no description in the prototype
-
 func genMetaSingleClassField(class *models.SemanticSchemaClass, description string) (*graphql.Field, error) {
-	metaClassName := fmt.Sprintf("%s%s", "Meta", class.Class)
+	metaClassName := fmt.Sprintf("%s%s", "Meta", class.Class) // TODO description
 
 	singleClassPropertyFields := graphql.ObjectConfig{
 		Name: metaClassName,
@@ -106,7 +104,7 @@ func genMetaSingleClassPropertyFields(class *models.SemanticSchemaClass) (graphq
 	metaPropertyObj := genMetaPropertyObj(class)
 
 	metaPropertyObjField := &graphql.Field{
-		Description: "Meta information about class object",
+		Description: "Meta information about a class object and its (filtered) objects",
 		Type:        metaPropertyObj,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return nil, fmt.Errorf("Not supported")
@@ -211,7 +209,7 @@ func genMetaClassStringPropertyFields(class *models.SemanticSchemaClass, propert
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "Type"),
 			Description: propertyType,
-			Type:        graphql.Int,
+			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
@@ -230,6 +228,16 @@ func genMetaClassStringPropertyFields(class *models.SemanticSchemaClass, propert
 			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "TopOccurrences"),
 			Description: propertyTopOccurrences,
 			Type:        graphql.NewList(topOccurrencesFields),
+			Args: graphql.FieldConfigArgument{
+				"first": &graphql.ArgumentConfig{
+					Description: "Pagination option, show the first x results",
+					Type:        graphql.Int,
+				},
+				"after": &graphql.ArgumentConfig{
+					Description: "Pagination option, show the results after the first x results",
+					Type:        graphql.Int,
+				},
+			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
@@ -260,7 +268,7 @@ func genMetaClassStringPropertyTopOccurrencesFields(class *models.SemanticSchema
 		"occurs": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TopOccurrencesOccurs"),
 			Description: propertyTopOccurrencesOccurs,
-			Type:        graphql.String,
+			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
@@ -282,7 +290,7 @@ func genMetaClassIntPropertyFields(class *models.SemanticSchemaClass, property *
 		"sum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Sum"),
 			Description: propertySum,
-			Type:        graphql.Int,
+			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
@@ -300,7 +308,7 @@ func genMetaClassIntPropertyFields(class *models.SemanticSchemaClass, property *
 		"lowest": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Lowest"),
 			Description: propertyLowest,
-			Type:        graphql.Int,
+			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
@@ -309,7 +317,7 @@ func genMetaClassIntPropertyFields(class *models.SemanticSchemaClass, property *
 		"highest": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Highest"),
 			Description: propertyHighest,
-			Type:        graphql.Int,
+			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
@@ -433,14 +441,14 @@ func genMetaClassBooleanPropertyFields(class *models.SemanticSchemaClass, proper
 
 		"totalTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TotalTrue"),
-			Description: "Total amount of boolean value is true in the dataset for this property", // TODO //"total amount of boolean values that are true",
+			Description: "The amount of times this property's value is true in the dataset",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
 		},
 
-		"percentageTrue": &graphql.Field{ // TODO this does not have a description in the prototype
+		"percentageTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "PercentageTrue"),
 			Description: "Percentage of boolean values that is true",
 			Type:        graphql.Float,
@@ -487,6 +495,16 @@ func genMetaClassDatePropertyFields(class *models.SemanticSchemaClass, property 
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TopOccurrences"),
 			Description: propertyTopOccurrences,
 			Type:        graphql.NewList(topOccurrencesFields),
+			Args: graphql.FieldConfigArgument{
+				"first": &graphql.ArgumentConfig{
+					Description: "Pagination option, show the first x results",
+					Type:        graphql.Int,
+				},
+				"after": &graphql.ArgumentConfig{
+					Description: "Pagination option, show the results after the first x results",
+					Type:        graphql.Int,
+				},
+			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
@@ -517,7 +535,7 @@ func genMetaClassDatePropertyTopOccurrencesFields(class *models.SemanticSchemaCl
 		"occurs": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TopOccurrencesOccurs"),
 			Description: propertyTopOccurrencesOccurs,
-			Type:        graphql.String,
+			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
 			},
@@ -578,7 +596,7 @@ func genMetaPropertyObj(class *models.SemanticSchemaClass) *graphql.Object {
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaCount"),
-			Description: "How many class instances are there",
+			Description: "The amount of instances of the class there are",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")
@@ -589,7 +607,7 @@ func genMetaPropertyObj(class *models.SemanticSchemaClass) *graphql.Object {
 	metaPropertyFields := graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaObj"),
 		Fields:      getMetaPropertyFields,
-		Description: "Meta information about class object",
+		Description: "Meta information about a class object and its (filtered) objects",
 	}
 
 	return graphql.NewObject(metaPropertyFields)

@@ -142,7 +142,7 @@ func genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Ob
 	getThingsAndActionFieldsObject := graphql.ObjectConfig{
 		Name:        "WeaviateLocalGetObj",
 		Fields:      getThingsAndActionFields,
-		Description: "Type of Get function to get Things on the Local Weaviate",
+		Description: "Type of Get function to get Things or Actions on the Local Weaviate",
 	}
 
 	return graphql.NewObject(getThingsAndActionFieldsObject)
@@ -173,7 +173,7 @@ func genThingsAndActionsFieldsForWeaviateLocalGetMetaObj(localGetMetaActions *gr
 	getMetaThingsAndActionFieldsObject := graphql.ObjectConfig{
 		Name:        "WeaviateLocalGetMetaObj",
 		Fields:      getMetaThingsAndActionFields,
-		Description: "Type of meta function to get meta information",
+		Description: "Type of Get function to get meta information about Things or Actions on the Local Weaviate",
 	}
 
 	return graphql.NewObject(getMetaThingsAndActionFieldsObject)

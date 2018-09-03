@@ -34,7 +34,7 @@ func genActionClassFieldsFromSchema(g *GraphQL, getActionsAndThings *map[string]
 	localGetActions := graphql.ObjectConfig{
 		Name:        "WeaviateLocalGetActionsObj",
 		Fields:      actionClassFields,
-		Description: "Type of Actions i.e. Actions classes on the Local Weaviate",
+		Description: "Type of Actions i.e. Actions classes to Get on the Local Weaviate",
 	}
 
 	return graphql.NewObject(localGetActions), nil
@@ -155,7 +155,7 @@ func genThingClassFieldsFromSchema(g *GraphQL, getActionsAndThings *map[string]*
 	localGetThings := graphql.ObjectConfig{
 		Name:        "WeaviateLocalGetThingsObj",
 		Fields:      thingClassFields,
-		Description: "Type of Things i.e. Things classes on the Local Weaviate", // TODO ie or eg?
+		Description: "Type of Things i.e. Things classes to Get on the Local Weaviate",
 	}
 
 	return graphql.NewObject(localGetThings), nil
