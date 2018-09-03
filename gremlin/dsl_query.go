@@ -47,6 +47,21 @@ func (q *Query) Select(refs []string) *Query {
 	return extend_query(q, ".select(%s)", strings.Join(sanitized, ","))
 }
 
+// Get the values of these property names.
+func (q *Query) Values(propNames []string) *Query {
+	sanitized := make([]string, 0)
+
+	for _, propName := range propNames {
+		sanitized = append(sanitized, fmt.Sprintf(`"%s"`, escapeString(propName)))
+	}
+
+	return extend_query(q, ".values(%s)", strings.Join(sanitized, ","))
+}
+
+func (q *Query) Range(offset int, limit int) *Query {
+	return extend_query(q, ".range(%d, %d)", offset, limit)
+}
+
 func (q *Query) AddV(label string) *Query {
 	return extend_query(q, `.addV("%s")`, escapeString(label))
 }

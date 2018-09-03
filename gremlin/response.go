@@ -31,6 +31,14 @@ func (r *Response) First() (*Datum, error) {
 	}
 }
 
+func (r *Response) AssertFirst() *Datum {
+	first, err := r.First()
+	if err != nil {
+		panic(err)
+	}
+	return first
+}
+
 // Check if the output of the query are all vertices.
 func (r *Response) Vertices() ([]Vertex, error) {
 	vertices := make([]Vertex, 0)
@@ -51,4 +59,19 @@ func (r *Response) Vertices() ([]Vertex, error) {
 func (r *Response) AssertEdgeSlice(from, to int) []*Edge {
 	// TODO
 	return nil
+}
+
+func (r *Response) AssertStringSlice() []string {
+	var stringSlice []string
+
+	for _, mightBeStr := range r.Data {
+		str, ok := mightBeStr.Datum.(string)
+		if !ok {
+			panic("epxected this to be a string of slices")
+		}
+
+		stringSlice = append(stringSlice, str)
+	}
+
+	return stringSlice
 }
