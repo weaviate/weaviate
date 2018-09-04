@@ -33,7 +33,9 @@ import (
 func Client(t *testing.T) *apiclient.WeaviateDecentralisedKnowledgeGraph {
 	transport := httptransport.New(fmt.Sprintf("%s:%s", ServerHost, ServerPort), "/weaviate/v1", []string{ServerScheme})
 
-	if t != nil {
+	// If a test case is provided, and we want to dump HTTP trafic,
+	// create a simple logger that logs HTTP trafic to the test case.
+	if t != nil && DebugHTTP {
 		transport.SetDebug(true)
 		transport.SetLogger(&testLogger{t: t})
 	}

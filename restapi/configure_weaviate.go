@@ -43,11 +43,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/auth"
 	"github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/config"
-	"github.com/creativesoftwarefdn/weaviate/connectors"
-	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra"
-	"github.com/creativesoftwarefdn/weaviate/connectors/dataloader"
-	"github.com/creativesoftwarefdn/weaviate/connectors/foobar"
-	"github.com/creativesoftwarefdn/weaviate/connectors/kvcache"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
+	dblisting "github.com/creativesoftwarefdn/weaviate/connectors/listing"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -158,33 +155,11 @@ func deleteKey(ctx context.Context, databaseConnector dbconnector.DatabaseConnec
 	}
 }
 
-// GetAllConnectors contains all available connectors
-func GetAllConnectors() []dbconnector.DatabaseConnector {
-	// Set all existing connectors
-	connectors := []dbconnector.DatabaseConnector{
-		&foobar.Foobar{},
-		&cassandra.Cassandra{},
-	}
-
-	return connectors
-}
-
-// GetAllCacheConnectors contains all available cache-connectors
-func GetAllCacheConnectors() []dbconnector.CacheConnector {
-	// Set all existing connectors
-	connectors := []dbconnector.CacheConnector{
-		&kvcache.KVCache{},
-		&dataloader.DataLoader{},
-	}
-
-	return connectors
-}
-
 // CreateDatabaseConnector gets the database connector by name from config
 func CreateDatabaseConnector(env *config.Environment) dbconnector.DatabaseConnector {
 	// Get all connectors
-	connectors := GetAllConnectors()
-	cacheConnectors := GetAllCacheConnectors()
+	connectors := dblisting.GetAllConnectors()
+	cacheConnectors := dblisting.GetAllCacheConnectors()
 
 	// Init the db-connector variable
 	var connector dbconnector.DatabaseConnector

@@ -110,7 +110,7 @@ func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
 		Type:        localMetaAndConvertedFetchObject,
 		Description: "Locate on the local Weaviate",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("Not supported")
+			return g.dbConnector, nil
 		},
 	}
 
