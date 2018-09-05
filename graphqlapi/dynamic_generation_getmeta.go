@@ -29,7 +29,7 @@ const propertyLowest string = "Lowest value found in the dataset for this proper
 const propertyHighest string = "Highest value found in the dataset for this property"
 const propertyAverage string = "Average value found in the dataset for this property"
 const propertySum string = "Sum of values found in the dataset for this property"
-const propertyObject string = "object for property meta information"
+const propertyObject string = "Object for property meta information"
 
 // Build the dynamically generated GetMeta Things part of the schema
 func genMetaClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, classParentTypeIsAction bool) (*graphql.Object, error) {
@@ -596,7 +596,7 @@ func genMetaPropertyObj(class *models.SemanticSchemaClass) *graphql.Object {
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaCount"),
-			Description: "The amount of instances of the class there are",
+			Description: "Total amount of found instances",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("Not supported")

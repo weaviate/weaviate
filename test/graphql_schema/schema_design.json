@@ -30,7 +30,7 @@
               "args": [
                 {
                   "name": "networkTimeout",
-                  "description": "the max time to request an answer from the network. It is the time in seconds",
+                  "description": "The max time to request an answer from the network. It is the time in seconds",
                   "type": {
                     "kind": "SCALAR",
                     "name": "Int",
@@ -128,7 +128,7 @@
             },
             {
               "name": "operands",
-              "description": "Operands in the 'where' filter field, is a list objects",
+              "description": "Operands in the 'where' filter field, is a list of objects",
               "type": {
                 "kind": "LIST",
                 "name": null,
@@ -267,7 +267,7 @@
         {
           "kind": "INPUT_OBJECT",
           "name": "WhereOperandsInpObj",
-          "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
+          "description": "Operands in the 'where' filter field, is a list of objects",
           "fields": null,
           "inputFields": [
             {
@@ -282,7 +282,7 @@
             },
             {
               "name": "operands",
-              "description": "Operands in the 'where' filter field, is a list objects",
+              "description": "Operands in the 'where' filter field, is a list of objects",
               "type": {
                 "kind": "LIST",
                 "name": null,
@@ -396,7 +396,7 @@
         {
           "kind": "OBJECT",
           "name": "WeaviateLocalGetObj",
-          "description": "Type of Get function to get Things on the Local Weaviate",
+          "description": "Type of Get function to get Things or Actions on the Local Weaviate",
           "fields": [
             {
               "name": "Things",
@@ -431,7 +431,7 @@
         {
           "kind": "OBJECT",
           "name": "WeaviateLocalGetThingsObj",
-          "description": "Type of Things i.e. Things classes on the Local Weaviate",
+          "description": "Type of Things i.e. Things classes to Get on the Local Weaviate",
           "fields": [
             {
               "name": "TestThing",
@@ -520,7 +520,7 @@
           "fields": [
             {
               "name": "uuid",
-              "description": "uuid of the thing given by the local Weaviate instance",
+              "description": "UUID of the thing or action given by the local Weaviate instance",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -643,7 +643,7 @@
           "fields": [
             {
               "name": "uuid",
-              "description": "uuid of the thing given by the local Weaviate instance",
+              "description": "UUID of the thing or action given by the local Weaviate instance",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -851,7 +851,7 @@
           "fields": [
             {
               "name": "uuid",
-              "description": "uuid of the thing given by the local Weaviate instance",
+              "description": "UUID of the thing or action given by the local Weaviate instance",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -962,7 +962,7 @@
           "fields": [
             {
               "name": "uuid",
-              "description": "uuid of the thing given by the local Weaviate instance",
+              "description": "UUID of the thing or action given by the local Weaviate instance",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1084,7 +1084,7 @@
             },
             {
               "name": "operands",
-              "description": "Operands in the 'where' filter field, is a list objects",
+              "description": "Operands in the 'where' filter field, is a list of objects",
               "type": {
                 "kind": "LIST",
                 "name": null,
@@ -1158,7 +1158,7 @@
         {
           "kind": "OBJECT",
           "name": "WeaviateLocalGetMetaObj",
-          "description": "Type of meta function to get meta information",
+          "description": "Type of Get function to get meta information about Things or Actions on the Local Weaviate",
           "fields": [
             {
               "name": "Things",
@@ -1193,7 +1193,7 @@
         {
           "kind": "OBJECT",
           "name": "WeaviateLocalGetMetaThingsObj",
-          "description": null,
+          "description": "Type of Things i.e. Things classes to GetMeta information of on the Local Weaviate",
           "fields": [
             {
               "name": "TestThing",
@@ -1377,11 +1377,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestThingMetaObj",
-          "description": "Object of the meta information about a class object and ts (filteered) objects",
+          "description": "Meta information about a class object and its (filtered) objects",
           "fields": [
             {
               "name": "count",
-              "description": "how many class instances are there",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1404,7 +1404,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1416,7 +1416,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1428,7 +1428,7 @@
             },
             {
               "name": "topOccurrences",
-              "description": "most frequent property values",
+              "description": "Object for the most frequent property values",
               "args": [
                 {
                   "name": "first",
@@ -1472,11 +1472,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestThingtestStringTopOccurrencesObj",
-          "description": "object for most frequent property values",
+          "description": "Object for the most frequent property values",
           "fields": [
             {
               "name": "value",
-              "description": "property value of the most frequent properties",
+              "description": "The most frequently occurring value of this property in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1488,7 +1488,7 @@
             },
             {
               "name": "occurs",
-              "description": "number of occurrence of this property value",
+              "description": "Number of occurrence of this property value",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1511,7 +1511,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1523,7 +1523,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1571,7 +1571,7 @@
             },
             {
               "name": "sum",
-              "description": "sum of values found in the dataset for this property",
+              "description": "Sum of values found in the dataset for this property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1594,7 +1594,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1606,7 +1606,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1618,7 +1618,7 @@
             },
             {
               "name": "totalTrue",
-              "description": "total amount of boolean value is true in the dataset for this property",
+              "description": "The amount of times this property's value is true in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1653,7 +1653,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1665,7 +1665,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1713,7 +1713,7 @@
             },
             {
               "name": "sum",
-              "description": "sum of values found in the dataset for this property",
+              "description": "Sum of values found in the dataset for this property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1736,7 +1736,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1748,7 +1748,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1760,7 +1760,7 @@
             },
             {
               "name": "topOccurrences",
-              "description": "most frequent property values",
+              "description": "Object for the most frequent property values",
               "args": [
                 {
                   "name": "first",
@@ -1804,11 +1804,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestThingtestDateTimeTopOccurrencesObj",
-          "description": "object for most frequent property values",
+          "description": "Object for the most frequent property values",
           "fields": [
             {
               "name": "value",
-              "description": "property value of the most frequent properties",
+              "description": "The most frequently occurring value of this property in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1820,7 +1820,7 @@
             },
             {
               "name": "occurs",
-              "description": "number of occurrence of this property value",
+              "description": "Number of occurrence of this property value",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1843,7 +1843,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1855,7 +1855,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1867,7 +1867,7 @@
             },
             {
               "name": "pointingTo",
-              "description": "to which other classes the object property is pointing to",
+              "description": "Which other classes the object property is pointing to",
               "args": [],
               "type": {
                 "kind": "LIST",
@@ -1894,7 +1894,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1906,7 +1906,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1918,7 +1918,7 @@
             },
             {
               "name": "topOccurrences",
-              "description": "most frequent property values",
+              "description": "Object for the most frequent property values",
               "args": [
                 {
                   "name": "first",
@@ -1962,11 +1962,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestThingtestRandomTypeTopOccurrencesObj",
-          "description": "object for most frequent property values",
+          "description": "Object for the most frequent property values",
           "fields": [
             {
               "name": "value",
-              "description": "property value of the most frequent properties",
+              "description": "The most frequently occurring value of this property in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1978,7 +1978,7 @@
             },
             {
               "name": "occurs",
-              "description": "number of occurrence of this property value",
+              "description": "Number of occurrence of this property value",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2104,11 +2104,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestThing2MetaObj",
-          "description": "Object of the meta information about a class object and ts (filteered) objects",
+          "description": "Meta information about a class object and its (filtered) objects",
           "fields": [
             {
               "name": "count",
-              "description": "how many class instances are there",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2131,7 +2131,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2143,7 +2143,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2155,7 +2155,7 @@
             },
             {
               "name": "topOccurrences",
-              "description": "most frequent property values",
+              "description": "Object for the most frequent property values",
               "args": [
                 {
                   "name": "first",
@@ -2199,11 +2199,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestThing2testStringTopOccurrencesObj",
-          "description": "object for most frequent property values",
+          "description": "Object for the most frequent property values",
           "fields": [
             {
               "name": "value",
-              "description": "property value of the most frequent properties",
+              "description": "The most frequently occurring value of this property in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2215,7 +2215,7 @@
             },
             {
               "name": "occurs",
-              "description": "number of occurrence of this property value",
+              "description": "Number of occurrence of this property value",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2238,7 +2238,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2250,7 +2250,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2298,7 +2298,7 @@
             },
             {
               "name": "sum",
-              "description": "sum of values found in the dataset for this property",
+              "description": "Sum of values found in the dataset for this property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2321,7 +2321,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2333,7 +2333,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2345,7 +2345,7 @@
             },
             {
               "name": "totalTrue",
-              "description": "total amount of boolean value is true in the dataset for this property",
+              "description": "The amount of times this property's value is true in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2380,7 +2380,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2392,7 +2392,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2440,7 +2440,7 @@
             },
             {
               "name": "sum",
-              "description": "sum of values found in the dataset for this property",
+              "description": "Sum of values found in the dataset for this property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2463,7 +2463,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2475,7 +2475,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2487,7 +2487,7 @@
             },
             {
               "name": "topOccurrences",
-              "description": "most frequent property values",
+              "description": "Object for the most frequent property values",
               "args": [
                 {
                   "name": "first",
@@ -2531,11 +2531,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestThing2testDateTimeTopOccurrencesObj",
-          "description": "object for most frequent property values",
+          "description": "Object for the most frequent property values",
           "fields": [
             {
               "name": "value",
-              "description": "property value of the most frequent properties",
+              "description": "The most frequently occurring value of this property in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2547,7 +2547,7 @@
             },
             {
               "name": "occurs",
-              "description": "number of occurrence of this property value",
+              "description": "Number of occurrence of this property value",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2570,7 +2570,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2582,7 +2582,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2594,7 +2594,7 @@
             },
             {
               "name": "pointingTo",
-              "description": "to which other classes the object property is pointing to",
+              "description": "Which other classes the object property is pointing to",
               "args": [],
               "type": {
                 "kind": "LIST",
@@ -2621,7 +2621,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2633,7 +2633,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2681,7 +2681,7 @@
             },
             {
               "name": "sum",
-              "description": "sum of values found in the dataset for this property",
+              "description": "Sum of values found in the dataset for this property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2872,11 +2872,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestActionMetaObj",
-          "description": "Object of the meta information about a class object and ts (filteered) objects",
+          "description": "Meta information about a class object and its (filtered) objects",
           "fields": [
             {
               "name": "count",
-              "description": "how many class instances are there",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2899,7 +2899,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2911,7 +2911,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2923,7 +2923,7 @@
             },
             {
               "name": "topOccurrences",
-              "description": "most frequent property values",
+              "description": "Object for the most frequent property values",
               "args": [
                 {
                   "name": "first",
@@ -2967,11 +2967,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestActiontestStringTopOccurrencesObj",
-          "description": "object for most frequent property values",
+          "description": "Object for the most frequent property values",
           "fields": [
             {
               "name": "value",
-              "description": "property value of the most frequent properties",
+              "description": "The most frequently occurring value of this property in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -2983,7 +2983,7 @@
             },
             {
               "name": "occurs",
-              "description": "number of occurrence of this property value",
+              "description": "Number of occurrence of this property value",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3006,7 +3006,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3018,7 +3018,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3066,7 +3066,7 @@
             },
             {
               "name": "sum",
-              "description": "sum of values found in the dataset for this property",
+              "description": "Sum of values found in the dataset for this property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3089,7 +3089,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3101,7 +3101,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3113,7 +3113,7 @@
             },
             {
               "name": "totalTrue",
-              "description": "total amount of boolean value is true in the dataset for this property",
+              "description": "The amount of times this property's value is true in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3148,7 +3148,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3160,7 +3160,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3208,7 +3208,7 @@
             },
             {
               "name": "sum",
-              "description": "sum of values found in the dataset for this property",
+              "description": "Sum of values found in the dataset for this property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3231,7 +3231,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3243,7 +3243,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3255,7 +3255,7 @@
             },
             {
               "name": "topOccurrences",
-              "description": "most frequent property values",
+              "description": "Object for the most frequent property values",
               "args": [
                 {
                   "name": "first",
@@ -3299,11 +3299,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestActiontestDateTimeTopOccurrencesObj",
-          "description": "object for most frequent property values",
+          "description": "Object for the most frequent property values",
           "fields": [
             {
               "name": "value",
-              "description": "property value of the most frequent properties",
+              "description": "The most frequently occurring value of this property in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3315,7 +3315,7 @@
             },
             {
               "name": "occurs",
-              "description": "number of occurrence of this property value",
+              "description": "Number of occurrence of this property value",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3338,7 +3338,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3350,7 +3350,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3362,7 +3362,7 @@
             },
             {
               "name": "pointingTo",
-              "description": "to which other classes the object property is pointing to",
+              "description": "Which other classes the object property is pointing to",
               "args": [],
               "type": {
                 "kind": "LIST",
@@ -3480,11 +3480,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestAction2MetaObj",
-          "description": "Object of the meta information about a class object and ts (filteered) objects",
+          "description": "Meta information about a class object and its (filtered) objects",
           "fields": [
             {
               "name": "count",
-              "description": "how many class instances are there",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3507,7 +3507,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3519,7 +3519,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3531,7 +3531,7 @@
             },
             {
               "name": "topOccurrences",
-              "description": "most frequent property values",
+              "description": "Object for the most frequent property values",
               "args": [
                 {
                   "name": "first",
@@ -3575,11 +3575,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestAction2testStringTopOccurrencesObj",
-          "description": "object for most frequent property values",
+          "description": "Object for the most frequent property values",
           "fields": [
             {
               "name": "value",
-              "description": "property value of the most frequent properties",
+              "description": "The most frequently occurring value of this property in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3591,7 +3591,7 @@
             },
             {
               "name": "occurs",
-              "description": "number of occurrence of this property value",
+              "description": "Number of occurrence of this property value",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3614,7 +3614,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3626,7 +3626,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3674,7 +3674,7 @@
             },
             {
               "name": "sum",
-              "description": "sum of values found in the dataset for this property",
+              "description": "Sum of values found in the dataset for this property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3697,7 +3697,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3709,7 +3709,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3721,7 +3721,7 @@
             },
             {
               "name": "totalTrue",
-              "description": "total amount of boolean value is true in the dataset for this property",
+              "description": "The amount of times this property's value is true in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3756,7 +3756,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3768,7 +3768,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3816,7 +3816,7 @@
             },
             {
               "name": "sum",
-              "description": "sum of values found in the dataset for this property",
+              "description": "Sum of values found in the dataset for this property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3839,7 +3839,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3851,7 +3851,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3863,7 +3863,7 @@
             },
             {
               "name": "topOccurrences",
-              "description": "most frequent property values",
+              "description": "Object for the most frequent property values",
               "args": [
                 {
                   "name": "first",
@@ -3907,11 +3907,11 @@
         {
           "kind": "OBJECT",
           "name": "MetaTestAction2testDateTimeTopOccurrencesObj",
-          "description": "object for most frequent property values",
+          "description": "Object for the most frequent property values",
           "fields": [
             {
               "name": "value",
-              "description": "property value of the most frequent properties",
+              "description": "The most frequently occurring value of this property in the dataset",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3923,7 +3923,7 @@
             },
             {
               "name": "occurs",
-              "description": "number of occurrence of this property value",
+              "description": "Number of occurrence of this property value",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3946,7 +3946,7 @@
           "fields": [
             {
               "name": "type",
-              "description": "datatype of the property",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3958,7 +3958,7 @@
             },
             {
               "name": "count",
-              "description": "total amount of found instances",
+              "description": "Total amount of found instances",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -3970,7 +3970,7 @@
             },
             {
               "name": "pointingTo",
-              "description": "to which other classes the object property is pointing to",
+              "description": "Which other classes the object property is pointing to",
               "args": [],
               "type": {
                 "kind": "LIST",
@@ -4038,13 +4038,9 @@
                   "name": "where",
                   "description": null,
                   "type": {
-                    "kind": "LIST",
-                    "name": null,
-                    "ofType": {
-                      "kind": "INPUT_OBJECT",
-                      "name": "NetworkFetchWhereInpObj",
-                      "ofType": null
-                    }
+                    "kind": "INPUT_OBJECT",
+                    "name": "NetworkFetchWhereInpObj",
+                    "ofType": null
                   },
                   "defaultValue": null
                 }
@@ -4069,13 +4065,9 @@
                   "name": "where",
                   "description": null,
                   "type": {
-                    "kind": "LIST",
-                    "name": null,
-                    "ofType": {
-                      "kind": "INPUT_OBJECT",
-                      "name": "NetworkFetchWhereInpObj",
-                      "ofType": null
-                    }
+                    "kind": "INPUT_OBJECT",
+                    "name": "NetworkFetchWhereInpObj",
+                    "ofType": null
                   },
                   "defaultValue": null
                 }
@@ -4685,7 +4677,7 @@
           "fields": [
             {
               "name": "className",
-              "description": "to filter on which class name",
+              "description": "To filter on which class name",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -4697,7 +4689,7 @@
             },
             {
               "name": "certainty",
-              "description": "to filter with which certainty from 0-1",
+              "description": "To filter with which certainty from 0-1",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -4771,7 +4763,7 @@
           "fields": [
             {
               "name": "className",
-              "description": "to filter on which class name",
+              "description": "To filter on which class name",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -4783,7 +4775,7 @@
             },
             {
               "name": "certainty",
-              "description": "to filter with which certainty from 0-1",
+              "description": "To filter with which certainty from 0-1",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -4822,7 +4814,7 @@
           "fields": [
             {
               "name": "className",
-              "description": "to filter on which class name",
+              "description": "To filter on which class name",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -4834,7 +4826,7 @@
             },
             {
               "name": "certainty",
-              "description": "to filter with which certainty from 0-1",
+              "description": "To filter with which certainty from 0-1",
               "args": [],
               "type": {
                 "kind": "SCALAR",
