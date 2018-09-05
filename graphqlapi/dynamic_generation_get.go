@@ -18,6 +18,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/graphql-go/graphql"
+	"strings"
 )
 
 // Build the dynamically generated Get Actions part of the schema
@@ -88,6 +89,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 		}
 
 		if *propertyType == schema.DataTypeCRef {
+			capitalizedPropertyName := strings.Title(property.Name)
 			numberOfDataTypes := len(property.AtDataType)
 			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
 
@@ -102,7 +104,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 			}
 
 			dataTypeUnionConf := graphql.UnionConfig{
-				Name:  fmt.Sprintf("%s%s%s", class.Class, property.Name, "Obj"),
+				Name:  fmt.Sprintf("%s%s%s", class.Class, capitalizedPropertyName, "Obj"),
 				Types: dataTypeClasses,
 				ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
 					return nil
@@ -112,7 +114,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 
 			multipleClassDataTypesUnion := graphql.NewUnion(dataTypeUnionConf)
 
-			singleActionClassPropertyFields[property.Name] = &graphql.Field{
+			singleActionClassPropertyFields[capitalizedPropertyName] = &graphql.Field{
 				Type:        multipleClassDataTypesUnion,
 				Description: property.Description,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -131,7 +133,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 	}
 
 	singleActionClassPropertyFields["uuid"] = &graphql.Field{
-		Description: "UUID of the action given by the local Weaviate instance",
+		Description: "UUID of the thing or action given by the local Weaviate instance",
 		Type:        graphql.String,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return nil, fmt.Errorf("Not supported")
@@ -207,6 +209,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 		}
 
 		if *propertyType == schema.DataTypeCRef {
+			capitalizedPropertyName := strings.Title(property.Name)
 			numberOfDataTypes := len(property.AtDataType)
 			dataTypeClasses := make([]*graphql.Object, numberOfDataTypes)
 
@@ -221,7 +224,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 			}
 
 			dataTypeUnionConf := graphql.UnionConfig{
-				Name:  fmt.Sprintf("%s%s%s", class.Class, property.Name, "Obj"),
+				Name:  fmt.Sprintf("%s%s%s", class.Class, capitalizedPropertyName, "Obj"),
 				Types: dataTypeClasses,
 				ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
 					return nil
@@ -231,7 +234,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 
 			multipleClassDataTypesUnion := graphql.NewUnion(dataTypeUnionConf)
 
-			singleThingClassPropertyFields[property.Name] = &graphql.Field{
+			singleThingClassPropertyFields[capitalizedPropertyName] = &graphql.Field{
 				Type:        multipleClassDataTypesUnion,
 				Description: property.Description,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -250,7 +253,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 	}
 
 	singleThingClassPropertyFields["uuid"] = &graphql.Field{
-		Description: "UUID of the thing given by the local Weaviate instance",
+		Description: "UUID of the thing or action given by the local Weaviate instance",
 		Type:        graphql.String,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return nil, fmt.Errorf("Not supported")
