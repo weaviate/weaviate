@@ -39,13 +39,6 @@ func (o *WeaviateMetaGetReader) ReadResponse(response runtime.ClientResponse, co
 		}
 		return nil, result
 
-	case 501:
-		result := NewWeaviateMetaGetNotImplemented()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -97,27 +90,6 @@ func (o *WeaviateMetaGetUnauthorized) Error() string {
 }
 
 func (o *WeaviateMetaGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	return nil
-}
-
-// NewWeaviateMetaGetNotImplemented creates a WeaviateMetaGetNotImplemented with default headers values
-func NewWeaviateMetaGetNotImplemented() *WeaviateMetaGetNotImplemented {
-	return &WeaviateMetaGetNotImplemented{}
-}
-
-/*WeaviateMetaGetNotImplemented handles this case with default header values.
-
-Not (yet) implemented
-*/
-type WeaviateMetaGetNotImplemented struct {
-}
-
-func (o *WeaviateMetaGetNotImplemented) Error() string {
-	return fmt.Sprintf("[GET /meta][%d] weaviateMetaGetNotImplemented ", 501)
-}
-
-func (o *WeaviateMetaGetNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }
