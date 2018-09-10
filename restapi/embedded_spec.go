@@ -1223,9 +1223,6 @@ func init() {
         },
         "schema": {
           "$ref": "#/definitions/Schema"
-        },
-        "things": {
-          "$ref": "#/definitions/ObjectSubject"
         }
       }
     },
@@ -1535,18 +1532,6 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/SingleRef"
-      }
-    },
-    "ObjectSubject": {
-      "description": "returns a ref to the object and the subject",
-      "type": "object",
-      "properties": {
-        "object": {
-          "$ref": "#/definitions/SingleRef"
-        },
-        "subject": {
-          "$ref": "#/definitions/SingleRef"
-        }
       }
     },
     "PatchDocument": {
@@ -3198,9 +3183,6 @@ func init() {
         },
         "schema": {
           "$ref": "#/definitions/Schema"
-        },
-        "things": {
-          "$ref": "#/definitions/ObjectSubject"
         }
       }
     },
@@ -3510,18 +3492,6 @@ func init() {
       "type": "array",
       "items": {
         "$ref": "#/definitions/SingleRef"
-      }
-    },
-    "ObjectSubject": {
-      "description": "returns a ref to the object and the subject",
-      "type": "object",
-      "properties": {
-        "object": {
-          "$ref": "#/definitions/SingleRef"
-        },
-        "subject": {
-          "$ref": "#/definitions/SingleRef"
-        }
       }
     },
     "PatchDocument": {
