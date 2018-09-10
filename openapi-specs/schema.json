@@ -776,14 +776,30 @@
             "in": "body",
             "name": "body",
             "required": true,
+
             "schema": {
-              "$ref": "#/definitions/ActionCreate"
+               "type": "object",
+               "properties": {
+                 "action": {
+                   "$ref": "#/definitions/ActionCreate"
+                 },
+                 "async": {
+                   "type": "boolean",
+                   "description": "If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the value is persisted. The value of `async` defaults to false."
+                 }
+               }
             }
           }
         ],
         "responses": {
+          "200": {
+            "description": "Action created",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
           "202": {
-            "description": "Successfully received.",
+            "description": "Successfully received. No guarantees are made that the Action is persisted.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -799,9 +815,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Create actions between two things (object and subject).",
@@ -841,9 +854,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Validate an action based on a schema.",
@@ -880,9 +890,6 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Delete an action based on its uuid related to this key.",
@@ -920,9 +927,6 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Get a specific action based on its uuid and a thing uuid related to this key. Also available as Websocket bus.",
@@ -981,9 +985,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Update an action based on its uuid (using patch semantics) related to this key.",
@@ -1035,9 +1036,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Update an action based on its uuid related to this key.",
@@ -1123,9 +1121,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Get a response based on GraphQL",
@@ -1165,9 +1160,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Create a new key related to this key.",
@@ -1194,9 +1186,6 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Get a key based on the key used to do the request.",
@@ -1223,9 +1212,6 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented"
           }
         },
         "summary": "Get an object of this keys' children related to the key used for request.",
@@ -1262,9 +1248,6 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Delete a key based on its uuid related to this key.",
@@ -1302,9 +1285,6 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Get a key based on its uuid related to this key.",
@@ -1344,9 +1324,6 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented"
           }
         },
         "summary": "Get an object of this keys' children related to this key.",
@@ -1392,9 +1369,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Renews a key based on the key given in the query string.",
@@ -1421,9 +1395,6 @@
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
-          },
-          "501": {
-            "description": "Not (yet) implemented"
           }
         },
         "summary": "Returns meta information of the current Weaviate instance.",
@@ -1517,9 +1488,6 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Get a list of things related to this key.",
@@ -1538,11 +1506,26 @@
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingCreate"
+              "type": "object",
+              "properties": {
+                "async": {
+                  "type": "boolean",
+                  "description": "If `async` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the value is persisted. The value of `async` defaults to false."
+                },
+                "thing" : {
+                  "$ref": "#/definitions/ThingCreate"
+                }
+              }
             }
           }
         ],
         "responses": {
+          "200": {
+            "description": "Thing created.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
           "202": {
             "description": "Successfully received.",
             "schema": {
@@ -1560,9 +1543,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Create a new thing based on a thing template related to this key.",
@@ -1602,9 +1582,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Validate Things schema.",
@@ -1641,9 +1618,6 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Delete a thing based on its uuid related to this key.",
@@ -1681,9 +1655,6 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Get a thing based on its uuid related to this key.",
@@ -1742,9 +1713,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Update a thing based on its uuid (using patch semantics) related to this key.",
@@ -1796,9 +1764,6 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Update a thing based on its uuid related to this key.",
@@ -1844,9 +1809,6 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "summary": "Get a thing based on its uuid related to this thing. Also available as Websocket.",

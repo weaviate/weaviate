@@ -46,13 +46,6 @@ func (o *WeaviateKeyCreateReader) ReadResponse(response runtime.ClientResponse, 
 		}
 		return nil, result
 
-	case 501:
-		result := NewWeaviateKeyCreateNotImplemented()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -133,27 +126,6 @@ func (o *WeaviateKeyCreateUnprocessableEntity) readResponse(response runtime.Cli
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
-
-	return nil
-}
-
-// NewWeaviateKeyCreateNotImplemented creates a WeaviateKeyCreateNotImplemented with default headers values
-func NewWeaviateKeyCreateNotImplemented() *WeaviateKeyCreateNotImplemented {
-	return &WeaviateKeyCreateNotImplemented{}
-}
-
-/*WeaviateKeyCreateNotImplemented handles this case with default header values.
-
-Not (yet) implemented.
-*/
-type WeaviateKeyCreateNotImplemented struct {
-}
-
-func (o *WeaviateKeyCreateNotImplemented) Error() string {
-	return fmt.Sprintf("[POST /keys][%d] weaviateKeyCreateNotImplemented ", 501)
-}
-
-func (o *WeaviateKeyCreateNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }
