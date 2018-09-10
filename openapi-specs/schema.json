@@ -776,14 +776,30 @@
             "in": "body",
             "name": "body",
             "required": true,
+
             "schema": {
-              "$ref": "#/definitions/ActionCreate"
+               "type": "object",
+               "properties": {
+                 "action": {
+                   "$ref": "#/definitions/ActionCreate"
+                 },
+                 "async": {
+                   "type": "boolean",
+                   "description": "If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the value is persisted. The value of `async` defaults to false."
+                 }
+               }
             }
           }
         ],
         "responses": {
+          "200": {
+            "description": "Action created",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
           "202": {
-            "description": "Successfully received.",
+            "description": "Successfully received. No guarantees are made that the Action is persisted.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -1490,11 +1506,26 @@
             "name": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingCreate"
+              "type": "object",
+              "properties": {
+                "async": {
+                  "type": "boolean",
+                  "description": "If `async` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the value is persisted. The value of `async` defaults to false."
+                },
+                "thing" : {
+                  "$ref": "#/definitions/ThingCreate"
+                }
+              }
             }
           }
         ],
         "responses": {
+          "200": {
+            "description": "Thing created.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
           "202": {
             "description": "Successfully received.",
             "schema": {
