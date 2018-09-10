@@ -24,8 +24,6 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
-
-	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // NewWeaviateActionsCreateParams creates a new WeaviateActionsCreateParams object
@@ -48,7 +46,7 @@ type WeaviateActionsCreateParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.ActionCreate
+	Body WeaviateActionsCreateBody
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -62,7 +60,7 @@ func (o *WeaviateActionsCreateParams) BindRequest(r *http.Request, route *middle
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.ActionCreate
+		var body WeaviateActionsCreateBody
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body"))
@@ -76,7 +74,7 @@ func (o *WeaviateActionsCreateParams) BindRequest(r *http.Request, route *middle
 			}
 
 			if len(res) == 0 {
-				o.Body = &body
+				o.Body = body
 			}
 		}
 	} else {

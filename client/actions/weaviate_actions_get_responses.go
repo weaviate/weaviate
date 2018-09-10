@@ -53,13 +53,6 @@ func (o *WeaviateActionsGetReader) ReadResponse(response runtime.ClientResponse,
 		}
 		return nil, result
 
-	case 501:
-		result := NewWeaviateActionsGetNotImplemented()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -153,27 +146,6 @@ func (o *WeaviateActionsGetNotFound) Error() string {
 }
 
 func (o *WeaviateActionsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	return nil
-}
-
-// NewWeaviateActionsGetNotImplemented creates a WeaviateActionsGetNotImplemented with default headers values
-func NewWeaviateActionsGetNotImplemented() *WeaviateActionsGetNotImplemented {
-	return &WeaviateActionsGetNotImplemented{}
-}
-
-/*WeaviateActionsGetNotImplemented handles this case with default header values.
-
-Not (yet) implemented.
-*/
-type WeaviateActionsGetNotImplemented struct {
-}
-
-func (o *WeaviateActionsGetNotImplemented) Error() string {
-	return fmt.Sprintf("[GET /actions/{actionId}][%d] weaviateActionsGetNotImplemented ", 501)
-}
-
-func (o *WeaviateActionsGetNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

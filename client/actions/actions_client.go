@@ -91,7 +91,7 @@ WeaviateActionsCreate creates actions between two things object and subject
 
 Registers a new action. Given meta-data and schema values are validated.
 */
-func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsCreateAccepted, error) {
+func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsCreateOK, *WeaviateActionsCreateAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsCreateParams()
@@ -111,9 +111,15 @@ func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, auth
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return result.(*WeaviateActionsCreateAccepted), nil
+	switch value := result.(type) {
+	case *WeaviateActionsCreateOK:
+		return value, nil, nil
+	case *WeaviateActionsCreateAccepted:
+		return nil, value, nil
+	}
+	return nil, nil, nil
 
 }
 

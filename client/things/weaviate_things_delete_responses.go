@@ -50,13 +50,6 @@ func (o *WeaviateThingsDeleteReader) ReadResponse(response runtime.ClientRespons
 		}
 		return nil, result
 
-	case 501:
-		result := NewWeaviateThingsDeleteNotImplemented()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -142,27 +135,6 @@ func (o *WeaviateThingsDeleteNotFound) Error() string {
 }
 
 func (o *WeaviateThingsDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	return nil
-}
-
-// NewWeaviateThingsDeleteNotImplemented creates a WeaviateThingsDeleteNotImplemented with default headers values
-func NewWeaviateThingsDeleteNotImplemented() *WeaviateThingsDeleteNotImplemented {
-	return &WeaviateThingsDeleteNotImplemented{}
-}
-
-/*WeaviateThingsDeleteNotImplemented handles this case with default header values.
-
-Not (yet) implemented.
-*/
-type WeaviateThingsDeleteNotImplemented struct {
-}
-
-func (o *WeaviateThingsDeleteNotImplemented) Error() string {
-	return fmt.Sprintf("[DELETE /things/{thingId}][%d] weaviateThingsDeleteNotImplemented ", 501)
-}
-
-func (o *WeaviateThingsDeleteNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

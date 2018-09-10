@@ -118,27 +118,3 @@ func (o *WeaviateActionsDeleteNotFound) WriteResponse(rw http.ResponseWriter, pr
 
 	rw.WriteHeader(404)
 }
-
-// WeaviateActionsDeleteNotImplementedCode is the HTTP code returned for type WeaviateActionsDeleteNotImplemented
-const WeaviateActionsDeleteNotImplementedCode int = 501
-
-/*WeaviateActionsDeleteNotImplemented Not (yet) implemented.
-
-swagger:response weaviateActionsDeleteNotImplemented
-*/
-type WeaviateActionsDeleteNotImplemented struct {
-}
-
-// NewWeaviateActionsDeleteNotImplemented creates WeaviateActionsDeleteNotImplemented with default headers values
-func NewWeaviateActionsDeleteNotImplemented() *WeaviateActionsDeleteNotImplemented {
-
-	return &WeaviateActionsDeleteNotImplemented{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateActionsDeleteNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(501)
-}
