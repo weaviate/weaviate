@@ -20,7 +20,6 @@ package models
 import (
 	strfmt "github.com/go-openapi/strfmt"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
 )
 
@@ -36,40 +35,10 @@ type ActionCreate struct {
 
 	// schema
 	Schema Schema `json:"schema,omitempty"`
-
-	// things
-	Things *ObjectSubject `json:"things,omitempty"`
 }
 
 // Validate validates this action create
 func (m *ActionCreate) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validateThings(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *ActionCreate) validateThings(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Things) { // not required
-		return nil
-	}
-
-	if m.Things != nil {
-		if err := m.Things.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("things")
-			}
-			return err
-		}
-	}
-
 	return nil
 }
 
