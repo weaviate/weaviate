@@ -91,7 +91,7 @@ WeaviateThingsCreate creates a new thing based on a thing template related to th
 
 Registers a new thing. Given meta-data and schema values are validated.
 */
-func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsCreateAccepted, error) {
+func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsCreateOK, *WeaviateThingsCreateAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsCreateParams()
@@ -111,9 +111,15 @@ func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams, authIn
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return result.(*WeaviateThingsCreateAccepted), nil
+	switch value := result.(type) {
+	case *WeaviateThingsCreateOK:
+		return value, nil, nil
+	case *WeaviateThingsCreateAccepted:
+		return nil, value, nil
+	}
+	return nil, nil, nil
 
 }
 

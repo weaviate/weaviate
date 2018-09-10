@@ -195,10 +195,10 @@ func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment, m *messages.
 		}
 
 		// Validate if given location is URL or local file
-		_, err := url.ParseRequestURI(cfv.schemaLocationFromConfig)
+		u, err := url.ParseRequestURI(cfv.schemaLocationFromConfig)
 
-		// With no error, it is an URL
-		if err == nil {
+		// With no error, it is an URL, unless there is no scheme.
+		if err == nil && u.Scheme != "" {
 			f.messaging.InfoMessage(cfk + ": Downloading schema file..")
 			cfv.localFile = "temp/schema" + string(connutils.GenerateUUID()) + ".json"
 

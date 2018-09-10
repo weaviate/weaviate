@@ -104,7 +104,7 @@ func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
 		Type:        localGetAndGetMetaObject,
 		Description: "Query a local Weaviate instance",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("Not supported")
+			return g.dbConnector, nil
 		},
 	}
 

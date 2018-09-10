@@ -1,0 +1,11 @@
+version: "2"
+exclude_pattern:
+  - client/
+  - cmd/weavaiate-server/main.go
+
+  # exclude all but the configure_weaviate.go file in restapi/,
+  # given that the other files are automatically generated.
+  - restapi/
+  - !restapi/configure_weaviate.go
+
+  - test/

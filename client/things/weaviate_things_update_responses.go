@@ -60,13 +60,6 @@ func (o *WeaviateThingsUpdateReader) ReadResponse(response runtime.ClientRespons
 		}
 		return nil, result
 
-	case 501:
-		result := NewWeaviateThingsUpdateNotImplemented()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -189,27 +182,6 @@ func (o *WeaviateThingsUpdateUnprocessableEntity) readResponse(response runtime.
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
-
-	return nil
-}
-
-// NewWeaviateThingsUpdateNotImplemented creates a WeaviateThingsUpdateNotImplemented with default headers values
-func NewWeaviateThingsUpdateNotImplemented() *WeaviateThingsUpdateNotImplemented {
-	return &WeaviateThingsUpdateNotImplemented{}
-}
-
-/*WeaviateThingsUpdateNotImplemented handles this case with default header values.
-
-Not (yet) implemented.
-*/
-type WeaviateThingsUpdateNotImplemented struct {
-}
-
-func (o *WeaviateThingsUpdateNotImplemented) Error() string {
-	return fmt.Sprintf("[PUT /things/{thingId}][%d] weaviateThingsUpdateNotImplemented ", 501)
-}
-
-func (o *WeaviateThingsUpdateNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

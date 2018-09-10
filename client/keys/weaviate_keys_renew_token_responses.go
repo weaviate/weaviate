@@ -60,13 +60,6 @@ func (o *WeaviateKeysRenewTokenReader) ReadResponse(response runtime.ClientRespo
 		}
 		return nil, result
 
-	case 501:
-		result := NewWeaviateKeysRenewTokenNotImplemented()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -189,27 +182,6 @@ func (o *WeaviateKeysRenewTokenUnprocessableEntity) readResponse(response runtim
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
-
-	return nil
-}
-
-// NewWeaviateKeysRenewTokenNotImplemented creates a WeaviateKeysRenewTokenNotImplemented with default headers values
-func NewWeaviateKeysRenewTokenNotImplemented() *WeaviateKeysRenewTokenNotImplemented {
-	return &WeaviateKeysRenewTokenNotImplemented{}
-}
-
-/*WeaviateKeysRenewTokenNotImplemented handles this case with default header values.
-
-Not (yet) implemented.
-*/
-type WeaviateKeysRenewTokenNotImplemented struct {
-}
-
-func (o *WeaviateKeysRenewTokenNotImplemented) Error() string {
-	return fmt.Sprintf("[PUT /keys/{keyId}/renew-token][%d] weaviateKeysRenewTokenNotImplemented ", 501)
-}
-
-func (o *WeaviateKeysRenewTokenNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

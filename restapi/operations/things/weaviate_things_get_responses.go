@@ -140,27 +140,3 @@ func (o *WeaviateThingsGetNotFound) WriteResponse(rw http.ResponseWriter, produc
 
 	rw.WriteHeader(404)
 }
-
-// WeaviateThingsGetNotImplementedCode is the HTTP code returned for type WeaviateThingsGetNotImplemented
-const WeaviateThingsGetNotImplementedCode int = 501
-
-/*WeaviateThingsGetNotImplemented Not (yet) implemented.
-
-swagger:response weaviateThingsGetNotImplemented
-*/
-type WeaviateThingsGetNotImplemented struct {
-}
-
-// NewWeaviateThingsGetNotImplemented creates WeaviateThingsGetNotImplemented with default headers values
-func NewWeaviateThingsGetNotImplemented() *WeaviateThingsGetNotImplemented {
-
-	return &WeaviateThingsGetNotImplemented{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateThingsGetNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(501)
-}
