@@ -25,10 +25,54 @@ import (
 	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
+// WeaviateActionsCreateOKCode is the HTTP code returned for type WeaviateActionsCreateOK
+const WeaviateActionsCreateOKCode int = 200
+
+/*WeaviateActionsCreateOK Action created
+
+swagger:response weaviateActionsCreateOK
+*/
+type WeaviateActionsCreateOK struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ActionGetResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateActionsCreateOK creates WeaviateActionsCreateOK with default headers values
+func NewWeaviateActionsCreateOK() *WeaviateActionsCreateOK {
+
+	return &WeaviateActionsCreateOK{}
+}
+
+// WithPayload adds the payload to the weaviate actions create o k response
+func (o *WeaviateActionsCreateOK) WithPayload(payload *models.ActionGetResponse) *WeaviateActionsCreateOK {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate actions create o k response
+func (o *WeaviateActionsCreateOK) SetPayload(payload *models.ActionGetResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateActionsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(200)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // WeaviateActionsCreateAcceptedCode is the HTTP code returned for type WeaviateActionsCreateAccepted
 const WeaviateActionsCreateAcceptedCode int = 202
 
-/*WeaviateActionsCreateAccepted Successfully received.
+/*WeaviateActionsCreateAccepted Successfully received. No guarantees are made that the Action is persisted.
 
 swagger:response weaviateActionsCreateAccepted
 */
@@ -159,28 +203,4 @@ func (o *WeaviateActionsCreateUnprocessableEntity) WriteResponse(rw http.Respons
 			panic(err) // let the recovery middleware deal with this
 		}
 	}
-}
-
-// WeaviateActionsCreateNotImplementedCode is the HTTP code returned for type WeaviateActionsCreateNotImplemented
-const WeaviateActionsCreateNotImplementedCode int = 501
-
-/*WeaviateActionsCreateNotImplemented Not (yet) implemented.
-
-swagger:response weaviateActionsCreateNotImplemented
-*/
-type WeaviateActionsCreateNotImplemented struct {
-}
-
-// NewWeaviateActionsCreateNotImplemented creates WeaviateActionsCreateNotImplemented with default headers values
-func NewWeaviateActionsCreateNotImplemented() *WeaviateActionsCreateNotImplemented {
-
-	return &WeaviateActionsCreateNotImplemented{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateActionsCreateNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(501)
 }

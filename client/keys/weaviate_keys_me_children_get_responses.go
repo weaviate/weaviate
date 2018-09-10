@@ -46,13 +46,6 @@ func (o *WeaviateKeysMeChildrenGetReader) ReadResponse(response runtime.ClientRe
 		}
 		return nil, result
 
-	case 501:
-		result := NewWeaviateKeysMeChildrenGetNotImplemented()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -125,27 +118,6 @@ func (o *WeaviateKeysMeChildrenGetNotFound) Error() string {
 }
 
 func (o *WeaviateKeysMeChildrenGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	return nil
-}
-
-// NewWeaviateKeysMeChildrenGetNotImplemented creates a WeaviateKeysMeChildrenGetNotImplemented with default headers values
-func NewWeaviateKeysMeChildrenGetNotImplemented() *WeaviateKeysMeChildrenGetNotImplemented {
-	return &WeaviateKeysMeChildrenGetNotImplemented{}
-}
-
-/*WeaviateKeysMeChildrenGetNotImplemented handles this case with default header values.
-
-Not (yet) implemented
-*/
-type WeaviateKeysMeChildrenGetNotImplemented struct {
-}
-
-func (o *WeaviateKeysMeChildrenGetNotImplemented) Error() string {
-	return fmt.Sprintf("[GET /keys/me/children][%d] weaviateKeysMeChildrenGetNotImplemented ", 501)
-}
-
-func (o *WeaviateKeysMeChildrenGetNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }
