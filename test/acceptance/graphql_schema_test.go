@@ -26,6 +26,7 @@ import (
 
 // Test that the types we expect there to be are actually generated.
 func TestGettingTypeNames(t *testing.T) {
+	t.Skip()
 	t.Parallel()
 
 	query := `{ 
@@ -59,6 +60,7 @@ func TestGettingTypeNames(t *testing.T) {
 
 // Checks if root query type is as expected
 func TestRootType(t *testing.T) {
+	t.Skip()
 	t.Parallel()
 
 	query := `{
@@ -76,6 +78,7 @@ func TestRootType(t *testing.T) {
 
 // Checks if root query type is correctly defined
 func TestRootQueryType(t *testing.T) {
+	t.Skip()
 	t.Parallel()
 
 	response := queryGraphqlTypeIntrospection(t, helper.RootAuth, "WeaviateObj")
@@ -87,6 +90,7 @@ func TestRootQueryType(t *testing.T) {
 
 // Checks schema types are generated as expected
 func TestSchemaTypes(t *testing.T) {
+	t.Skip()
 	t.Parallel()
 
 	// Read entire grapql schema descriptions file into an array of bytes
