@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Version of go-swagger to use.
-version=0.15.0
+version=0.16.0
 
 # Always points to the directory of this script.
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -19,4 +19,4 @@ fi
 (cd $DIR/..; $SWAGGER generate client --spec=openapi-specs/schema.json --default-scheme=https)
 
 # Now add the header to the generated code too.
-$DIR/add_header.sh
+$DIR/add_header.py

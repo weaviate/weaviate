@@ -19,6 +19,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
@@ -179,11 +180,14 @@ func (s *Server) Serve() (err error) {
 		s.SetHandler(s.api.Serve(nil))
 	}
 
-	var wg sync.WaitGroup
-	quitting := make(chan struct{})
+	wg := new(sync.WaitGroup)
 	once := new(sync.Once)
 	signalNotify(s.interrupt)
-	go handleInterrupt(once, s, quitting)
+	go handleInterrupt(once, s)
+
+	servers := []*http.Server{}
+	wg.Add(1)
+	go s.handleShutdown(wg, &servers)
 
 	if s.hasScheme(schemeUnix) {
 		domainSocket := new(http.Server)
@@ -195,16 +199,16 @@ func (s *Server) Serve() (err error) {
 
 		configureServer(domainSocket, "unix", string(s.SocketPath))
 
-		wg.Add(2)
+		wg.Add(1)
 		s.Logf("Serving weaviate at unix://%s", s.SocketPath)
 		go func(l net.Listener) {
 			defer wg.Done()
-			if err := domainSocket.Serve(l); err != nil {
+			if err := domainSocket.Serve(l); err != nil && err != http.ErrServerClosed {
 				s.Fatalf("%v", err)
 			}
 			s.Logf("Stopped serving weaviate at unix://%s", s.SocketPath)
 		}(s.domainSocketL)
-		go s.handleShutdown(&wg, domainSocket)
+		servers = append(servers, domainSocket)
 	}
 
 	if s.hasScheme(schemeHTTP) {
@@ -225,16 +229,16 @@ func (s *Server) Serve() (err error) {
 
 		configureServer(httpServer, "http", s.httpServerL.Addr().String())
 
-		wg.Add(2)
+		wg.Add(1)
 		s.Logf("Serving weaviate at http://%s", s.httpServerL.Addr())
 		go func(l net.Listener) {
 			defer wg.Done()
-			if err := httpServer.Serve(l); err != nil {
+			if err := httpServer.Serve(l); err != nil && err != http.ErrServerClosed {
 				s.Fatalf("%v", err)
 			}
 			s.Logf("Stopped serving weaviate at http://%s", l.Addr())
 		}(s.httpServerL)
-		go s.handleShutdown(&wg, httpServer)
+		servers = append(servers, httpServer)
 	}
 
 	if s.hasScheme(schemeHTTPS) {
@@ -269,33 +273,40 @@ func (s *Server) Serve() (err error) {
 				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
 				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
 			},
 		}
 
+		// build standard config from server options
 		if s.TLSCertificate != "" && s.TLSCertificateKey != "" {
 			httpsServer.TLSConfig.Certificates = make([]tls.Certificate, 1)
 			httpsServer.TLSConfig.Certificates[0], err = tls.LoadX509KeyPair(string(s.TLSCertificate), string(s.TLSCertificateKey))
+			if err != nil {
+				return err
+			}
 		}
 
 		if s.TLSCACertificate != "" {
+			// include specified CA certificate
 			caCert, caCertErr := ioutil.ReadFile(string(s.TLSCACertificate))
 			if caCertErr != nil {
-				log.Fatal(caCertErr)
+				return caCertErr
 			}
 			caCertPool := x509.NewCertPool()
-			caCertPool.AppendCertsFromPEM(caCert)
+			ok := caCertPool.AppendCertsFromPEM(caCert)
+			if !ok {
+				return fmt.Errorf("cannot parse CA certificate")
+			}
 			httpsServer.TLSConfig.ClientCAs = caCertPool
 			httpsServer.TLSConfig.ClientAuth = tls.RequireAndVerifyClientCert
 		}
 
+		// call custom TLS configurator
 		configureTLS(httpsServer.TLSConfig)
-		httpsServer.TLSConfig.BuildNameToCertificate()
-
-		if err != nil {
-			return err
-		}
 
 		if len(httpsServer.TLSConfig.Certificates) == 0 {
+			// after standard and custom config are passed, this ends up with no certificate
 			if s.TLSCertificate == "" {
 				if s.TLSCertificateKey == "" {
 					s.Fatalf("the required flags `--tls-certificate` and `--tls-key` were not specified")
@@ -305,20 +316,25 @@ func (s *Server) Serve() (err error) {
 			if s.TLSCertificateKey == "" {
 				s.Fatalf("the required flag `--tls-key` was not specified")
 			}
+			// this happens with a wrong custom TLS configurator
+			s.Fatalf("no certificate was configured for TLS")
 		}
+
+		// must have at least one certificate or panics
+		httpsServer.TLSConfig.BuildNameToCertificate()
 
 		configureServer(httpsServer, "https", s.httpsServerL.Addr().String())
 
-		wg.Add(2)
+		wg.Add(1)
 		s.Logf("Serving weaviate at https://%s", s.httpsServerL.Addr())
 		go func(l net.Listener) {
 			defer wg.Done()
-			if err := httpsServer.Serve(l); err != nil {
+			if err := httpsServer.Serve(l); err != nil && err != http.ErrServerClosed {
 				s.Fatalf("%v", err)
 			}
 			s.Logf("Stopped serving weaviate at https://%s", l.Addr())
 		}(tls.NewListener(s.httpsServerL, httpsServer.TLSConfig))
-		go s.handleShutdown(&wg, httpsServer)
+		servers = append(servers, httpsServer)
 	}
 
 	wg.Wait()
@@ -398,48 +414,49 @@ func (s *Server) Listen() error {
 
 // Shutdown server and clean up resources
 func (s *Server) Shutdown() error {
-	if atomic.LoadInt32(&s.shuttingDown) != 0 {
-		s.Logf("already shutting down")
-		return nil
+	if atomic.CompareAndSwapInt32(&s.shuttingDown, 0, 1) {
+		close(s.shutdown)
 	}
-	close(s.shutdown)
 	return nil
 }
 
-func (s *Server) handleShutdown(wg *sync.WaitGroup, server *http.Server) {
+func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) {
+	// wg.Done must occur last, after s.api.ServerShutdown()
+	// (to preserve old behaviour)
 	defer wg.Done()
+
+	<-s.shutdown
+
+	servers := *serversPtr
+
 	ctx, cancel := context.WithTimeout(context.TODO(), 15*time.Second)
 	defer cancel()
 
-	<-s.shutdown
-	if err := server.Shutdown(ctx); err != nil {
-		// Error from closing listeners, or context timeout:
-		s.Logf("HTTP server Shutdown: %v", err)
-	} else {
-		atomic.AddInt32(&s.shuttingDown, 1)
-		select {
-		case <-ctx.Done():
-			if err := ctx.Err(); err != nil {
-				s.Logf("Error %s", err)
-			}
-		default:
-			done := make(chan error)
-			defer close(done)
-			go func() {
-				<-ctx.Done()
-				done <- ctx.Err()
+	shutdownChan := make(chan bool)
+	for i := range servers {
+		server := servers[i]
+		go func() {
+			var success bool
+			defer func() {
+				shutdownChan <- success
 			}()
-			go func() {
-				//done <- s.api.Shutdown(ctx)
-				s.api.ServerShutdown()
-				done <- errors.New("API shut down")
-			}()
-			if err := <-done; err != nil {
-				s.Logf("Error %s", err)
+			if err := server.Shutdown(ctx); err != nil {
+				// Error from closing listeners, or context timeout:
+				s.Logf("HTTP server Shutdown: %v", err)
+			} else {
+				success = true
 			}
-		}
+		}()
 	}
-	return
+
+	// Wait until all listeners have successfully shut down before calling ServerShutdown
+	success := true
+	for range servers {
+		success = success && <-shutdownChan
+	}
+	if success {
+		s.api.ServerShutdown()
+	}
 }
 
 // GetHandler returns a handler useful for testing
@@ -482,7 +499,7 @@ func (s *Server) TLSListener() (net.Listener, error) {
 	return s.httpsServerL, nil
 }
 
-func handleInterrupt(once *sync.Once, s *Server, quitting chan struct{}) {
+func handleInterrupt(once *sync.Once, s *Server) {
 	once.Do(func() {
 		for _ = range s.interrupt {
 			if s.interrupted {
@@ -491,17 +508,7 @@ func handleInterrupt(once *sync.Once, s *Server, quitting chan struct{}) {
 			}
 			s.interrupted = true
 			s.Logf("Shutting down... ")
-			close(quitting)
-
-			if err := s.httpServerL.Close(); err != nil {
-				s.Logf("Error: %s", err)
-			}
-			if err := s.httpsServerL.Close(); err != nil {
-				s.Logf("Error: %s", err)
-			}
-			if err := s.domainSocketL.Close(); err != nil {
-				s.Logf("Error: %s", err)
-			}
+			s.Shutdown()
 		}
 	})
 }

@@ -279,7 +279,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
-		actionGetResponse.Things = &models.ObjectSubject{}
 
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
@@ -348,7 +347,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
-		actionGetResponse.Things = &models.ObjectSubject{}
 
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
@@ -511,7 +509,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		action.AtClass = params.Body.AtClass
 		action.AtContext = params.Body.AtContext
 		action.Schema = params.Body.Schema
-		action.Things = params.Body.Things
 		action.CreationTimeUnix = connutils.NowUnix()
 		action.LastUpdateTimeUnix = 0
 		action.Key = keyRef
@@ -531,7 +528,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
-		actionGetResponse.Things = &models.ObjectSubject{}
 
 		// Get context from request
 		ctx := params.HTTPRequest.Context()

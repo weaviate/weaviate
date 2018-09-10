@@ -42,9 +42,6 @@
         },
         "schema": {
           "$ref": "#/definitions/Schema"
-        },
-        "things": {
-          "$ref": "#/definitions/ObjectSubject"
         }
       },
       "type": "object"
@@ -356,19 +353,7 @@
         "$ref": "#/definitions/SingleRef"
       },
       "type": "array"
-    },
-    "ObjectSubject": {
-      "description": "returns a ref to the object and the subject",
-      "properties": {
-        "object": {
-          "$ref": "#/definitions/SingleRef"
-        },
-        "subject": {
-          "$ref": "#/definitions/SingleRef"
-        }
       },
-      "type": "object"
-    },
     "PatchDocument": {
       "description": "A JSONPatch document as defined by RFC 6902.",
       "properties": {
