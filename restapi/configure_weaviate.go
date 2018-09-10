@@ -513,16 +513,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		action.LastUpdateTimeUnix = 0
 		action.Key = keyRef
 
-		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go dbConnector.AddAction(ctx, action, UUID)
-
-		// Initialize a response object
 		responseObject := &models.ActionGetResponse{}
 		responseObject.Action = *action
 		responseObject.ActionID = UUID
 
-		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
+		if params.Body.Async {
+			go dbConnector.AddAction(ctx, action, UUID)
+			return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
+		} else {
+			dbConnector.AddAction(ctx, action, UUID)
+			return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
+		}
 	})
 	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal interface{}) middleware.Responder {
 		// Initialize response
@@ -811,16 +812,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thing.LastUpdateTimeUnix = 0
 		thing.Key = keyRef
 
-		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go dbConnector.AddThing(ctx, thing, UUID)
-
-		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
 		responseObject.Thing = *thing
 		responseObject.ThingID = UUID
 
-		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
-		return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
+		if params.Body.Async {
+			go dbConnector.AddThing(ctx, thing, UUID)
+			return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
+		} else {
+			dbConnector.AddThing(ctx, thing, UUID)
+			return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
+		}
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
 		// Initialize response
