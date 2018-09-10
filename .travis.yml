@@ -25,36 +25,30 @@ env:
   - GO111MODULE=on
 language: go
 install:  
-  - go list -e $(go list -f '{{.Path}}' -m all)
+  - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+  - chmod +x ./cc-test-reporter
 before_script:
   - sudo apt-get -qq -y update
   - sudo apt-get -qq -y install jq coreutils
-  # Generate sample contextionary from seed file.
-  - test/contextionary/gen_simple_contextionary.sh
-script: 
   # Verify that the code is properly formatted.
   - if [[ -n "$(gofmt -l .)" ]]; then echo "The following files were not formatted properly!"; gofmt -l .; exit 1; fi
-  # Run unit-like tests
-  - go test ./contextionary
-  # Running Cassandra deamon
-  - docker run -it --name weaviate_db_1_travis -e CASSANDRA_BROADCAST_ADDRESS=127.0.0.1 -p 7000:7000 -p 9042:9042 -d cassandra:3
-  - sleep 45
-  # Running Weaviate as deamon
-  - nohup go run ./cmd/weaviate-server/main.go --scheme=http --port=8080 --host=127.0.0.1 --config="cassandra_docker" --config-file="./weaviate.conf.json" &
-  # Sleep to make sure all is up and running
-  - sleep 45
-  # cat nohup for debugging
-  - cat nohup.out
-  # Find the correct ip, key and token
-  - CASSANDRAIP=$(sudo docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' weaviate_db_1_travis)
-  - ROOTTOKEN=$(cat nohup.out | grep -s ROOTTOKEN|sed 's/.*ROOTTOKEN=//')
-  - ROOTKEY=$(cat nohup.out | grep -s ROOTKEY|sed 's/.*ROOTKEY=//')
-  # Run the integration tests
+  # Run Weaviate backed by JanusGraph
+  - tools/test/run_ci_server.sh || travis_terminate 1
+script: 
+  # Run all tests
   - |
-      # On error, quit
-      set -e
-      # Test!
-      go test -v ./test -args -api-key=${ROOTKEY} -api-token=${ROOTTOKEN} -server-host=127.0.0.1 -server-port=8080 -server-scheme=http
+    ./cc-test-reporter before-build
+    for pkg in $(go list ./... | grep -v main); do
+        if ! go test -race -v -coverprofile=$(echo $pkg | tr / -).cover $pkg; then
+          echo "Test for $pkg failed" >&2
+          travis_terminate 1
+        fi
+    done
+    echo "mode: set" > c.out
+    grep -h -v "^mode:" ./*.cover >> c.out
+    rm -f *.cover
+    ./cc-test-reporter after-build
+after_script:
   # Install goreleaser and create build dirs
   - |
       # If the branch is not master or develop we are done :-)

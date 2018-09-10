@@ -7,8 +7,9 @@ RUN apt-get update && \
     apt-get install -y wget unzip htop && \
     mkdir /workspace && \
     cd /workspace && \
-    wget https://github.com/JanusGraph/janusgraph/releases/download/v$version/janusgraph-$version-$hadoop.zip && \
-    unzip janusgraph-$version-$hadoop.zip && \
+    echo "Downloading JanusGraph $version" && \
+    wget -q https://github.com/JanusGraph/janusgraph/releases/download/v$version/janusgraph-$version-$hadoop.zip && \
+    unzip -q janusgraph-$version-$hadoop.zip && \
     rm janusgraph-$version-$hadoop.zip && \
     mv janusgraph-* janusgraph
 
