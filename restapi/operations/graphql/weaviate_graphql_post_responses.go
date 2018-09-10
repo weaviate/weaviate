@@ -160,27 +160,3 @@ func (o *WeaviateGraphqlPostUnprocessableEntity) WriteResponse(rw http.ResponseW
 		}
 	}
 }
-
-// WeaviateGraphqlPostNotImplementedCode is the HTTP code returned for type WeaviateGraphqlPostNotImplemented
-const WeaviateGraphqlPostNotImplementedCode int = 501
-
-/*WeaviateGraphqlPostNotImplemented Not (yet) implemented.
-
-swagger:response weaviateGraphqlPostNotImplemented
-*/
-type WeaviateGraphqlPostNotImplemented struct {
-}
-
-// NewWeaviateGraphqlPostNotImplemented creates WeaviateGraphqlPostNotImplemented with default headers values
-func NewWeaviateGraphqlPostNotImplemented() *WeaviateGraphqlPostNotImplemented {
-
-	return &WeaviateGraphqlPostNotImplemented{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateGraphqlPostNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(501)
-}

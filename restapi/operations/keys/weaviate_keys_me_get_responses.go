@@ -116,27 +116,3 @@ func (o *WeaviateKeysMeGetNotFound) WriteResponse(rw http.ResponseWriter, produc
 
 	rw.WriteHeader(404)
 }
-
-// WeaviateKeysMeGetNotImplementedCode is the HTTP code returned for type WeaviateKeysMeGetNotImplemented
-const WeaviateKeysMeGetNotImplementedCode int = 501
-
-/*WeaviateKeysMeGetNotImplemented Not (yet) implemented.
-
-swagger:response weaviateKeysMeGetNotImplemented
-*/
-type WeaviateKeysMeGetNotImplemented struct {
-}
-
-// NewWeaviateKeysMeGetNotImplemented creates WeaviateKeysMeGetNotImplemented with default headers values
-func NewWeaviateKeysMeGetNotImplemented() *WeaviateKeysMeGetNotImplemented {
-
-	return &WeaviateKeysMeGetNotImplemented{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateKeysMeGetNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(501)
-}

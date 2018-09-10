@@ -140,27 +140,3 @@ func (o *WeaviateActionsValidateUnprocessableEntity) WriteResponse(rw http.Respo
 		}
 	}
 }
-
-// WeaviateActionsValidateNotImplementedCode is the HTTP code returned for type WeaviateActionsValidateNotImplemented
-const WeaviateActionsValidateNotImplementedCode int = 501
-
-/*WeaviateActionsValidateNotImplemented Not (yet) implemented.
-
-swagger:response weaviateActionsValidateNotImplemented
-*/
-type WeaviateActionsValidateNotImplemented struct {
-}
-
-// NewWeaviateActionsValidateNotImplemented creates WeaviateActionsValidateNotImplemented with default headers values
-func NewWeaviateActionsValidateNotImplemented() *WeaviateActionsValidateNotImplemented {
-
-	return &WeaviateActionsValidateNotImplemented{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateActionsValidateNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(501)
-}

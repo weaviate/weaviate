@@ -184,27 +184,3 @@ func (o *WeaviateKeysRenewTokenUnprocessableEntity) WriteResponse(rw http.Respon
 		}
 	}
 }
-
-// WeaviateKeysRenewTokenNotImplementedCode is the HTTP code returned for type WeaviateKeysRenewTokenNotImplemented
-const WeaviateKeysRenewTokenNotImplementedCode int = 501
-
-/*WeaviateKeysRenewTokenNotImplemented Not (yet) implemented.
-
-swagger:response weaviateKeysRenewTokenNotImplemented
-*/
-type WeaviateKeysRenewTokenNotImplemented struct {
-}
-
-// NewWeaviateKeysRenewTokenNotImplemented creates WeaviateKeysRenewTokenNotImplemented with default headers values
-func NewWeaviateKeysRenewTokenNotImplemented() *WeaviateKeysRenewTokenNotImplemented {
-
-	return &WeaviateKeysRenewTokenNotImplemented{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateKeysRenewTokenNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(501)
-}

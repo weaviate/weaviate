@@ -66,13 +66,28 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ActionCreate"
+              "type": "object",
+              "properties": {
+                "action": {
+                  "$ref": "#/definitions/ActionCreate"
+                },
+                "async": {
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "type": "boolean"
+                }
+              }
             }
           }
         ],
         "responses": {
+          "200": {
+            "description": "Action created",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
           "202": {
-            "description": "Successfully received.",
+            "description": "Successfully received. No guarantees are made that the Action is persisted.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -88,9 +103,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -130,9 +142,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -172,9 +181,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -226,9 +232,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -263,9 +266,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": true,
@@ -324,9 +324,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -412,9 +409,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -454,9 +448,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -483,9 +474,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -512,9 +500,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented"
           }
         },
         "x-available-in-mqtt": false,
@@ -554,9 +539,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -591,9 +573,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -633,9 +612,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented"
           }
         },
         "x-available-in-mqtt": false,
@@ -681,9 +657,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -710,9 +683,6 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
-          },
-          "501": {
-            "description": "Not (yet) implemented"
           }
         },
         "x-available-in-mqtt": false,
@@ -804,9 +774,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -825,11 +792,26 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingCreate"
+              "type": "object",
+              "properties": {
+                "async": {
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "type": "boolean"
+                },
+                "thing": {
+                  "$ref": "#/definitions/ThingCreate"
+                }
+              }
             }
           }
         ],
         "responses": {
+          "200": {
+            "description": "Thing created.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
           "202": {
             "description": "Successfully received.",
             "schema": {
@@ -847,9 +829,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -889,9 +868,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -931,9 +907,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -985,9 +958,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -1022,9 +992,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": true,
@@ -1083,9 +1050,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -1131,9 +1095,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2010,13 +1971,28 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ActionCreate"
+              "type": "object",
+              "properties": {
+                "action": {
+                  "$ref": "#/definitions/ActionCreate"
+                },
+                "async": {
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "type": "boolean"
+                }
+              }
             }
           }
         ],
         "responses": {
+          "200": {
+            "description": "Action created",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
           "202": {
-            "description": "Successfully received.",
+            "description": "Successfully received. No guarantees are made that the Action is persisted.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -2032,9 +2008,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2074,9 +2047,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2116,9 +2086,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2170,9 +2137,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2207,9 +2171,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": true,
@@ -2268,9 +2229,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2356,9 +2314,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2398,9 +2353,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2427,9 +2379,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2456,9 +2405,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented"
           }
         },
         "x-available-in-mqtt": false,
@@ -2498,9 +2444,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2535,9 +2478,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2577,9 +2517,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented"
           }
         },
         "x-available-in-mqtt": false,
@@ -2625,9 +2562,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2654,9 +2588,6 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
-          },
-          "501": {
-            "description": "Not (yet) implemented"
           }
         },
         "x-available-in-mqtt": false,
@@ -2756,9 +2687,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2777,11 +2705,26 @@ func init() {
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/ThingCreate"
+              "type": "object",
+              "properties": {
+                "async": {
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "type": "boolean"
+                },
+                "thing": {
+                  "$ref": "#/definitions/ThingCreate"
+                }
+              }
             }
           }
         ],
         "responses": {
+          "200": {
+            "description": "Thing created.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
           "202": {
             "description": "Successfully received.",
             "schema": {
@@ -2799,9 +2742,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2841,9 +2781,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2883,9 +2820,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2937,9 +2871,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -2974,9 +2905,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": true,
@@ -3035,9 +2963,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
@@ -3091,9 +3016,6 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
-          },
-          "501": {
-            "description": "Not (yet) implemented."
           }
         },
         "x-available-in-mqtt": false,
