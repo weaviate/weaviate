@@ -92,7 +92,7 @@ func compareExpectedElementToActualElement(t *testing.T, schemaPath string, expe
 				assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s", schemaPath))
 			} else {
 				if schemaPath != "__schema_types" && schemaPath != "__schema_types_WeaviateObj_fields" {
-					assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s", schemaPath))
+					assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s %s", schemaPath, parsedActualValue))
 				}
 			}
 			if len(parsedExpectedValue) > 0 {
@@ -177,7 +177,6 @@ func fetchExpectedScalarElementFromActualList(t *testing.T, schemaPath string, e
 	} else {
 		if !strings.Contains(expectedElement.(string), "etwork") {
 			assert.Equal(t, true, expectedElementFoundInActualList, fmt.Sprintf("Expected element %s not found in path %s", expectedElement, schemaPath))
-
 		}
 	}
 }
