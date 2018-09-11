@@ -38,9 +38,6 @@ Weaviate offers a REST API, with
 - Endpoints to insert/modify the data and define the schema.
 - A GraphQL endpoint to query the data.
 
-For details, check the automatically generated documentation of the RestAPI and GraphQL API's in
-[`docs/generated`](./generated/)
-
 ## Database schema
 The database has a strongly typed schema. There are two types of classes; Things and Actions.
 
