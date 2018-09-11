@@ -25,6 +25,50 @@ import (
 	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
+// WeaviateThingsCreateOKCode is the HTTP code returned for type WeaviateThingsCreateOK
+const WeaviateThingsCreateOKCode int = 200
+
+/*WeaviateThingsCreateOK Thing created.
+
+swagger:response weaviateThingsCreateOK
+*/
+type WeaviateThingsCreateOK struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ThingGetResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateThingsCreateOK creates WeaviateThingsCreateOK with default headers values
+func NewWeaviateThingsCreateOK() *WeaviateThingsCreateOK {
+
+	return &WeaviateThingsCreateOK{}
+}
+
+// WithPayload adds the payload to the weaviate things create o k response
+func (o *WeaviateThingsCreateOK) WithPayload(payload *models.ThingGetResponse) *WeaviateThingsCreateOK {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate things create o k response
+func (o *WeaviateThingsCreateOK) SetPayload(payload *models.ThingGetResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateThingsCreateOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(200)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // WeaviateThingsCreateAcceptedCode is the HTTP code returned for type WeaviateThingsCreateAccepted
 const WeaviateThingsCreateAcceptedCode int = 202
 
@@ -159,28 +203,4 @@ func (o *WeaviateThingsCreateUnprocessableEntity) WriteResponse(rw http.Response
 			panic(err) // let the recovery middleware deal with this
 		}
 	}
-}
-
-// WeaviateThingsCreateNotImplementedCode is the HTTP code returned for type WeaviateThingsCreateNotImplemented
-const WeaviateThingsCreateNotImplementedCode int = 501
-
-/*WeaviateThingsCreateNotImplemented Not (yet) implemented.
-
-swagger:response weaviateThingsCreateNotImplemented
-*/
-type WeaviateThingsCreateNotImplemented struct {
-}
-
-// NewWeaviateThingsCreateNotImplemented creates WeaviateThingsCreateNotImplemented with default headers values
-func NewWeaviateThingsCreateNotImplemented() *WeaviateThingsCreateNotImplemented {
-
-	return &WeaviateThingsCreateNotImplemented{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateThingsCreateNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(501)
 }

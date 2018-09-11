@@ -92,27 +92,3 @@ func (o *WeaviateMetaGetUnauthorized) WriteResponse(rw http.ResponseWriter, prod
 
 	rw.WriteHeader(401)
 }
-
-// WeaviateMetaGetNotImplementedCode is the HTTP code returned for type WeaviateMetaGetNotImplemented
-const WeaviateMetaGetNotImplementedCode int = 501
-
-/*WeaviateMetaGetNotImplemented Not (yet) implemented
-
-swagger:response weaviateMetaGetNotImplemented
-*/
-type WeaviateMetaGetNotImplemented struct {
-}
-
-// NewWeaviateMetaGetNotImplemented creates WeaviateMetaGetNotImplemented with default headers values
-func NewWeaviateMetaGetNotImplemented() *WeaviateMetaGetNotImplemented {
-
-	return &WeaviateMetaGetNotImplemented{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateMetaGetNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(501)
-}

@@ -50,6 +50,12 @@ func CreateRootKeyObject(key *models.Key) (hashedToken string, UUID strfmt.UUID)
 	token := GenerateUUID()
 	UUID = GenerateUUID()
 
+	hashedToken = CreateRootKeyObjectFromTokenAndUUID(key, UUID, token)
+
+	return
+}
+
+func CreateRootKeyObjectFromTokenAndUUID(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) (hashedToken string) {
 	// Do not set any parent
 
 	// Set expiry to unlimited
