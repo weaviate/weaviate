@@ -1,0 +1,54 @@
+version: '3.4'
+services:
+  weaviate:
+    image: weaviate/test-server
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: test
+    depends_on:
+      - janus
+    restart: on-failure:0
+    ports:
+     - "8080:8080"
+  janus:
+    image: janusgraph:0.2.0-hadoop2
+    build:
+      dockerfile: Dockerfile.janus
+      args:
+        version: 0.2.0
+        hadoop: hadoop2
+      context: ./tools/dev/janusgraph-docker/
+    depends_on:
+      - db
+      - index
+    ports:
+     - "8182:8182"
+     - "8184:8184"
+  db:
+    image: scylladb/scylla:2.0.1
+    ports:
+     # http://docs.scylladb.com/kb/posix/
+     # REST API
+     - "10000:10000"
+     # CQL ports (native_transport_port)
+     - "9042:9042"
+     # Thrift (rpc_port)
+     - "9160:9160"
+     # Internode
+     - "7000:7000"
+     - "7001:7001"
+     # JMX
+     - "7199:7199"
+     # Prometheus monitoring
+     - "9180:9180"
+     - "9100:9100"
+    volumes:
+     - ./data/scylla/data:/var/lib/scylla
+  index:
+    image: elasticsearch:5
+    ports:
+     - "9200:9200"
+     - "9300:9300"
+    volumes:
+     - ./data/elasticsearch/data:/usr/share/elasticsearch/data

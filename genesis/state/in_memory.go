@@ -26,7 +26,12 @@ func (im *inMemoryState) RegisterPeer(name string, uri strfmt.URI) (*Peer, error
 	im.Lock()
 	defer im.Unlock()
 
-	id := strfmt.UUID(uuid.NewV4().String())
+	uuid, err := uuid.NewV4()
+	if err != nil {
+		panic(err)
+	}
+
+	id := strfmt.UUID(uuid.String())
 
 	log.Debugf("Registering peer '%v' with id '%v'", name, id)
 	peer := Peer{

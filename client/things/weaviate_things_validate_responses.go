@@ -53,13 +53,6 @@ func (o *WeaviateThingsValidateReader) ReadResponse(response runtime.ClientRespo
 		}
 		return nil, result
 
-	case 501:
-		result := NewWeaviateThingsValidateNotImplemented()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -153,27 +146,6 @@ func (o *WeaviateThingsValidateUnprocessableEntity) readResponse(response runtim
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
-
-	return nil
-}
-
-// NewWeaviateThingsValidateNotImplemented creates a WeaviateThingsValidateNotImplemented with default headers values
-func NewWeaviateThingsValidateNotImplemented() *WeaviateThingsValidateNotImplemented {
-	return &WeaviateThingsValidateNotImplemented{}
-}
-
-/*WeaviateThingsValidateNotImplemented handles this case with default header values.
-
-Not (yet) implemented.
-*/
-type WeaviateThingsValidateNotImplemented struct {
-}
-
-func (o *WeaviateThingsValidateNotImplemented) Error() string {
-	return fmt.Sprintf("[POST /things/validate][%d] weaviateThingsValidateNotImplemented ", 501)
-}
-
-func (o *WeaviateThingsValidateNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

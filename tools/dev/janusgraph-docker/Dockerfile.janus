@@ -1,0 +1,26 @@
+FROM openjdk:8-jdk
+
+ARG version=0.3.0
+ARG hadoop=hadoop2
+
+RUN apt-get update && \
+    apt-get install -y wget unzip htop && \
+    mkdir /workspace && \
+    cd /workspace && \
+    echo "Downloading JanusGraph $version" && \
+    wget -q https://github.com/JanusGraph/janusgraph/releases/download/v$version/janusgraph-$version-$hadoop.zip && \
+    unzip -q janusgraph-$version-$hadoop.zip && \
+    rm janusgraph-$version-$hadoop.zip && \
+    mv janusgraph-* janusgraph
+
+
+WORKDIR /workspace/janusgraph
+RUN bin/gremlin-server.sh -i org.apache.tinkerpop gremlin-python 3.3.3
+RUN bin/gremlin-server.sh -i org.opencypher.gremlin cypher-gremlin-server-plugin 0.9.11
+
+COPY janusgraph/run.sh /workspace/janusgraph
+COPY janusgraph/gremlin-server.yaml /workspace/janusgraph/conf/gremlin-server/gremlin-server.yaml
+COPY janusgraph/janusgraph.properties /workspace/janusgraph/janusgraph.properties
+COPY janusgraph/empty-sample.groovy /workspace/janusgraph/scripts/empty-sample.groovy
+
+CMD ["/bin/bash", "-e", "/workspace/janusgraph/run.sh"]

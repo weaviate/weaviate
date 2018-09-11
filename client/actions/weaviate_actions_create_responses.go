@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/swag"
 
 	strfmt "github.com/go-openapi/strfmt"
 
@@ -24,6 +26,13 @@ type WeaviateActionsCreateReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *WeaviateActionsCreateReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
+
+	case 200:
+		result := NewWeaviateActionsCreateOK()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return result, nil
 
 	case 202:
 		result := NewWeaviateActionsCreateAccepted()
@@ -53,16 +62,38 @@ func (o *WeaviateActionsCreateReader) ReadResponse(response runtime.ClientRespon
 		}
 		return nil, result
 
-	case 501:
-		result := NewWeaviateActionsCreateNotImplemented()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
+}
+
+// NewWeaviateActionsCreateOK creates a WeaviateActionsCreateOK with default headers values
+func NewWeaviateActionsCreateOK() *WeaviateActionsCreateOK {
+	return &WeaviateActionsCreateOK{}
+}
+
+/*WeaviateActionsCreateOK handles this case with default header values.
+
+Action created
+*/
+type WeaviateActionsCreateOK struct {
+	Payload *models.ActionGetResponse
+}
+
+func (o *WeaviateActionsCreateOK) Error() string {
+	return fmt.Sprintf("[POST /actions][%d] weaviateActionsCreateOK  %+v", 200, o.Payload)
+}
+
+func (o *WeaviateActionsCreateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ActionGetResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
 }
 
 // NewWeaviateActionsCreateAccepted creates a WeaviateActionsCreateAccepted with default headers values
@@ -72,7 +103,7 @@ func NewWeaviateActionsCreateAccepted() *WeaviateActionsCreateAccepted {
 
 /*WeaviateActionsCreateAccepted handles this case with default header values.
 
-Successfully received.
+Successfully received. No guarantees are made that the Action is persisted.
 */
 type WeaviateActionsCreateAccepted struct {
 	Payload *models.ActionGetResponse
@@ -165,23 +196,64 @@ func (o *WeaviateActionsCreateUnprocessableEntity) readResponse(response runtime
 	return nil
 }
 
-// NewWeaviateActionsCreateNotImplemented creates a WeaviateActionsCreateNotImplemented with default headers values
-func NewWeaviateActionsCreateNotImplemented() *WeaviateActionsCreateNotImplemented {
-	return &WeaviateActionsCreateNotImplemented{}
-}
-
-/*WeaviateActionsCreateNotImplemented handles this case with default header values.
-
-Not (yet) implemented.
+/*WeaviateActionsCreateBody weaviate actions create body
+swagger:model WeaviateActionsCreateBody
 */
-type WeaviateActionsCreateNotImplemented struct {
+type WeaviateActionsCreateBody struct {
+
+	// action
+	Action *models.ActionCreate `json:"action,omitempty"`
+
+	// If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the value is persisted. The value of `async` defaults to false.
+	Async bool `json:"async,omitempty"`
 }
 
-func (o *WeaviateActionsCreateNotImplemented) Error() string {
-	return fmt.Sprintf("[POST /actions][%d] weaviateActionsCreateNotImplemented ", 501)
+// Validate validates this weaviate actions create body
+func (o *WeaviateActionsCreateBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateAction(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
 }
 
-func (o *WeaviateActionsCreateNotImplemented) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *WeaviateActionsCreateBody) validateAction(formats strfmt.Registry) error {
 
+	if swag.IsZero(o.Action) { // not required
+		return nil
+	}
+
+	if o.Action != nil {
+		if err := o.Action.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("body" + "." + "action")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *WeaviateActionsCreateBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *WeaviateActionsCreateBody) UnmarshalBinary(b []byte) error {
+	var res WeaviateActionsCreateBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
 	return nil
 }

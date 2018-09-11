@@ -136,27 +136,3 @@ func (o *WeaviateKeyCreateUnprocessableEntity) WriteResponse(rw http.ResponseWri
 		}
 	}
 }
-
-// WeaviateKeyCreateNotImplementedCode is the HTTP code returned for type WeaviateKeyCreateNotImplemented
-const WeaviateKeyCreateNotImplementedCode int = 501
-
-/*WeaviateKeyCreateNotImplemented Not (yet) implemented.
-
-swagger:response weaviateKeyCreateNotImplemented
-*/
-type WeaviateKeyCreateNotImplemented struct {
-}
-
-// NewWeaviateKeyCreateNotImplemented creates WeaviateKeyCreateNotImplemented with default headers values
-func NewWeaviateKeyCreateNotImplemented() *WeaviateKeyCreateNotImplemented {
-
-	return &WeaviateKeyCreateNotImplemented{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateKeyCreateNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(501)
-}

@@ -43,11 +43,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/auth"
 	"github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/config"
-	"github.com/creativesoftwarefdn/weaviate/connectors"
-	"github.com/creativesoftwarefdn/weaviate/connectors/cassandra"
-	"github.com/creativesoftwarefdn/weaviate/connectors/dataloader"
-	"github.com/creativesoftwarefdn/weaviate/connectors/foobar"
-	"github.com/creativesoftwarefdn/weaviate/connectors/kvcache"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
+	dblisting "github.com/creativesoftwarefdn/weaviate/connectors/listing"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -158,33 +155,11 @@ func deleteKey(ctx context.Context, databaseConnector dbconnector.DatabaseConnec
 	}
 }
 
-// GetAllConnectors contains all available connectors
-func GetAllConnectors() []dbconnector.DatabaseConnector {
-	// Set all existing connectors
-	connectors := []dbconnector.DatabaseConnector{
-		&foobar.Foobar{},
-		&cassandra.Cassandra{},
-	}
-
-	return connectors
-}
-
-// GetAllCacheConnectors contains all available cache-connectors
-func GetAllCacheConnectors() []dbconnector.CacheConnector {
-	// Set all existing connectors
-	connectors := []dbconnector.CacheConnector{
-		&kvcache.KVCache{},
-		&dataloader.DataLoader{},
-	}
-
-	return connectors
-}
-
 // CreateDatabaseConnector gets the database connector by name from config
 func CreateDatabaseConnector(env *config.Environment) dbconnector.DatabaseConnector {
 	// Get all connectors
-	connectors := GetAllConnectors()
-	cacheConnectors := GetAllCacheConnectors()
+	connectors := dblisting.GetAllConnectors()
+	cacheConnectors := dblisting.GetAllCacheConnectors()
 
 	// Init the db-connector variable
 	var connector dbconnector.DatabaseConnector
@@ -304,7 +279,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
-		actionGetResponse.Things = &models.ObjectSubject{}
 
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
@@ -373,7 +347,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
-		actionGetResponse.Things = &models.ObjectSubject{}
 
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
@@ -518,7 +491,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), params.Body, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), params.Body.Action, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -533,30 +506,29 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Make Action-Object
 		action := &models.Action{}
-		action.AtClass = params.Body.AtClass
-		action.AtContext = params.Body.AtContext
-		action.Schema = params.Body.Schema
-		action.Things = params.Body.Things
+		action.AtClass = params.Body.Action.AtClass
+		action.AtContext = params.Body.Action.AtContext
+		action.Schema = params.Body.Action.Schema
 		action.CreationTimeUnix = connutils.NowUnix()
 		action.LastUpdateTimeUnix = 0
 		action.Key = keyRef
 
-		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go dbConnector.AddAction(ctx, action, UUID)
-
-		// Initialize a response object
 		responseObject := &models.ActionGetResponse{}
 		responseObject.Action = *action
 		responseObject.ActionID = UUID
 
-		// Return SUCCESS (NOTE: this is ACCEPTED, so the databaseConnector.Add should have a go routine)
-		return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
+		if params.Body.Async {
+			go dbConnector.AddAction(ctx, action, UUID)
+			return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
+		} else {
+			dbConnector.AddAction(ctx, action, UUID)
+			return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
+		}
 	})
 	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal interface{}) middleware.Responder {
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
-		actionGetResponse.Things = &models.ObjectSubject{}
 
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
@@ -818,7 +790,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema given in body with the weaviate schema
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema, dbConnector, serverConfig, keyToken)
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body.Thing, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -833,23 +805,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Make Thing-Object
 		thing := &models.Thing{}
-		thing.Schema = params.Body.Schema
-		thing.AtClass = params.Body.AtClass
-		thing.AtContext = params.Body.AtContext
+		thing.Schema = params.Body.Thing.Schema
+		thing.AtClass = params.Body.Thing.AtClass
+		thing.AtContext = params.Body.Thing.AtContext
 		thing.CreationTimeUnix = connutils.NowUnix()
 		thing.LastUpdateTimeUnix = 0
 		thing.Key = keyRef
 
-		// Save to DB, this needs to be a Go routine because we will return an accepted
-		go dbConnector.AddThing(ctx, thing, UUID)
-
-		// Create response Object from create object.
 		responseObject := &models.ThingGetResponse{}
 		responseObject.Thing = *thing
 		responseObject.ThingID = UUID
 
-		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
-		return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
+		if params.Body.Async {
+			go dbConnector.AddThing(ctx, thing, UUID)
+			return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
+		} else {
+			dbConnector.AddThing(ctx, thing, UUID)
+			return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
+		}
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
 		// Initialize response

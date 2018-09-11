@@ -16,8 +16,6 @@ import (
 	cr "github.com/go-openapi/runtime/client"
 
 	strfmt "github.com/go-openapi/strfmt"
-
-	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // NewWeaviateThingsCreateParams creates a new WeaviateThingsCreateParams object
@@ -65,7 +63,7 @@ for the weaviate things create operation typically these are written to a http.R
 type WeaviateThingsCreateParams struct {
 
 	/*Body*/
-	Body *models.ThingCreate
+	Body WeaviateThingsCreateBody
 
 	timeout    time.Duration
 	Context    context.Context
@@ -106,13 +104,13 @@ func (o *WeaviateThingsCreateParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithBody adds the body to the weaviate things create params
-func (o *WeaviateThingsCreateParams) WithBody(body *models.ThingCreate) *WeaviateThingsCreateParams {
+func (o *WeaviateThingsCreateParams) WithBody(body WeaviateThingsCreateBody) *WeaviateThingsCreateParams {
 	o.SetBody(body)
 	return o
 }
 
 // SetBody adds the body to the weaviate things create params
-func (o *WeaviateThingsCreateParams) SetBody(body *models.ThingCreate) {
+func (o *WeaviateThingsCreateParams) SetBody(body WeaviateThingsCreateBody) {
 	o.Body = body
 }
 
@@ -124,10 +122,8 @@ func (o *WeaviateThingsCreateParams) WriteToRequest(r runtime.ClientRequest, reg
 	}
 	var res []error
 
-	if o.Body != nil {
-		if err := r.SetBodyParam(o.Body); err != nil {
-			return err
-		}
+	if err := r.SetBodyParam(o.Body); err != nil {
+		return err
 	}
 
 	if len(res) > 0 {
