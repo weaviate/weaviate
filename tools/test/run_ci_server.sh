@@ -3,6 +3,7 @@ set -euo pipefail
 
 # This scripts starts a Weaviate server with the test scheme and waits until weaviate is up and running.
 
+docker pull golang:1.11-alpine
 docker-compose -f docker-compose-test.yml build weaviate janus index db
 docker-compose -f docker-compose-test.yml up --force-recreate -d weaviate janus index db
 
