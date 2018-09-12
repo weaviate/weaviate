@@ -35,19 +35,21 @@ func TestCreateThingWorks(t *testing.T) {
 	thingTestNumber := 1.337
 	thingTestDate := "2017-10-06T08:15:30+01:00"
 
-	params := things.NewWeaviateThingsCreateParams().WithBody(&models.ThingCreate{
-		AtContext: "http://example.org",
-		AtClass:   "TestThing",
-		Schema: map[string]interface{}{
-			"testString":   thingTestString,
-			"testInt":      thingTestInt,
-			"testBoolean":  thingTestBoolean,
-			"testNumber":   thingTestNumber,
-			"testDateTime": thingTestDate,
+	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
+		Thing: &models.ThingCreate{
+			AtContext: "http://example.org",
+			AtClass:   "TestThing",
+			Schema: map[string]interface{}{
+				"testString":   thingTestString,
+				"testInt":      thingTestInt,
+				"testBoolean":  thingTestBoolean,
+				"testNumber":   thingTestNumber,
+				"testDateTime": thingTestDate,
+			},
 		},
 	})
 
-	resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, helper.RootAuth)
+	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, helper.RootAuth)
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
@@ -68,6 +70,8 @@ func TestCreateThingWorks(t *testing.T) {
 	})
 }
 
+// TODO: add test for async creation
+
 // Check that none of the examples of invalid things can be created.
 func TestCannotCreateInvalidThings(t *testing.T) {
 	t.Parallel()
@@ -78,8 +82,8 @@ func TestCannotCreateInvalidThings(t *testing.T) {
 			example := example_ // Needed; example is updated to point to a new test case.
 			t.Parallel()
 
-			params := things.NewWeaviateThingsCreateParams().WithBody(example.thing())
-			resp, err := helper.Client(t).Things.WeaviateThingsCreate(params, helper.RootAuth)
+			params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: example.thing()})
+			resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, helper.RootAuth)
 			helper.AssertRequestFail(t, resp, err, func() {
 				errResponse, ok := err.(*things.WeaviateThingsCreateUnprocessableEntity)
 				if !ok {

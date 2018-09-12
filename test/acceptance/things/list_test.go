@@ -27,20 +27,24 @@ import (
 func TestListAll(t *testing.T) {
 	t.Parallel()
 
-	params1 := things.NewWeaviateThingsCreateParams().WithBody(&models.ThingCreate{
-		AtContext: "http://example.org",
-		AtClass:   "TestThing",
-		Schema:    map[string]interface{}{},
+	params1 := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
+		Thing: &models.ThingCreate{
+			AtContext: "http://example.org",
+			AtClass:   "TestThing",
+			Schema:    map[string]interface{}{},
+		},
 	})
-	resp1, err := helper.Client(t).Things.WeaviateThingsCreate(params1, helper.RootAuth)
+	resp1, _, err := helper.Client(t).Things.WeaviateThingsCreate(params1, helper.RootAuth)
 	assert.Nil(t, err, "creation should succeed")
 
-	params2 := things.NewWeaviateThingsCreateParams().WithBody(&models.ThingCreate{
-		AtContext: "http://example.org",
-		AtClass:   "TestThing",
-		Schema:    map[string]interface{}{},
+	params2 := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
+		Thing: &models.ThingCreate{
+			AtContext: "http://example.org",
+			AtClass:   "TestThing",
+			Schema:    map[string]interface{}{},
+		},
 	})
-	resp2, err := helper.Client(t).Things.WeaviateThingsCreate(params2, helper.RootAuth)
+	resp2, _, err := helper.Client(t).Things.WeaviateThingsCreate(params2, helper.RootAuth)
 	assert.Nil(t, err, "creation should succeed")
 
 	listParams := things.NewWeaviateThingsListParams()

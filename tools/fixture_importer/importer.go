@@ -211,9 +211,9 @@ func findProperty(class *models.SemanticSchemaClass, propName string) *models.Se
 }
 
 func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
-	params := things.NewWeaviateThingsCreateParams().WithBody(t)
+	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: t})
 
-	resp, err := client.Things.WeaviateThingsCreate(params, auth)
+	resp, _, err := client.Things.WeaviateThingsCreate(params, auth)
 
 	if err != nil {
 		switch v := err.(type) {
