@@ -16,6 +16,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/client/keys"
 	"github.com/creativesoftwarefdn/weaviate/client/meta"
 	"github.com/creativesoftwarefdn/weaviate/client/p2_p"
+	"github.com/creativesoftwarefdn/weaviate/client/schema"
 	"github.com/creativesoftwarefdn/weaviate/client/things"
 )
 
@@ -71,6 +72,8 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *WeaviateDe
 	cli.Meta = meta.New(transport, formats)
 
 	cli.P2P = p2_p.New(transport, formats)
+
+	cli.Schema = schema.New(transport, formats)
 
 	cli.Things = things.New(transport, formats)
 
@@ -128,6 +131,8 @@ type WeaviateDecentralisedKnowledgeGraph struct {
 
 	P2P *p2_p.Client
 
+	Schema *schema.Client
+
 	Things *things.Client
 
 	Transport runtime.ClientTransport
@@ -146,6 +151,8 @@ func (c *WeaviateDecentralisedKnowledgeGraph) SetTransport(transport runtime.Cli
 	c.Meta.SetTransport(transport)
 
 	c.P2P.SetTransport(transport)
+
+	c.Schema.SetTransport(transport)
 
 	c.Things.SetTransport(transport)
 
