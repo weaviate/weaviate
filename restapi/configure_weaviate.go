@@ -149,7 +149,7 @@ func deleteKey(ctx context.Context, databaseConnector dbconnector.DatabaseConnec
 		keyResponse := models.KeyGetResponse{}
 
 		// Get the key to delete
-		dbConnector.GetKey(ctx, keyID, &keyResponse)
+		databaseConnector.GetKey(ctx, keyID, &keyResponse)
 
 		databaseConnector.DeleteKey(ctx, &keyResponse.Key, keyID)
 	}
