@@ -24,6 +24,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
@@ -46,7 +47,9 @@ import (
 	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
 	dblisting "github.com/creativesoftwarefdn/weaviate/connectors/listing"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
+	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
@@ -68,9 +71,10 @@ var databaseSchema schema.WeaviateSchema
 var contextionary *libcontextionary.Contextionary
 var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
-var dbConnector dbconnector.DatabaseConnector
 var graphQL graphqlapi.GraphQL
 var messaging *messages.Messaging
+
+var db *database.Database
 
 type keyTokenHeader struct {
 	Key   strfmt.UUID `json:"key"`
@@ -133,7 +137,7 @@ func generateMultipleRefObject(keyIDs []strfmt.UUID) models.MultipleRef {
 	return refs
 }
 
-func deleteKey(ctx context.Context, databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID) {
+func deleteKey(ctx context.Context, databaseConnector *dbconnector.DatabaseConnector, parentUUID strfmt.UUID) {
 	// Find its children
 	var allIDs []strfmt.UUID
 
@@ -149,9 +153,9 @@ func deleteKey(ctx context.Context, databaseConnector dbconnector.DatabaseConnec
 		keyResponse := models.KeyGetResponse{}
 
 		// Get the key to delete
-		databaseConnector.GetKey(ctx, keyID, &keyResponse)
+		(*databaseConnector).GetKey(ctx, keyID, &keyResponse)
 
-		databaseConnector.DeleteKey(ctx, &keyResponse.Key, keyID)
+		(*databaseConnector).DeleteKey(ctx, &keyResponse.Key, keyID)
 	}
 }
 
@@ -210,6 +214,10 @@ func createErrorResponseObject(messages ...string) *models.ErrorResponse {
 }
 
 func headerAPIKeyHandling(ctx context.Context, keyToken string) (*models.KeyTokenGetResponse, error) {
+	dbLock := db.ConnectorLock()
+	defer dbLock.Unlock()
+	dbConnector := dbLock.Connector()
+
 	// Convert JSON string to struct
 	kth := keyTokenHeader{}
 	json.Unmarshal([]byte(keyToken), &kth)
@@ -223,7 +231,7 @@ func headerAPIKeyHandling(ctx context.Context, keyToken string) (*models.KeyToke
 	validatedKey := models.KeyGetResponse{}
 
 	// Check if the user has access, true if yes
-	hashed, err := dbConnector.ValidateToken(ctx, kth.Key, &validatedKey)
+	hashed, err := (*dbConnector).ValidateToken(ctx, kth.Key, &validatedKey)
 
 	// Error printing
 	if err != nil {
@@ -278,6 +286,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE EVENTS
 	 */
 	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
@@ -286,7 +298,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		err := dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
+		err := (*dbConnector).GetAction(ctx, params.ActionID, &actionGetResponse)
 
 		// Object is deleted
 		if err != nil || actionGetResponse.Key == nil {
@@ -302,6 +314,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
 	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		responseObject := models.ActionGetResponse{}
 		responseObject.Schema = map[string]models.JSONObject{}
@@ -313,7 +329,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		errGet := dbConnector.GetAction(ctx, UUID, &responseObject)
+		errGet := (*dbConnector).GetAction(ctx, UUID, &responseObject)
 
 		// Init the response variables
 		historyResponse := &models.ActionGetHistoryResponse{}
@@ -321,7 +337,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		historyResponse.ActionID = UUID
 
 		// Fill the history for these objects
-		errHist := dbConnector.HistoryAction(ctx, UUID, &historyResponse.ActionHistory)
+		errHist := (*dbConnector).HistoryAction(ctx, UUID, &historyResponse.ActionHistory)
 
 		// Check whether dont exist (both give an error) to return a not found
 		if errGet != nil && (errHist != nil || len(historyResponse.PropertyHistory) == 0) {
@@ -346,6 +362,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionHistoryGetOK().WithPayload(historyResponse)
 	})
 	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
@@ -355,7 +377,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get and transform object
 		UUID := strfmt.UUID(params.ActionID)
-		errGet := dbConnector.GetAction(ctx, UUID, &actionGetResponse)
+		errGet := (*dbConnector).GetAction(ctx, UUID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
 		oldAction := actionGetResponse
@@ -404,10 +426,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			(*dbConnector).MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		}()
 
 		// Update the database
-		go dbConnector.UpdateAction(ctx, action, UUID)
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			(*dbConnector).UpdateAction(ctx, action, UUID)
+		}()
 
 		// Create return Object
 		actionGetResponse.Action = *action
@@ -425,6 +455,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation actions.WeaviateActionsPropertiesUpdate has not yet been implemented")
 	})
 	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
@@ -434,7 +469,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get item from database
 		UUID := params.ActionID
-		errGet := dbConnector.GetAction(ctx, UUID, &actionGetResponse)
+		errGet := (*dbConnector).GetAction(ctx, UUID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
 		oldAction := actionGetResponse
@@ -457,13 +492,22 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			(*dbConnector).MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		}()
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = actionGetResponse.CreationTimeUnix
 		params.Body.Key = actionGetResponse.Key
-		go dbConnector.UpdateAction(ctx, &params.Body.Action, UUID)
+
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			(*dbConnector).UpdateAction(ctx, &params.Body.Action, UUID)
+		}()
 
 		// Create object to return
 		responseObject := &models.ActionGetResponse{}
@@ -478,6 +522,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionUpdateAccepted().WithPayload(responseObject)
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
 
@@ -490,6 +538,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionsValidateOK()
 	})
 	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
 
@@ -529,14 +582,25 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.ActionID = UUID
 
 		if params.Body.Async {
-			go dbConnector.AddAction(ctx, action, UUID)
+			delayedLock.IncSteps()
+			go func() {
+				defer delayedLock.Unlock()
+				(*dbConnector).AddAction(ctx, action, UUID)
+			}()
 			return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
 		} else {
-			dbConnector.AddAction(ctx, action, UUID)
+			//TODO: handle errors
+			(*dbConnector).AddAction(ctx, action, UUID)
 			return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
 		}
 	})
 	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
@@ -545,7 +609,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		errGet := dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
+		errGet := (*dbConnector).GetAction(ctx, params.ActionID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
 		oldAction := actionGetResponse
@@ -563,10 +627,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			(*dbConnector).MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		}()
 
 		// Add new row as GO-routine
-		go dbConnector.DeleteAction(ctx, &actionGetResponse.Action, params.ActionID)
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			(*dbConnector).DeleteAction(ctx, &actionGetResponse.Action, params.ActionID)
+		}()
 
 		// Return 'No Content'
 		return actions.NewWeaviateActionsDeleteNoContent()
@@ -576,6 +648,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE KEYS
 	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Create current User object from principal
 		key := principal.(*models.KeyTokenGetResponse)
 
@@ -606,7 +682,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Save to DB
-		insertErr := dbConnector.AddKey(ctx, &newKey.Key, newKey.KeyID, connutils.TokenHasher(newKey.Token))
+		insertErr := (*dbConnector).AddKey(ctx, &newKey.Key, newKey.KeyID, connutils.TokenHasher(newKey.Token))
 		if insertErr != nil {
 			messaging.ErrorMessage(insertErr)
 			return keys.NewWeaviateKeyCreateUnprocessableEntity().WithPayload(createErrorResponseObject(insertErr.Error()))
@@ -617,6 +693,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
@@ -624,7 +705,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		errGet := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
+		errGet := (*dbConnector).GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -649,6 +730,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
@@ -656,7 +742,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		errGet := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
+		errGet := (*dbConnector).GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -676,6 +762,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysDeleteNoContent()
 	})
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
@@ -683,7 +774,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		err := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
+		err := (*dbConnector).GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -700,6 +791,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysGetOK().WithPayload(&keyResponse)
 	})
 	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
 		currentKey := principal.(*models.KeyTokenGetResponse)
 
@@ -718,6 +814,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response object
 		responseObject := models.KeyGetResponse{}
 
@@ -728,7 +829,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.Key.IsRoot = &isRoot
 
 		// Get item from database
-		err := dbConnector.GetKey(ctx, principal.(*models.KeyTokenGetResponse).KeyID, &responseObject)
+		err := (*dbConnector).GetKey(ctx, principal.(*models.KeyTokenGetResponse).KeyID, &responseObject)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -739,6 +840,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysMeGetOK().WithPayload(&responseObject)
 	})
 	api.KeysWeaviateKeysRenewTokenHandler = keys.WeaviateKeysRenewTokenHandlerFunc(func(params keys.WeaviateKeysRenewTokenParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
@@ -746,7 +852,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		errGet := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
+		errGet := (*dbConnector).GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -768,7 +874,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		newToken := connutils.GenerateUUID()
 
 		// Update the key in the database
-		insertErr := dbConnector.UpdateKey(ctx, &keyResponse.Key, keyResponse.KeyID, connutils.TokenHasher(newToken))
+		insertErr := (*dbConnector).UpdateKey(ctx, &keyResponse.Key, keyResponse.KeyID, connutils.TokenHasher(newToken))
 		if insertErr != nil {
 			messaging.ErrorMessage(insertErr)
 			return keys.NewWeaviateKeysRenewTokenUnprocessableEntity().WithPayload(createErrorResponseObject(insertErr.Error()))
@@ -786,6 +892,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE THINGS
 	 */
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
 
@@ -828,14 +940,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.ThingID = UUID
 
 		if params.Body.Async {
-			go dbConnector.AddThing(ctx, thing, UUID)
+			delayedLock.IncSteps()
+			go func() {
+				defer delayedLock.Unlock()
+				(*dbConnector).AddThing(ctx, thing, UUID)
+			}()
 			return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
 		} else {
-			dbConnector.AddThing(ctx, thing, UUID)
+			(*dbConnector).AddThing(ctx, thing, UUID)
 			return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
 		}
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
@@ -844,7 +966,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
+		errGet := (*dbConnector).GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
 
 		// Save the old-thing in a variable
 		oldThing := thingGetResponse
@@ -862,15 +984,27 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, params.ThingID, true)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			(*dbConnector).MoveToHistoryThing(ctx, &oldThing.Thing, params.ThingID, true)
+		}()
 
 		// Add new row as GO-routine
-		go dbConnector.DeleteThing(ctx, &thingGetResponse.Thing, params.ThingID)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			(*dbConnector).DeleteThing(ctx, &thingGetResponse.Thing, params.ThingID)
+		}()
 
 		// Return 'No Content'
 		return things.NewWeaviateThingsDeleteNoContent()
 	})
 	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		responseObject := models.ThingGetResponse{}
 		responseObject.Schema = map[string]models.JSONObject{}
@@ -879,7 +1013,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		err := dbConnector.GetThing(ctx, strfmt.UUID(params.ThingID), &responseObject)
+		err := (*dbConnector).GetThing(ctx, strfmt.UUID(params.ThingID), &responseObject)
 
 		// Object is not found
 		if err != nil || responseObject.Key == nil {
@@ -897,6 +1031,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.ThingsWeaviateThingHistoryGetHandler = things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		responseObject := models.ThingGetResponse{}
 		responseObject.Schema = map[string]models.JSONObject{}
@@ -908,7 +1046,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := strfmt.UUID(params.ThingID)
 
 		// Get item from database
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &responseObject)
+		errGet := (*dbConnector).GetThing(params.HTTPRequest.Context(), UUID, &responseObject)
 
 		// Init the response variables
 		historyResponse := &models.ThingGetHistoryResponse{}
@@ -916,7 +1054,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		historyResponse.ThingID = UUID
 
 		// Fill the history for these objects
-		errHist := dbConnector.HistoryThing(ctx, UUID, &historyResponse.ThingHistory)
+		errHist := (*dbConnector).HistoryThing(ctx, UUID, &historyResponse.ThingHistory)
 
 		// Check whether dont exist (both give an error) to return a not found
 		if errGet != nil && (errHist != nil || len(historyResponse.PropertyHistory) == 0) {
@@ -943,6 +1081,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Get limit and page
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
@@ -963,7 +1105,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingsResponse.Things = []*models.ThingGetResponse{}
 
 		// List all results
-		err := dbConnector.ListThings(ctx, limit, (page-1)*limit, keyID, []*connutils.WhereQuery{}, &thingsResponse)
+		err := (*dbConnector).ListThings(ctx, limit, (page-1)*limit, keyID, []*connutils.WhereQuery{}, &thingsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)
@@ -972,6 +1114,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
 	})
 	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
@@ -981,7 +1129,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get and transform object
 		UUID := strfmt.UUID(params.ThingID)
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
+		errGet := (*dbConnector).GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
 
 		// Save the old-thing in a variable
 		oldThing := thingGetResponse
@@ -1034,10 +1182,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			(*dbConnector).MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+		}()
 
 		// Update the database
-		go dbConnector.UpdateThing(ctx, thing, UUID)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			(*dbConnector).UpdateThing(ctx, thing, UUID)
+		}()
 
 		// Create return Object
 		thingGetResponse.Thing = *thing
@@ -1055,6 +1211,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation things.WeaviateThingsPropertiesUpdate has not yet been implemented")
 	})
 	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
@@ -1064,7 +1226,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get item from database
 		UUID := params.ThingID
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
+		errGet := (*dbConnector).GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
 
 		// Save the old-thing in a variable
 		oldThing := thingGetResponse
@@ -1090,13 +1252,21 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			(*dbConnector).MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+		}()
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
 		params.Body.Key = thingGetResponse.Key
-		go dbConnector.UpdateThing(ctx, &params.Body.Thing, UUID)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			(*dbConnector).UpdateThing(ctx, &params.Body.Thing, UUID)
+		}()
 
 		// Create object to return
 		responseObject := &models.ThingGetResponse{}
@@ -1111,6 +1281,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsUpdateAccepted().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Convert principal to object
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
@@ -1162,6 +1336,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Get limit and page
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
@@ -1180,7 +1359,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
+		errGet := (*dbConnector).GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
 
 		// If there are no results, there is an error
 		if errGet != nil {
@@ -1193,7 +1372,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
-		err := dbConnector.ListActions(ctx, params.ThingID, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
+		err := (*dbConnector).ListActions(ctx, params.ThingID, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)
@@ -1303,7 +1482,11 @@ func configureServer(s *http.Server, scheme, addr string) {
 	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
 
 	// Create the database connector usint the config
-	dbConnector = CreateDatabaseConnector(&serverConfig.Environment)
+	// TODO  make this configureable
+	dbConnector := CreateDatabaseConnector(&serverConfig.Environment)
+	localMutex := sync.RWMutex{}
+	dbLock := database.RWLocker(&localMutex)
+	db = database.New(&dbLock, nil, &dbConnector)
 
 	// Error the system when the database connector returns no connector
 	if dbConnector == nil {

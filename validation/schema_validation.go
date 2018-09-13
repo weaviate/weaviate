@@ -55,7 +55,7 @@ const (
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
-func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{}, refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{}, refType connutils.RefType, dbConnector *dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
 	// Initialize class object
 	var isp interface{}
 	var className string
