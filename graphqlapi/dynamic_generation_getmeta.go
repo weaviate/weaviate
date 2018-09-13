@@ -61,7 +61,7 @@ func genMetaClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, 
 }
 
 func genMetaSingleClassField(class *models.SemanticSchemaClass, description string) (*graphql.Field, error) {
-	metaClassName := fmt.Sprintf("%s%s", "Meta", class.Class) // TODO description
+	metaClassName := fmt.Sprintf("%s%s", "Meta", class.Class)
 
 	singleClassPropertyFields := graphql.ObjectConfig{
 		Name: metaClassName,
