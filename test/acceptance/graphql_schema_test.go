@@ -92,7 +92,7 @@ func compareExpectedElementToActualElement(t *testing.T, schemaPath string, expe
 				assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s", schemaPath))
 			} else {
 				if schemaPath != "__schema_types" && schemaPath != "__schema_types_WeaviateObj_fields" {
-					assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s %s", schemaPath, parsedActualValue))
+					assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s \nexpected:\n%s \nactual\n%s", schemaPath, parsedExpectedValue, parsedActualValue))
 				}
 			}
 			if len(parsedExpectedValue) > 0 {
