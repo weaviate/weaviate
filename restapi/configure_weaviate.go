@@ -859,22 +859,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
-		// Delete the Actions
-		actionsExist := true
-		lastActionsCount := int64(0)
-		for actionsExist {
-			actions := models.ActionsListResponse{}
-			actions.Actions = []*models.ActionGetResponse{}
-			dbConnector.ListActions(ctx, params.ThingID, 50, 0, []*connutils.WhereQuery{}, &actions)
-			for _, v := range actions.Actions {
-				go dbConnector.DeleteAction(ctx, &v.Action, v.ActionID)
-			}
-
-			// Exit if total results are 0 or the total results are not lowering, then there is some kind of error
-			actionsExist = (actions.TotalResults > 0 && actions.TotalResults != lastActionsCount)
-			lastActionsCount = actions.TotalResults
-		}
-
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Move the current properties to the history
