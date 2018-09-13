@@ -62,7 +62,9 @@ func traverseNestedSchemaLayer(t *testing.T, expectedLayerKey string, expectedLa
 	if expectedLayerName, ok := expectedLayerValue["name"]; ok {
 		updatedExpectedLayerKey = fmt.Sprintf("%s_%s", updatedExpectedLayerKey, expectedLayerName)
 	}
-	// ensure no tests fail due to minute description differences in the graphql core library implementations in Go and JS
+	/* Directives and Subscriptions are part of the core library. There are a handful of differences in element descriptions
+	between the Go and JS implementations that raise errors in this test, but these are not of interest to us (see issue 390
+	in graphql-go for an example).*/
 	if !strings.Contains(updatedExpectedLayerKey, "irective") && !strings.Contains(updatedExpectedLayerKey, "ubscription") {
 
 		for key, expectedValue := range expectedLayerValue {
@@ -116,7 +118,8 @@ func compareExpectedElementToActualElement(t *testing.T, schemaPath string, expe
 	case nil:
 
 	default:
-		// ensure no tests fail due to minute description differences in the graphql core library implementations in Go and JS
+		/* There are a handful of differences in element descriptions between the Go and JS implementations that raise errors in
+		this test, but these are not of interest to us (see issue 390 in graphql-go for an example).*/
 		if schemaPath != "__schema_types___TypeKind_description" {
 			assert.Equal(t, expectedValue, actualValue, fmt.Sprintf("Scalar value inequality detected at path: %s", schemaPath))
 		}
