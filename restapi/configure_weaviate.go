@@ -1366,14 +1366,7 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 
 		messaging.InfoMessage("generated both headers X-API-KEY and X-API-TOKEN")
 
-		ctx := r.Context()
-		ctx, err := dbConnector.Attach(ctx)
-
-		if err != nil {
-			messaging.ExitError(1, "database or cache gave an error when attaching context: "+err.Error())
-		}
-
-		handler.ServeHTTP(w, r.WithContext(ctx))
+		handler.ServeHTTP(w, r)
 	})
 }
 

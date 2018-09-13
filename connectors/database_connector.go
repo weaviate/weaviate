@@ -36,8 +36,6 @@ type BaseConnector interface {
 	SetSchema(schemaInput *schema.WeaviateSchema) error
 	SetMessaging(m *messages.Messaging) error
 
-	Attach(ctx context.Context) (context.Context, error)
-
 	AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
 	GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
 	ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
