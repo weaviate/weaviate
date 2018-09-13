@@ -177,8 +177,3 @@ func (f *Janusgraph) Connect() error {
 
 	return nil
 }
-
-// Attach can attach something to the request-context
-func (f *Janusgraph) Attach(ctx context.Context) (context.Context, error) {
-	return ctx, nil
-}
