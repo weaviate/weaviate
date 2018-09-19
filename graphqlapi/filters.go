@@ -46,21 +46,25 @@ func genStaticWhereFilterElements() graphql.InputObjectConfigFieldMap {
 			Type:        graphql.NewList(graphql.String),
 			Description: "Path of from 'Things' or 'Actions' to the property name through the classes",
 		},
-		"valueInt": &graphql.InputObjectFieldConfig{
+		"int": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Int,
-			Description: "Integer value where the property of the path will be compared to by an operator",
+			Description: "Integer value that the property at the provided path will be compared to by an operator",
 		},
-		"valueFloat": &graphql.InputObjectFieldConfig{
+		"number": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Float,
-			Description: "Float value where the property of the path will be compared to by an operator",
+			Description: "Float value that the property at the provided path will be compared to by an operator",
 		},
-		"valueBoolean": &graphql.InputObjectFieldConfig{
+		"boolean": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Boolean,
-			Description: "Boolean value where the property of the path will be compared to by an operator",
+			Description: "Boolean value that the property at the provided path will be compared to by an operator",
 		},
-		"valueString": &graphql.InputObjectFieldConfig{
+		"string": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
-			Description: "String value where the property of the path will be compared to by an operator",
+			Description: "String value that the property at the provided path will be compared to by an operator",
+		},
+		"date": &graphql.InputObjectFieldConfig{
+			Type:        graphql.String,
+			Description: "String value that the property at the provided path will be compared to by an operator",
 		},
 	}
 
