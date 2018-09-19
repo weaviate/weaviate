@@ -11,6 +11,7 @@
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
+// Package graphqlapi provides the graphql endpoint for Weaviate
 package graphqlapi
 
 import (
@@ -26,7 +27,7 @@ func (g *GraphQL) buildGraphqlSchema() error {
 	rootFieldsObject, err := assembleFullSchema(g)
 
 	if err != nil {
-		return fmt.Errorf("Could not build GraphQL schema, because: %v", err)
+		return fmt.Errorf("could not build GraphQL schema, because: %v", err)
 	}
 
 	schemaObject := graphql.ObjectConfig{
@@ -56,10 +57,9 @@ func (g *GraphQL) buildGraphqlSchema() error {
 	}()
 
 	if err != nil {
-		return fmt.Errorf("Could not build GraphQL schema, because: %v", err)
-	} else {
-		return nil
+		return fmt.Errorf("could not build GraphQL schema, because: %v", err)
 	}
+	return nil
 }
 
 func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
@@ -71,27 +71,27 @@ func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
 	localGetActions, err := genActionClassFieldsFromSchema(g, &getActionsAndThings)
 
 	if err != nil {
-		return nil, fmt.Errorf("Failed to generate action fields from schema for local Get because: %v", err)
+		return nil, fmt.Errorf("failed to generate action fields from schema for local Get because: %v", err)
 	}
 
 	localGetThings, err := genThingClassFieldsFromSchema(g, &getActionsAndThings)
 
 	if err != nil {
-		return nil, fmt.Errorf("Failed to generate thing fields from schema for local Get because: %v", err)
+		return nil, fmt.Errorf("failed to generate thing fields from schema for local Get because: %v", err)
 	}
 
 	classParentTypeIsAction := true
 	localGetMetaActions, err := genMetaClassFieldsFromSchema(g.databaseSchema.ActionSchema.Schema.Classes, classParentTypeIsAction)
 
 	if err != nil {
-		return nil, fmt.Errorf("Failed to generate action fields from schema for local MetaGet because: %v", err)
+		return nil, fmt.Errorf("failed to generate action fields from schema for local MetaGet because: %v", err)
 	}
 
 	classParentTypeIsAction = false
 	localGetMetaThings, err := genMetaClassFieldsFromSchema(g.databaseSchema.ThingSchema.Schema.Classes, classParentTypeIsAction)
 
 	if err != nil {
-		return nil, fmt.Errorf("Failed to generate thing fields from schema for local MetaGet because: %v", err)
+		return nil, fmt.Errorf("failed to generate thing fields from schema for local MetaGet because: %v", err)
 	}
 
 	localGetObject := genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions, localGetThings)
@@ -104,7 +104,7 @@ func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
 		Type:        localGetAndGetMetaObject,
 		Description: "Query a local Weaviate instance",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return g.dbConnector, nil
+			return nil, fmt.Errorf("not supported")
 		},
 	}
 
@@ -125,7 +125,7 @@ func genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Ob
 			Description: "Get Actions on the Local Weaviate",
 			Type:        localGetActions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
+				return nil, fmt.Errorf("not supported")
 			},
 		},
 
@@ -134,7 +134,7 @@ func genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Ob
 			Description: "Get Things on the Local Weaviate",
 			Type:        localGetThings,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
+				return nil, fmt.Errorf("not supported")
 			},
 		},
 	}
@@ -156,7 +156,7 @@ func genThingsAndActionsFieldsForWeaviateLocalGetMetaObj(localGetMetaActions *gr
 			Description: "Get Meta information about Actions on the Local Weaviate",
 			Type:        localGetMetaActions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
+				return nil, fmt.Errorf("not supported")
 			},
 		},
 
@@ -165,7 +165,7 @@ func genThingsAndActionsFieldsForWeaviateLocalGetMetaObj(localGetMetaActions *gr
 			Description: "Get Meta information about Things on the Local Weaviate",
 			Type:        localGetMetaThings,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
+				return nil, fmt.Errorf("not supported")
 			},
 		},
 	}
@@ -200,7 +200,7 @@ func genGetAndGetMetaFields(localGetObject *graphql.Object, localGetMetaObject *
 				},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
+				return nil, fmt.Errorf("not supported")
 			},
 		},
 
@@ -221,7 +221,7 @@ func genGetAndGetMetaFields(localGetObject *graphql.Object, localGetMetaObject *
 				},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
+				return nil, fmt.Errorf("not supported")
 			},
 		},
 	}
