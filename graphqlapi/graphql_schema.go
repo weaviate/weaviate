@@ -11,6 +11,7 @@
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
+// Package graphqlapi provides the graphql endpoint for Weaviate
 package graphqlapi
 
 import (
@@ -21,6 +22,7 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
+// GraphQL stores all relevant variables and functions
 type GraphQL struct {
 	weaviateGraphQLSchema graphql.Schema
 	serverConfig          *config.WeaviateConfig
@@ -29,12 +31,12 @@ type GraphQL struct {
 	messaging             *messages.Messaging
 }
 
-// The RestAPI handler calls this function to receive the schema.
+// Schema is called by the RestAPI handler to receive the schema.
 func (g *GraphQL) Schema() *graphql.Schema {
 	return &g.weaviateGraphQLSchema
 }
 
-// Initialize the Graphl
+// CreateSchema initializes the Graphl
 func CreateSchema(dbConnector *dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, databaseSchema *schema.WeaviateSchema, messaging *messages.Messaging) (GraphQL, error) {
 	messaging.InfoMessage("Creating GraphQL schema...")
 	var g GraphQL
