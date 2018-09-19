@@ -1,3 +1,9 @@
+---
+publishedOnWebsite: false
+title: Vision and future outlook
+subject: OSS
+---
+
 # Technology Vision
 
 > This document describes the technical vision of what Weaviate will be.

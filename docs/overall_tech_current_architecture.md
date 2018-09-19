@@ -1,3 +1,9 @@
+---
+publishedOnWebsite: false
+title: Current Technology Architecture
+subject: OSS
+---
+
 # Current Architecture
 
 > This document the _current_ technical architecture. 
