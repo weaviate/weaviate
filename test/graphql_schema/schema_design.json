@@ -196,7 +196,7 @@
             },
             {
               "name": "date",
-              "description": "String value that the property at the provided path will be compared to by an operator",
+              "description": "Date value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "String",
@@ -360,7 +360,7 @@
             },
             {
               "name": "date",
-              "description": "String value that the property at the provided path will be compared to by an operator",
+              "description": "Date value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "String",
@@ -1172,7 +1172,7 @@
             },
             {
               "name": "date",
-              "description": "String value that the property at the provided path will be compared to by an operator",
+              "description": "Date value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "String",
