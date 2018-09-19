@@ -64,7 +64,7 @@ func genStaticWhereFilterElements() graphql.InputObjectConfigFieldMap {
 		},
 		"date": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
-			Description: "String value that the property at the provided path will be compared to by an operator",
+			Description: "Date value that the property at the provided path will be compared to by an operator",
 		},
 	}
 
