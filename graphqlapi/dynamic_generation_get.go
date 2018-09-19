@@ -11,6 +11,7 @@
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
+// Package graphqlapi provides the graphql endpoint for Weaviate
 package graphqlapi
 
 import (
@@ -72,7 +73,7 @@ func genSingleActionClassField(class *models.SemanticSchemaClass, getActionsAndT
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("Not supported")
+			return nil, fmt.Errorf("not supported")
 		},
 	}
 	return singleActionClassPropertyFieldsField, singleActionClassPropertyFieldsObj
@@ -97,7 +98,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 				thingOrActionType, ok := (*getActionsAndThings)[dataType]
 
 				if !ok {
-					return nil, fmt.Errorf("No such thing/action class '%s'", property.AtDataType[index])
+					return nil, fmt.Errorf("no such thing/action class '%s'", property.AtDataType[index])
 				}
 
 				dataTypeClasses[index] = thingOrActionType
@@ -118,7 +119,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 				Type:        multipleClassDataTypesUnion,
 				Description: property.Description,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					return nil, fmt.Errorf("Not supported")
+					return nil, fmt.Errorf("not supported")
 				},
 			}
 		} else {
@@ -136,7 +137,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 		Description: "UUID of the thing or action given by the local Weaviate instance",
 		Type:        graphql.String,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("Not supported")
+			return nil, fmt.Errorf("not supported")
 		},
 	}
 
@@ -169,7 +170,7 @@ func genSingleThingClassField(class *models.SemanticSchemaClass, getActionsAndTh
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			singleThingClassPropertyFields, err := genSingleThingClassPropertyFields(class, getActionsAndThings)
 			if err != nil {
-				panic(fmt.Errorf("Failed to assemble single Thing Class field for Class %s", class.Class))
+				panic(fmt.Errorf("failed to assemble single Thing Class field for Class %s", class.Class))
 			}
 			return singleThingClassPropertyFields
 		}),
@@ -191,7 +192,7 @@ func genSingleThingClassField(class *models.SemanticSchemaClass, getActionsAndTh
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("Not supported")
+			return nil, fmt.Errorf("not supported")
 		},
 	}
 	return thingClassPropertyFieldsField, thingClassPropertyFieldsObject
@@ -217,7 +218,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 				thingOrActionType, ok := (*getActionsAndThings)[dataType]
 
 				if !ok {
-					return nil, fmt.Errorf("No such thing/action class '%s'", property.AtDataType[index])
+					return nil, fmt.Errorf("no such thing/action class '%s'", property.AtDataType[index])
 				}
 
 				dataTypeClasses[index] = thingOrActionType
@@ -238,7 +239,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 				Type:        multipleClassDataTypesUnion,
 				Description: property.Description,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					return nil, fmt.Errorf("Not supported")
+					return nil, fmt.Errorf("not supported")
 				},
 			}
 		} else {
@@ -256,7 +257,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 		Description: "UUID of the thing or action given by the local Weaviate instance",
 		Type:        graphql.String,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("Not supported")
+			return nil, fmt.Errorf("not supported")
 		},
 	}
 
@@ -264,7 +265,6 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 }
 
 func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
-
 	switch dataType {
 
 	case schema.DataTypeString:
@@ -272,7 +272,7 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
+				return nil, fmt.Errorf("not supported")
 			},
 		}, nil
 
@@ -281,7 +281,7 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
+				return nil, fmt.Errorf("not supported")
 			},
 		}, nil
 
@@ -290,7 +290,7 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
+				return nil, fmt.Errorf("not supported")
 			},
 		}, nil
 
@@ -299,7 +299,7 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.Boolean,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
+				return nil, fmt.Errorf("not supported")
 			},
 		}, nil
 
@@ -308,7 +308,7 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.String, // String since no graphql date datatype exists
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("Not supported")
+				return nil, fmt.Errorf("not supported")
 			},
 		}, nil
 
