@@ -155,8 +155,8 @@
               "defaultValue": null
             },
             {
-              "name": "valueInt",
-              "description": "Integer value where the property of the path will be compared to by an operator",
+              "name": "int",
+              "description": "Integer value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Int",
@@ -165,8 +165,8 @@
               "defaultValue": null
             },
             {
-              "name": "valueFloat",
-              "description": "Float value where the property of the path will be compared to by an operator",
+              "name": "number",
+              "description": "Float value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Float",
@@ -175,8 +175,8 @@
               "defaultValue": null
             },
             {
-              "name": "valueBoolean",
-              "description": "Boolean value where the property of the path will be compared to by an operator",
+              "name": "boolean",
+              "description": "Boolean value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Boolean",
@@ -185,8 +185,18 @@
               "defaultValue": null
             },
             {
-              "name": "valueString",
-              "description": "String value where the property of the path will be compared to by an operator",
+              "name": "string",
+              "description": "String value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "date",
+              "description": "String value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "String",
@@ -309,8 +319,8 @@
               "defaultValue": null
             },
             {
-              "name": "valueInt",
-              "description": "Integer value where the property of the path will be compared to by an operator",
+              "name": "int",
+              "description": "Integer value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Int",
@@ -319,8 +329,8 @@
               "defaultValue": null
             },
             {
-              "name": "valueFloat",
-              "description": "Float value where the property of the path will be compared to by an operator",
+              "name": "number",
+              "description": "Float value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Float",
@@ -329,8 +339,8 @@
               "defaultValue": null
             },
             {
-              "name": "valueBoolean",
-              "description": "Boolean value where the property of the path will be compared to by an operator",
+              "name": "boolean",
+              "description": "Boolean value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Boolean",
@@ -338,9 +348,19 @@
               },
               "defaultValue": null
             },
+                        {
+              "name": "string",
+              "description": "String value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
             {
-              "name": "valueString",
-              "description": "String value where the property of the path will be compared to by an operator",
+              "name": "date",
+              "description": "String value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "String",
@@ -1111,8 +1131,8 @@
               "defaultValue": null
             },
             {
-              "name": "valueInt",
-              "description": "Integer value where the property of the path will be compared to by an operator",
+              "name": "int",
+              "description": "Integer value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Int",
@@ -1121,8 +1141,8 @@
               "defaultValue": null
             },
             {
-              "name": "valueFloat",
-              "description": "Float value where the property of the path will be compared to by an operator",
+              "name": "number",
+              "description": "Float value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Float",
@@ -1131,8 +1151,8 @@
               "defaultValue": null
             },
             {
-              "name": "valueBoolean",
-              "description": "Boolean value where the property of the path will be compared to by an operator",
+              "name": "boolean",
+              "description": "Boolean value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Boolean",
@@ -1140,9 +1160,19 @@
               },
               "defaultValue": null
             },
+                        {
+              "name": "string",
+              "description": "String value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
             {
-              "name": "valueString",
-              "description": "String value where the property of the path will be compared to by an operator",
+              "name": "date",
+              "description": "String value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "String",
@@ -4276,7 +4306,7 @@
               "defaultValue": null
             },
             {
-              "name": "valueInt",
+              "name": "int",
               "description": null,
               "type": {
                 "kind": "SCALAR",
@@ -4286,7 +4316,7 @@
               "defaultValue": null
             },
             {
-              "name": "valueFloat",
+              "name": "number",
               "description": null,
               "type": {
                 "kind": "SCALAR",
@@ -4296,7 +4326,7 @@
               "defaultValue": null
             },
             {
-              "name": "valueBoolean",
+              "name": "boolean",
               "description": null,
               "type": {
                 "kind": "SCALAR",
@@ -4306,7 +4336,7 @@
               "defaultValue": null
             },
             {
-              "name": "valueString",
+              "name": "string",
               "description": null,
               "type": {
                 "kind": "SCALAR",
