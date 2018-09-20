@@ -199,7 +199,7 @@ More generally, the `where` filter is an algrebraic designed object, which takes
 - `ValueInt`: The integer value where the Path's last property name should be compared to
 - `ValueBoolean`: The boolean value where the Path's last property name should be compared to
 - `ValueString`: The string value where the Path's last property name should be compared to
-- `ValueFloat`: The float value where the Path's last property name should be compared to
+- `ValueNumber`: The number (float) value where the Path's last property name should be compared to
 
 The following 'rules' for using the 'where' filter apply:
 - If the operator is `And` or `Or`, the `Operands` must be filled.
