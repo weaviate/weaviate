@@ -16,6 +16,7 @@ package graphqlapi
 
 import (
 	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/graphql-go/graphql"
@@ -427,7 +428,8 @@ func genMetaClassBooleanPropertyFields(class *models.SemanticSchemaClass, proper
 			Description: propertyType,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 
@@ -436,7 +438,8 @@ func genMetaClassBooleanPropertyFields(class *models.SemanticSchemaClass, proper
 			Description: propertyCount,
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 
@@ -445,7 +448,8 @@ func genMetaClassBooleanPropertyFields(class *models.SemanticSchemaClass, proper
 			Description: "The amount of times this property's value is true in the dataset",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 
@@ -454,7 +458,8 @@ func genMetaClassBooleanPropertyFields(class *models.SemanticSchemaClass, proper
 			Description: "Percentage of boolean values that is true",
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 	}
@@ -479,7 +484,8 @@ func genMetaClassDatePropertyFields(class *models.SemanticSchemaClass, property 
 			Description: propertyType,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 
@@ -488,7 +494,8 @@ func genMetaClassDatePropertyFields(class *models.SemanticSchemaClass, property 
 			Description: propertyCount,
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 
@@ -507,7 +514,8 @@ func genMetaClassDatePropertyFields(class *models.SemanticSchemaClass, property 
 				},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 	}
@@ -529,7 +537,8 @@ func genMetaClassDatePropertyTopOccurrencesFields(class *models.SemanticSchemaCl
 			Description: propertyTopOccurrencesValue,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 
@@ -538,7 +547,8 @@ func genMetaClassDatePropertyTopOccurrencesFields(class *models.SemanticSchemaCl
 			Description: propertyTopOccurrencesOccurs,
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 	}
@@ -560,7 +570,8 @@ func genMetaClassCRefPropertyObj(class *models.SemanticSchemaClass, property *mo
 			Description: propertyType,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 
@@ -569,7 +580,8 @@ func genMetaClassCRefPropertyObj(class *models.SemanticSchemaClass, property *mo
 			Description: propertyCount,
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 
@@ -578,7 +590,8 @@ func genMetaClassCRefPropertyObj(class *models.SemanticSchemaClass, property *mo
 			Description: "Which other classes the object property is pointing to",
 			Type:        graphql.NewList(graphql.String),
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 	}
@@ -600,7 +613,8 @@ func genMetaPropertyObj(class *models.SemanticSchemaClass) *graphql.Object {
 			Description: "Total amount of found instances",
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 	}

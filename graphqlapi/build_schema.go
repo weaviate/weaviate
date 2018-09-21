@@ -16,8 +16,12 @@ package graphqlapi
 
 import (
 	"fmt"
+
+	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
 	"github.com/graphql-go/graphql"
 )
+
+var dbConnector dbconnector.DatabaseConnector
 
 // Build the GraphQL schema based on
 // 1) the static query structure (e.g. Get)
@@ -104,7 +108,8 @@ func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
 		Type:        localGetAndGetMetaObject,
 		Description: "Query a local Weaviate instance",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
+			result, err := dbConnector.GetGraph(p)
+			return result, err
 		},
 	}
 
@@ -125,7 +130,8 @@ func genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Ob
 			Description: "Get Actions on the Local Weaviate",
 			Type:        localGetActions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 
@@ -134,7 +140,8 @@ func genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Ob
 			Description: "Get Things on the Local Weaviate",
 			Type:        localGetThings,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 	}
@@ -156,7 +163,8 @@ func genThingsAndActionsFieldsForWeaviateLocalGetMetaObj(localGetMetaActions *gr
 			Description: "Get Meta information about Actions on the Local Weaviate",
 			Type:        localGetMetaActions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 
@@ -165,7 +173,8 @@ func genThingsAndActionsFieldsForWeaviateLocalGetMetaObj(localGetMetaActions *gr
 			Description: "Get Meta information about Things on the Local Weaviate",
 			Type:        localGetMetaThings,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 	}
@@ -200,7 +209,8 @@ func genGetAndGetMetaFields(localGetObject *graphql.Object, localGetMetaObject *
 				},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 
@@ -221,7 +231,8 @@ func genGetAndGetMetaFields(localGetObject *graphql.Object, localGetMetaObject *
 				},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				result, err := dbConnector.GetGraph(p)
+				return result, err
 			},
 		},
 	}
