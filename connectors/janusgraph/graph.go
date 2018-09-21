@@ -1,9 +1,12 @@
 package janusgraph
 
 import (
-	"context"
+	"fmt"
+
+	"github.com/graphql-go/graphql"
 )
 
-func (f *Janusgraph) GetGraph(ctx context.Context, request interface{}) (string, error) {
-	return "{}", nil
+// GetGraph returns the result based on th graphQL request
+func (f *Janusgraph) GetGraph(request graphql.ResolveParams) (interface{}, error) {
+	return nil, fmt.Errorf("not supported")
 }

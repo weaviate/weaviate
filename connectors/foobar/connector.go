@@ -43,6 +43,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/gorilla/websocket"
+	"github.com/graphql-go/graphql"
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
@@ -385,4 +386,9 @@ func (f *Foobar) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children 
 // UpdateKey updates the Key in the DB at the given UUID.
 func (f *Foobar) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
 	return nil
+}
+
+// GetGraph returns the result based on th graphQL request
+func (f *Foobar) GetGraph(request graphql.ResolveParams) (interface{}, error) {
+	return nil, fmt.Errorf("not supported")
 }
