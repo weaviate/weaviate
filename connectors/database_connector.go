@@ -61,7 +61,10 @@ type BaseConnector interface {
 	GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children *[]*models.KeyGetResponse) error
 	UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error
 
-	GetGraph(request graphql.ResolveParams) (interface{}, error)
+	GetGraph(p graphql.ResolveParams) (interface{}, error)
+	GraphqlListThings(p graphql.ResolveParams) (interface{}, error)
+	// Proposal: Add all other GraphQL connectors here, GraphqlListThings is a
+	// representative example.
 }
 
 // DatabaseConnector is the interface that all DB-connectors should have

@@ -28,7 +28,7 @@ var dbConnector dbconnector.DatabaseConnector
 // 2) the (dynamic) database schema from Weaviate
 
 func (g *GraphQL) buildGraphqlSchema() error {
-	rootFieldsObject, err := assembleFullSchema(g)
+	rootFieldsObject, err := g.assembleFullSchema()
 
 	if err != nil {
 		return fmt.Errorf("could not build GraphQL schema, because: %v", err)
@@ -66,8 +66,9 @@ func (g *GraphQL) buildGraphqlSchema() error {
 	return nil
 }
 
-func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
+func (g *GraphQL) assembleFullSchema() (graphql.Fields, error) {
 	// This map is used to store all the Thing and Action Objects, so that we can use them in references.
+
 	getActionsAndThings := make(map[string]*graphql.Object)
 	// this map is used to store all the Filter InputObjects, so that we can use them in references.
 	filterOptions := make(map[string]*graphql.InputObject)
@@ -107,10 +108,7 @@ func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
 	localField := &graphql.Field{
 		Type:        localGetAndGetMetaObject,
 		Description: "Query a local Weaviate instance",
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			result, err := dbConnector.GetGraph(p)
-			return result, err
-		},
+		Resolve:     dummyResolver,
 	}
 
 	rootFields := graphql.Fields{
@@ -129,20 +127,14 @@ func genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Ob
 			Name:        "WeaviateLocalGetActions",
 			Description: "Get Actions on the Local Weaviate",
 			Type:        localGetActions,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 
 		"Things": &graphql.Field{
 			Name:        "WeaviateLocalGetThings",
 			Description: "Get Things on the Local Weaviate",
 			Type:        localGetThings,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 	}
 
@@ -208,10 +200,7 @@ func genGetAndGetMetaFields(localGetObject *graphql.Object, localGetMetaObject *
 					),
 				},
 			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve: dummyResolver,
 		},
 
 		"GetMeta": &graphql.Field{
@@ -244,4 +233,15 @@ func genGetAndGetMetaFields(localGetObject *graphql.Object, localGetMetaObject *
 	}
 
 	return graphql.NewObject(*weaviateLocalObject)
+}
+
+// dummyResolver is a resolver for all Fields where we don't
+// have specific resolvers yet. It is important that it does not
+// error or return nil, because then the next resolver would not
+// be called. I.e. if we error in the "Local" Resolver, we'll never get
+// to the "Get" Resolver, and so on.
+// Since we want to start with List of Things for an MVP,
+// we need to be able to not block these lower resolvers.
+func dummyResolver(p graphql.ResolveParams) (interface{}, error) {
+	return "some string", nil
 }

@@ -392,3 +392,7 @@ func (f *Foobar) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUI
 func (f *Foobar) GetGraph(request graphql.ResolveParams) (interface{}, error) {
 	return nil, fmt.Errorf("not supported")
 }
+
+func (f *Foobar) GraphqlListThings(p graphql.ResolveParams) (interface{}, error) {
+	return nil, fmt.Errorf("not supported")
+}

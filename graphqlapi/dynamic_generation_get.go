@@ -153,7 +153,7 @@ func genThingClassFieldsFromSchema(g *GraphQL, getActionsAndThings *map[string]*
 	thingClassFields := graphql.Fields{}
 
 	for _, class := range g.databaseSchema.ThingSchema.Schema.Classes {
-		singleThingClassField, singleThingClassObject := genSingleThingClassField(class, getActionsAndThings)
+		singleThingClassField, singleThingClassObject := genSingleThingClassField(g, class, getActionsAndThings)
 		thingClassFields[class.Class] = singleThingClassField
 		// this line assigns the created class to a Hashmap which is used in thunks to handle cyclical relationships (Classes with other Classes as properties)
 		(*getActionsAndThings)[class.Class] = singleThingClassObject
@@ -168,7 +168,8 @@ func genThingClassFieldsFromSchema(g *GraphQL, getActionsAndThings *map[string]*
 	return graphql.NewObject(localGetThings), nil
 }
 
-func genSingleThingClassField(class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object) {
+func genSingleThingClassField(g *GraphQL, class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object) {
+
 	singleThingClassPropertyFieldsObj := graphql.ObjectConfig{
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
@@ -195,10 +196,7 @@ func genSingleThingClassField(class *models.SemanticSchemaClass, getActionsAndTh
 				Type:        graphql.Int,
 			},
 		},
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			result, err := dbConnector.GetGraph(p)
-			return result, err
-		},
+		Resolve: g.dbConnector.GraphqlListThings,
 	}
 	return thingClassPropertyFieldsField, thingClassPropertyFieldsObject
 }
@@ -279,7 +277,14 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				sourceAsMap, ok := p.Source.(map[string]string)
+				if !ok {
+					return nil, fmt.Errorf(
+						"the only supported type to resolve fields on is a map[string]string for now, "+
+							"but we got a %t", p.Source)
+				}
+
+				return sourceAsMap[p.Info.FieldName], nil
 			},
 		}, nil
 
