@@ -269,6 +269,17 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 	return singleThingClassPropertyFields, nil
 }
 
+func resolveAnythingOnAMap(p graphql.ResolveParams) (interface{}, error) {
+	sourceAsMap, ok := p.Source.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf(
+			"the only supported type to resolve fields on is a map[string]interface{} for now, "+
+				"but we got %t", p.Source)
+	}
+
+	return sourceAsMap[p.Info.FieldName], nil
+}
+
 func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
 	switch dataType {
 
@@ -276,46 +287,28 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				sourceAsMap, ok := p.Source.(map[string]string)
-				if !ok {
-					return nil, fmt.Errorf(
-						"the only supported type to resolve fields on is a map[string]string for now, "+
-							"but we got a %t", p.Source)
-				}
-
-				return sourceAsMap[p.Info.FieldName], nil
-			},
+			Resolve:     resolveAnythingOnAMap,
 		}, nil
 
 	case schema.DataTypeInt:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     resolveAnythingOnAMap,
 		}, nil
 
 	case schema.DataTypeNumber:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     resolveAnythingOnAMap,
 		}, nil
 
 	case schema.DataTypeBoolean:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.Boolean,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     resolveAnythingOnAMap,
 		}, nil
 
 	case schema.DataTypeDate:
@@ -323,8 +316,7 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.String, // String since no graphql date datatype exists
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
+				return nil, fmt.Errorf("date is not supported")
 			},
 		}, nil
 
