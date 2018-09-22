@@ -107,8 +107,11 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 			}
 
 			dataTypeUnionConf := graphql.UnionConfig{
-				Name:        fmt.Sprintf("%s%s%s", class.Class, capitalizedPropertyName, "Obj"),
-				Types:       dataTypeClasses,
+				Name:  fmt.Sprintf("%s%s%s", class.Class, capitalizedPropertyName, "Obj"),
+				Types: dataTypeClasses,
+				ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+					return nil
+				},
 				Description: property.Description,
 			}
 
