@@ -27,7 +27,7 @@ type GraphQL struct {
 	weaviateGraphQLSchema graphql.Schema
 	serverConfig          *config.WeaviateConfig
 	databaseSchema        *schema.WeaviateSchema
-	dbConnector           *dbconnector.DatabaseConnector
+	dbConnector           dbconnector.DatabaseConnector
 	messaging             *messages.Messaging
 }
 
@@ -37,7 +37,7 @@ func (g *GraphQL) Schema() *graphql.Schema {
 }
 
 // CreateSchema initializes the Graphl
-func CreateSchema(dbConnector *dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, databaseSchema *schema.WeaviateSchema, messaging *messages.Messaging) (GraphQL, error) {
+func CreateSchema(dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, databaseSchema *schema.WeaviateSchema, messaging *messages.Messaging) (GraphQL, error) {
 	messaging.InfoMessage("Creating GraphQL schema...")
 	var g GraphQL
 

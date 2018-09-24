@@ -1340,7 +1340,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
 	}
 
-	graphQL, err = graphqlapi.CreateSchema(&dbConnector, serverConfig, &databaseSchema, messaging)
+	graphQL, err = graphqlapi.CreateSchema(dbConnector, serverConfig, &databaseSchema, messaging)
 
 	if err != nil {
 		messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+err.Error())
