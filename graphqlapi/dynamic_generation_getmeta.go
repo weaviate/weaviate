@@ -427,40 +427,28 @@ func genMetaClassBooleanPropertyFields(class *models.SemanticSchemaClass, proper
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Type"),
 			Description: propertyType,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Count"),
 			Description: propertyCount,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 
 		"totalTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TotalTrue"),
 			Description: "The amount of times this property's value is true in the dataset",
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 
 		"percentageTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "PercentageTrue"),
 			Description: "Percentage of boolean values that is true",
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 	}
 
@@ -483,20 +471,14 @@ func genMetaClassDatePropertyFields(class *models.SemanticSchemaClass, property 
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Type"),
 			Description: propertyType,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Count"),
 			Description: propertyCount,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 
 		"topOccurrences": &graphql.Field{
@@ -513,10 +495,7 @@ func genMetaClassDatePropertyFields(class *models.SemanticSchemaClass, property 
 					Type:        graphql.Int,
 				},
 			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve: dummyResolver,
 		},
 	}
 
@@ -536,20 +515,14 @@ func genMetaClassDatePropertyTopOccurrencesFields(class *models.SemanticSchemaCl
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TopOccurrencesValue"),
 			Description: propertyTopOccurrencesValue,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 
 		"occurs": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "TopOccurrencesOccurs"),
 			Description: propertyTopOccurrencesOccurs,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 	}
 
@@ -569,30 +542,21 @@ func genMetaClassCRefPropertyObj(class *models.SemanticSchemaClass, property *mo
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Type"),
 			Description: propertyType,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "Count"),
 			Description: propertyCount,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 
 		"pointingTo": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", "Meta", class.Class, property.Name, "PointingTo"),
 			Description: "Which other classes the object property is pointing to",
 			Type:        graphql.NewList(graphql.String),
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 	}
 
@@ -612,10 +576,7 @@ func genMetaPropertyObj(class *models.SemanticSchemaClass) *graphql.Object {
 			Name:        fmt.Sprintf("%s%s%s", "Meta", class.Class, "MetaCount"),
 			Description: "Total amount of found instances",
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 	}
 

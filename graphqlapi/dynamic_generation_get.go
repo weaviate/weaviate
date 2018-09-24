@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 
+	connutils "github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/graphql-go/graphql"
@@ -73,10 +74,7 @@ func genSingleActionClassField(class *models.SemanticSchemaClass, getActionsAndT
 				Type:        graphql.Int,
 			},
 		},
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			result, err := dbConnector.GetGraph(p)
-			return result, err
-		},
+		Resolve: dummyResolver,
 	}
 	return singleActionClassPropertyFieldsField, singleActionClassPropertyFieldsObj
 }
@@ -120,10 +118,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 			singleActionClassPropertyFields[capitalizedPropertyName] = &graphql.Field{
 				Type:        multipleClassDataTypesUnion,
 				Description: property.Description,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					result, err := dbConnector.GetGraph(p)
-					return result, err
-				},
+				Resolve:     dummyResolver,
 			}
 		} else {
 			convertedDataType, err := handleGetNonObjectDataTypes(*propertyType, property)
@@ -139,10 +134,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 	singleActionClassPropertyFields["uuid"] = &graphql.Field{
 		Description: "UUID of the thing or action given by the local Weaviate instance",
 		Type:        graphql.String,
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			result, err := dbConnector.GetGraph(p)
-			return result, err
-		},
+		Resolve:     dummyResolver,
 	}
 
 	return singleActionClassPropertyFields, nil
@@ -196,9 +188,26 @@ func genSingleThingClassField(g *GraphQL, class *models.SemanticSchemaClass, get
 				Type:        graphql.Int,
 			},
 		},
-		Resolve: g.dbConnector.GraphqlListThings,
+		Resolve: g.resolveLocalGetThings,
 	}
 	return thingClassPropertyFieldsField, thingClassPropertyFieldsObject
+}
+
+func (g *GraphQL) resolveLocalGetThings(p graphql.ResolveParams) (interface{}, error) {
+	var response *models.ThingsListResponse
+	g.dbConnector.ListThings(nil, 0, 30, "", []*connutils.WhereQuery{}, response)
+
+	thingsSchemaAsMaps := []map[string]interface{}{}
+	for _, thing := range response.Things {
+		schemaMap, ok := thing.Schema.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected schema to be a map[string]interface{}, but it was a %t", thing.Schema)
+		}
+
+		thingsSchemaAsMaps = append(thingsSchemaAsMaps, schemaMap)
+	}
+
+	return thingsSchemaAsMaps, nil
 }
 
 func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object) (graphql.Fields, error) {
@@ -241,10 +250,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 			singleThingClassPropertyFields[capitalizedPropertyName] = &graphql.Field{
 				Type:        multipleClassDataTypesUnion,
 				Description: property.Description,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					result, err := dbConnector.GetGraph(p)
-					return result, err
-				},
+				Resolve:     dummyResolver,
 			}
 		} else {
 			convertedDataType, err := handleGetNonObjectDataTypes(*propertyType, property)
@@ -260,10 +266,7 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 	singleThingClassPropertyFields["uuid"] = &graphql.Field{
 		Description: "UUID of the thing or action given by the local Weaviate instance",
 		Type:        graphql.String,
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			result, err := dbConnector.GetGraph(p)
-			return result, err
-		},
+		Resolve:     dummyResolver,
 	}
 
 	return singleThingClassPropertyFields, nil

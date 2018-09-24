@@ -154,20 +154,14 @@ func genThingsAndActionsFieldsForWeaviateLocalGetMetaObj(localGetMetaActions *gr
 			Name:        "WeaviateLocalGetMetaActions",
 			Description: "Get Meta information about Actions on the Local Weaviate",
 			Type:        localGetMetaActions,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 
 		"Things": &graphql.Field{
 			Name:        "WeaviateLocalGetMetaThings",
 			Description: "Get Meta information about Things on the Local Weaviate",
 			Type:        localGetMetaThings,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve:     dummyResolver,
 		},
 	}
 
@@ -219,10 +213,7 @@ func genGetAndGetMetaFields(localGetObject *graphql.Object, localGetMetaObject *
 					),
 				},
 			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
-			},
+			Resolve: dummyResolver,
 		},
 	}
 
