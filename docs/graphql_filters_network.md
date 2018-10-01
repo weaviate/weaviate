@@ -7,8 +7,52 @@ subject: OSS
 This page explains by an example how the Network fetch works. The design of the Network fetch can be found [here](https://github.com/SeMI-network/weaviate-graphql-prototype/wiki/Website:-GraphQL-Network)
 
 ## Index
+- [Network Get](#network-get)
 - [Network Fetch](#network-fetch)
 - [Network Introspect](#network-introspect)
+
+
+## Network Get
+The filter for the network Get function has the same structure as the local Get function. The only difference is that the weaviate you are pointing to should be added to the beginning of the `path` parameter. This means that you could use the filter as follows:
+
+```graphql
+{
+  Network{
+    Get(where:{
+      operator: And,
+      operands: [{
+        path: ["WeaviateB", "Things", "Airport", "name"],
+        operator: Equal
+        valueString: "Schiphol"
+      }, {
+        path: ["WeaviateC", "Things", "Municipality", "name"],
+        operator: NotEqual,
+        valueString: "Rotterdam"
+      }]
+    }){
+      weaviateB{
+      	Things{
+          Airport {
+            place
+            label
+          }
+        }
+      }
+      weaviateC{
+      	Things{
+          Municipality {
+            name
+          }
+          Human {
+            birthday
+            name
+          }
+        }
+      }
+    }
+  }
+```
+
 
 ## Network Fetch
 As explained in the design, there are two different query types possible for querying the Network. Things and Actions can be 'Fetched' from the network or the ontology of nodes in the network can be 'Introspected'. For fetching Things and Actions, you  need to specify what you are looking for in the filter. You can ask for the beacon and match certainty per node as a result.
@@ -41,6 +85,21 @@ Beacons and certainty values will then be returned.
           valueString: "Amsterdam"
         }]
       }) {
+        beacon
+        certainty
+      }
+    }
+  }
+}
+```
+
+A Fuzzy Fetch requires less information in the filter. Only a property value and a certainty value need to be provided. Note that the property value is always a `string`, and needs to exists in the Contextionary.
+
+```graphql
+{
+  Network{
+    Fetch{
+      Fuzzy(value:"Amsterdam", certainty:0.95){ // value is always a string, because needs to be in contextionary
         beacon
         certainty
       }
@@ -98,10 +157,8 @@ If you found a beacon in for example the Fetch query, you can query its ontology
     Introspect{
       Beacon(id:"weaviate://weaviate_2/8569c0aa-3e8a-4de4-86a7-89d010152ad1"){
         className
-        certainty
         properties{
           propertyName
-          certainty
         }
       }
     }
