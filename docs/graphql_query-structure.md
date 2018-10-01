@@ -16,9 +16,9 @@ _Concrete examples are explained on [this page](https://github.com/bobvanluijt/w
     GetMeta
   }
   Network{
+    Get
     Fetch
     Introspect
-    FetchMeta
   }
 }
 ```
