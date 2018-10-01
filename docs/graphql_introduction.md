@@ -78,9 +78,9 @@ The following high level structure for GraphQL for querying Weaviate applies. At
     GetMeta
   }
   Network{
+    Get
     Fetch
     Introspect
-    FetchMeta
   }
 }
 ```
