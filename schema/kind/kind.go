@@ -1,4 +1,4 @@
-package schema
+package kind
 
 type Kind string
 
