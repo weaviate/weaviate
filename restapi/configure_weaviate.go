@@ -48,6 +48,7 @@ import (
 	dblisting "github.com/creativesoftwarefdn/weaviate/connectors/listing"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database"
+	db_local_schema_manager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/local"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -1486,7 +1487,18 @@ func configureServer(s *http.Server, scheme, addr string) {
 	dbConnector := CreateDatabaseConnector(&serverConfig.Environment)
 	localMutex := sync.RWMutex{}
 	dbLock := database.RWLocker(&localMutex)
-	db = database.New(&dbLock, nil, &dbConnector)
+
+	if serverConfig.Environment.Database.LocalSchemaConfig == nil {
+		messaging.ExitError(78, "Local schema manager is not configured.")
+	}
+
+	manager_, err := db_local_schema_manager.New(serverConfig.Environment.Database.LocalSchemaConfig.StateDir)
+	if err != nil {
+		messaging.ExitError(78, "Could not initialize local database state")
+	}
+	var manager database.SchemaManager = manager_
+
+	db = database.New(&dbLock, &manager, &dbConnector)
 
 	// Error the system when the database connector returns no connector
 	if dbConnector == nil {
