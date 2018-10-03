@@ -23,42 +23,42 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
-// WeaviateGraphqlPostHandlerFunc turns a function with the right signature into a weaviate graphql post handler
-type WeaviateGraphqlPostHandlerFunc func(WeaviateGraphqlPostParams, interface{}) middleware.Responder
+// WeaviateGraphqlBatchHandlerFunc turns a function with the right signature into a weaviate graphql batch handler
+type WeaviateGraphqlBatchHandlerFunc func(WeaviateGraphqlBatchParams, interface{}) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateGraphqlPostHandlerFunc) Handle(params WeaviateGraphqlPostParams, principal interface{}) middleware.Responder {
+func (fn WeaviateGraphqlBatchHandlerFunc) Handle(params WeaviateGraphqlBatchParams, principal interface{}) middleware.Responder {
 	return fn(params, principal)
 }
 
-// WeaviateGraphqlPostHandler interface for that can handle valid weaviate graphql post params
-type WeaviateGraphqlPostHandler interface {
-	Handle(WeaviateGraphqlPostParams, interface{}) middleware.Responder
+// WeaviateGraphqlBatchHandler interface for that can handle valid weaviate graphql batch params
+type WeaviateGraphqlBatchHandler interface {
+	Handle(WeaviateGraphqlBatchParams, interface{}) middleware.Responder
 }
 
-// NewWeaviateGraphqlPost creates a new http.Handler for the weaviate graphql post operation
-func NewWeaviateGraphqlPost(ctx *middleware.Context, handler WeaviateGraphqlPostHandler) *WeaviateGraphqlPost {
-	return &WeaviateGraphqlPost{Context: ctx, Handler: handler}
+// NewWeaviateGraphqlBatch creates a new http.Handler for the weaviate graphql batch operation
+func NewWeaviateGraphqlBatch(ctx *middleware.Context, handler WeaviateGraphqlBatchHandler) *WeaviateGraphqlBatch {
+	return &WeaviateGraphqlBatch{Context: ctx, Handler: handler}
 }
 
-/*WeaviateGraphqlPost swagger:route POST /graphql graphql weaviateGraphqlPost
+/*WeaviateGraphqlBatch swagger:route POST /graphql/batch graphql weaviateGraphqlBatch
 
 Get a response based on GraphQL
 
-Query Weaviate with GraphQL
+Perform mulitiple GraphQL queries
 
 */
-type WeaviateGraphqlPost struct {
+type WeaviateGraphqlBatch struct {
 	Context *middleware.Context
-	Handler WeaviateGraphqlPostHandler
+	Handler WeaviateGraphqlBatchHandler
 }
 
-func (o *WeaviateGraphqlPost) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *WeaviateGraphqlBatch) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		r = rCtx
 	}
-	var Params = NewWeaviateGraphqlPostParams()
+	var Params = NewWeaviateGraphqlBatchParams()
 
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {

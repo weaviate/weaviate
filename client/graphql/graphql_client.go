@@ -25,9 +25,40 @@ type Client struct {
 }
 
 /*
+WeaviateGraphqlBatch gets a response based on graph q l
+
+Perform mulitiple GraphQL queries
+*/
+func (a *Client) WeaviateGraphqlBatch(params *WeaviateGraphqlBatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateGraphqlBatchOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateGraphqlBatchParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.graphql.batch",
+		Method:             "POST",
+		PathPattern:        "/graphql/batch",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateGraphqlBatchReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateGraphqlBatchOK), nil
+
+}
+
+/*
 WeaviateGraphqlPost gets a response based on graph q l
 
-Get an object based on GraphQL
+Query Weaviate with GraphQL
 */
 func (a *Client) WeaviateGraphqlPost(params *WeaviateGraphqlPostParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateGraphqlPostOK, error) {
 	// TODO: Validate the params before sending
