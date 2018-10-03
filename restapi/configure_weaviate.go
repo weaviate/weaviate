@@ -265,6 +265,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
+	setupSchemaHandlers(api)
+
 	/*
 	 * HANDLE X-API-KEY
 	 */
