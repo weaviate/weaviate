@@ -8,6 +8,9 @@
           "url": "http://localhost:8182",
           "initialkey":   "657a48b9-e000-4d9a-b51d-69a0b621c1b9",
           "initialtoken": "57ac8392-1ecc-4e17-9350-c9c866ac832b"
+        },
+        "local_schema": {
+          "state_dir": "."
         }
       },
       "contextionary": {
@@ -38,6 +41,9 @@
           "url": "http://localhost:8182",
           "initialkey":   "657a48b9-e000-4d9a-b51d-69a0b621c1b9",
           "initialtoken": "57ac8392-1ecc-4e17-9350-c9c866ac832b"
+        },
+        "local_schema": {
+          "state_dir": "."
         }
       },
       "contextionary": {
@@ -59,6 +65,9 @@
           "url": "http://janus:8182",
           "initialkey":   "657a48b9-e000-4d9a-b51d-69a0b621c1b9",
           "initialtoken": "57ac8392-1ecc-4e17-9350-c9c866ac832b"
+        },
+        "local_schema": {
+          "state_dir": "."
         }
       },
       "contextionary": {
