@@ -27,16 +27,16 @@ type LocalSchemaManager struct {
 // The state that will be serialized to/from disk.
 // TODO: refactor to database/schema_manager, so that it can be re-used for distributed version.
 type localSchemaState struct {
-	actionSchema *models.SemanticSchema `json:"action"`
-	thingSchema  *models.SemanticSchema `json:"thing"`
+	ActionSchema *models.SemanticSchema `json:"action"`
+	ThingSchema  *models.SemanticSchema `json:"thing"`
 }
 
 func (l *localSchemaState) SchemaFor(k kind.Kind) *models.SemanticSchema {
 	switch k {
 	case kind.THING_KIND:
-		return l.thingSchema
+		return l.ThingSchema
 	case kind.ACTION_KIND:
-		return l.actionSchema
+		return l.ActionSchema
 	default:
 		log.Fatal("Passed wrong neither thing nor kind, but %v", k)
 		return nil
@@ -96,11 +96,11 @@ func (l *LocalSchemaManager) load() error {
 
 	// Fill in empty ontologies if there is no schema file.
 	if !stateFileExists {
-		l.schemaState.actionSchema = &models.SemanticSchema{
+		l.schemaState.ActionSchema = &models.SemanticSchema{
 			Type: "action",
 		}
 
-		l.schemaState.thingSchema = &models.SemanticSchema{
+		l.schemaState.ThingSchema = &models.SemanticSchema{
 			Type: "thing",
 		}
 
@@ -130,6 +130,7 @@ func (l *LocalSchemaManager) statePath() string {
 
 // Save the schema to the local disk.
 func (l *LocalSchemaManager) saveToDisk() error {
+	log.Info("Updating local schema on disk")
 	// TODO not 100% robust against failures.
 	// we don't check IO errors yet
 
@@ -149,6 +150,7 @@ func (l *LocalSchemaManager) saveToDisk() error {
 	}
 
 	l.stateFile.Write(stateBytes)
+	l.stateFile.Sync()
 
 	return nil
 }
