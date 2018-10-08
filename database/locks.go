@@ -25,6 +25,14 @@ func (cl *ConnectorLock) Connector() *dbconnector.DatabaseConnector {
 	}
 }
 
+func (cl *ConnectorLock) GetSchema() Schema {
+	if cl.valid {
+		return (*cl.db.manager).GetSchema()
+	} else {
+		panic("this lock has already been released")
+	}
+}
+
 func (cl *ConnectorLock) Unlock() {
 	(*cl.db.locker).RUnlock()
 	cl.valid = false
@@ -33,6 +41,14 @@ func (cl *ConnectorLock) Unlock() {
 type SchemaLock struct {
 	db    *Database
 	valid bool
+}
+
+func (cl *SchemaLock) GetSchema() Schema {
+	if cl.valid {
+		return (*cl.db.manager).GetSchema()
+	} else {
+		panic("this lock has already been released")
+	}
 }
 
 func (sl *SchemaLock) Connector() *dbconnector.DatabaseConnector {

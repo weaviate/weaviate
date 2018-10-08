@@ -6,6 +6,10 @@ import (
 )
 
 type SchemaManager interface {
+	// Return a reference to the database schema.
+	// Note that this function can be both called from having a ConnectorLock as a SchemaLock.
+	GetSchema() Schema
+
 	AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error
 	DropClass(kind kind.Kind, className string) error
 

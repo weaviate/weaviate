@@ -3,6 +3,7 @@ package local
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema/kind"
 )
@@ -34,6 +35,13 @@ func validateCanAddClass(knd kind.Kind, class *models.SemanticSchemaClass, schem
 	return nil
 }
 
+func (l *LocalSchemaManager) GetSchema() database.Schema {
+	return database.Schema{
+		Actions: l.schemaState.ActionSchema,
+		Things:  l.schemaState.ThingSchema,
+	}
+}
+
 func (l *LocalSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
 	err := validateCanAddClass(kind, class, &l.schemaState)
 	if err != nil {
@@ -48,6 +56,27 @@ func (l *LocalSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSche
 }
 
 func (l *LocalSchemaManager) DropClass(kind kind.Kind, className string) error {
+	// TODO keep it sorted.
+	semanticSchema := l.schemaState.SchemaFor(kind)
+
+	var classIdx int = -1
+	for idx, class := range semanticSchema.Classes {
+		if class.Class == className {
+			classIdx = idx
+			break
+		}
+	}
+
+	if classIdx == -1 {
+		return fmt.Errorf("Could not find class '%s'", className)
+	}
+
+	semanticSchema.Classes[classIdx] = semanticSchema.Classes[len(semanticSchema.Classes)-1]
+	semanticSchema.Classes[len(semanticSchema.Classes)-1] = nil // to prevent leaking this pointer.
+	semanticSchema.Classes = semanticSchema.Classes[:len(semanticSchema.Classes)-1]
+
+	l.saveToDisk()
+
 	return nil
 }
 
