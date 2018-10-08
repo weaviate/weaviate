@@ -11,10 +11,16 @@ import (
 
 func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	api.SchemaWeaviateSchemaDumpHandler = schema.WeaviateSchemaDumpHandlerFunc(func(params schema.WeaviateSchemaDumpParams, principal interface{}) middleware.Responder {
-		// TODO: hack; should go through schema manager
+		//TODO: auth
+
+		connectorLock := db.ConnectorLock()
+		defer connectorLock.Unlock()
+
+		dbSchema := connectorLock.GetSchema()
+
 		payload := &schema.WeaviateSchemaDumpOKBody{
-			Actions: databaseSchema.ActionSchema.Schema,
-			Things:  databaseSchema.ThingSchema.Schema,
+			Actions: dbSchema.Actions,
+			Things:  dbSchema.Things,
 		}
 		return schema.NewWeaviateSchemaDumpOK().WithPayload(payload)
 	})
@@ -33,6 +39,23 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		} else {
 			errorResponse := models.ErrorResponse{Error: &models.ErrorResponseError{Message: err.Error()}}
 			return schema.NewWeaviateSchemaThingsCreateUnprocessableEntity().WithPayload(&errorResponse)
+		}
+	})
+
+	api.SchemaWeaviateSchemaThingsDeleteHandler = schema.WeaviateSchemaThingsDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsDeleteParams, principal interface{}) middleware.Responder {
+		//TODO: auth
+
+		schemaLock := db.SchemaLock()
+		defer schemaLock.Unlock()
+
+		schemaManager := schemaLock.SchemaManager()
+		err := (*schemaManager).DropClass(kind.THING_KIND, params.ClassName)
+
+		if err == nil {
+			return schema.NewWeaviateSchemaDeleteCreateOK()
+		} else {
+			errorResponse := models.ErrorResponse{Error: &models.ErrorResponseError{Message: err.Error()}}
+			return schema.NewWeaviateSchemaThingsDeleteUnprocessableEntity().WithPayload(&errorResponse)
 		}
 	})
 }
