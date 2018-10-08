@@ -6,7 +6,7 @@ import (
 )
 
 type SchemaManager interface {
-	AddClass(kind kind.Kind, class models.SemanticSchemaClass) error
+	AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error
 	DropClass(kind kind.Kind, className string) error
 
 	AddProperty(kind kind.Kind, className string, prop models.SemanticSchemaClassProperty) error

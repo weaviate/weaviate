@@ -3,9 +3,12 @@ package local
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"io/ioutil"
 	"os"
+
+	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/schema/kind"
+	log "github.com/sirupsen/logrus"
 )
 
 type LocalSchemaConfig struct {
@@ -22,9 +25,22 @@ type LocalSchemaManager struct {
 }
 
 // The state that will be serialized to/from disk.
+// TODO: refactor to database/schema_manager, so that it can be re-used for distributed version.
 type localSchemaState struct {
 	actionSchema *models.SemanticSchema `json:"action"`
 	thingSchema  *models.SemanticSchema `json:"thing"`
+}
+
+func (l *localSchemaState) SchemaFor(k kind.Kind) *models.SemanticSchema {
+	switch k {
+	case kind.THING_KIND:
+		return l.thingSchema
+	case kind.ACTION_KIND:
+		return l.actionSchema
+	default:
+		log.Fatal("Passed wrong neither thing nor kind, but %v", k)
+		return nil
+	}
 }
 
 func New(stateDirName string) (*LocalSchemaManager, error) {
@@ -33,7 +49,11 @@ func New(stateDirName string) (*LocalSchemaManager, error) {
 		schemaState: localSchemaState{},
 	}
 
-	manager.load()
+	err := manager.load()
+	if err != nil {
+		return nil, err
+	}
+
 	return manager, nil
 }
 
@@ -57,10 +77,10 @@ func (l *LocalSchemaManager) load() error {
 	stateFileStat, err := os.Stat(l.statePath())
 	var stateFileExists bool = true
 	if err != nil {
-		if os.IsNotExist(err) {
-			stateFileExists = false
-		} else {
+		if !os.IsNotExist(err) {
 			return fmt.Errorf("Could not look up stats of '%v'", l.statePath())
+		} else {
+			stateFileExists = false
 		}
 	} else {
 		if stateFileStat.IsDir() {
@@ -69,7 +89,7 @@ func (l *LocalSchemaManager) load() error {
 	}
 
 	// Open the file. If it's created, only allow the current user to access it.
-	l.stateFile, err = os.OpenFile(l.statePath(), os.O_RDWR, 0600)
+	l.stateFile, err = os.OpenFile(l.statePath(), os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {
 		return fmt.Errorf("Could not open state file '%v'", l.statePath())
 	}
@@ -85,7 +105,11 @@ func (l *LocalSchemaManager) load() error {
 		}
 
 		// And flush the schema to disk.
-		l.saveToDisk()
+		err := l.saveToDisk()
+		if err != nil {
+			log.Fatal("Could not save empty schema to disk")
+		}
+		log.Infof("Initialized empty schema")
 	} else {
 		// Load the state from disk.
 		stateBytes, _ := ioutil.ReadAll(l.stateFile)
@@ -114,8 +138,16 @@ func (l *LocalSchemaManager) saveToDisk() error {
 		return err
 	}
 
-	l.stateFile.Truncate(0)
-	l.stateFile.Seek(0, 0)
+	err = l.stateFile.Truncate(0)
+	if err != nil {
+		return err
+	}
+
+	_, err = l.stateFile.Seek(0, 0)
+	if err != nil {
+		return err
+	}
+
 	l.stateFile.Write(stateBytes)
 
 	return nil
