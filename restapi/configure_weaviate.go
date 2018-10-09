@@ -24,6 +24,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
@@ -1251,9 +1252,110 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return graphql.NewWeaviateGraphqlPostOK().WithPayload(graphQLResponse)
 	})
 
+	api.GraphqlWeaviateGraphqlBatchHandler = graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams, principal interface{}) []middleware.Responder {
+		defer messaging.TimeTrack(time.Now())
+		messaging.DebugMessage("Starting GraphQL batch resolving")
+
+		errorResponse := &models.ErrorResponse{}
+
+		// Add security principal to context that we pass on to the GraphQL resolver.
+		graphql_context := context.WithValue(params.HTTPRequest.Context(), "principal", (principal.(*models.KeyTokenGetResponse)))
+
+		amountOfBatchedRequests := len(params.Body)
+
+		requestResults := make(chan UnbatchedRequestResponse, amountOfBatchedRequests)
+
+		wg := new(sync.WaitGroup)
+
+		// Spawn a goroutine for each separate request
+		for requestIndex, unbatchedRequest := range params.Body {
+			wg.Add(1)
+			go handleUnbatchedRequest(wg, graphql_context, unbatchedRequest, requestIndex, &requestResults, errorResponse)
+		}
+
+		wg.Wait()
+
+		close(requestResults)
+
+		batchedRequestResponse := make([]middleware.Responder, amountOfBatchedRequests)
+
+		// Add the requests to the result array in the correct order
+		for unbatchedRequestResult := range requestResults {
+			batchedRequestResponse[unbatchedRequestResult.RequestIndex] = unbatchedRequestResult.Response
+		}
+
+		return batchedRequestResponse
+	})
+
 	api.ServerShutdown = func() {}
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+}
+
+// Handle a single unbatched request, return a tuple containing the index of the request in the batch and either the response or an error
+func handleUnbatchedRequest(wg *sync.WaitGroup, ctx context.Context, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan UnbatchedRequestResponse, errorResponse *models.ErrorResponse) {
+	defer wg.Done()
+
+	// Get all input from the body of the request
+	query := unbatchedRequest.Query
+	operationName := unbatchedRequest.OperationName
+
+	// Return an unprocessable error if the query is empty
+	if query == "" {
+		*requestResults <- UnbatchedRequestResponse{
+			requestIndex,
+			graphql.NewWeaviateGraphqlBatchUnprocessableEntity().WithPayload(errorResponse),
+		}
+	}
+
+	// Extract any variables from the request
+	var variables map[string]interface{}
+	if unbatchedRequest.Variables != nil {
+		variables = unbatchedRequest.Variables.(map[string]interface{})
+	}
+
+	// Perform the request
+	result := gographql.Do(gographql.Params{
+		Schema:         *graphQL.Schema(),
+		RequestString:  query,
+		OperationName:  operationName,
+		VariableValues: variables,
+		Context:        ctx,
+	})
+
+	// Marshal the result to JSON
+	resultJSON, jsonErr := json.Marshal(result)
+
+	// Return an unprocessable error if marshalling the result to JSON failed
+	if jsonErr != nil {
+		*requestResults <- UnbatchedRequestResponse{
+			requestIndex,
+			graphql.NewWeaviateGraphqlBatchUnprocessableEntity().WithPayload(errorResponse),
+		}
+	}
+
+	// Put the result data in a response ready object
+	graphQLResponse := &models.GraphQLResponse{}
+	marshallErr := json.Unmarshal(resultJSON, graphQLResponse)
+
+	// Return an unprocessable error if unmarshalling the result to JSON failed
+	if marshallErr != nil {
+		*requestResults <- UnbatchedRequestResponse{
+			requestIndex,
+			graphql.NewWeaviateGraphqlBatchUnprocessableEntity().WithPayload(errorResponse),
+		}
+	}
+
+	// Return an unprocessable error if unmarshalling the result to JSON failed
+	*requestResults <- UnbatchedRequestResponse{
+		requestIndex,
+		graphql.NewWeaviateGraphqlPostOK().WithPayload(graphQLResponse),
+	}
+}
+
+type UnbatchedRequestResponse struct {
+	RequestIndex int
+	Response     middleware.Responder
 }
 
 // The TLS configuration before HTTPS server starts.
