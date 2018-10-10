@@ -21,6 +21,8 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateSchemaThingsDeleteOKCode is the HTTP code returned for type WeaviateSchemaThingsDeleteOK
@@ -47,6 +49,50 @@ func (o *WeaviateSchemaThingsDeleteOK) WriteResponse(rw http.ResponseWriter, pro
 	rw.WriteHeader(200)
 }
 
+// WeaviateSchemaThingsDeleteBadRequestCode is the HTTP code returned for type WeaviateSchemaThingsDeleteBadRequest
+const WeaviateSchemaThingsDeleteBadRequestCode int = 400
+
+/*WeaviateSchemaThingsDeleteBadRequest Could not delete the Thing class
+
+swagger:response weaviateSchemaThingsDeleteBadRequest
+*/
+type WeaviateSchemaThingsDeleteBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateSchemaThingsDeleteBadRequest creates WeaviateSchemaThingsDeleteBadRequest with default headers values
+func NewWeaviateSchemaThingsDeleteBadRequest() *WeaviateSchemaThingsDeleteBadRequest {
+
+	return &WeaviateSchemaThingsDeleteBadRequest{}
+}
+
+// WithPayload adds the payload to the weaviate schema things delete bad request response
+func (o *WeaviateSchemaThingsDeleteBadRequest) WithPayload(payload *models.ErrorResponse) *WeaviateSchemaThingsDeleteBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema things delete bad request response
+func (o *WeaviateSchemaThingsDeleteBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateSchemaThingsDeleteBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // WeaviateSchemaThingsDeleteUnauthorizedCode is the HTTP code returned for type WeaviateSchemaThingsDeleteUnauthorized
 const WeaviateSchemaThingsDeleteUnauthorizedCode int = 401
 
@@ -69,28 +115,4 @@ func (o *WeaviateSchemaThingsDeleteUnauthorized) WriteResponse(rw http.ResponseW
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
-}
-
-// WeaviateSchemaThingsDeleteForbiddenCode is the HTTP code returned for type WeaviateSchemaThingsDeleteForbidden
-const WeaviateSchemaThingsDeleteForbiddenCode int = 403
-
-/*WeaviateSchemaThingsDeleteForbidden Could not find the Thing class
-
-swagger:response weaviateSchemaThingsDeleteForbidden
-*/
-type WeaviateSchemaThingsDeleteForbidden struct {
-}
-
-// NewWeaviateSchemaThingsDeleteForbidden creates WeaviateSchemaThingsDeleteForbidden with default headers values
-func NewWeaviateSchemaThingsDeleteForbidden() *WeaviateSchemaThingsDeleteForbidden {
-
-	return &WeaviateSchemaThingsDeleteForbidden{}
-}
-
-// WriteResponse to the client
-func (o *WeaviateSchemaThingsDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
-	rw.WriteHeader(403)
 }

@@ -1699,8 +1699,11 @@
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
-          "403": {
-            "description": "Could not find the Thing class"
+          "400": {
+            "description": "Could not delete the Thing class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },

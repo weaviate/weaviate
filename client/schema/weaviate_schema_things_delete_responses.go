@@ -7,10 +7,13 @@ package schema
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/go-openapi/runtime"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateSchemaThingsDeleteReader is a Reader for the WeaviateSchemaThingsDelete structure.
@@ -29,15 +32,15 @@ func (o *WeaviateSchemaThingsDeleteReader) ReadResponse(response runtime.ClientR
 		}
 		return result, nil
 
-	case 401:
-		result := NewWeaviateSchemaThingsDeleteUnauthorized()
+	case 400:
+		result := NewWeaviateSchemaThingsDeleteBadRequest()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
 		return nil, result
 
-	case 403:
-		result := NewWeaviateSchemaThingsDeleteForbidden()
+	case 401:
+		result := NewWeaviateSchemaThingsDeleteUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -69,6 +72,35 @@ func (o *WeaviateSchemaThingsDeleteOK) readResponse(response runtime.ClientRespo
 	return nil
 }
 
+// NewWeaviateSchemaThingsDeleteBadRequest creates a WeaviateSchemaThingsDeleteBadRequest with default headers values
+func NewWeaviateSchemaThingsDeleteBadRequest() *WeaviateSchemaThingsDeleteBadRequest {
+	return &WeaviateSchemaThingsDeleteBadRequest{}
+}
+
+/*WeaviateSchemaThingsDeleteBadRequest handles this case with default header values.
+
+Could not delete the Thing class
+*/
+type WeaviateSchemaThingsDeleteBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateSchemaThingsDeleteBadRequest) Error() string {
+	return fmt.Sprintf("[DELETE /schema/things/{className}][%d] weaviateSchemaThingsDeleteBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *WeaviateSchemaThingsDeleteBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewWeaviateSchemaThingsDeleteUnauthorized creates a WeaviateSchemaThingsDeleteUnauthorized with default headers values
 func NewWeaviateSchemaThingsDeleteUnauthorized() *WeaviateSchemaThingsDeleteUnauthorized {
 	return &WeaviateSchemaThingsDeleteUnauthorized{}
@@ -86,27 +118,6 @@ func (o *WeaviateSchemaThingsDeleteUnauthorized) Error() string {
 }
 
 func (o *WeaviateSchemaThingsDeleteUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	return nil
-}
-
-// NewWeaviateSchemaThingsDeleteForbidden creates a WeaviateSchemaThingsDeleteForbidden with default headers values
-func NewWeaviateSchemaThingsDeleteForbidden() *WeaviateSchemaThingsDeleteForbidden {
-	return &WeaviateSchemaThingsDeleteForbidden{}
-}
-
-/*WeaviateSchemaThingsDeleteForbidden handles this case with default header values.
-
-Could not find the Thing class
-*/
-type WeaviateSchemaThingsDeleteForbidden struct {
-}
-
-func (o *WeaviateSchemaThingsDeleteForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /schema/things/{className}][%d] weaviateSchemaThingsDeleteForbidden ", 403)
-}
-
-func (o *WeaviateSchemaThingsDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }

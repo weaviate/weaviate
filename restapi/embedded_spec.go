@@ -1030,11 +1030,14 @@ func init() {
           "200": {
             "description": "Removed the Thing class from the ontology."
           },
+          "400": {
+            "description": "Could not delete the Thing class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Could not find the Thing class"
           }
         }
       }
@@ -3530,11 +3533,14 @@ func init() {
           "200": {
             "description": "Removed the Thing class from the ontology."
           },
+          "400": {
+            "description": "Could not delete the Thing class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "401": {
             "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "Could not find the Thing class"
           }
         }
       }
