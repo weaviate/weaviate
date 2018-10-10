@@ -1,5 +1,5 @@
-# Batched request processing
-Weaviate can process either regular requests or batched requests.
+# Batch request processing
+Weaviate can process either regular requests or batch requests.
 ## 1. The batch request
 A batch request is an array of requests. The goal of this construction is to reduce network traffic. 
 This document uses the following terminology: 
@@ -8,7 +8,7 @@ This document uses the following terminology:
 - `batch response`: refers to an array of responses
 - `batched response`: refers to an individual response in a `batch response`
 ### 1.1 Format
-A batch request uses a specific format. Examples of the format used by a batch request and a batch response are detailed below (these were taken from the [Apollo blog](https://blog.apollographql.com/query-batching-in-apollo-63acfd859862)).
+Examples of the format used by a batch request and a batch response are detailed below (these were taken from the [Apollo blog](https://blog.apollographql.com/query-batching-in-apollo-63acfd859862)).
 #### 1.1.1 Request
 ```
 [
@@ -36,10 +36,10 @@ A batch request uses a specific format. Examples of the format used by a batch r
   <result for query n>
 ]
 ```
-### 1.2 Errors **TODO** mention error codes here too? out of scope?
+### 1.2 Errors **TODO** refer to gh-506
 There are two types of error that can occur when Weaviate receives and/or processes a batched request.
 #### 1.2.1 Batch request error
-The batch request itself resulted in an error. Its contents are not processed, the return value is **TODO**
+The batch request itself resulted in an error. Its contents are not processed and an error code is included in the header response.
 #### 1.2.2 Batched request error(s)
 happens more often, this is the output....
 
