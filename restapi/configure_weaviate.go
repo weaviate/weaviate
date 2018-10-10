@@ -1265,7 +1265,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		graphql_context := context.WithValue(params.HTTPRequest.Context(), "principal", (principal.(*models.KeyTokenGetResponse)))
 
 		amountOfBatchedRequests := len(params.Body)
+		errorResponse := &models.ErrorResponse{}
 
+		if amountOfBatchedRequests == 0 {
+			return graphql.NewWeaviateGraphqlBatchUnprocessableEntity().WithPayload(errorResponse)
+		}
 		requestResults := make(chan UnbatchedRequestResponse, amountOfBatchedRequests)
 
 		wg := new(sync.WaitGroup)
