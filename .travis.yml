@@ -5,7 +5,6 @@ before_script:
 - sudo apt-get -qq -y update
 - sudo apt-get -qq -y install jq coreutils curl
 - sudo apt-get install -y nodejs-legacy npm
-- npm install -g nodemon
 - if [[ -n "$(gofmt -l .)" ]]; then echo "The following files were not formatted properly!";
   gofmt -l .; exit 1; fi
 - tools/test/run_ci_server.sh || travis_terminate 1
@@ -40,6 +39,9 @@ install:
   > ./cc-test-reporter
 - chmod +x ./cc-test-reporter
 script:
+# run node prototype
+- tools/test/run_ci_node_server.sh || travis_terminate 1
+# run tests
 - |
   ./cc-test-reporter before-build
   for pkg in $(go list ./... | grep -v main); do
@@ -52,16 +54,15 @@ script:
   grep -h -v "^mode:" ./*.cover >> c.out
   rm -f *.cover
   ./cc-test-reporter after-build
-- tools/test/run_ci_server.sh || travis_terminate 1
 after_script:
+# build binary for GOOS=linux GOARCH=amd64
+# building in PR only happens to validate if binary can be created
+- CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o ./dist/weaviate  -a -tags netgo -ldflags '-w -extldflags "-static"' ./cmd/weaviate-server
 - |
   # If the branch is not master or develop we are done :-)
   if [ $TRAVIS_BRANCH -ne "master" ] && [ $TRAVIS_BRANCH -ne "develop" ]; then
     travis_terminate 0
   fi
-  # build binary for GOOS=linux GOARCH=amd64
-  # building in PR only happens to validate if binary can be created
-  CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o ./dist/weaviate  -a -tags netgo -ldflags '-w -extldflags "-static"' ./cmd/weaviate-server
   # if not pull request, handle versioning
   if [ $TRAVIS_PULL_REQUEST = "false" ]; then
       # Make distribution dir if not exsists
