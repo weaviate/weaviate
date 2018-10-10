@@ -17,8 +17,8 @@ deploy:
   skip_cleanup: true
   true: 
     branch: 
-      - master
-      - develop
+      - master  # Will go to version directory based on version in open api specs
+      - develop # Will go to nightly build directory
 go: 
   - "1.11"
 env:
@@ -29,7 +29,11 @@ install:
   - chmod +x ./cc-test-reporter
 before_script:
   - sudo apt-get -qq -y update
-  - sudo apt-get -qq -y install jq coreutils
+  - sudo apt-get -qq -y install jq coreutils curl
+  # install GQL prototype deps
+  - sudo apt-get install -y nodejs
+  - sudo npm install npm --global
+  - npm install -g nodemon
   # Verify that the code is properly formatted.
   - if [[ -n "$(gofmt -l .)" ]]; then echo "The following files were not formatted properly!"; gofmt -l .; exit 1; fi
   # Run Weaviate backed by JanusGraph
@@ -48,6 +52,31 @@ script:
     grep -h -v "^mode:" ./*.cover >> c.out
     rm -f *.cover
     ./cc-test-reporter after-build
+  # Create graphql schema from prototype
+  - |
+    # go to the prototype dir
+    cd graphqlapi/prototype
+    # install deps
+    npm install
+    # run nodemon in the background
+    nohup node prototype-server.js &
+    # get the latest schema and store it to test dir
+    # note: introspection used: https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/graphql_introspection.md
+    curl -d '{"query":"{\n  __schema {\n    queryType {\n      name\n    }\n    mutationType {\n      name\n    }\n    subscriptionType {\n      name\n    }\n    types {\n      ...FullType\n    }\n    directives {\n      name\n      description\n      locations\n      args {\n        ...InputValue\n      }\n    }\n  }\n}\n\nfragment FullType on __Type {\n  kind\n  name\n  description\n  fields(includeDeprecated: true) {\n    name\n    description\n    args {\n      ...InputValue\n    }\n    type {\n      ...TypeRef\n    }\n    isDeprecated\n    deprecationReason\n  }\n  inputFields {\n    ...InputValue\n  }\n  interfaces {\n    ...TypeRef\n  }\n  enumValues(includeDeprecated: true) {\n    name\n    description\n    isDeprecated\n    deprecationReason\n  }\n  possibleTypes {\n    ...TypeRef\n  }\n}\n\nfragment InputValue on __InputValue {\n  name\n  description\n  type {\n    ...TypeRef\n  }\n  defaultValue\n}\n\nfragment TypeRef on __Type {\n  kind\n  name\n  ofType {\n    kind\n    name\n    ofType {\n      kind\n      name\n      ofType {\n        kind\n        name\n        ofType {\n          kind\n          name\n          ofType {\n            kind\n            name\n            ofType {\n              kind\n              name\n              ofType {\n                kind\n                name\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}\n","variables":null,"operationName":null}' -H "Content-Type: application/json" -X POST http://localhost:8081/graphql | jq '.' > ../../test/graphql_schema/schema_design.json
+    # check if there is a difference in the schema of the prototype and the test schema
+    if ! git diff-index --quiet HEAD ../../test/graphql_schema/schema_design.json
+    then
+      git add . ../../test/graphql_schema/schema_design.json
+      git commit --message "🤖 bleep bloop - auto updated the graphql schema"
+      git push --quiet
+      echo "there is a difference in the schema's lets commit it back, it will trigger a new Travis build"
+      echo "need to stop this build :-("
+      travis_terminate 1
+    fi
+    # kill the proc
+    kill $!
+    # back to original dir
+    cd ../..
 after_script:
   # Install goreleaser and create build dirs
   - |
@@ -55,18 +84,19 @@ after_script:
       if [ $TRAVIS_BRANCH -ne "master" ] && [ $TRAVIS_BRANCH -ne "develop" ]; then
         travis_terminate 0
       fi
+      # build binary for GOOS=linux GOARCH=amd64
+      # building in PR only happens to validate if binary can be created
+      CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o ./dist/weaviate  -a -tags netgo -ldflags '-w -extldflags "-static"' ./cmd/weaviate-server
+      # if not pull request, handle versioning
       if [ $TRAVIS_PULL_REQUEST = "false" ]; then
           # Make distribution dir if not exsists
+          mkdir -p dist
           mkdir -p releases
-          # Get latest goreleaser
-          curl -s -L -o "goreleaser.tar.gz" "https://github.com/goreleaser/goreleaser/releases/download/v0.58.0/goreleaser_$(uname -s)_$(uname -m).tar.gz"
-          tar -xzf goreleaser.tar.gz
-          ./goreleaser --rm-dist --snapshot
-          rm goreleaser goreleaser.tar.gz
           # if master, upload version nr otherwise nightly
           if [ $TRAVIS_BRANCH = "master" ]; then
-              # create folder with releases for master
-              mv dist releases/$(cat openapi-specs/schema.json | jq -r '.info.version')
+              # mv to releases
+              mkdir -p releases/$(cat openapi-specs/schema.json | jq -r '.info.version')
+              mv ./dist/weaviate ./releases/$(cat openapi-specs/schema.json | jq -r '.info.version')/weaviate
               # Create txt file with version number
               echo $(cat openapi-specs/schema.json | jq -r '.info.version') > releases/latest.master.txt
               # Check if the version number is now, if not, kill and fail the process
@@ -77,7 +107,8 @@ after_script:
           fi
           if [ $TRAVIS_BRANCH = "develop" ]; then
               # if develop, create nightly
-              mv dist releases/nightly
+              mkdir -p releases/nightly
+              mv ./dist/weaviate ./releases/nightly/weaviate
               # Create txt file with version number of nightly build
               echo $(cat openapi-specs/schema.json | jq -r '.info.version') > releases/latest.nightly.txt
           fi
