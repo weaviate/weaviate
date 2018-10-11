@@ -1,0 +1,629 @@
+# source: http://localhost:8081/graphql
+# timestamp: Wed Jul 11 2018 10:09:29 GMT+0200 (W. Europe Summer Time)
+
+schema {
+  query: WeaviateObj
+}
+
+"""DESCRIPTION ACTION1"""
+type ACTION1 {
+  """DESCRIPTION ACTION1_PROP1"""
+  Action1_prop1: Action1_prop1UnionType
+
+  """DESCRIPTION ACTION1_PROP2"""
+  action1_prop2: String
+
+  """DESCRIPTION ACTION1_PROP2"""
+  Action1_prop2: Action1_prop2UnionType
+}
+
+"""Property meta information"""
+type action1_prop1Property {
+  """datatype of the property"""
+  type: String
+
+  """total amount of found instances"""
+  counter: Int
+
+  """pointing to and from how many other things"""
+  pointing: action1_prop1PropertyMetaPointing
+}
+
+"""pointing to and from how many other things"""
+type action1_prop1PropertyMetaPointing {
+  """how many other classes the class is pointing to"""
+  to: Int
+
+  """how many other classes the class is pointing from"""
+  from: Int
+}
+
+union Action1_prop1UnionType = THING1
+
+"""Property meta information"""
+type action1_prop2Property {
+  """datatype of the property"""
+  type: String
+
+  """total amount of found instances"""
+  counter: Int
+
+  """most frequent property values"""
+  topOccurrences: [action1_prop2PropertyTopOccurrences]
+}
+
+"""most frequent property values"""
+type action1_prop2PropertyTopOccurrences {
+  """property value of the most frequent properties"""
+  value: String
+
+  """number of occurrance"""
+  occurs: Int
+}
+
+union Action1_prop2UnionType = THING2
+
+"""DESCRIPTION ACTION1"""
+type ACTION1Meta {
+  """meta information about class object"""
+  meta: ACTION1MetaObj
+
+  """
+  Meta information about the property "action1_prop1"
+  """
+  action1_prop1: action1_prop1Property
+
+  """
+  Meta information about the property "action1_prop2"
+  """
+  action1_prop2: action1_prop2Property
+}
+
+"""meta information about class object"""
+type ACTION1MetaObj {
+  """how many class instances are there"""
+  counter: Int
+
+  """pointing to and from how many other things"""
+  pointing: ACTION1MetaPointing
+}
+
+"""pointing to and from how many other things"""
+type ACTION1MetaPointing {
+  """how many other classes the class is pointing to"""
+  to: Int
+
+  """how many other classes the class is pointing from"""
+  from: Int
+}
+
+"""enum type which denote the classes"""
+enum classEnum {
+  THING1
+  THING2
+  ACTION1
+}
+
+"""filter where the path end should be equal to the value"""
+input FetchFilterEQ {
+  """path from the root Thing or Action until class property"""
+  path: [String]
+
+  """the value to class property should be filtered at"""
+  value: String
+}
+
+"""filter where the path end should be inequal to the value"""
+input FetchFilterIE {
+  """path from the root Thing or Action until class property"""
+  path: [String]
+
+  """the value to class property should be filtered at"""
+  value: String
+}
+
+"""filter where the path end should be not equal to the value"""
+input FetchFilterNEQ {
+  """path from the root Thing or Action until class property"""
+  path: [String]
+
+  """the value to class property should be filtered at"""
+  value: String
+}
+
+"""DESCRIPTION THING 1"""
+type THING1 {
+  """DESCRIPTION THING1_PROP1"""
+  thing1_prop1: String
+
+  """DESCRIPTION THING1_PROP1"""
+  thing1_prop2: Float
+
+  """DESCRIPTION THING1_PROP1"""
+  thing1_prop3: Int
+
+  """DESCRIPTION THING1_PROP1"""
+  thing1_prop4: Boolean
+}
+
+"""Property meta information"""
+type thing1_prop1Property {
+  """datatype of the property"""
+  type: String
+
+  """total amount of found instances"""
+  counter: Int
+
+  """most frequent property values"""
+  topOccurrences: [thing1_prop1PropertyTopOccurrences]
+}
+
+"""most frequent property values"""
+type thing1_prop1PropertyTopOccurrences {
+  """property value of the most frequent properties"""
+  value: String
+
+  """number of occurrance"""
+  occurs: Int
+}
+
+"""Property meta information"""
+type thing1_prop2Property {
+  """datatype of the property"""
+  type: String
+
+  """Lowest value occurrence"""
+  lowest: Float
+
+  """Highest value occurrence"""
+  highest: Float
+
+  """average number"""
+  average: Float
+
+  """total amount of found instances"""
+  counter: Int
+
+  """sum of values of found instances"""
+  sum: Float
+}
+
+"""Property meta information"""
+type thing1_prop3Property {
+  """datatype of the property"""
+  type: String
+
+  """Lowest value occurrence"""
+  lowest: Float
+
+  """Highest value occurrence"""
+  highest: Float
+
+  """average number"""
+  average: Float
+
+  """total amount of found instances"""
+  counter: Int
+
+  """sum of values of found instances"""
+  sum: Float
+}
+
+"""Property meta information"""
+type thing1_prop4Property {
+  """datatype of the property"""
+  type: String
+
+  """total amount of boolean value is true"""
+  total_true: Int
+
+  """percentage of boolean = true"""
+  percentage_true: Float
+
+  """total amount of found instances"""
+  counter: Int
+}
+
+"""DESCRIPTION THING 1"""
+type THING1Meta {
+  """meta information about class object"""
+  meta: THING1MetaObj
+
+  """
+  Meta information about the property "thing1_prop1"
+  """
+  thing1_prop1: thing1_prop1Property
+
+  """
+  Meta information about the property "thing1_prop2"
+  """
+  thing1_prop2: thing1_prop2Property
+
+  """
+  Meta information about the property "thing1_prop3"
+  """
+  thing1_prop3: thing1_prop3Property
+
+  """
+  Meta information about the property "thing1_prop4"
+  """
+  thing1_prop4: thing1_prop4Property
+}
+
+"""meta information about class object"""
+type THING1MetaObj {
+  """how many class instances are there"""
+  counter: Int
+
+  """pointing to and from how many other things"""
+  pointing: THING1MetaPointing
+}
+
+"""pointing to and from how many other things"""
+type THING1MetaPointing {
+  """how many other classes the class is pointing to"""
+  to: Int
+
+  """how many other classes the class is pointing from"""
+  from: Int
+}
+
+"""DESCRIPTION THING2"""
+type THING2 {
+  """DESCRIPTION THING2_PROP1"""
+  Thing2_prop1: Thing2_prop1UnionType
+
+  """DESCRIPTION THING2_PROP2"""
+  thing2_prop2: String
+}
+
+"""Property meta information"""
+type thing2_prop1Property {
+  """datatype of the property"""
+  type: String
+
+  """total amount of found instances"""
+  counter: Int
+
+  """pointing to and from how many other things"""
+  pointing: thing2_prop1PropertyMetaPointing
+}
+
+"""pointing to and from how many other things"""
+type thing2_prop1PropertyMetaPointing {
+  """how many other classes the class is pointing to"""
+  to: Int
+
+  """how many other classes the class is pointing from"""
+  from: Int
+}
+
+union Thing2_prop1UnionType = THING1 | THING2
+
+"""DESCRIPTION THING2"""
+type THING2Meta {
+  """meta information about class object"""
+  meta: THING2MetaObj
+
+  """
+  Meta information about the property "thing2_prop1"
+  """
+  thing2_prop1: thing2_prop1Property
+
+  """DESCRIPTION THING2_PROP2"""
+  thing2_prop2: String
+}
+
+"""meta information about class object"""
+type THING2MetaObj {
+  """how many class instances are there"""
+  counter: Int
+
+  """pointing to and from how many other things"""
+  pointing: THING2MetaPointing
+}
+
+"""pointing to and from how many other things"""
+type THING2MetaPointing {
+  """how many other classes the class is pointing to"""
+  to: Int
+
+  """how many other classes the class is pointing from"""
+  from: Int
+}
+
+"""Fetch Actions on the internal Weaviate"""
+type WeaviateLocalConvertedFetchActionsObj {
+  """DESCRIPTION ACTION1"""
+  ACTION1(
+    """How certain about these values?"""
+    _certainty: Float
+
+    """define the max returned values."""
+    _limit: Int
+
+    """define the amount of values to skip."""
+    _skip: Int
+  ): [ACTION1]
+}
+
+"""
+Filter options for the converted fetch search, to convert the data to the filter input
+"""
+input WeaviateLocalConvertedFetchFilterObj {
+  """filter where the path end should be equal to the value"""
+  EQ: [FetchFilterEQ]
+
+  """filter where the path end should NOT be equal to the value"""
+  NEQ: [FetchFilterNEQ]
+
+  """filter where the path end should be inequal to the value"""
+  IE: [FetchFilterIE]
+}
+
+"""Fetch things or actions on the internal Weaviate"""
+type WeaviateLocalConvertedFetchObj {
+  """Locate Things on the local Weaviate"""
+  Things: WeaviateLocalConvertedFetchThingsObj
+
+  """Locate Actions on the local Weaviate"""
+  Actions: WeaviateLocalConvertedFetchActionsObj
+}
+
+"""Fetch things on the internal Weaviate"""
+type WeaviateLocalConvertedFetchThingsObj {
+  """DESCRIPTION THING 1"""
+  THING1(
+    """How certain about these values?"""
+    _certainty: Float
+
+    """define the max returned values."""
+    _limit: Int
+
+    """define the amount of values to skip."""
+    _skip: Int
+  ): [THING1]
+
+  """DESCRIPTION THING2"""
+  THING2(
+    """How certain about these values?"""
+    _certainty: Float
+
+    """define the max returned values."""
+    _limit: Int
+
+    """define the amount of values to skip."""
+    _skip: Int
+  ): [THING2]
+}
+
+"""Fetch things or actions on the internal Weaviate"""
+type WeaviateLocalHelpersFetchObj {
+  """Find a set of exact ID's of Things or Actions on the local Weaviate"""
+  PinPoint(
+    """Things or Actions"""
+    _stack: WeaviateLocalHelpersFetchPinPointStackEnum
+
+    """an array of potential classes (they should be in the ontology!)"""
+    _classes: [classEnum]
+
+    """an array of potential classes"""
+    _properties: [String]
+
+    """the actual field that will be used in the search."""
+    _needle: String
+
+    """the type of search."""
+    _searchType: WeaviateLocalHelpersFetchPinPointSearchTypeEnum
+
+    """limit of search results"""
+    _limit: Int
+  ): WeaviateLocalHelpersFetchPinPointObj
+}
+
+"""Fetch uuid of Things or Actions on the internal Weaviate"""
+type WeaviateLocalHelpersFetchPinPointObj {
+  """uuid of thing or action pinpointed in fetch query"""
+  uuid: ID
+}
+
+enum WeaviateLocalHelpersFetchPinPointSearchTypeEnum {
+  standard
+}
+
+enum WeaviateLocalHelpersFetchPinPointStackEnum {
+  Things
+  Actions
+}
+
+"""
+Filter options for the meta fetch search, to convert the data to the filter input
+"""
+input WeaviateLocalMetaFetchFilter {
+  """filter where the path end should be equal to the value"""
+  EQ: [FetchFilterEQ]
+
+  """filter where the path end should NOT be equal to the value"""
+  NEQ: [FetchFilterNEQ]
+
+  """filter where the path end should be inequal to the value"""
+  IE: [FetchFilterIE]
+}
+
+"""Action to fetch for meta generic fetch"""
+type WeaviateLocalMetaFetchGenericsActionObj {
+  """DESCRIPTION ACTION1"""
+  ACTION1(
+    """How certain about these values?"""
+    _certainty: Float
+
+    """define the max returned values."""
+    _limit: Int
+
+    """define the amount of values to skip."""
+    _skip: Int
+  ): ACTION1Meta
+}
+
+"""Object type to fetch"""
+type WeaviateLocalMetaFetchGenericsObj {
+  """Thing to fetch for meta generic fetch"""
+  Things(
+    """If there are arrays in the result, limit them to this size"""
+    _maxArraySize: String
+  ): WeaviateLocalMetaFetchGenericsThingObj
+
+  """Action to fetch for meta generic fetch"""
+  Actions(
+    """If there are arrays in the result, limit them to this size"""
+    _maxArraySize: String
+  ): WeaviateLocalMetaFetchGenericsActionObj
+}
+
+"""Thing to fetch for meta generic fetch"""
+type WeaviateLocalMetaFetchGenericsThingObj {
+  """DESCRIPTION THING 1"""
+  THING1(
+    """How certain about these values?"""
+    _certainty: Float
+
+    """define the max returned values."""
+    _limit: Int
+
+    """define the amount of values to skip."""
+    _skip: Int
+  ): THING1Meta
+
+  """DESCRIPTION THING2"""
+  THING2(
+    """How certain about these values?"""
+    _certainty: Float
+
+    """define the max returned values."""
+    _limit: Int
+
+    """define the amount of values to skip."""
+    _skip: Int
+  ): THING2Meta
+}
+
+"""Fetch things or actions on the internal Weaviate"""
+type WeaviateLocalMetaFetchObj {
+  """Fetch generic meta information based on the type"""
+  Generics: WeaviateLocalMetaFetchGenericsObj
+}
+
+"""Type of fetch on the internal Weaviate"""
+type WeaviateLocalObj {
+  """
+  Do a converted fetch to search Things or Actions on the local weaviate
+  """
+  ConvertedFetch(
+    """
+    Filter options for the converted fetch search, to convert the data to the filter input
+    """
+    _filter: WeaviateLocalConvertedFetchFilterObj
+  ): WeaviateLocalConvertedFetchObj
+
+  """Do a helpers fetch to search Things or Actions on the local weaviate"""
+  HelpersFetch: WeaviateLocalHelpersFetchObj
+
+  """Fetch meta infromation about Things or Actions on the local weaviate"""
+  MetaFetch(
+    """
+    Filter options for the meta fetch search, to convert the data to the filter input
+    """
+    _filter: WeaviateLocalMetaFetchFilter
+  ): WeaviateLocalMetaFetchObj
+}
+
+"""search for things or actions on the network Weaviate"""
+type WeaviateNetworkHelpersFetchObj {
+  """search for things or actions on the network Weaviate"""
+  OntologyExplorer(
+    """maximum distance to other class instances"""
+    _distance: Float
+  ): WeaviateNetworkHelpersFetchOntologyExplorerObj
+}
+
+"""Action to fetch for network fetch"""
+type WeaviateNetworkHelpersFetchOntologyExplorerActionsObj {
+  """DESCRIPTION ACTION1"""
+  ACTION1(
+    """How certain about these values?"""
+    _certainty: Float
+
+    """define the max returned values."""
+    _limit: Int
+
+    """define the amount of values to skip."""
+    _skip: Int
+  ): [ACTION1]
+}
+
+"""search for things or actions on the network Weaviate"""
+type WeaviateNetworkHelpersFetchOntologyExplorerObj {
+  """Thing to fetch in network"""
+  Things(
+    """maximum distance to other instances"""
+    _distance: Float
+  ): WeaviateNetworkHelpersFetchOntologyExplorerThingsObj
+
+  """Action to fetch in network"""
+  Actions(
+    """maximum distance to other instances"""
+    _distance: Float
+  ): WeaviateNetworkHelpersFetchOntologyExplorerActionsObj
+}
+
+"""Thing to fetch for network fetch"""
+type WeaviateNetworkHelpersFetchOntologyExplorerThingsObj {
+  """DESCRIPTION THING 1"""
+  THING1(
+    """How certain about these values?"""
+    _certainty: Float
+
+    """define the max returned values."""
+    _limit: Int
+
+    """define the amount of values to skip."""
+    _skip: Int
+  ): [THING1]
+
+  """DESCRIPTION THING2"""
+  THING2(
+    """How certain about these values?"""
+    _certainty: Float
+
+    """define the max returned values."""
+    _limit: Int
+
+    """define the amount of values to skip."""
+    _skip: Int
+  ): [THING2]
+}
+
+"""Type of fetch on the Weaviate network"""
+type WeaviateNetworkObj {
+  """
+  Do a fuzzy search fetch to search Things or Actions on the network weaviate
+  """
+  FuzzyFetch: [String]
+
+  """
+  Do a fetch with help to search Things or Actions on the network weaviate
+  """
+  HelpersFetch: WeaviateNetworkHelpersFetchObj
+
+  """To fetch meta information Things or Actions on the network weaviate"""
+  MetaFetch: [String]
+}
+
+"""Location of the root query"""
+type WeaviateObj {
+  """Locate on the local Weaviate"""
+  Local: WeaviateLocalObj
+
+  """Locate on the Weaviate network"""
+  Network: WeaviateNetworkObj
+}

@@ -1,0 +1,204 @@
+{
+    "@context": "",
+    "version": "0.0.1",
+    "type": "action",
+    "name": "weaviate actions schema",
+    "maintainer": "yourfriends@weaviate.com",
+    "classes": [
+        {
+            "class": "MoveAction",
+            "description": "Action of buying a thing",
+            "properties": [
+                {
+                    "name": "person",
+                    "@dataType": [
+                        "Person"
+                    ],
+                    "description": "Person who moves",
+                    "keywords": [
+                        {
+                            "keyword": "person",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "toCity",
+                    "@dataType": [
+                        "City", "string"
+                    ],
+                    "description": "The city the person moves to",
+                    "keywords": [
+                        {
+                            "keyword": "to",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "fromCity",
+                    "@dataType": [
+                        "City"
+                    ],
+                    "description": "The city the person moves from",
+                    "keywords": [
+                        {
+                            "keyword": "from",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "isMoved",
+                    "@dataType": [
+                        "boolean"
+                    ],
+                    "description": "Whether the person is already moved",
+                    "keywords": [
+                        {
+                            "keyword": "is",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "moved",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "date",
+                    "@dataType": [
+                        "date"
+                    ],
+                    "description": "The date the person is moving",
+                    "keywords": [
+                        {
+                            "keyword": "date",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "date",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "moveNumber",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "The total amount of house moves the person has made",
+                    "keywords": [
+                        {
+                            "keyword": "move",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "number",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "amount",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "house",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "cost",
+                    "@dataType": [
+                        "number"
+                    ],
+                    "description": "The total costs of the movement",
+                    "keywords": [
+                        {
+                            "keyword": "cost",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "costs",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "movement",
+                            "weight": 0.25
+                        }
+                    ]
+                }
+            ],
+            "keywords": [
+                {
+                    "keyword": "move",
+                    "weight": 1.0
+                },
+                {
+                    "keyword": "action",
+                    "weight": 1.0
+                },
+                {
+                    "keyword": "action",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "thing",
+                    "weight": 0.25
+                }
+            ]
+        }
+    ]
+}
