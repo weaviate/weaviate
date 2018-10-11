@@ -1,0 +1,32 @@
+{
+  "description": "An example using GraphiQL",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/test.js"
+  },
+  "dependencies": {
+    "apollo-fetch": "^0.7.0",
+    "cors": "^2.8.4",
+    "expect": "^23.2.0",
+    "express": "^4.13.3",
+    "express-graphql": "^0.6.6",
+    "graphiql": "",
+    "graphql": "^0.10.5",
+    "graphql-docs": "^0.2.0",
+    "graphql-to-json-schema": "^1.0.0",
+    "graphql-union-input-type": "^0.4.0",
+    "json-server": "^0.14.0",
+    "lodash": "^4.17.10",
+    "mocha": "^5.2.0",
+    "request": "^2.87.0",
+    "should": "^13.2.1",
+    "test": "^0.6.0"
+  },
+  "optionalDependencies": {
+    "react": "^15.4.2",
+    "react-dom": "^15.4.2"
+  },
+  "devDependencies": {
+    "graphql-markdown": "^3.2.0"
+  }
+}
