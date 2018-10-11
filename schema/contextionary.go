@@ -41,7 +41,7 @@ func add_names_from_schema_properties(context *libcontextionary.Contextionary, i
 			var weights []float32 = make([]float32, 0)
 
 			for _, keyword := range class.Keywords {
-				word := strings.ToLower(keyword.Kind)
+				word := strings.ToLower(keyword.Keyword)
 				// Lookup vector for the keyword.
 				idx := (*context).WordToItemIndex(word)
 				if idx.IsPresent() {
