@@ -2221,7 +2221,7 @@ func init() {
       "items": {
         "type": "object",
         "properties": {
-          "kind": {
+          "keyword": {
             "type": "string"
           },
           "weight": {
@@ -4740,7 +4740,7 @@ func init() {
       "items": {
         "type": "object",
         "properties": {
-          "kind": {
+          "keyword": {
             "type": "string"
           },
           "weight": {

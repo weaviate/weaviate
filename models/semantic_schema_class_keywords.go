@@ -60,8 +60,8 @@ func (m SemanticSchemaClassKeywords) Validate(formats strfmt.Registry) error {
 // swagger:model SemanticSchemaClassKeywordsItems0
 type SemanticSchemaClassKeywordsItems0 struct {
 
-	// kind
-	Kind string `json:"kind,omitempty"`
+	// keyword
+	Keyword string `json:"keyword,omitempty"`
 
 	// weight
 	Weight float32 `json:"weight,omitempty"`

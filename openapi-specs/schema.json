@@ -492,7 +492,7 @@
       "items": {
         "type": "object",
         "properties": {
-          "kind": {
+          "keyword": {
             "type": "string"
           },
           "weight": {
