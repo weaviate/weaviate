@@ -55,7 +55,7 @@ then
   git add . ../../test/graphql_schema/schema_design.json
   git commit --message "🤖 bleep bloop - auto updated the graphql schema"
   git remote add origin https://${GH_TOKEN}@github.com/creativesoftwarefdn/weaviate.git > /dev/null 2>&1
-  git push --quiet --set-upstream origin ${TRAVIS_BRANCH} 
+  git push origin HEAD:${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
 
   # some log messaging
   echo "there is a difference in the schema's lets commit it back, it will trigger a new Travis build"
