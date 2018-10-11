@@ -1,0 +1,182 @@
+{
+    "@context": "",
+    "version": "0.0.1",
+    "type": "action",
+    "name": "weaviate things schema",
+    "maintainer": "yourfriends@weaviate.com",
+    "classes": [
+        {
+            "class": "City",
+            "description": "City",
+            "properties": [
+                {
+                    "name": "name",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Official name of the city.",
+                    "keywords": [
+                        {
+                            "keyword": "name",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "official",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "name",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "latitude",
+                    "@dataType": [
+                        "number"
+                    ],
+                    "description": "The city's latitude",
+                    "keywords": [
+                        {
+                            "keyword": "latitude",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "latitude",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "population",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Number of inhabitants of the city",
+                    "keywords": [
+                        {
+                            "keyword": "population",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "number",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "inhabitants",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "isCapital",
+                    "@dataType": [
+                        "boolean"
+                    ],
+                    "description": "True if the city is a capital",
+                    "keywords": [
+                        {
+                            "keyword": "is",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "capital",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "capital",
+                            "weight": 0.25
+                        }
+                    ]
+                }
+            ],
+            "keywords": [
+                {
+                    "keyword": "city",
+                    "weight": 1.0
+                },
+                {
+                    "keyword": "city",
+                    "weight": 0.25
+                }
+            ]
+        },
+        {
+            "class": "Person",
+            "description": "Person",
+            "properties": [
+                {
+                    "name": "livesIn",
+                    "@dataType": [
+                        "City", "Person"
+                    ],
+                    "description": "The city where the person lives.",
+                    "keywords": [
+                        {
+                            "keyword": "lives",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "in",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                }, {
+                    "name": "birthday",
+                    "@dataType": [
+                        "date"
+                    ],
+                    "description": "Birthday of the person",
+                    "keywords": [
+                        {
+                            "keyword": "birthday",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                }
+            ],
+            "keywords": [
+                {
+                    "keyword": "person",
+                    "weight": 1.0
+                },
+                {
+                    "keyword": "person",
+                    "weight": 0.25
+                }
+            ]
+        }
+    ]
+}
