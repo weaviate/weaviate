@@ -68,6 +68,7 @@ then
   echo "there is a difference in the schema's lets commit it back, it will trigger a new Travis build"
   echo "need to stop this build :-("
 
-  # not good, stop
-  travis_terminate 1
+  # stop
+  exit 1
+
 fi
