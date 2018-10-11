@@ -44,17 +44,24 @@ echo "Weaviate prototype is up and running!"
 # note: introspection used: https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/graphql_introspection.md
 curl -d '{"query":"{\n  __schema {\n    queryType {\n      name\n    }\n    mutationType {\n      name\n    }\n    subscriptionType {\n      name\n    }\n    types {\n      ...FullType\n    }\n    directives {\n      name\n      description\n      locations\n      args {\n        ...InputValue\n      }\n    }\n  }\n}\n\nfragment FullType on __Type {\n  kind\n  name\n  description\n  fields(includeDeprecated: true) {\n    name\n    description\n    args {\n      ...InputValue\n    }\n    type {\n      ...TypeRef\n    }\n    isDeprecated\n    deprecationReason\n  }\n  inputFields {\n    ...InputValue\n  }\n  interfaces {\n    ...TypeRef\n  }\n  enumValues(includeDeprecated: true) {\n    name\n    description\n    isDeprecated\n    deprecationReason\n  }\n  possibleTypes {\n    ...TypeRef\n  }\n}\n\nfragment InputValue on __InputValue {\n  name\n  description\n  type {\n    ...TypeRef\n  }\n  defaultValue\n}\n\nfragment TypeRef on __Type {\n  kind\n  name\n  ofType {\n    kind\n    name\n    ofType {\n      kind\n      name\n      ofType {\n        kind\n        name\n        ofType {\n          kind\n          name\n          ofType {\n            kind\n            name\n            ofType {\n              kind\n              name\n              ofType {\n                kind\n                name\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}\n","variables":null,"operationName":null}' -H "Content-Type: application/json" -X POST http://localhost:$NODE_PORT/graphql | jq '.' > ../../test/graphql_schema/schema_design.json
 
+# done, kill the process
+kill $!
+
+# back to original dir
+cd ../..
+
 # check if there is a difference in the schema of the prototype and the test schema
-if ! git diff-index --quiet HEAD ../../test/graphql_schema/schema_design.json
+if ! git diff-index --quiet HEAD test/graphql_schema/schema_design.json
 then
   # Set git config
   git config --global user.email "travis@travis-ci.org"
   git config --global user.name "Travis CI 🤖"
 
   # Add schema file & commit & push
-  git add . ../../test/graphql_schema/schema_design.json
-  git commit --message "🤖 bleep bloop - auto updated the graphql schema"
-  git remote add origin https://${GH_TOKEN}@github.com/creativesoftwarefdn/weaviate.git > /dev/null 2>&1
+  git config credential.helper "store --file=.git/credentials"
+  echo "https://${GH_TOKEN}:@github.com" > .git/credentials
+  git add . test/graphql_schema/schema_design.json
+  git commit -m "🤖 bleep bloop - auto updated the graphql schema"
   git push origin HEAD:${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
 
   # some log messaging
@@ -64,9 +71,3 @@ then
   # not good, stop
   travis_terminate 1
 fi
-
-# done, kill the process
-kill $!
-
-# back to original dir
-cd ../..
