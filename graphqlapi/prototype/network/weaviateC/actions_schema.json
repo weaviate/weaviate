@@ -1,0 +1,10 @@
+{
+    "@context": "",
+    "version": "0.0.1",
+    "type": "action",
+    "name": "weaviate demo actions schema",
+    "maintainer": "yourfriends@weaviate.com",
+    "classes": [
+        {}
+    ]
+}
