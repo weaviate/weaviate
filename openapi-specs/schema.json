@@ -213,6 +213,13 @@
       },
       "type": "object"
     },
+    "GraphQLQueries": {
+      "description": "A list of GraphQL queries",
+      "items": {
+        "$ref": "#/definitions/GraphQLQuery"
+      },
+      "type": "array"
+    },
     "GraphQLResponse": {
       "description": "GraphQL based repsonse: http://facebook.github.io/graphql/",
       "properties": {
@@ -231,6 +238,13 @@
           "type": "array"
         }
       }
+    },
+    "GraphQLResponses": {
+      "description": "A list of GraphQL responses",
+      "items": {
+        "$ref": "#/definitions/GraphQLResponse"
+      },
+      "type": "array"
     },
     "JsonObject": {
       "description": "JSON object value.",
@@ -1090,7 +1104,7 @@
     },
     "/graphql": {
       "post": {
-        "description": "Get an object based on GraphQL",
+        "description": "Query Weaviate with GraphQL",
         "operationId": "weaviate.graphql.post",
         "parameters": [
           {
@@ -1131,6 +1145,50 @@
         "x-available-in-websocket": false
       }
     },
+    "/graphql/batch": {
+      "post": {
+        "description": "Perform mulitiple GraphQL queries",
+        "operationId": "weaviate.graphql.batch",
+        "parameters": [
+          {
+            "description": "The GraphQL queries.",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GraphQLQueries"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Succesful query (with select).",
+            "schema": {
+              "$ref": "#/definitions/GraphQLResponses"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Get a response based on GraphQL",
+        "tags": [
+          "graphql"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+
     "/keys": {
       "post": {
         "description": "Creates a new key. Input expiration date is validated on being in the future and not longer than parent expiration date.",

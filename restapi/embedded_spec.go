@@ -374,7 +374,7 @@ func init() {
     },
     "/graphql": {
       "post": {
-        "description": "Get an object based on GraphQL",
+        "description": "Query Weaviate with GraphQL",
         "tags": [
           "graphql"
         ],
@@ -396,6 +396,49 @@ func init() {
             "description": "Succesful query (with select).",
             "schema": {
               "$ref": "#/definitions/GraphQLResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/graphql/batch": {
+      "post": {
+        "description": "Perform mulitiple GraphQL queries",
+        "tags": [
+          "graphql"
+        ],
+        "summary": "Get a response based on GraphQL",
+        "operationId": "weaviate.graphql.batch",
+        "parameters": [
+          {
+            "description": "The GraphQL queries.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GraphQLQueries"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Succesful query (with select).",
+            "schema": {
+              "$ref": "#/definitions/GraphQLResponses"
             }
           },
           "401": {
@@ -1336,6 +1379,13 @@ func init() {
         }
       }
     },
+    "GraphQLQueries": {
+      "description": "A list of GraphQL queries",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GraphQLQuery"
+      }
+    },
     "GraphQLQuery": {
       "description": "GraphQL query based on: http://facebook.github.io/graphql/",
       "type": "object",
@@ -1371,6 +1421,13 @@ func init() {
             "$ref": "#/definitions/GraphQLError"
           }
         }
+      }
+    },
+    "GraphQLResponses": {
+      "description": "A list of GraphQL responses",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GraphQLResponse"
       }
     },
     "JsonObject": {
@@ -2279,7 +2336,7 @@ func init() {
     },
     "/graphql": {
       "post": {
-        "description": "Get an object based on GraphQL",
+        "description": "Query Weaviate with GraphQL",
         "tags": [
           "graphql"
         ],
@@ -2301,6 +2358,49 @@ func init() {
             "description": "Succesful query (with select).",
             "schema": {
               "$ref": "#/definitions/GraphQLResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/graphql/batch": {
+      "post": {
+        "description": "Perform mulitiple GraphQL queries",
+        "tags": [
+          "graphql"
+        ],
+        "summary": "Get a response based on GraphQL",
+        "operationId": "weaviate.graphql.batch",
+        "parameters": [
+          {
+            "description": "The GraphQL queries.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GraphQLQueries"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Succesful query (with select).",
+            "schema": {
+              "$ref": "#/definitions/GraphQLResponses"
             }
           },
           "401": {
@@ -3257,6 +3357,13 @@ func init() {
         }
       }
     },
+    "GraphQLQueries": {
+      "description": "A list of GraphQL queries",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GraphQLQuery"
+      }
+    },
     "GraphQLQuery": {
       "description": "GraphQL query based on: http://facebook.github.io/graphql/",
       "type": "object",
@@ -3292,6 +3399,13 @@ func init() {
             "$ref": "#/definitions/GraphQLError"
           }
         }
+      }
+    },
+    "GraphQLResponses": {
+      "description": "A list of GraphQL responses",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GraphQLResponse"
       }
     },
     "JsonObject": {
