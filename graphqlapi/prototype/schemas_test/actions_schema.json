@@ -1,0 +1,32 @@
+{
+    "@context": "",
+    "version": "0.0.1",
+    "type": "action",
+    "name": "weaviate actions schema",
+    "maintainer": "yourfriends@weaviate.com",
+    "classes": [
+        {
+            "class": "ACTION1__",
+            "description": "DESCRIPTION ACTION1__",
+            "properties": [
+                {
+                    "name": "action1_prop1__",
+                    "@dataType": [
+                        "THING1__"
+                    ],
+                    "description": "DESCRIPTION ACTION1_PROP1__",
+                    "keywords": []
+                },
+                {
+                    "name": "action1_prop2__",
+                    "@dataType": [
+                        "THING2__", "string"
+                    ],
+                    "description": "DESCRIPTION ACTION1_PROP2__",
+                    "keywords": []
+                }
+            ],
+            "keywords": []
+        }
+    ]
+}
