@@ -1,0 +1,70 @@
+{
+    "@context": "",
+    "version": "0.0.1",
+    "type": "thing",
+    "name": "weaviate things schema",
+    "maintainer": "yourfriends@weaviate.com",
+    "classes": [
+        {
+            "class": "THING1__",
+            "description": "DESCRIPTION THING 1__",
+            "properties": [
+                {
+                    "name": "thing1_prop1__",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "DESCRIPTION THING1_PROP1__",
+                    "keywords": []
+                },
+                {
+                    "name": "thing1_prop2__",
+                    "@dataType": [
+                        "number"
+                    ],
+                    "description": "DESCRIPTION THING1_PROP1__",
+                    "keywords": []
+                },
+                {
+                    "name": "thing1_prop3__",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "DESCRIPTION THING1_PROP1__",
+                    "keywords": []
+                },
+                {
+                    "name": "thing1_prop4__",
+                    "@dataType": [
+                        "boolean"
+                    ],
+                    "description": "DESCRIPTION THING1_PROP1__",
+                    "keywords": []
+                }
+            ],
+            "keywords": []
+        },
+        {
+            "class": "THING2__",
+            "description": "DESCRIPTION THING2__",
+            "properties": [
+                {
+                    "name": "thing2_prop1__",
+                    "@dataType": [
+                        "THING1__", "THING2__"
+                    ],
+                    "description": "DESCRIPTION THING2_PROP1__",
+                    "keywords": []
+                }, {
+                    "name": "thing2_prop2__",
+                    "@dataType": [
+                        "date"
+                    ],
+                    "description": "DESCRIPTION THING2_PROP2__",
+                    "keywords": []
+                }
+            ],
+            "keywords": []
+        }
+    ]
+}
