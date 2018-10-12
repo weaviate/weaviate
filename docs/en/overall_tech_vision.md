@@ -18,8 +18,6 @@ Weaviate is a decentralized knowledge graph which aims to;
 4. Allow fuzzy traversing over multiple-graphs in a P2P network.
 5. Uses a word vector based solution (_Contextionary_) to give linguistical context to words in the database.
 
-> Note: for the implementation-roadmap see the [README.md](../README.md) file
-
 ## Architecture overview
 
 The Weaviate server offers an API for users and uses a (graph) database to store the data.
