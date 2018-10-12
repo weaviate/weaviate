@@ -72,3 +72,5 @@ then
   exit 1
 
 fi
+
+echo "Schema validating from Weaviate GraphQL NodeJS prototype = done"
