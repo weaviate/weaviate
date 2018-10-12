@@ -53,6 +53,10 @@ cd ../..
 # check if there is a difference in the schema of the prototype and the test schema
 if ! git diff-index --quiet HEAD test/graphql_schema/schema_design.json
 then
+
+  # difference in test/graphql_schema/schema_design.json
+  echo "a difference in test/graphql_schema/schema_design.json is detected"
+
   # Set git config
   git config --global user.email "travis@travis-ci.org"
   git config --global user.name "Travis CI 🤖"
