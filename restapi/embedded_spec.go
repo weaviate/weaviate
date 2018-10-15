@@ -2185,10 +2185,6 @@ func init() {
             "thing",
             "action"
           ]
-        },
-        "version": {
-          "description": "Version number of the schema in semver format.",
-          "type": "string"
         }
       }
     },
@@ -4700,10 +4696,6 @@ func init() {
             "thing",
             "action"
           ]
-        },
-        "version": {
-          "description": "Version number of the schema in semver format.",
-          "type": "string"
         }
       }
     },

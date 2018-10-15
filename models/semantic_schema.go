@@ -49,9 +49,6 @@ type SemanticSchema struct {
 	// Type of schema, should be "thing" or "action".
 	// Enum: [thing action]
 	Type string `json:"type,omitempty"`
-
-	// Version number of the schema in semver format.
-	Version string `json:"version,omitempty"`
 }
 
 // Validate validates this semantic schema
