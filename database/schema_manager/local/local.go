@@ -38,7 +38,7 @@ func (l *localSchemaState) SchemaFor(k kind.Kind) *models.SemanticSchema {
 	case kind.ACTION_KIND:
 		return l.ActionSchema
 	default:
-		log.Fatal("Passed wrong neither thing nor kind, but %v", k)
+		log.Fatalf("Passed wrong neither thing nor kind, but %v", k)
 		return nil
 	}
 }
