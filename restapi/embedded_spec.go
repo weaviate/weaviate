@@ -2225,6 +2225,15 @@ func init() {
             "type": "string"
           }
         },
+        "cardinality": {
+          "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
+          "type": "string",
+          "default": "atMostOne",
+          "enum": [
+            "atMostOne",
+            "many"
+          ]
+        },
         "description": {
           "description": "Description of the property",
           "type": "string"
@@ -4730,6 +4739,15 @@ func init() {
           "items": {
             "type": "string"
           }
+        },
+        "cardinality": {
+          "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
+          "type": "string",
+          "default": "atMostOne",
+          "enum": [
+            "atMostOne",
+            "many"
+          ]
         },
         "description": {
           "description": "Description of the property",
