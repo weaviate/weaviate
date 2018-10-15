@@ -511,6 +511,15 @@
           },
           "type": "array"
         },
+        "cardinality": {
+          "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
+          "type": "string",
+          "enum": [
+            "atMostOne",
+            "many"
+          ],
+          "default": "atMostOne"
+        },
         "description": {
           "description": "Description of the property",
           "type": "string"

@@ -18,10 +18,13 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"encoding/json"
+
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // SemanticSchemaClassProperty semantic schema class property
@@ -30,6 +33,10 @@ type SemanticSchemaClassProperty struct {
 
 	// Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise "string" or "int".
 	AtDataType []string `json:"@dataType"`
+
+	// The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.
+	// Enum: [atMostOne many]
+	Cardinality *string `json:"cardinality,omitempty"`
 
 	// Description of the property
 	Description string `json:"description,omitempty"`
@@ -45,6 +52,10 @@ type SemanticSchemaClassProperty struct {
 func (m *SemanticSchemaClassProperty) Validate(formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.validateCardinality(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateKeywords(formats); err != nil {
 		res = append(res, err)
 	}
@@ -52,6 +63,49 @@ func (m *SemanticSchemaClassProperty) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+var semanticSchemaClassPropertyTypeCardinalityPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["atMostOne","many"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		semanticSchemaClassPropertyTypeCardinalityPropEnum = append(semanticSchemaClassPropertyTypeCardinalityPropEnum, v)
+	}
+}
+
+const (
+
+	// SemanticSchemaClassPropertyCardinalityAtMostOne captures enum value "atMostOne"
+	SemanticSchemaClassPropertyCardinalityAtMostOne string = "atMostOne"
+
+	// SemanticSchemaClassPropertyCardinalityMany captures enum value "many"
+	SemanticSchemaClassPropertyCardinalityMany string = "many"
+)
+
+// prop value enum
+func (m *SemanticSchemaClassProperty) validateCardinalityEnum(path, location string, value string) error {
+	if err := validate.Enum(path, location, value, semanticSchemaClassPropertyTypeCardinalityPropEnum); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *SemanticSchemaClassProperty) validateCardinality(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Cardinality) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateCardinalityEnum("cardinality", "body", *m.Cardinality); err != nil {
+		return err
+	}
+
 	return nil
 }
 
