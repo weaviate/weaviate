@@ -158,7 +158,7 @@ swagger:model WeaviateSchemaThingsUpdateBody
 type WeaviateSchemaThingsUpdateBody struct {
 
 	// keywords
-	Keywords models.SemanticSchemaClassKeywords `json:"keywords"`
+	Keywords models.SemanticSchemaKeywords `json:"keywords"`
 
 	// The new name of the Thing
 	NewName string `json:"newName,omitempty"`

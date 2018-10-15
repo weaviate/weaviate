@@ -37,7 +37,7 @@ type SemanticSchemaClass struct {
 	Description string `json:"description,omitempty"`
 
 	// keywords
-	Keywords SemanticSchemaClassKeywords `json:"keywords"`
+	Keywords SemanticSchemaKeywords `json:"keywords"`
 
 	// The properties of the class.
 	Properties []*SemanticSchemaClassProperty `json:"properties"`
