@@ -470,7 +470,7 @@
           "type": "string"
         },
         "keywords": {
-          "$ref": "#/definitions/SemanticSchemaClassKeywords"
+          "$ref": "#/definitions/SemanticSchemaKeywords"
         },
         "description": {
           "description": "Description of the class",
@@ -486,8 +486,8 @@
       },
       "type": "object"
     },
-    "SemanticSchemaClassKeywords": {
-      "description": "Describes the kind of class. For example Geolocation for the class City.",
+    "SemanticSchemaKeywords": {
+      "description": "Describes a class or property using multiple weighted other words",
       "type": "array",
       "items": {
         "type": "object",
@@ -520,20 +520,7 @@
           "type": "string"
         },
         "keywords": {
-          "description": "Describes the kind of class. For example Geolocation for the class City.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string"
-              },
-              "weight": {
-                "type": "number",
-                "format": "float"
-              }
-            }
-          }
+          "$ref": "#/definitions/SemanticSchemaKeywords"
         }
       },
       "type": "object"
@@ -1729,7 +1716,7 @@
                   "type": "string"
                 },
                 "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaClassKeywords"
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
                 }
               }
             }
@@ -1850,7 +1837,7 @@
                   "type": "string"
                 },
                 "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaClassKeywords"
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
                 }
               }
             }

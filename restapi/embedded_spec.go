@@ -984,7 +984,7 @@ func init() {
               "type": "object",
               "properties": {
                 "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaClassKeywords"
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
                   "description": "The new name of the Thing",
@@ -1112,7 +1112,7 @@ func init() {
               "type": "object",
               "properties": {
                 "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaClassKeywords"
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
                   "description": "The new name of the property",
@@ -2204,29 +2204,13 @@ func init() {
           "type": "string"
         },
         "keywords": {
-          "$ref": "#/definitions/SemanticSchemaClassKeywords"
+          "$ref": "#/definitions/SemanticSchemaKeywords"
         },
         "properties": {
           "description": "The properties of the class.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/SemanticSchemaClassProperty"
-          }
-        }
-      }
-    },
-    "SemanticSchemaClassKeywords": {
-      "description": "Describes the kind of class. For example Geolocation for the class City.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "keyword": {
-            "type": "string"
-          },
-          "weight": {
-            "type": "number",
-            "format": "float"
           }
         }
       }
@@ -2246,24 +2230,27 @@ func init() {
           "type": "string"
         },
         "keywords": {
-          "description": "Describes the kind of class. For example Geolocation for the class City.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string"
-              },
-              "weight": {
-                "type": "number",
-                "format": "float"
-              }
-            }
-          }
+          "$ref": "#/definitions/SemanticSchemaKeywords"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        }
+      }
+    },
+    "SemanticSchemaKeywords": {
+      "description": "Describes a class or property using multiple weighted other words",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "number",
+            "format": "float"
+          }
         }
       }
     },
@@ -3487,7 +3474,7 @@ func init() {
               "type": "object",
               "properties": {
                 "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaClassKeywords"
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
                   "description": "The new name of the Thing",
@@ -3615,7 +3602,7 @@ func init() {
               "type": "object",
               "properties": {
                 "keywords": {
-                  "$ref": "#/definitions/SemanticSchemaClassKeywords"
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
                   "description": "The new name of the property",
@@ -4723,29 +4710,13 @@ func init() {
           "type": "string"
         },
         "keywords": {
-          "$ref": "#/definitions/SemanticSchemaClassKeywords"
+          "$ref": "#/definitions/SemanticSchemaKeywords"
         },
         "properties": {
           "description": "The properties of the class.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/SemanticSchemaClassProperty"
-          }
-        }
-      }
-    },
-    "SemanticSchemaClassKeywords": {
-      "description": "Describes the kind of class. For example Geolocation for the class City.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "keyword": {
-            "type": "string"
-          },
-          "weight": {
-            "type": "number",
-            "format": "float"
           }
         }
       }
@@ -4765,24 +4736,27 @@ func init() {
           "type": "string"
         },
         "keywords": {
-          "description": "Describes the kind of class. For example Geolocation for the class City.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string"
-              },
-              "weight": {
-                "type": "number",
-                "format": "float"
-              }
-            }
-          }
+          "$ref": "#/definitions/SemanticSchemaKeywords"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        }
+      }
+    },
+    "SemanticSchemaKeywords": {
+      "description": "Describes a class or property using multiple weighted other words",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "number",
+            "format": "float"
+          }
         }
       }
     },

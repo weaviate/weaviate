@@ -26,12 +26,12 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// SemanticSchemaClassKeywords Describes the kind of class. For example Geolocation for the class City.
-// swagger:model SemanticSchemaClassKeywords
-type SemanticSchemaClassKeywords []*SemanticSchemaClassKeywordsItems0
+// SemanticSchemaKeywords Describes a class or property using multiple weighted other words
+// swagger:model SemanticSchemaKeywords
+type SemanticSchemaKeywords []*SemanticSchemaKeywordsItems0
 
-// Validate validates this semantic schema class keywords
-func (m SemanticSchemaClassKeywords) Validate(formats strfmt.Registry) error {
+// Validate validates this semantic schema keywords
+func (m SemanticSchemaKeywords) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	for i := 0; i < len(m); i++ {
@@ -56,9 +56,9 @@ func (m SemanticSchemaClassKeywords) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// SemanticSchemaClassKeywordsItems0 semantic schema class keywords items0
-// swagger:model SemanticSchemaClassKeywordsItems0
-type SemanticSchemaClassKeywordsItems0 struct {
+// SemanticSchemaKeywordsItems0 semantic schema keywords items0
+// swagger:model SemanticSchemaKeywordsItems0
+type SemanticSchemaKeywordsItems0 struct {
 
 	// keyword
 	Keyword string `json:"keyword,omitempty"`
@@ -67,13 +67,13 @@ type SemanticSchemaClassKeywordsItems0 struct {
 	Weight float32 `json:"weight,omitempty"`
 }
 
-// Validate validates this semantic schema class keywords items0
-func (m *SemanticSchemaClassKeywordsItems0) Validate(formats strfmt.Registry) error {
+// Validate validates this semantic schema keywords items0
+func (m *SemanticSchemaKeywordsItems0) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *SemanticSchemaClassKeywordsItems0) MarshalBinary() ([]byte, error) {
+func (m *SemanticSchemaKeywordsItems0) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -81,8 +81,8 @@ func (m *SemanticSchemaClassKeywordsItems0) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *SemanticSchemaClassKeywordsItems0) UnmarshalBinary(b []byte) error {
-	var res SemanticSchemaClassKeywordsItems0
+func (m *SemanticSchemaKeywordsItems0) UnmarshalBinary(b []byte) error {
+	var res SemanticSchemaKeywordsItems0
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}
