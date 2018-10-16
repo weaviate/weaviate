@@ -18,6 +18,8 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"strconv"
+
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
@@ -29,7 +31,7 @@ import (
 type ErrorResponse struct {
 
 	// error
-	Error *ErrorResponseError `json:"error,omitempty"`
+	Error []*ErrorResponseErrorItems0 `json:"error"`
 }
 
 // Validate validates this error response
@@ -52,13 +54,20 @@ func (m *ErrorResponse) validateError(formats strfmt.Registry) error {
 		return nil
 	}
 
-	if m.Error != nil {
-		if err := m.Error.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("error")
-			}
-			return err
+	for i := 0; i < len(m.Error); i++ {
+		if swag.IsZero(m.Error[i]) { // not required
+			continue
 		}
+
+		if m.Error[i] != nil {
+			if err := m.Error[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("error" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
 	}
 
 	return nil
@@ -82,21 +91,21 @@ func (m *ErrorResponse) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// ErrorResponseError error response error
-// swagger:model ErrorResponseError
-type ErrorResponseError struct {
+// ErrorResponseErrorItems0 error response error items0
+// swagger:model ErrorResponseErrorItems0
+type ErrorResponseErrorItems0 struct {
 
 	// message
 	Message string `json:"message,omitempty"`
 }
 
-// Validate validates this error response error
-func (m *ErrorResponseError) Validate(formats strfmt.Registry) error {
+// Validate validates this error response error items0
+func (m *ErrorResponseErrorItems0) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *ErrorResponseError) MarshalBinary() ([]byte, error) {
+func (m *ErrorResponseErrorItems0) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -104,8 +113,8 @@ func (m *ErrorResponseError) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *ErrorResponseError) UnmarshalBinary(b []byte) error {
-	var res ErrorResponseError
+func (m *ErrorResponseErrorItems0) UnmarshalBinary(b []byte) error {
+	var res ErrorResponseErrorItems0
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

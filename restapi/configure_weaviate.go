@@ -195,13 +195,15 @@ func configureFlags(api *operations.WeaviateAPI) {
 }
 
 // createErrorResponseObject is a common function to create an error response
-func createErrorResponseObject(message string) *models.ErrorResponse {
+func createErrorResponseObject(messages ...string) *models.ErrorResponse {
 	// Initialize return value
 	er := &models.ErrorResponse{}
 
-	// Fill the error with the message
-	er.Error = &models.ErrorResponseError{
-		Message: message,
+	// appends all error messages to the error
+	for _, message := range messages {
+		er.Error = append(er.Error, &models.ErrorResponseErrorItems0{
+			Message: message,
+		})
 	}
 
 	return er
