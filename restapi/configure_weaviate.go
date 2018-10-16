@@ -1399,7 +1399,7 @@ func addOperationModeMiddleware(next http.Handler) http.Handler {
 			var errors strings.Builder
 
 			errors.WriteString("You cannot access this endpoint, because Weaviate is running in a reduced functionality mode.\n")
-			errors.WriteString(fmt.Sprintf("There are %d errors that should be handled to return to normal functionality:\n"))
+			errors.WriteString(fmt.Sprintf("There are %d errors that should be handled to return to normal functionality:\n", len(rawErrors))
 
 			for i, err := range rawErrors {
 				errors.WriteString(fmt.Sprintf("%d: %s\n", i+1, err.Error()))
