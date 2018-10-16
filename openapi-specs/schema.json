@@ -155,14 +155,17 @@
       "description": "An error response given by Weaviate end-points.",
       "properties": {
         "error": {
-          "properties": {
-            "message": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      },
+          "items": {
+            "properties": {
+              "message": {
+                "type": "string"
+              }    
+            },   
+            "type": "object"
+          },   
+          "type": "array"
+        }    
+      },   
       "type": "object"
     },
     "GraphQLError": {
