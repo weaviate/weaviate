@@ -24,6 +24,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
@@ -59,6 +60,7 @@ import (
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/operation_mode"
 )
 
 const pageOverride int = 1
@@ -71,6 +73,7 @@ var serverConfig *config.WeaviateConfig
 var dbConnector dbconnector.DatabaseConnector
 var graphQL graphqlapi.GraphQL
 var messaging *messages.Messaging
+var operationMode operation_mode.OperationMode
 
 type keyTokenHeader struct {
 	Key   strfmt.UUID `json:"key"`
@@ -1291,6 +1294,8 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, err.Error())
 	}
 
+	operationMode = operation_mode.New()
+
 	loadContextionary()
 
 	connectToNetwork()
@@ -1379,8 +1384,44 @@ func setupGlobalMiddleware(handler http.Handler) http.Handler {
 	handleCORS := cors.Default().Handler
 	handler = handleCORS(handler)
 	handler = graphiql.AddMiddleware(handler)
+	handler = addOperationModeMiddleware(handler)
 
 	return addLogging(handler)
+}
+
+func addOperationModeMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if operationMode.HasErrors() && !strings.HasPrefix(r.URL.Path, "/weaviate/v1/schema") {
+			// If there are operation mode errors, and we're not hitting a schema endpoint,
+			// then render the output.
+
+			var rawErrors []error = operationMode.Errors()
+			var errors strings.Builder
+
+			errors.WriteString("You cannot access this endpoint, because Weaviate is running in a reduced functionality mode.\n")
+			errors.WriteString(fmt.Sprintf("There are %d errors that should be handled to return to normal functionality:\n"))
+
+			for i, err := range rawErrors {
+				errors.WriteString(fmt.Sprintf("%d: %s\n", i+1, err.Error()))
+			}
+
+			response := models.ErrorResponse{
+				Error: &models.ErrorResponseError{
+					Message: errors.String(),
+				},
+			}
+
+			bytes, err := response.MarshalBinary()
+			if err != nil {
+				panic("Should always be able to serialize this")
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.Write(bytes)
+		} else {
+			next.ServeHTTP(w, r)
+		}
+	})
 }
 
 func addLogging(next http.Handler) http.Handler {
