@@ -36,6 +36,16 @@ The complete open API specs document is available [here](../openapi-specs/schema
 
 We really on GraphQL to expose the graphs both locally and on the network. We have extensive documentation available on this which you can find [here](./) prefixed with `graphql-*.md`.
 
+### Error handling
+
+In the package `restapi` you can use the function `createErrorResponseObject(message ...string)`. This will return an error object as defined in the open api schema (`ErrorResponse`).
+
+Example usage:
+
+```golang
+createErrorResponseObject("Error 1", "Error 2", "etc")
+```
+
 ## Dockerized development environment
 
 Want to quickly build & run the currently checked out version of weaviate?
