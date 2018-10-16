@@ -22,6 +22,18 @@ Great that you want to help out with Weaviate!
 
 The best way of getting started is to look at the [getting started guide](./getting-started.md) for end-users. It explains how to run Weaviate and how to consume the APIs. Next, it would be good to get indepth knowledge about the API's and especially GraphQL. All interfaces exposes the innerworkings of GQL.
 
+## Pull Requests and Commits
+
+1. Regardless of what you are working on, always create a Github issue and label it properly.
+2. Always use the issue when creating a pull request or when committing.
+
+#### Smart Commits
+
+Please use [Github's autolink-urls](https://help.github.com/articles/autolinked-references-and-urls/) (aka _smart commits_) when committing an issue or creating a pull request. In case of a PR without smart commits, they will be [squashed]() into one single commit with the reference.
+
+- For example: `$ git commit -m "gh-123: MESSAGE"`
+- For automated commits, for example through Travis-ci, you can use: `git commit -m "🤖 MESSAGE"`
+
 ## Versioning
 
 We use [semver](https://semver.org/) for versioning. The version number can be found in the [API specs](../openapi-specs/schema.json) under: `.version`. This version number will also used to publish binaries.
