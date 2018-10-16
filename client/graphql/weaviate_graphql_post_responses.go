@@ -53,6 +53,13 @@ func (o *WeaviateGraphqlPostReader) ReadResponse(response runtime.ClientResponse
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateGraphqlPostInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -147,6 +154,35 @@ func (o *WeaviateGraphqlPostUnprocessableEntity) Error() string {
 }
 
 func (o *WeaviateGraphqlPostUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewWeaviateGraphqlPostInternalServerError creates a WeaviateGraphqlPostInternalServerError with default headers values
+func NewWeaviateGraphqlPostInternalServerError() *WeaviateGraphqlPostInternalServerError {
+	return &WeaviateGraphqlPostInternalServerError{}
+}
+
+/*WeaviateGraphqlPostInternalServerError handles this case with default header values.
+
+Internal server error; see the ErrorResponse in the response body for the reason.
+*/
+type WeaviateGraphqlPostInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateGraphqlPostInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /graphql][%d] weaviateGraphqlPostInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateGraphqlPostInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

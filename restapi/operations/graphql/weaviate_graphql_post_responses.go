@@ -160,3 +160,47 @@ func (o *WeaviateGraphqlPostUnprocessableEntity) WriteResponse(rw http.ResponseW
 		}
 	}
 }
+
+// WeaviateGraphqlPostInternalServerErrorCode is the HTTP code returned for type WeaviateGraphqlPostInternalServerError
+const WeaviateGraphqlPostInternalServerErrorCode int = 500
+
+/*WeaviateGraphqlPostInternalServerError Internal server error; see the ErrorResponse in the response body for the reason.
+
+swagger:response weaviateGraphqlPostInternalServerError
+*/
+type WeaviateGraphqlPostInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateGraphqlPostInternalServerError creates WeaviateGraphqlPostInternalServerError with default headers values
+func NewWeaviateGraphqlPostInternalServerError() *WeaviateGraphqlPostInternalServerError {
+
+	return &WeaviateGraphqlPostInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate graphql post internal server error response
+func (o *WeaviateGraphqlPostInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateGraphqlPostInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate graphql post internal server error response
+func (o *WeaviateGraphqlPostInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateGraphqlPostInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

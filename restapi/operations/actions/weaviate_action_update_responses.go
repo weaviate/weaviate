@@ -184,3 +184,47 @@ func (o *WeaviateActionUpdateUnprocessableEntity) WriteResponse(rw http.Response
 		}
 	}
 }
+
+// WeaviateActionUpdateInternalServerErrorCode is the HTTP code returned for type WeaviateActionUpdateInternalServerError
+const WeaviateActionUpdateInternalServerErrorCode int = 500
+
+/*WeaviateActionUpdateInternalServerError Internal server error; see the ErrorResponse in the response body for the reason.
+
+swagger:response weaviateActionUpdateInternalServerError
+*/
+type WeaviateActionUpdateInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateActionUpdateInternalServerError creates WeaviateActionUpdateInternalServerError with default headers values
+func NewWeaviateActionUpdateInternalServerError() *WeaviateActionUpdateInternalServerError {
+
+	return &WeaviateActionUpdateInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate action update internal server error response
+func (o *WeaviateActionUpdateInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateActionUpdateInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate action update internal server error response
+func (o *WeaviateActionUpdateInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateActionUpdateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

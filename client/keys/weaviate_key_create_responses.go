@@ -46,6 +46,13 @@ func (o *WeaviateKeyCreateReader) ReadResponse(response runtime.ClientResponse, 
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateKeyCreateInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -119,6 +126,35 @@ func (o *WeaviateKeyCreateUnprocessableEntity) Error() string {
 }
 
 func (o *WeaviateKeyCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewWeaviateKeyCreateInternalServerError creates a WeaviateKeyCreateInternalServerError with default headers values
+func NewWeaviateKeyCreateInternalServerError() *WeaviateKeyCreateInternalServerError {
+	return &WeaviateKeyCreateInternalServerError{}
+}
+
+/*WeaviateKeyCreateInternalServerError handles this case with default header values.
+
+Internal server error; see the ErrorResponse in the response body for the reason.
+*/
+type WeaviateKeyCreateInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateKeyCreateInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /keys][%d] weaviateKeyCreateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateKeyCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

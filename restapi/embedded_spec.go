@@ -103,6 +103,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -139,6 +145,12 @@ func init() {
           },
           "422": {
             "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -181,6 +193,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -232,6 +250,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -266,6 +290,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": true,
@@ -324,6 +354,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -363,6 +399,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -409,6 +451,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -448,6 +496,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -474,6 +528,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -500,6 +560,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -539,6 +605,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -573,6 +645,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -612,6 +690,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -654,6 +738,12 @@ func init() {
           },
           "422": {
             "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -829,6 +919,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -865,6 +961,12 @@ func init() {
           },
           "422": {
             "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -907,6 +1009,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -958,6 +1066,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -992,6 +1106,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": true,
@@ -1050,6 +1170,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -1095,6 +1221,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -1134,6 +1266,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2008,6 +2146,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2044,6 +2188,12 @@ func init() {
           },
           "422": {
             "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2086,6 +2236,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2137,6 +2293,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2171,6 +2333,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": true,
@@ -2229,6 +2397,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2268,6 +2442,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2314,6 +2494,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2353,6 +2539,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2379,6 +2571,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2405,6 +2603,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2444,6 +2648,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2478,6 +2688,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2517,6 +2733,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2559,6 +2781,12 @@ func init() {
           },
           "422": {
             "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2742,6 +2970,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2778,6 +3012,12 @@ func init() {
           },
           "422": {
             "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2820,6 +3060,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2871,6 +3117,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -2905,6 +3157,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": true,
@@ -2963,6 +3221,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -3016,6 +3280,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-available-in-mqtt": false,
@@ -3055,6 +3325,12 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "Internal server error; see the ErrorResponse in the response body for the reason.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."

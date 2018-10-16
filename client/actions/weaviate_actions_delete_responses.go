@@ -7,10 +7,13 @@ package actions
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/go-openapi/runtime"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateActionsDeleteReader is a Reader for the WeaviateActionsDelete structure.
@@ -45,6 +48,13 @@ func (o *WeaviateActionsDeleteReader) ReadResponse(response runtime.ClientRespon
 
 	case 404:
 		result := NewWeaviateActionsDeleteNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
+	case 500:
+		result := NewWeaviateActionsDeleteInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -135,6 +145,35 @@ func (o *WeaviateActionsDeleteNotFound) Error() string {
 }
 
 func (o *WeaviateActionsDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateActionsDeleteInternalServerError creates a WeaviateActionsDeleteInternalServerError with default headers values
+func NewWeaviateActionsDeleteInternalServerError() *WeaviateActionsDeleteInternalServerError {
+	return &WeaviateActionsDeleteInternalServerError{}
+}
+
+/*WeaviateActionsDeleteInternalServerError handles this case with default header values.
+
+Internal server error; see the ErrorResponse in the response body for the reason.
+*/
+type WeaviateActionsDeleteInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateActionsDeleteInternalServerError) Error() string {
+	return fmt.Sprintf("[DELETE /actions/{actionId}][%d] weaviateActionsDeleteInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateActionsDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

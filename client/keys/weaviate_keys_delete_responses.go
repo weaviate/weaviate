@@ -7,10 +7,13 @@ package keys
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/go-openapi/runtime"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateKeysDeleteReader is a Reader for the WeaviateKeysDelete structure.
@@ -45,6 +48,13 @@ func (o *WeaviateKeysDeleteReader) ReadResponse(response runtime.ClientResponse,
 
 	case 404:
 		result := NewWeaviateKeysDeleteNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
+	case 500:
+		result := NewWeaviateKeysDeleteInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -135,6 +145,35 @@ func (o *WeaviateKeysDeleteNotFound) Error() string {
 }
 
 func (o *WeaviateKeysDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateKeysDeleteInternalServerError creates a WeaviateKeysDeleteInternalServerError with default headers values
+func NewWeaviateKeysDeleteInternalServerError() *WeaviateKeysDeleteInternalServerError {
+	return &WeaviateKeysDeleteInternalServerError{}
+}
+
+/*WeaviateKeysDeleteInternalServerError handles this case with default header values.
+
+Internal server error; see the ErrorResponse in the response body for the reason.
+*/
+type WeaviateKeysDeleteInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateKeysDeleteInternalServerError) Error() string {
+	return fmt.Sprintf("[DELETE /keys/{keyId}][%d] weaviateKeysDeleteInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateKeysDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

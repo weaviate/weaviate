@@ -184,3 +184,47 @@ func (o *WeaviateKeysRenewTokenUnprocessableEntity) WriteResponse(rw http.Respon
 		}
 	}
 }
+
+// WeaviateKeysRenewTokenInternalServerErrorCode is the HTTP code returned for type WeaviateKeysRenewTokenInternalServerError
+const WeaviateKeysRenewTokenInternalServerErrorCode int = 500
+
+/*WeaviateKeysRenewTokenInternalServerError Internal server error; see the ErrorResponse in the response body for the reason.
+
+swagger:response weaviateKeysRenewTokenInternalServerError
+*/
+type WeaviateKeysRenewTokenInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateKeysRenewTokenInternalServerError creates WeaviateKeysRenewTokenInternalServerError with default headers values
+func NewWeaviateKeysRenewTokenInternalServerError() *WeaviateKeysRenewTokenInternalServerError {
+
+	return &WeaviateKeysRenewTokenInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate keys renew token internal server error response
+func (o *WeaviateKeysRenewTokenInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateKeysRenewTokenInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate keys renew token internal server error response
+func (o *WeaviateKeysRenewTokenInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateKeysRenewTokenInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

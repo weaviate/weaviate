@@ -21,6 +21,8 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateActionsDeleteNoContentCode is the HTTP code returned for type WeaviateActionsDeleteNoContent
@@ -117,4 +119,48 @@ func (o *WeaviateActionsDeleteNotFound) WriteResponse(rw http.ResponseWriter, pr
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(404)
+}
+
+// WeaviateActionsDeleteInternalServerErrorCode is the HTTP code returned for type WeaviateActionsDeleteInternalServerError
+const WeaviateActionsDeleteInternalServerErrorCode int = 500
+
+/*WeaviateActionsDeleteInternalServerError Internal server error; see the ErrorResponse in the response body for the reason.
+
+swagger:response weaviateActionsDeleteInternalServerError
+*/
+type WeaviateActionsDeleteInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateActionsDeleteInternalServerError creates WeaviateActionsDeleteInternalServerError with default headers values
+func NewWeaviateActionsDeleteInternalServerError() *WeaviateActionsDeleteInternalServerError {
+
+	return &WeaviateActionsDeleteInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate actions delete internal server error response
+func (o *WeaviateActionsDeleteInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateActionsDeleteInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate actions delete internal server error response
+func (o *WeaviateActionsDeleteInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateActionsDeleteInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }

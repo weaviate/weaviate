@@ -136,3 +136,47 @@ func (o *WeaviateKeyCreateUnprocessableEntity) WriteResponse(rw http.ResponseWri
 		}
 	}
 }
+
+// WeaviateKeyCreateInternalServerErrorCode is the HTTP code returned for type WeaviateKeyCreateInternalServerError
+const WeaviateKeyCreateInternalServerErrorCode int = 500
+
+/*WeaviateKeyCreateInternalServerError Internal server error; see the ErrorResponse in the response body for the reason.
+
+swagger:response weaviateKeyCreateInternalServerError
+*/
+type WeaviateKeyCreateInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateKeyCreateInternalServerError creates WeaviateKeyCreateInternalServerError with default headers values
+func NewWeaviateKeyCreateInternalServerError() *WeaviateKeyCreateInternalServerError {
+
+	return &WeaviateKeyCreateInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate key create internal server error response
+func (o *WeaviateKeyCreateInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateKeyCreateInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate key create internal server error response
+func (o *WeaviateKeyCreateInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateKeyCreateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

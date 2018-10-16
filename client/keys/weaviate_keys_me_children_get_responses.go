@@ -46,6 +46,13 @@ func (o *WeaviateKeysMeChildrenGetReader) ReadResponse(response runtime.ClientRe
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateKeysMeChildrenGetInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -118,6 +125,35 @@ func (o *WeaviateKeysMeChildrenGetNotFound) Error() string {
 }
 
 func (o *WeaviateKeysMeChildrenGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateKeysMeChildrenGetInternalServerError creates a WeaviateKeysMeChildrenGetInternalServerError with default headers values
+func NewWeaviateKeysMeChildrenGetInternalServerError() *WeaviateKeysMeChildrenGetInternalServerError {
+	return &WeaviateKeysMeChildrenGetInternalServerError{}
+}
+
+/*WeaviateKeysMeChildrenGetInternalServerError handles this case with default header values.
+
+Internal server error; see the ErrorResponse in the response body for the reason.
+*/
+type WeaviateKeysMeChildrenGetInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateKeysMeChildrenGetInternalServerError) Error() string {
+	return fmt.Sprintf("[GET /keys/me/children][%d] weaviateKeysMeChildrenGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateKeysMeChildrenGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

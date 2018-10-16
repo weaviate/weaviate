@@ -116,3 +116,47 @@ func (o *WeaviateKeysMeChildrenGetNotFound) WriteResponse(rw http.ResponseWriter
 
 	rw.WriteHeader(404)
 }
+
+// WeaviateKeysMeChildrenGetInternalServerErrorCode is the HTTP code returned for type WeaviateKeysMeChildrenGetInternalServerError
+const WeaviateKeysMeChildrenGetInternalServerErrorCode int = 500
+
+/*WeaviateKeysMeChildrenGetInternalServerError Internal server error; see the ErrorResponse in the response body for the reason.
+
+swagger:response weaviateKeysMeChildrenGetInternalServerError
+*/
+type WeaviateKeysMeChildrenGetInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateKeysMeChildrenGetInternalServerError creates WeaviateKeysMeChildrenGetInternalServerError with default headers values
+func NewWeaviateKeysMeChildrenGetInternalServerError() *WeaviateKeysMeChildrenGetInternalServerError {
+
+	return &WeaviateKeysMeChildrenGetInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate keys me children get internal server error response
+func (o *WeaviateKeysMeChildrenGetInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateKeysMeChildrenGetInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate keys me children get internal server error response
+func (o *WeaviateKeysMeChildrenGetInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateKeysMeChildrenGetInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
