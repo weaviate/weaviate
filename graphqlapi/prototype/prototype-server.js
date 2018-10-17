@@ -803,7 +803,7 @@ var NetworkIntrospectWhereFilterFields = {
     name: "WeaviateNetworkIntrospectWhere",
     description: function() {
       return getDesc("WeaviateNetworkIntrospectWhere")},
-    type: new GraphQLList(new GraphQLInputObjectType({
+    type: new GraphQLNonNull( new GraphQLList(new GraphQLInputObjectType({
       name: "WeaviateNetworkIntrospectWhereInpObj",
       description: function() {
         return getDesc("WeaviateNetworkIntrospectWhereInpObj")},
@@ -831,7 +831,7 @@ var NetworkIntrospectWhereFilterFields = {
           }))
         }
       }
-    })) //Needs to be in contextionary, weight = always 1.0
+    }))) //Needs to be in contextionary, weight = always 1.0
   }
 }
 
@@ -841,7 +841,7 @@ var NetworkFetchFilterFields = {
     name: "NetworkFetchWhere",
     description: function() {
       return getDesc("NetworkFetchWhere")},
-    type: new GraphQLInputObjectType({
+    type: new GraphQLNonNull( new GraphQLInputObjectType({
       name: "NetworkFetchWhereInpObj",
       description: function() {
         return getDesc("NetworkFetchWhereInpObj")},
@@ -875,7 +875,7 @@ var NetworkFetchFilterFields = {
           type: GraphQLInt,
         }
       }
-    }) //Needs to be in contextionary, weight = always 1.0
+    })) //Needs to be in contextionary, weight = always 1.0
   }
 }
 
@@ -891,7 +891,7 @@ var NetworkFetchFilterFields = {
 
 function getWeaviateNetworkGetWeaviateFields(weaviate) {
   var thingsFile = './network/' + weaviate + '/things_schema.json';
-  var actionsFile = './network/' + weaviate + '/things_schema.json';
+  var actionsFile = './network/' + weaviate + '/actions_schema.json';
 
   //let ontologyThings = require(thingsFile);
   //let ontologyActions = require(actionsFile);
@@ -1062,6 +1062,9 @@ var NetworkIntrospectBeaconFields = {
 
 fs.readFile('demo_schemas/things_schema.json', 'utf8', function(err, ontologyThings) { // read things ontology
   fs.readFile('demo_schemas/actions_schema.json', 'utf8', function(err, ontologyActions) { // read actions ontology
+
+// fs.readFile('use_case_ontology/things.json', 'utf8', function(err, ontologyThings) { // read things ontology
+//   fs.readFile('use_case_ontology/actions.json', 'utf8', function(err, ontologyActions) { // read actions ontology
 
     // merge
     classes = mergeOntologies(JSON.parse(ontologyThings), JSON.parse(ontologyActions))
