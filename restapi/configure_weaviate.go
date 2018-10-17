@@ -413,6 +413,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsPatchAccepted().WithPayload(&actionGetResponse)
 	})
+	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(params actions.WeaviateActionsPropertiesCreateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation actions.WeaviateActionsPropertiesCreate has not yet been implemented")
+	})
+	api.ActionsWeaviateActionsPropertiesDeleteHandler = actions.WeaviateActionsPropertiesDeleteHandlerFunc(func(params actions.WeaviateActionsPropertiesDeleteParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation actions.WeaviateActionsPropertiesDelete has not yet been implemented")
+	})
+	api.ActionsWeaviateActionsPropertiesUpdateHandler = actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(params actions.WeaviateActionsPropertiesUpdateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation actions.WeaviateActionsPropertiesUpdate has not yet been implemented")
+	})
 	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal interface{}) middleware.Responder {
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
@@ -1049,6 +1058,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsPatchAccepted().WithPayload(&thingGetResponse)
+	})
+	api.ThingsWeaviateThingsPropertiesCreateHandler = things.WeaviateThingsPropertiesCreateHandlerFunc(func(params things.WeaviateThingsPropertiesCreateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation things.WeaviateThingsPropertiesCreate has not yet been implemented")
+	})
+	api.ThingsWeaviateThingsPropertiesDeleteHandler = things.WeaviateThingsPropertiesDeleteHandlerFunc(func(params things.WeaviateThingsPropertiesDeleteParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation things.WeaviateThingsPropertiesDelete has not yet been implemented")
+	})
+	api.ThingsWeaviateThingsPropertiesUpdateHandler = things.WeaviateThingsPropertiesUpdateHandlerFunc(func(params things.WeaviateThingsPropertiesUpdateParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation things.WeaviateThingsPropertiesUpdate has not yet been implemented")
 	})
 	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
 		// Initialize response

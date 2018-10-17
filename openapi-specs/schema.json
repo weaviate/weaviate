@@ -353,7 +353,7 @@
         "$ref": "#/definitions/SingleRef"
       },
       "type": "array"
-      },
+    },
     "PatchDocument": {
       "description": "A JSONPatch document as defined by RFC 6902.",
       "properties": {
@@ -776,18 +776,17 @@
             "in": "body",
             "name": "body",
             "required": true,
-
             "schema": {
-               "type": "object",
-               "properties": {
-                 "action": {
-                   "$ref": "#/definitions/ActionCreate"
-                 },
-                 "async": {
-                   "type": "boolean",
-                   "description": "If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the value is persisted. The value of `async` defaults to false."
-                 }
-               }
+              "type": "object",
+              "properties": {
+                "action": {
+                  "$ref": "#/definitions/ActionCreate"
+                },
+                "async": {
+                  "type": "boolean",
+                  "description": "If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the value is persisted. The value of `async` defaults to false."
+                }
+              }
             }
           }
         ],
@@ -1081,6 +1080,164 @@
           }
         },
         "summary": "Get a action's history based on its uuid related to this key.",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/actions/{actionId}/properties/{propertyName}": {
+      "post": {
+        "description": "Add a single reference to a class-property.",
+        "operationId": "weaviate.actions.properties.create",
+        "parameters": [
+          {
+            "description": "Unique ID of the action.",
+            "format": "uuid",
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique name of the property related to the action.",
+            "in": "path",
+            "name": "propertyName",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SingleRef"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully added the refference."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Add a single reference to a class-property.",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
+      "put": {
+        "description": "Replace all references to a class-property.",
+        "operationId": "weaviate.actions.properties.update",
+        "parameters": [
+          {
+            "description": "Unique ID of the action.",
+            "format": "uuid",
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique name of the property related to the action.",
+            "in": "path",
+            "name": "propertyName",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/MultipleRef"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully replaced all the refferences."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Replace all references to a class-property.",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
+      "delete": {
+        "description": "Delete a single reference from a propery.",
+        "operationId": "weaviate.actions.properties.delete",
+        "parameters": [
+          {
+            "description": "Unique ID of the action.",
+            "format": "uuid",
+            "in": "path",
+            "name": "actionId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique name of the property related to the action.",
+            "in": "path",
+            "name": "propertyName",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SingleRef"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Add a single reference to a class-property.",
         "tags": [
           "actions"
         ],
@@ -1417,8 +1574,7 @@
             "description": "Not healthy (yet)"
           }
         },
-        "security": [
-        ],
+        "security": [],
         "summary": "Check if a peer is alive.",
         "tags": [
           "P2P"
@@ -1452,8 +1608,7 @@
             "description": "Internal error"
           }
         },
-        "security": [
-        ],
+        "security": [],
         "tags": [
           "P2P"
         ],
@@ -1512,7 +1667,7 @@
                   "type": "boolean",
                   "description": "If `async` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the value is persisted. The value of `async` defaults to false."
                 },
-                "thing" : {
+                "thing": {
                   "$ref": "#/definitions/ThingCreate"
                 }
               }
@@ -1854,6 +2009,164 @@
           }
         },
         "summary": "Get a thing's history based on its uuid related to this key.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/things/{thingId}/properties/{propertyName}": {
+      "post": {
+        "description": "Add a single reference to a class-property.",
+        "operationId": "weaviate.things.properties.create",
+        "parameters": [
+          {
+            "description": "Unique ID of the thing.",
+            "format": "uuid",
+            "in": "path",
+            "name": "thingId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique name of the property related to the thing.",
+            "in": "path",
+            "name": "propertyName",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SingleRef"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully added the refference."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Add a single reference to a class-property.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
+      "put": {
+        "description": "Replace all references to a class-property.",
+        "operationId": "weaviate.things.properties.update",
+        "parameters": [
+          {
+            "description": "Unique ID of the thing.",
+            "format": "uuid",
+            "in": "path",
+            "name": "thingId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique name of the property related to the thing.",
+            "in": "path",
+            "name": "propertyName",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/MultipleRef"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully replaced all the refferences."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Replace all references to a class-property.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
+      "delete": {
+        "description": "Delete a single reference from a propery.",
+        "operationId": "weaviate.things.properties.delete",
+        "parameters": [
+          {
+            "description": "Unique ID of the thing.",
+            "format": "uuid",
+            "in": "path",
+            "name": "thingId",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "description": "Unique name of the property related to the thing.",
+            "in": "path",
+            "name": "propertyName",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SingleRef"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Add a single reference to a class-property.",
         "tags": [
           "things"
         ],
