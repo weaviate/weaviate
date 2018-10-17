@@ -9,3 +9,6 @@ exclude_pattern:
   - !restapi/configure_weaviate*
 
   - test/
+
+  # exclude nodejs prototype
+  - graphqlapi/prototype/
