@@ -217,6 +217,99 @@ func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authIn
 }
 
 /*
+WeaviateActionsPropertiesCreate adds a single reference to a class property
+
+Add a single reference to a class-property.
+*/
+func (a *Client) WeaviateActionsPropertiesCreate(params *WeaviateActionsPropertiesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPropertiesCreateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateActionsPropertiesCreateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.actions.properties.create",
+		Method:             "POST",
+		PathPattern:        "/actions/{actionId}/properties/{propertyName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateActionsPropertiesCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateActionsPropertiesCreateOK), nil
+
+}
+
+/*
+WeaviateActionsPropertiesDelete adds a single reference to a class property
+
+Delete a single reference from a propery.
+*/
+func (a *Client) WeaviateActionsPropertiesDelete(params *WeaviateActionsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPropertiesDeleteNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateActionsPropertiesDeleteParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.actions.properties.delete",
+		Method:             "DELETE",
+		PathPattern:        "/actions/{actionId}/properties/{propertyName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateActionsPropertiesDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateActionsPropertiesDeleteNoContent), nil
+
+}
+
+/*
+WeaviateActionsPropertiesUpdate replaces all references to a class property
+
+Replace all references to a class-property.
+*/
+func (a *Client) WeaviateActionsPropertiesUpdate(params *WeaviateActionsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPropertiesUpdateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateActionsPropertiesUpdateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.actions.properties.update",
+		Method:             "PUT",
+		PathPattern:        "/actions/{actionId}/properties/{propertyName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateActionsPropertiesUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateActionsPropertiesUpdateOK), nil
+
+}
+
+/*
 WeaviateActionsValidate validates an action based on a schema
 
 Validate an action's schema and meta-data. It has to be based on a schema, which is related to the given action to be accepted by this validation.
