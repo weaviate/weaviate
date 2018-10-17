@@ -6,6 +6,6 @@ exclude_pattern:
   # exclude all but the configure_weaviate.go file in restapi/,
   # given that the other files are automatically generated.
   - restapi/
-  - !restapi/configure_weaviate.go
+  - !restapi/configure_weaviate*
 
   - test/
