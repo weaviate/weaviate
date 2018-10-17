@@ -64,7 +64,7 @@
               "args": [
                 {
                   "name": "where",
-                  "description": "Filter options for the Network Get search, to convert the data to the filter input",
+                  "description": "Filter options for the Get search, to convert the data to the filter input",
                   "type": {
                     "kind": "INPUT_OBJECT",
                     "name": "WeaviateLocalGetWhereInpObj",
@@ -113,7 +113,7 @@
         {
           "kind": "INPUT_OBJECT",
           "name": "WeaviateLocalGetWhereInpObj",
-          "description": "Filter options for the Network Get search, to convert the data to the filter input",
+          "description": "Filter options for the Get search, to convert the data to the filter input",
           "fields": null,
           "inputFields": [
             {
@@ -166,7 +166,7 @@
             },
             {
               "name": "valueNumber",
-              "description": "Number value where the property of the path will be compared to by an operator",
+              "description": "Number value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Float",
@@ -320,7 +320,7 @@
             },
             {
               "name": "valueNumber",
-              "description": "Number value where the property of the path will be compared to by an operator",
+              "description": "Number value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Float",
@@ -434,8 +434,8 @@
           "description": "Type of Things i.e. Things classes to Get on the Local Weaviate",
           "fields": [
             {
-              "name": "City",
-              "description": "A city, place or town",
+              "name": "TestThing",
+              "description": "This is a Test",
               "args": [
                 {
                   "name": "first",
@@ -463,7 +463,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "City",
+                  "name": "TestThing",
                   "ofType": null
                 }
               },
@@ -471,8 +471,8 @@
               "deprecationReason": null
             },
             {
-              "name": "Person",
-              "description": "Person",
+              "name": "TestThing2",
+              "description": "This is a Test",
               "args": [
                 {
                   "name": "first",
@@ -500,192 +500,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "Person",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Country",
-              "description": "Country",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "Country",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Airport",
-              "description": "An airport",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "Airport",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Airline",
-              "description": "An organization that provides flights for passengers",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "Airline",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Plane",
-              "description": "An airplane",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "Plane",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Aircraft",
-              "description": "The kind of aircraft (e.g., \"Boeing 747\")",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "Aircraft",
+                  "name": "TestThing2",
                   "ofType": null
                 }
               },
@@ -700,8 +515,8 @@
         },
         {
           "kind": "OBJECT",
-          "name": "City",
-          "description": "A city, place or town",
+          "name": "TestThing",
+          "description": "This is a Test",
           "fields": [
             {
               "name": "uuid",
@@ -716,8 +531,8 @@
               "deprecationReason": null
             },
             {
-              "name": "name",
-              "description": "Official name of the city.",
+              "name": "testString",
+              "description": "Value of testString.",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -728,32 +543,8 @@
               "deprecationReason": null
             },
             {
-              "name": "coordinates",
-              "description": "The city's longitude and latitude",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "InCountry",
-              "description": "The country the city lies in",
-              "args": [],
-              "type": {
-                "kind": "UNION",
-                "name": "CityInCountryObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "population",
-              "description": "Number of inhabitants of the city",
+              "name": "testInt",
+              "description": "Value of testInt.",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -764,8 +555,8 @@
               "deprecationReason": null
             },
             {
-              "name": "isCapital",
-              "description": "True if the city is a capital",
+              "name": "testBoolean",
+              "description": "Value of testBoolean.",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -774,453 +565,10 @@
               },
               "isDeprecated": false,
               "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "UNION",
-          "name": "CityInCountryObj",
-          "description": "The country the city lies in",
-          "fields": null,
-          "inputFields": null,
-          "interfaces": null,
-          "enumValues": null,
-          "possibleTypes": [
-            {
-              "kind": "OBJECT",
-              "name": "Country",
-              "ofType": null
-            }
-          ]
-        },
-        {
-          "kind": "OBJECT",
-          "name": "Country",
-          "description": "Country",
-          "fields": [
-            {
-              "name": "uuid",
-              "description": "UUID of the thing or action given by the local Weaviate instance",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
             },
             {
-              "name": "name",
-              "description": "Official name of the country",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "population",
-              "description": "Amount of people living in the country",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "Person",
-          "description": "Person",
-          "fields": [
-            {
-              "name": "uuid",
-              "description": "UUID of the thing or action given by the local Weaviate instance",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "LivesIn",
-              "description": "The place where the person lives in.",
-              "args": [],
-              "type": {
-                "kind": "UNION",
-                "name": "PersonLivesInObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "birthday",
-              "description": "Birthday of the person",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "name",
-              "description": "Name of the person",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Nationality",
-              "description": "Nationality of the person",
-              "args": [],
-              "type": {
-                "kind": "UNION",
-                "name": "PersonNationalityObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "UNION",
-          "name": "PersonLivesInObj",
-          "description": "The place where the person lives in.",
-          "fields": null,
-          "inputFields": null,
-          "interfaces": null,
-          "enumValues": null,
-          "possibleTypes": [
-            {
-              "kind": "OBJECT",
-              "name": "City",
-              "ofType": null
-            }
-          ]
-        },
-        {
-          "kind": "UNION",
-          "name": "PersonNationalityObj",
-          "description": "Nationality of the person",
-          "fields": null,
-          "inputFields": null,
-          "interfaces": null,
-          "enumValues": null,
-          "possibleTypes": [
-            {
-              "kind": "OBJECT",
-              "name": "Country",
-              "ofType": null
-            }
-          ]
-        },
-        {
-          "kind": "OBJECT",
-          "name": "Airport",
-          "description": "An airport",
-          "fields": [
-            {
-              "name": "uuid",
-              "description": "UUID of the thing or action given by the local Weaviate instance",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "code",
-              "description": "identifier for an airport",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "InCity",
-              "description": "City where the airport lies.",
-              "args": [],
-              "type": {
-                "kind": "UNION",
-                "name": "AirportInCityObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "name",
-              "description": "Official name of the airport",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "UNION",
-          "name": "AirportInCityObj",
-          "description": "City where the airport lies.",
-          "fields": null,
-          "inputFields": null,
-          "interfaces": null,
-          "enumValues": null,
-          "possibleTypes": [
-            {
-              "kind": "OBJECT",
-              "name": "City",
-              "ofType": null
-            }
-          ]
-        },
-        {
-          "kind": "OBJECT",
-          "name": "Airline",
-          "description": "An organization that provides flights for passengers",
-          "fields": [
-            {
-              "name": "uuid",
-              "description": "UUID of the thing or action given by the local Weaviate instance",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "code",
-              "description": "identifier for an airport",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "BasedIn",
-              "description": "City or country where the airline is based.",
-              "args": [],
-              "type": {
-                "kind": "UNION",
-                "name": "AirlineBasedInObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "name",
-              "description": "Official name of the airline",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "hasNumberOfPlanes",
-              "description": "Number of airplanes the airline owns",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "UNION",
-          "name": "AirlineBasedInObj",
-          "description": "City or country where the airline is based.",
-          "fields": null,
-          "inputFields": null,
-          "interfaces": null,
-          "enumValues": null,
-          "possibleTypes": [
-            {
-              "kind": "OBJECT",
-              "name": "City",
-              "ofType": null
-            },
-            {
-              "kind": "OBJECT",
-              "name": "Country",
-              "ofType": null
-            }
-          ]
-        },
-        {
-          "kind": "OBJECT",
-          "name": "Plane",
-          "description": "An airplane",
-          "fields": [
-            {
-              "name": "uuid",
-              "description": "UUID of the thing or action given by the local Weaviate instance",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "code",
-              "description": "identifier for the plane",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Aircraft",
-              "description": "the kind of aircraft",
-              "args": [],
-              "type": {
-                "kind": "UNION",
-                "name": "PlaneAircraftObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "OfAirline",
-              "description": "Airline the plane is owned by",
-              "args": [],
-              "type": {
-                "kind": "UNION",
-                "name": "PlaneOfAirlineObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "UNION",
-          "name": "PlaneAircraftObj",
-          "description": "the kind of aircraft",
-          "fields": null,
-          "inputFields": null,
-          "interfaces": null,
-          "enumValues": null,
-          "possibleTypes": [
-            {
-              "kind": "OBJECT",
-              "name": "Aircraft",
-              "ofType": null
-            }
-          ]
-        },
-        {
-          "kind": "OBJECT",
-          "name": "Aircraft",
-          "description": "The kind of aircraft (e.g., \"Boeing 747\")",
-          "fields": [
-            {
-              "name": "uuid",
-              "description": "UUID of the thing or action given by the local Weaviate instance",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "name",
-              "description": "name of the aircraft",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "numberOfSeats",
-              "description": "number of seats available in the aircraft.",
+              "name": "testNumber",
+              "description": "Value of testNumber.",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1229,6 +577,42 @@
               },
               "isDeprecated": false,
               "deprecationReason": null
+            },
+            {
+              "name": "testDateTime",
+              "description": "Value of testDateTime.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "TestCref",
+              "description": "Value of testCref.",
+              "args": [],
+              "type": {
+                "kind": "UNION",
+                "name": "TestThingTestCrefObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testRandomType",
+              "description": "Same name, different datatypes.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
             }
           ],
           "inputFields": null,
@@ -1238,8 +622,8 @@
         },
         {
           "kind": "UNION",
-          "name": "PlaneOfAirlineObj",
-          "description": "Airline the plane is owned by",
+          "name": "TestThingTestCrefObj",
+          "description": "Value of testCref.",
           "fields": null,
           "inputFields": null,
           "interfaces": null,
@@ -1247,7 +631,130 @@
           "possibleTypes": [
             {
               "kind": "OBJECT",
-              "name": "Airline",
+              "name": "TestThing2",
+              "ofType": null
+            }
+          ]
+        },
+        {
+          "kind": "OBJECT",
+          "name": "TestThing2",
+          "description": "This is a Test",
+          "fields": [
+            {
+              "name": "uuid",
+              "description": "UUID of the thing or action given by the local Weaviate instance",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testString",
+              "description": "Value of testString.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testInt",
+              "description": "Value of testInt.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testBoolean",
+              "description": "Value of testBoolean.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testNumber",
+              "description": "Value of testNumber.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testDateTime",
+              "description": "Value of testDateTime.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "TestCref",
+              "description": "Value of testCref.",
+              "args": [],
+              "type": {
+                "kind": "UNION",
+                "name": "TestThing2TestCrefObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testRandomType",
+              "description": "Same name, different datatypes.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "UNION",
+          "name": "TestThing2TestCrefObj",
+          "description": "Value of testCref.",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": [
+            {
+              "kind": "OBJECT",
+              "name": "TestThing",
               "ofType": null
             }
           ]
@@ -1258,8 +765,8 @@
           "description": "Type of Actions i.e. Actions classes to Get on the Local Weaviate",
           "fields": [
             {
-              "name": "Flight",
-              "description": "An airline flight",
+              "name": "TestAction",
+              "description": "This is a Test",
               "args": [
                 {
                   "name": "first",
@@ -1287,7 +794,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "Flight",
+                  "name": "TestAction",
                   "ofType": null
                 }
               },
@@ -1295,8 +802,8 @@
               "deprecationReason": null
             },
             {
-              "name": "BuyAction",
-              "description": "An agent buys an object, product, or service from a seller for a price.",
+              "name": "TestAction2",
+              "description": "This is a Test",
               "args": [
                 {
                   "name": "first",
@@ -1324,7 +831,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "BuyAction",
+                  "name": "TestAction2",
                   "ofType": null
                 }
               },
@@ -1339,8 +846,8 @@
         },
         {
           "kind": "OBJECT",
-          "name": "Flight",
-          "description": "An airline flight",
+          "name": "TestAction",
+          "description": "This is a Test",
           "fields": [
             {
               "name": "uuid",
@@ -1355,44 +862,8 @@
               "deprecationReason": null
             },
             {
-              "name": "Aircraft",
-              "description": "The kind of aircraft",
-              "args": [],
-              "type": {
-                "kind": "UNION",
-                "name": "FlightAircraftObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "ArrivalAirport",
-              "description": "The airport where the flight terminates",
-              "args": [],
-              "type": {
-                "kind": "UNION",
-                "name": "FlightArrivalAirportObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "DepartureAirport",
-              "description": "The airport where the flight originates.",
-              "args": [],
-              "type": {
-                "kind": "UNION",
-                "name": "FlightDepartureAirportObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "flightNumber",
-              "description": "The unique identifier for a flight",
+              "name": "testString",
+              "description": "Value of testString.",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1403,32 +874,8 @@
               "deprecationReason": null
             },
             {
-              "name": "date",
-              "description": "The date the person is moving",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "estimatedFlightDuration",
-              "description": "The estimated time in minutes the flight will take",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Float",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "numberOfPassengers",
-              "description": "Total number of passengers",
+              "name": "testInt",
+              "description": "Value of testInt.",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1439,12 +886,48 @@
               "deprecationReason": null
             },
             {
-              "name": "isDelayed",
-              "description": "True if the flight is delayed",
+              "name": "testBoolean",
+              "description": "Value of testBoolean.",
               "args": [],
               "type": {
                 "kind": "SCALAR",
                 "name": "Boolean",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testNumber",
+              "description": "Value of testNumber.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testDateTime",
+              "description": "Value of testDateTime.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "TestCref",
+              "description": "Value of testCref.",
+              "args": [],
+              "type": {
+                "kind": "UNION",
+                "name": "TestActionTestCrefObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -1458,8 +941,8 @@
         },
         {
           "kind": "UNION",
-          "name": "FlightAircraftObj",
-          "description": "The kind of aircraft",
+          "name": "TestActionTestCrefObj",
+          "description": "Value of testCref.",
           "fields": null,
           "inputFields": null,
           "interfaces": null,
@@ -1467,47 +950,15 @@
           "possibleTypes": [
             {
               "kind": "OBJECT",
-              "name": "Aircraft",
-              "ofType": null
-            }
-          ]
-        },
-        {
-          "kind": "UNION",
-          "name": "FlightArrivalAirportObj",
-          "description": "The airport where the flight terminates",
-          "fields": null,
-          "inputFields": null,
-          "interfaces": null,
-          "enumValues": null,
-          "possibleTypes": [
-            {
-              "kind": "OBJECT",
-              "name": "Airport",
-              "ofType": null
-            }
-          ]
-        },
-        {
-          "kind": "UNION",
-          "name": "FlightDepartureAirportObj",
-          "description": "The airport where the flight originates.",
-          "fields": null,
-          "inputFields": null,
-          "interfaces": null,
-          "enumValues": null,
-          "possibleTypes": [
-            {
-              "kind": "OBJECT",
-              "name": "Airport",
+              "name": "TestThing",
               "ofType": null
             }
           ]
         },
         {
           "kind": "OBJECT",
-          "name": "BuyAction",
-          "description": "An agent buys an object, product, or service from a seller for a price.",
+          "name": "TestAction2",
+          "description": "This is a Test",
           "fields": [
             {
               "name": "uuid",
@@ -1522,20 +973,44 @@
               "deprecationReason": null
             },
             {
-              "name": "Seller",
-              "description": "The seller of the thing",
+              "name": "testString",
+              "description": "Value of testString.",
               "args": [],
               "type": {
-                "kind": "UNION",
-                "name": "BuyActionSellerObj",
+                "kind": "SCALAR",
+                "name": "String",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "price",
-              "description": "The offer price of a product",
+              "name": "testInt",
+              "description": "Value of testInt.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testBoolean",
+              "description": "Value of testBoolean.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testNumber",
+              "description": "Value of testNumber.",
               "args": [],
               "type": {
                 "kind": "SCALAR",
@@ -1546,12 +1021,24 @@
               "deprecationReason": null
             },
             {
-              "name": "Buyer",
-              "description": "The buyer of the good",
+              "name": "testDateTime",
+              "description": "Value of testDateTime.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "TestCref",
+              "description": "Value of testCref.",
               "args": [],
               "type": {
                 "kind": "UNION",
-                "name": "BuyActionBuyerObj",
+                "name": "TestAction2TestCrefObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -1565,8 +1052,8 @@
         },
         {
           "kind": "UNION",
-          "name": "BuyActionSellerObj",
-          "description": "The seller of the thing",
+          "name": "TestAction2TestCrefObj",
+          "description": "Value of testCref.",
           "fields": null,
           "inputFields": null,
           "interfaces": null,
@@ -1574,28 +1061,7 @@
           "possibleTypes": [
             {
               "kind": "OBJECT",
-              "name": "Airline",
-              "ofType": null
-            },
-            {
-              "kind": "OBJECT",
-              "name": "Person",
-              "ofType": null
-            }
-          ]
-        },
-        {
-          "kind": "UNION",
-          "name": "BuyActionBuyerObj",
-          "description": "The buyer of the good",
-          "fields": null,
-          "inputFields": null,
-          "interfaces": null,
-          "enumValues": null,
-          "possibleTypes": [
-            {
-              "kind": "OBJECT",
-              "name": "Person",
+              "name": "TestThing",
               "ofType": null
             }
           ]
@@ -1656,7 +1122,7 @@
             },
             {
               "name": "valueNumber",
-              "description": "Number value where the property of the path will be compared to by an operator",
+              "description": "Number value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Float",
@@ -1730,8 +1196,8 @@
           "description": "Type of Things i.e. Things classes to GetMeta information of on the Local Weaviate",
           "fields": [
             {
-              "name": "City",
-              "description": "A city, place or town",
+              "name": "TestThing",
+              "description": "This is a Test",
               "args": [
                 {
                   "name": "first",
@@ -1756,15 +1222,15 @@
               ],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaCity",
+                "name": "MetaTestThing",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "Person",
-              "description": "Person",
+              "name": "TestThing2",
+              "description": "This is a Test",
               "args": [
                 {
                   "name": "first",
@@ -1789,172 +1255,7 @@
               ],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaPerson",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Country",
-              "description": "Country",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaCountry",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Airport",
-              "description": "An airport",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaAirport",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Airline",
-              "description": "An organization that provides flights for passengers",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaAirline",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Plane",
-              "description": "An airplane",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaPlane",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Aircraft",
-              "description": "The kind of aircraft (e.g., \"Boeing 747\")",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaAircraft",
+                "name": "MetaTestThing2",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -1968,8 +1269,8 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaCity",
-          "description": "A city, place or town",
+          "name": "MetaTestThing",
+          "description": "This is a Test",
           "fields": [
             {
               "name": "meta",
@@ -1977,67 +1278,91 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaCityMetaObj",
+                "name": "MetaTestThingMetaObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "name",
-              "description": "Meta information about the property \"name\"",
+              "name": "testString",
+              "description": "Meta information about the property \"testString\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaCitynameObj",
+                "name": "MetaTestThingtestStringObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "coordinates",
-              "description": "Meta information about the property \"coordinates\"",
+              "name": "testInt",
+              "description": "Meta information about the property \"testInt\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaCitycoordinatesObj",
+                "name": "MetaTestThingtestIntObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "inCountry",
-              "description": "Meta information about the property \"inCountry\"",
+              "name": "testBoolean",
+              "description": "Meta information about the property \"testBoolean\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaCityinCountryObj",
+                "name": "MetaTestThingtestBooleanObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "population",
-              "description": "Meta information about the property \"population\"",
+              "name": "testNumber",
+              "description": "Meta information about the property \"testNumber\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaCitypopulationObj",
+                "name": "MetaTestThingtestNumberObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "isCapital",
-              "description": "Meta information about the property \"isCapital\"",
+              "name": "testDateTime",
+              "description": "Meta information about the property \"testDateTime\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaCityisCapitalObj",
+                "name": "MetaTestThingtestDateTimeObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testCref",
+              "description": "Meta information about the property \"testCref\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestThingtestCrefObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testRandomType",
+              "description": "Meta information about the property \"testRandomType\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestThingtestRandomTypeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -2051,7 +1376,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaCityMetaObj",
+          "name": "MetaTestThingMetaObj",
           "description": "Meta information about a class object and its (filtered) objects",
           "fields": [
             {
@@ -2074,7 +1399,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaCitynameObj",
+          "name": "MetaTestThingtestStringObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -2131,7 +1456,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "MetaCitynameTopOccurrencesObj",
+                  "name": "MetaTestThingtestStringTopOccurrencesObj",
                   "ofType": null
                 }
               },
@@ -2146,7 +1471,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaCitynameTopOccurrencesObj",
+          "name": "MetaTestThingtestStringTopOccurrencesObj",
           "description": "Object for the most frequent property values",
           "fields": [
             {
@@ -2181,165 +1506,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaCitycoordinatesObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "topOccurrences",
-              "description": "Object for the most frequent property values",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "MetaCitycoordinatesTopOccurrencesObj",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaCitycoordinatesTopOccurrencesObj",
-          "description": "Object for the most frequent property values",
-          "fields": [
-            {
-              "name": "value",
-              "description": "The most frequently occurring value of this property in the dataset",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "occurs",
-              "description": "Number of occurrence of this property value",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaCityinCountryObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "pointingTo",
-              "description": "Which other classes the object property is pointing to",
-              "args": [],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "SCALAR",
-                  "name": "String",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaCitypopulationObj",
+          "name": "MetaTestThingtestIntObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -2422,7 +1589,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaCityisCapitalObj",
+          "name": "MetaTestThingtestBooleanObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -2481,594 +1648,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaPerson",
-          "description": "Person",
-          "fields": [
-            {
-              "name": "meta",
-              "description": "Meta information about a class object and its (filtered) objects",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaPersonMetaObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "livesIn",
-              "description": "Meta information about the property \"livesIn\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaPersonlivesInObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "birthday",
-              "description": "Meta information about the property \"birthday\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaPersonbirthdayObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "name",
-              "description": "Meta information about the property \"name\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaPersonnameObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "nationality",
-              "description": "Meta information about the property \"nationality\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaPersonnationalityObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaPersonMetaObj",
-          "description": "Meta information about a class object and its (filtered) objects",
-          "fields": [
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaPersonlivesInObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "pointingTo",
-              "description": "Which other classes the object property is pointing to",
-              "args": [],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "SCALAR",
-                  "name": "String",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaPersonbirthdayObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "topOccurrences",
-              "description": "Object for the most frequent property values",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "MetaPersonbirthdayTopOccurrencesObj",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaPersonbirthdayTopOccurrencesObj",
-          "description": "Object for the most frequent property values",
-          "fields": [
-            {
-              "name": "value",
-              "description": "The most frequently occurring value of this property in the dataset",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "occurs",
-              "description": "Number of occurrence of this property value",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaPersonnameObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "topOccurrences",
-              "description": "Object for the most frequent property values",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "MetaPersonnameTopOccurrencesObj",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaPersonnameTopOccurrencesObj",
-          "description": "Object for the most frequent property values",
-          "fields": [
-            {
-              "name": "value",
-              "description": "The most frequently occurring value of this property in the dataset",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "occurs",
-              "description": "Number of occurrence of this property value",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaPersonnationalityObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "pointingTo",
-              "description": "Which other classes the object property is pointing to",
-              "args": [],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "SCALAR",
-                  "name": "String",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaCountry",
-          "description": "Country",
-          "fields": [
-            {
-              "name": "meta",
-              "description": "Meta information about a class object and its (filtered) objects",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaCountryMetaObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "name",
-              "description": "Meta information about the property \"name\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaCountrynameObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "population",
-              "description": "Meta information about the property \"population\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaCountrypopulationObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaCountryMetaObj",
-          "description": "Meta information about a class object and its (filtered) objects",
-          "fields": [
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaCountrynameObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "topOccurrences",
-              "description": "Object for the most frequent property values",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "MetaCountrynameTopOccurrencesObj",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaCountrynameTopOccurrencesObj",
-          "description": "Object for the most frequent property values",
-          "fields": [
-            {
-              "name": "value",
-              "description": "The most frequently occurring value of this property in the dataset",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "occurs",
-              "description": "Number of occurrence of this property value",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaCountrypopulationObj",
+          "name": "MetaTestThingtestNumberObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -3151,89 +1731,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaAirport",
-          "description": "An airport",
-          "fields": [
-            {
-              "name": "meta",
-              "description": "Meta information about a class object and its (filtered) objects",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaAirportMetaObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "code",
-              "description": "Meta information about the property \"code\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaAirportcodeObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "inCity",
-              "description": "Meta information about the property \"inCity\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaAirportinCityObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "name",
-              "description": "Meta information about the property \"name\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaAirportnameObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaAirportMetaObj",
-          "description": "Meta information about a class object and its (filtered) objects",
-          "fields": [
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaAirportcodeObj",
+          "name": "MetaTestThingtestDateTimeObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -3290,7 +1788,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "MetaAirportcodeTopOccurrencesObj",
+                  "name": "MetaTestThingtestDateTimeTopOccurrencesObj",
                   "ofType": null
                 }
               },
@@ -3305,7 +1803,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaAirportcodeTopOccurrencesObj",
+          "name": "MetaTestThingtestDateTimeTopOccurrencesObj",
           "description": "Object for the most frequent property values",
           "fields": [
             {
@@ -3340,7 +1838,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaAirportinCityObj",
+          "name": "MetaTestThingtestCrefObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -3391,7 +1889,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaAirportnameObj",
+          "name": "MetaTestThingtestRandomTypeObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -3448,7 +1946,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "MetaAirportnameTopOccurrencesObj",
+                  "name": "MetaTestThingtestRandomTypeTopOccurrencesObj",
                   "ofType": null
                 }
               },
@@ -3463,7 +1961,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaAirportnameTopOccurrencesObj",
+          "name": "MetaTestThingtestRandomTypeTopOccurrencesObj",
           "description": "Object for the most frequent property values",
           "fields": [
             {
@@ -3498,8 +1996,8 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaAirline",
-          "description": "An organization that provides flights for passengers",
+          "name": "MetaTestThing2",
+          "description": "This is a Test",
           "fields": [
             {
               "name": "meta",
@@ -3507,55 +2005,91 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaAirlineMetaObj",
+                "name": "MetaTestThing2MetaObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "code",
-              "description": "Meta information about the property \"code\"",
+              "name": "testString",
+              "description": "Meta information about the property \"testString\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaAirlinecodeObj",
+                "name": "MetaTestThing2testStringObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "basedIn",
-              "description": "Meta information about the property \"basedIn\"",
+              "name": "testInt",
+              "description": "Meta information about the property \"testInt\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaAirlinebasedInObj",
+                "name": "MetaTestThing2testIntObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "name",
-              "description": "Meta information about the property \"name\"",
+              "name": "testBoolean",
+              "description": "Meta information about the property \"testBoolean\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaAirlinenameObj",
+                "name": "MetaTestThing2testBooleanObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "hasNumberOfPlanes",
-              "description": "Meta information about the property \"hasNumberOfPlanes\"",
+              "name": "testNumber",
+              "description": "Meta information about the property \"testNumber\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaAirlinehasNumberOfPlanesObj",
+                "name": "MetaTestThing2testNumberObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testDateTime",
+              "description": "Meta information about the property \"testDateTime\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestThing2testDateTimeObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testCref",
+              "description": "Meta information about the property \"testCref\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestThing2testCrefObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testRandomType",
+              "description": "Meta information about the property \"testRandomType\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestThing2testRandomTypeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -3569,7 +2103,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaAirlineMetaObj",
+          "name": "MetaTestThing2MetaObj",
           "description": "Meta information about a class object and its (filtered) objects",
           "fields": [
             {
@@ -3592,7 +2126,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaAirlinecodeObj",
+          "name": "MetaTestThing2testStringObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -3649,7 +2183,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "MetaAirlinecodeTopOccurrencesObj",
+                  "name": "MetaTestThing2testStringTopOccurrencesObj",
                   "ofType": null
                 }
               },
@@ -3664,7 +2198,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaAirlinecodeTopOccurrencesObj",
+          "name": "MetaTestThing2testStringTopOccurrencesObj",
           "description": "Object for the most frequent property values",
           "fields": [
             {
@@ -3699,165 +2233,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaAirlinebasedInObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "pointingTo",
-              "description": "Which other classes the object property is pointing to",
-              "args": [],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "SCALAR",
-                  "name": "String",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaAirlinenameObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "topOccurrences",
-              "description": "Object for the most frequent property values",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "MetaAirlinenameTopOccurrencesObj",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaAirlinenameTopOccurrencesObj",
-          "description": "Object for the most frequent property values",
-          "fields": [
-            {
-              "name": "value",
-              "description": "The most frequently occurring value of this property in the dataset",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "occurs",
-              "description": "Number of occurrence of this property value",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaAirlinehasNumberOfPlanesObj",
+          "name": "MetaTestThing2testIntObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -3940,68 +2316,21 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaPlane",
-          "description": "An airplane",
+          "name": "MetaTestThing2testBooleanObj",
+          "description": "Object for property meta information",
           "fields": [
             {
-              "name": "meta",
-              "description": "Meta information about a class object and its (filtered) objects",
+              "name": "type",
+              "description": "Datatype of the property",
               "args": [],
               "type": {
-                "kind": "OBJECT",
-                "name": "MetaPlaneMetaObj",
+                "kind": "SCALAR",
+                "name": "String",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
-            {
-              "name": "code",
-              "description": "Meta information about the property \"code\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaPlanecodeObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "aircraft",
-              "description": "Meta information about the property \"aircraft\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaPlaneaircraftObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "ofAirline",
-              "description": "Meta information about the property \"ofAirline\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaPlaneofAirlineObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaPlaneMetaObj",
-          "description": "Meta information about a class object and its (filtered) objects",
-          "fields": [
             {
               "name": "count",
               "description": "Total amount of found instances",
@@ -4013,6 +2342,30 @@
               },
               "isDeprecated": false,
               "deprecationReason": null
+            },
+            {
+              "name": "totalTrue",
+              "description": "The amount of times this property's value is true in the dataset",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "percentageTrue",
+              "description": null,
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
             }
           ],
           "inputFields": null,
@@ -4022,7 +2375,90 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaPlanecodeObj",
+          "name": "MetaTestThing2testNumberObj",
+          "description": "Object for property meta information",
+          "fields": [
+            {
+              "name": "type",
+              "description": "Datatype of the property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "lowest",
+              "description": "Lowest value found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "highest",
+              "description": "Highest value found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "average",
+              "description": "Average value found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "sum",
+              "description": "Sum of values found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestThing2testDateTimeObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -4079,7 +2515,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "MetaPlanecodeTopOccurrencesObj",
+                  "name": "MetaTestThing2testDateTimeTopOccurrencesObj",
                   "ofType": null
                 }
               },
@@ -4094,7 +2530,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaPlanecodeTopOccurrencesObj",
+          "name": "MetaTestThing2testDateTimeTopOccurrencesObj",
           "description": "Object for the most frequent property values",
           "fields": [
             {
@@ -4129,7 +2565,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaPlaneaircraftObj",
+          "name": "MetaTestThing2testCrefObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -4180,235 +2616,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaPlaneofAirlineObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "pointingTo",
-              "description": "Which other classes the object property is pointing to",
-              "args": [],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "SCALAR",
-                  "name": "String",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaAircraft",
-          "description": "The kind of aircraft (e.g., \"Boeing 747\")",
-          "fields": [
-            {
-              "name": "meta",
-              "description": "Meta information about a class object and its (filtered) objects",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaAircraftMetaObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "name",
-              "description": "Meta information about the property \"name\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaAircraftnameObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "numberOfSeats",
-              "description": "Meta information about the property \"numberOfSeats\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaAircraftnumberOfSeatsObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaAircraftMetaObj",
-          "description": "Meta information about a class object and its (filtered) objects",
-          "fields": [
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaAircraftnameObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "topOccurrences",
-              "description": "Object for the most frequent property values",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "MetaAircraftnameTopOccurrencesObj",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaAircraftnameTopOccurrencesObj",
-          "description": "Object for the most frequent property values",
-          "fields": [
-            {
-              "name": "value",
-              "description": "The most frequently occurring value of this property in the dataset",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "occurs",
-              "description": "Number of occurrence of this property value",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaAircraftnumberOfSeatsObj",
+          "name": "MetaTestThing2testRandomTypeObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -4495,8 +2703,8 @@
           "description": "Type of Actions i.e. Actions classes to GetMeta information of on the Local Weaviate",
           "fields": [
             {
-              "name": "Flight",
-              "description": "An airline flight",
+              "name": "TestAction",
+              "description": "This is a Test",
               "args": [
                 {
                   "name": "first",
@@ -4521,15 +2729,15 @@
               ],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaFlight",
+                "name": "MetaTestAction",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "BuyAction",
-              "description": "An agent buys an object, product, or service from a seller for a price.",
+              "name": "TestAction2",
+              "description": "This is a Test",
               "args": [
                 {
                   "name": "first",
@@ -4554,7 +2762,7 @@
               ],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaBuyAction",
+                "name": "MetaTestAction2",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -4568,8 +2776,8 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaFlight",
-          "description": "An airline flight",
+          "name": "MetaTestAction",
+          "description": "This is a Test",
           "fields": [
             {
               "name": "meta",
@@ -4577,103 +2785,79 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaFlightMetaObj",
+                "name": "MetaTestActionMetaObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "aircraft",
-              "description": "Meta information about the property \"aircraft\"",
+              "name": "testString",
+              "description": "Meta information about the property \"testString\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaFlightaircraftObj",
+                "name": "MetaTestActiontestStringObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "arrivalAirport",
-              "description": "Meta information about the property \"arrivalAirport\"",
+              "name": "testInt",
+              "description": "Meta information about the property \"testInt\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaFlightarrivalAirportObj",
+                "name": "MetaTestActiontestIntObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "departureAirport",
-              "description": "Meta information about the property \"departureAirport\"",
+              "name": "testBoolean",
+              "description": "Meta information about the property \"testBoolean\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaFlightdepartureAirportObj",
+                "name": "MetaTestActiontestBooleanObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "flightNumber",
-              "description": "Meta information about the property \"flightNumber\"",
+              "name": "testNumber",
+              "description": "Meta information about the property \"testNumber\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaFlightflightNumberObj",
+                "name": "MetaTestActiontestNumberObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "date",
-              "description": "Meta information about the property \"date\"",
+              "name": "testDateTime",
+              "description": "Meta information about the property \"testDateTime\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaFlightdateObj",
+                "name": "MetaTestActiontestDateTimeObj",
                 "ofType": null
               },
               "isDeprecated": false,
               "deprecationReason": null
             },
             {
-              "name": "estimatedFlightDuration",
-              "description": "Meta information about the property \"estimatedFlightDuration\"",
+              "name": "testCref",
+              "description": "Meta information about the property \"testCref\"",
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "MetaFlightestimatedFlightDurationObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "numberOfPassengers",
-              "description": "Meta information about the property \"numberOfPassengers\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaFlightnumberOfPassengersObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "isDelayed",
-              "description": "Meta information about the property \"isDelayed\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaFlightisDelayedObj",
+                "name": "MetaTestActiontestCrefObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -4687,7 +2871,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaFlightMetaObj",
+          "name": "MetaTestActionMetaObj",
           "description": "Meta information about a class object and its (filtered) objects",
           "fields": [
             {
@@ -4710,160 +2894,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaFlightaircraftObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "pointingTo",
-              "description": "Which other classes the object property is pointing to",
-              "args": [],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "SCALAR",
-                  "name": "String",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaFlightarrivalAirportObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "pointingTo",
-              "description": "Which other classes the object property is pointing to",
-              "args": [],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "SCALAR",
-                  "name": "String",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaFlightdepartureAirportObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "pointingTo",
-              "description": "Which other classes the object property is pointing to",
-              "args": [],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "SCALAR",
-                  "name": "String",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaFlightflightNumberObj",
+          "name": "MetaTestActiontestStringObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -4920,7 +2951,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "MetaFlightflightNumberTopOccurrencesObj",
+                  "name": "MetaTestActiontestStringTopOccurrencesObj",
                   "ofType": null
                 }
               },
@@ -4935,7 +2966,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaFlightflightNumberTopOccurrencesObj",
+          "name": "MetaTestActiontestStringTopOccurrencesObj",
           "description": "Object for the most frequent property values",
           "fields": [
             {
@@ -4970,114 +3001,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaFlightdateObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "topOccurrences",
-              "description": "Object for the most frequent property values",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "MetaFlightdateTopOccurrencesObj",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaFlightdateTopOccurrencesObj",
-          "description": "Object for the most frequent property values",
-          "fields": [
-            {
-              "name": "value",
-              "description": "The most frequently occurring value of this property in the dataset",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "occurs",
-              "description": "Number of occurrence of this property value",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaFlightestimatedFlightDurationObj",
+          "name": "MetaTestActiontestIntObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -5160,90 +3084,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaFlightnumberOfPassengersObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "lowest",
-              "description": "Lowest value found in the dataset for this property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Float",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "highest",
-              "description": "Highest value found in the dataset for this property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Float",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "average",
-              "description": "Average value found in the dataset for this property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Float",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "sum",
-              "description": "Sum of values found in the dataset for this property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Float",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaFlightisDelayedObj",
+          "name": "MetaTestActiontestBooleanObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -5302,140 +3143,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaBuyAction",
-          "description": "An agent buys an object, product, or service from a seller for a price.",
-          "fields": [
-            {
-              "name": "meta",
-              "description": "Meta information about a class object and its (filtered) objects",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaBuyActionMetaObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "seller",
-              "description": "Meta information about the property \"seller\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaBuyActionsellerObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "price",
-              "description": "Meta information about the property \"price\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaBuyActionpriceObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "buyer",
-              "description": "Meta information about the property \"buyer\"",
-              "args": [],
-              "type": {
-                "kind": "OBJECT",
-                "name": "MetaBuyActionbuyerObj",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaBuyActionMetaObj",
-          "description": "Meta information about a class object and its (filtered) objects",
-          "fields": [
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaBuyActionsellerObj",
-          "description": "Object for property meta information",
-          "fields": [
-            {
-              "name": "type",
-              "description": "Datatype of the property",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "String",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "count",
-              "description": "Total amount of found instances",
-              "args": [],
-              "type": {
-                "kind": "SCALAR",
-                "name": "Int",
-                "ofType": null
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "pointingTo",
-              "description": "Which other classes the object property is pointing to",
-              "args": [],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "SCALAR",
-                  "name": "String",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            }
-          ],
-          "inputFields": null,
-          "interfaces": [],
-          "enumValues": null,
-          "possibleTypes": null
-        },
-        {
-          "kind": "OBJECT",
-          "name": "MetaBuyActionpriceObj",
+          "name": "MetaTestActiontestNumberObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -5518,7 +3226,722 @@
         },
         {
           "kind": "OBJECT",
-          "name": "MetaBuyActionbuyerObj",
+          "name": "MetaTestActiontestDateTimeObj",
+          "description": "Object for property meta information",
+          "fields": [
+            {
+              "name": "type",
+              "description": "Datatype of the property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "topOccurrences",
+              "description": "Object for the most frequent property values",
+              "args": [
+                {
+                  "name": "first",
+                  "description": "Pagination option, show the first x results",
+                  "type": {
+                    "kind": "SCALAR",
+                    "name": "Int",
+                    "ofType": null
+                  },
+                  "defaultValue": null
+                },
+                {
+                  "name": "after",
+                  "description": "Pagination option, show the results after the first x results",
+                  "type": {
+                    "kind": "SCALAR",
+                    "name": "Int",
+                    "ofType": null
+                  },
+                  "defaultValue": null
+                }
+              ],
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "OBJECT",
+                  "name": "MetaTestActiontestDateTimeTopOccurrencesObj",
+                  "ofType": null
+                }
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestActiontestDateTimeTopOccurrencesObj",
+          "description": "Object for the most frequent property values",
+          "fields": [
+            {
+              "name": "value",
+              "description": "The most frequently occurring value of this property in the dataset",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "occurs",
+              "description": "Number of occurrence of this property value",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestActiontestCrefObj",
+          "description": "Object for property meta information",
+          "fields": [
+            {
+              "name": "type",
+              "description": "Datatype of the property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "pointingTo",
+              "description": "Which other classes the object property is pointing to",
+              "args": [],
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestAction2",
+          "description": "This is a Test",
+          "fields": [
+            {
+              "name": "meta",
+              "description": "Meta information about a class object and its (filtered) objects",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestAction2MetaObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testString",
+              "description": "Meta information about the property \"testString\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestAction2testStringObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testInt",
+              "description": "Meta information about the property \"testInt\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestAction2testIntObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testBoolean",
+              "description": "Meta information about the property \"testBoolean\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestAction2testBooleanObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testNumber",
+              "description": "Meta information about the property \"testNumber\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestAction2testNumberObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testDateTime",
+              "description": "Meta information about the property \"testDateTime\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestAction2testDateTimeObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "testCref",
+              "description": "Meta information about the property \"testCref\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestAction2testCrefObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestAction2MetaObj",
+          "description": "Meta information about a class object and its (filtered) objects",
+          "fields": [
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestAction2testStringObj",
+          "description": "Object for property meta information",
+          "fields": [
+            {
+              "name": "type",
+              "description": "Datatype of the property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "topOccurrences",
+              "description": "Object for the most frequent property values",
+              "args": [
+                {
+                  "name": "first",
+                  "description": "Pagination option, show the first x results",
+                  "type": {
+                    "kind": "SCALAR",
+                    "name": "Int",
+                    "ofType": null
+                  },
+                  "defaultValue": null
+                },
+                {
+                  "name": "after",
+                  "description": "Pagination option, show the results after the first x results",
+                  "type": {
+                    "kind": "SCALAR",
+                    "name": "Int",
+                    "ofType": null
+                  },
+                  "defaultValue": null
+                }
+              ],
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "OBJECT",
+                  "name": "MetaTestAction2testStringTopOccurrencesObj",
+                  "ofType": null
+                }
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestAction2testStringTopOccurrencesObj",
+          "description": "Object for the most frequent property values",
+          "fields": [
+            {
+              "name": "value",
+              "description": "The most frequently occurring value of this property in the dataset",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "occurs",
+              "description": "Number of occurrence of this property value",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestAction2testIntObj",
+          "description": "Object for property meta information",
+          "fields": [
+            {
+              "name": "type",
+              "description": "Datatype of the property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "lowest",
+              "description": "Lowest value found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "highest",
+              "description": "Highest value found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "average",
+              "description": "Average value found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "sum",
+              "description": "Sum of values found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestAction2testBooleanObj",
+          "description": "Object for property meta information",
+          "fields": [
+            {
+              "name": "type",
+              "description": "Datatype of the property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "totalTrue",
+              "description": "The amount of times this property's value is true in the dataset",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "percentageTrue",
+              "description": null,
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestAction2testNumberObj",
+          "description": "Object for property meta information",
+          "fields": [
+            {
+              "name": "type",
+              "description": "Datatype of the property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "lowest",
+              "description": "Lowest value found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "highest",
+              "description": "Highest value found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "average",
+              "description": "Average value found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "sum",
+              "description": "Sum of values found in the dataset for this property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestAction2testDateTimeObj",
+          "description": "Object for property meta information",
+          "fields": [
+            {
+              "name": "type",
+              "description": "Datatype of the property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "topOccurrences",
+              "description": "Object for the most frequent property values",
+              "args": [
+                {
+                  "name": "first",
+                  "description": "Pagination option, show the first x results",
+                  "type": {
+                    "kind": "SCALAR",
+                    "name": "Int",
+                    "ofType": null
+                  },
+                  "defaultValue": null
+                },
+                {
+                  "name": "after",
+                  "description": "Pagination option, show the results after the first x results",
+                  "type": {
+                    "kind": "SCALAR",
+                    "name": "Int",
+                    "ofType": null
+                  },
+                  "defaultValue": null
+                }
+              ],
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "OBJECT",
+                  "name": "MetaTestAction2testDateTimeTopOccurrencesObj",
+                  "ofType": null
+                }
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestAction2testDateTimeTopOccurrencesObj",
+          "description": "Object for the most frequent property values",
+          "fields": [
+            {
+              "name": "value",
+              "description": "The most frequently occurring value of this property in the dataset",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "occurs",
+              "description": "Number of occurrence of this property value",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "MetaTestAction2testCrefObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -5578,7 +4001,7 @@
               "args": [
                 {
                   "name": "where",
-                  "description": null,
+                  "description": "Filter options for the Network Get search, to convert the data to the filter input",
                   "type": {
                     "kind": "INPUT_OBJECT",
                     "name": "WeaviateNetworkGetWhereInpObj",
@@ -5628,7 +4051,7 @@
         {
           "kind": "INPUT_OBJECT",
           "name": "WeaviateNetworkGetWhereInpObj",
-          "description": null,
+          "description": "Filter options for the Network Get search, to convert the data to the filter input",
           "fields": null,
           "inputFields": [
             {
@@ -5681,7 +4104,7 @@
             },
             {
               "name": "valueNumber",
-              "description": "Number value where the property of the path will be compared to by an operator",
+              "description": "Number value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Float",
@@ -7157,7 +5580,7 @@
             },
             {
               "name": "valueNumber",
-              "description": "Number value where the property of the path will be compared to by an operator",
+              "description": "Number value that the property at the provided path will be compared to by an operator",
               "type": {
                 "kind": "SCALAR",
                 "name": "Float",
