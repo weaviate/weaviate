@@ -1297,10 +1297,13 @@ func init() {
       "type": "object",
       "properties": {
         "error": {
-          "type": "object",
-          "properties": {
-            "message": {
-              "type": "string"
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
             }
           }
         }
@@ -3218,10 +3221,13 @@ func init() {
       "type": "object",
       "properties": {
         "error": {
-          "type": "object",
-          "properties": {
-            "message": {
-              "type": "string"
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "string"
+              }
             }
           }
         }
