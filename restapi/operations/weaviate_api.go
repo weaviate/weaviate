@@ -74,6 +74,15 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ActionsWeaviateActionsPatchHandler: actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsPatch has not yet been implemented")
 		}),
+		ActionsWeaviateActionsPropertiesCreateHandler: actions.WeaviateActionsPropertiesCreateHandlerFunc(func(params actions.WeaviateActionsPropertiesCreateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ActionsWeaviateActionsPropertiesCreate has not yet been implemented")
+		}),
+		ActionsWeaviateActionsPropertiesDeleteHandler: actions.WeaviateActionsPropertiesDeleteHandlerFunc(func(params actions.WeaviateActionsPropertiesDeleteParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ActionsWeaviateActionsPropertiesDelete has not yet been implemented")
+		}),
+		ActionsWeaviateActionsPropertiesUpdateHandler: actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(params actions.WeaviateActionsPropertiesUpdateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ActionsWeaviateActionsPropertiesUpdate has not yet been implemented")
+		}),
 		ActionsWeaviateActionsValidateHandler: actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsValidate has not yet been implemented")
 		}),
@@ -130,6 +139,15 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		ThingsWeaviateThingsPatchHandler: things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsPatch has not yet been implemented")
+		}),
+		ThingsWeaviateThingsPropertiesCreateHandler: things.WeaviateThingsPropertiesCreateHandlerFunc(func(params things.WeaviateThingsPropertiesCreateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsPropertiesCreate has not yet been implemented")
+		}),
+		ThingsWeaviateThingsPropertiesDeleteHandler: things.WeaviateThingsPropertiesDeleteHandlerFunc(func(params things.WeaviateThingsPropertiesDeleteParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsPropertiesDelete has not yet been implemented")
+		}),
+		ThingsWeaviateThingsPropertiesUpdateHandler: things.WeaviateThingsPropertiesUpdateHandlerFunc(func(params things.WeaviateThingsPropertiesUpdateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ThingsWeaviateThingsPropertiesUpdate has not yet been implemented")
 		}),
 		ThingsWeaviateThingsUpdateHandler: things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsUpdate has not yet been implemented")
@@ -203,6 +221,12 @@ type WeaviateAPI struct {
 	ActionsWeaviateActionsGetHandler actions.WeaviateActionsGetHandler
 	// ActionsWeaviateActionsPatchHandler sets the operation handler for the weaviate actions patch operation
 	ActionsWeaviateActionsPatchHandler actions.WeaviateActionsPatchHandler
+	// ActionsWeaviateActionsPropertiesCreateHandler sets the operation handler for the weaviate actions properties create operation
+	ActionsWeaviateActionsPropertiesCreateHandler actions.WeaviateActionsPropertiesCreateHandler
+	// ActionsWeaviateActionsPropertiesDeleteHandler sets the operation handler for the weaviate actions properties delete operation
+	ActionsWeaviateActionsPropertiesDeleteHandler actions.WeaviateActionsPropertiesDeleteHandler
+	// ActionsWeaviateActionsPropertiesUpdateHandler sets the operation handler for the weaviate actions properties update operation
+	ActionsWeaviateActionsPropertiesUpdateHandler actions.WeaviateActionsPropertiesUpdateHandler
 	// ActionsWeaviateActionsValidateHandler sets the operation handler for the weaviate actions validate operation
 	ActionsWeaviateActionsValidateHandler actions.WeaviateActionsValidateHandler
 	// GraphqlWeaviateGraphqlPostHandler sets the operation handler for the weaviate graphql post operation
@@ -241,6 +265,12 @@ type WeaviateAPI struct {
 	ThingsWeaviateThingsListHandler things.WeaviateThingsListHandler
 	// ThingsWeaviateThingsPatchHandler sets the operation handler for the weaviate things patch operation
 	ThingsWeaviateThingsPatchHandler things.WeaviateThingsPatchHandler
+	// ThingsWeaviateThingsPropertiesCreateHandler sets the operation handler for the weaviate things properties create operation
+	ThingsWeaviateThingsPropertiesCreateHandler things.WeaviateThingsPropertiesCreateHandler
+	// ThingsWeaviateThingsPropertiesDeleteHandler sets the operation handler for the weaviate things properties delete operation
+	ThingsWeaviateThingsPropertiesDeleteHandler things.WeaviateThingsPropertiesDeleteHandler
+	// ThingsWeaviateThingsPropertiesUpdateHandler sets the operation handler for the weaviate things properties update operation
+	ThingsWeaviateThingsPropertiesUpdateHandler things.WeaviateThingsPropertiesUpdateHandler
 	// ThingsWeaviateThingsUpdateHandler sets the operation handler for the weaviate things update operation
 	ThingsWeaviateThingsUpdateHandler things.WeaviateThingsUpdateHandler
 	// ThingsWeaviateThingsValidateHandler sets the operation handler for the weaviate things validate operation
@@ -340,6 +370,18 @@ func (o *WeaviateAPI) Validate() error {
 		unregistered = append(unregistered, "actions.WeaviateActionsPatchHandler")
 	}
 
+	if o.ActionsWeaviateActionsPropertiesCreateHandler == nil {
+		unregistered = append(unregistered, "actions.WeaviateActionsPropertiesCreateHandler")
+	}
+
+	if o.ActionsWeaviateActionsPropertiesDeleteHandler == nil {
+		unregistered = append(unregistered, "actions.WeaviateActionsPropertiesDeleteHandler")
+	}
+
+	if o.ActionsWeaviateActionsPropertiesUpdateHandler == nil {
+		unregistered = append(unregistered, "actions.WeaviateActionsPropertiesUpdateHandler")
+	}
+
 	if o.ActionsWeaviateActionsValidateHandler == nil {
 		unregistered = append(unregistered, "actions.WeaviateActionsValidateHandler")
 	}
@@ -414,6 +456,18 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.ThingsWeaviateThingsPatchHandler == nil {
 		unregistered = append(unregistered, "things.WeaviateThingsPatchHandler")
+	}
+
+	if o.ThingsWeaviateThingsPropertiesCreateHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsPropertiesCreateHandler")
+	}
+
+	if o.ThingsWeaviateThingsPropertiesDeleteHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsPropertiesDeleteHandler")
+	}
+
+	if o.ThingsWeaviateThingsPropertiesUpdateHandler == nil {
+		unregistered = append(unregistered, "things.WeaviateThingsPropertiesUpdateHandler")
 	}
 
 	if o.ThingsWeaviateThingsUpdateHandler == nil {
@@ -569,6 +623,21 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/actions/{actionId}/properties/{propertyName}"] = actions.NewWeaviateActionsPropertiesCreate(o.context, o.ActionsWeaviateActionsPropertiesCreateHandler)
+
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/actions/{actionId}/properties/{propertyName}"] = actions.NewWeaviateActionsPropertiesDelete(o.context, o.ActionsWeaviateActionsPropertiesDeleteHandler)
+
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/actions/{actionId}/properties/{propertyName}"] = actions.NewWeaviateActionsPropertiesUpdate(o.context, o.ActionsWeaviateActionsPropertiesUpdateHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/actions/validate"] = actions.NewWeaviateActionsValidate(o.context, o.ActionsWeaviateActionsValidateHandler)
 
 	if o.handlers["POST"] == nil {
@@ -660,6 +729,21 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PATCH"] = make(map[string]http.Handler)
 	}
 	o.handlers["PATCH"]["/things/{thingId}"] = things.NewWeaviateThingsPatch(o.context, o.ThingsWeaviateThingsPatchHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/things/{thingId}/properties/{propertyName}"] = things.NewWeaviateThingsPropertiesCreate(o.context, o.ThingsWeaviateThingsPropertiesCreateHandler)
+
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/things/{thingId}/properties/{propertyName}"] = things.NewWeaviateThingsPropertiesDelete(o.context, o.ThingsWeaviateThingsPropertiesDeleteHandler)
+
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/things/{thingId}/properties/{propertyName}"] = things.NewWeaviateThingsPropertiesUpdate(o.context, o.ThingsWeaviateThingsPropertiesUpdateHandler)
 
 	if o.handlers["PUT"] == nil {
 		o.handlers["PUT"] = make(map[string]http.Handler)

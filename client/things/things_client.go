@@ -248,6 +248,99 @@ func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams, authInfo
 }
 
 /*
+WeaviateThingsPropertiesCreate adds a single reference to a class property
+
+Add a single reference to a class-property.
+*/
+func (a *Client) WeaviateThingsPropertiesCreate(params *WeaviateThingsPropertiesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsPropertiesCreateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateThingsPropertiesCreateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.things.properties.create",
+		Method:             "POST",
+		PathPattern:        "/things/{thingId}/properties/{propertyName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateThingsPropertiesCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateThingsPropertiesCreateOK), nil
+
+}
+
+/*
+WeaviateThingsPropertiesDelete adds a single reference to a class property
+
+Delete a single reference from a propery.
+*/
+func (a *Client) WeaviateThingsPropertiesDelete(params *WeaviateThingsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsPropertiesDeleteNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateThingsPropertiesDeleteParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.things.properties.delete",
+		Method:             "DELETE",
+		PathPattern:        "/things/{thingId}/properties/{propertyName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateThingsPropertiesDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateThingsPropertiesDeleteNoContent), nil
+
+}
+
+/*
+WeaviateThingsPropertiesUpdate replaces all references to a class property
+
+Replace all references to a class-property.
+*/
+func (a *Client) WeaviateThingsPropertiesUpdate(params *WeaviateThingsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsPropertiesUpdateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateThingsPropertiesUpdateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.things.properties.update",
+		Method:             "PUT",
+		PathPattern:        "/things/{thingId}/properties/{propertyName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateThingsPropertiesUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateThingsPropertiesUpdateOK), nil
+
+}
+
+/*
 WeaviateThingsUpdate updates a thing based on its uuid related to this key
 
 Updates a thing data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
