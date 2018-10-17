@@ -6205,8 +6205,8 @@
           "description": "Type of Actions i.e. Actions classes to Get from the Network",
           "fields": [
             {
-              "name": "Airport",
-              "description": "An airport",
+              "name": "Aviation",
+              "description": "An airline Aviation",
               "args": [
                 {
                   "name": "first",
@@ -6234,118 +6234,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "weaviateBAirport",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Airline",
-              "description": "An organization that provides flights for passengers",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "weaviateBAirline",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Plane",
-              "description": "An airplane",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "weaviateBPlane",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Aircraft",
-              "description": "The kind of aircraft (e.g., \"Boeing 747\")",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "weaviateBAircraft",
+                  "name": "weaviateBAviation",
                   "ofType": null
                 }
               },
@@ -6357,6 +6246,173 @@
           "interfaces": [],
           "enumValues": null,
           "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "weaviateBAviation",
+          "description": "An airline Aviation",
+          "fields": [
+            {
+              "name": "uuid",
+              "description": "UUID of the thing or action given by the local Weaviate instance",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Aircraft",
+              "description": "The kind of aircraft",
+              "args": [],
+              "type": {
+                "kind": "UNION",
+                "name": "weaviateBAviationAircraftObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Arrival",
+              "description": "The airport where the flight terminates",
+              "args": [],
+              "type": {
+                "kind": "UNION",
+                "name": "weaviateBAviationArrivalObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Departure",
+              "description": "The airport where the flight originates.",
+              "args": [],
+              "type": {
+                "kind": "UNION",
+                "name": "weaviateBAviationDepartureObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "identifier",
+              "description": "The unique identifier for a flight",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "date",
+              "description": "The date the person is moving",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "estimatedFlightDuration",
+              "description": "The estimated time in minutes the flight will take",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "passengers",
+              "description": "Total number of passengers",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "isDelayed",
+              "description": "True if the flight is delayed",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "UNION",
+          "name": "weaviateBAviationAircraftObj",
+          "description": "The kind of aircraft",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": [
+            {
+              "kind": "OBJECT",
+              "name": "weaviateBAircraft",
+              "ofType": null
+            }
+          ]
+        },
+        {
+          "kind": "UNION",
+          "name": "weaviateBAviationArrivalObj",
+          "description": "The airport where the flight terminates",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": [
+            {
+              "kind": "OBJECT",
+              "name": "weaviateBAirport",
+              "ofType": null
+            }
+          ]
+        },
+        {
+          "kind": "UNION",
+          "name": "weaviateBAviationDepartureObj",
+          "description": "The airport where the flight originates.",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": [
+            {
+              "kind": "OBJECT",
+              "name": "weaviateBAirport",
+              "ofType": null
+            }
+          ]
         },
         {
           "kind": "OBJECT",
@@ -6630,8 +6686,8 @@
           "description": "Type of Actions i.e. Actions classes to Get from the Network",
           "fields": [
             {
-              "name": "Municipality",
-              "description": "a city or town that has corporate status and local government",
+              "name": "LivesIn",
+              "description": "Person living in a municipality",
               "args": [
                 {
                   "name": "first",
@@ -6659,44 +6715,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "weaviateCMunicipality",
-                  "ofType": null
-                }
-              },
-              "isDeprecated": false,
-              "deprecationReason": null
-            },
-            {
-              "name": "Human",
-              "description": "Human being",
-              "args": [
-                {
-                  "name": "first",
-                  "description": "Pagination option, show the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                },
-                {
-                  "name": "after",
-                  "description": "Pagination option, show the results after the first x results",
-                  "type": {
-                    "kind": "SCALAR",
-                    "name": "Int",
-                    "ofType": null
-                  },
-                  "defaultValue": null
-                }
-              ],
-              "type": {
-                "kind": "LIST",
-                "name": null,
-                "ofType": {
-                  "kind": "OBJECT",
-                  "name": "weaviateCHuman",
+                  "name": "weaviateCLivesIn",
                   "ofType": null
                 }
               },
@@ -6708,6 +6727,85 @@
           "interfaces": [],
           "enumValues": null,
           "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "weaviateCLivesIn",
+          "description": "Person living in a municipality",
+          "fields": [
+            {
+              "name": "uuid",
+              "description": "UUID of the thing or action given by the local Weaviate instance",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Person",
+              "description": "person",
+              "args": [],
+              "type": {
+                "kind": "UNION",
+                "name": "weaviateCLivesInPersonObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Place",
+              "description": "Place where the person lives in",
+              "args": [],
+              "type": {
+                "kind": "UNION",
+                "name": "weaviateCLivesInPlaceObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "UNION",
+          "name": "weaviateCLivesInPersonObj",
+          "description": "person",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": [
+            {
+              "kind": "OBJECT",
+              "name": "weaviateCHuman",
+              "ofType": null
+            }
+          ]
+        },
+        {
+          "kind": "UNION",
+          "name": "weaviateCLivesInPlaceObj",
+          "description": "Place where the person lives in",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": [
+            {
+              "kind": "OBJECT",
+              "name": "weaviateCMunicipality",
+              "ofType": null
+            }
+          ]
         },
         {
           "kind": "OBJECT",
@@ -6767,9 +6865,13 @@
                   "name": "where",
                   "description": null,
                   "type": {
-                    "kind": "INPUT_OBJECT",
-                    "name": "NetworkFetchWhereInpObj",
-                    "ofType": null
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "INPUT_OBJECT",
+                      "name": "NetworkFetchWhereInpObj",
+                      "ofType": null
+                    }
                   },
                   "defaultValue": null
                 }
@@ -6794,9 +6896,13 @@
                   "name": "where",
                   "description": null,
                   "type": {
-                    "kind": "INPUT_OBJECT",
-                    "name": "NetworkFetchWhereInpObj",
-                    "ofType": null
+                    "kind": "NON_NULL",
+                    "name": null,
+                    "ofType": {
+                      "kind": "INPUT_OBJECT",
+                      "name": "NetworkFetchWhereInpObj",
+                      "ofType": null
+                    }
                   },
                   "defaultValue": null
                 }
@@ -7198,12 +7304,16 @@
                   "name": "where",
                   "description": null,
                   "type": {
-                    "kind": "LIST",
+                    "kind": "NON_NULL",
                     "name": null,
                     "ofType": {
-                      "kind": "INPUT_OBJECT",
-                      "name": "WeaviateNetworkIntrospectWhereInpObj",
-                      "ofType": null
+                      "kind": "LIST",
+                      "name": null,
+                      "ofType": {
+                        "kind": "INPUT_OBJECT",
+                        "name": "WeaviateNetworkIntrospectWhereInpObj",
+                        "ofType": null
+                      }
                     }
                   },
                   "defaultValue": null
@@ -7229,12 +7339,16 @@
                   "name": "where",
                   "description": null,
                   "type": {
-                    "kind": "LIST",
+                    "kind": "NON_NULL",
                     "name": null,
                     "ofType": {
-                      "kind": "INPUT_OBJECT",
-                      "name": "WeaviateNetworkIntrospectWhereInpObj",
-                      "ofType": null
+                      "kind": "LIST",
+                      "name": null,
+                      "ofType": {
+                        "kind": "INPUT_OBJECT",
+                        "name": "WeaviateNetworkIntrospectWhereInpObj",
+                        "ofType": null
+                      }
                     }
                   },
                   "defaultValue": null
