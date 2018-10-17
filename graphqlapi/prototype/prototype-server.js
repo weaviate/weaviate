@@ -1059,12 +1059,19 @@ var NetworkIntrospectBeaconFields = {
 /**
  * START CONSTRUCTING THE SERVICE
  */
+var demo_schema_things = "demo_schemas/things_schema.json";
+var demo_schema_actions = "demo_schemas/actions_schema.json";
 
-fs.readFile('demo_schemas/things_schema.json', 'utf8', function(err, ontologyThings) { // read things ontology
-  fs.readFile('demo_schemas/actions_schema.json', 'utf8', function(err, ontologyActions) { // read actions ontology
+// check if the test schemas should be used
+var runArguments = process.argv.slice(2);
+if(runArguments[0] == "test_schema"){
+  console.log("running the test schemas used for Weaviate testing in Go")
+  var demo_schema_things = "../../test/schema/test-thing-schema.json";
+  var demo_schema_actions = "../../test/schema/test-action-schema.json";
+}
 
-// fs.readFile('use_case_ontology/things.json', 'utf8', function(err, ontologyThings) { // read things ontology
-//   fs.readFile('use_case_ontology/actions.json', 'utf8', function(err, ontologyActions) { // read actions ontology
+fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read things ontology
+  fs.readFile(demo_schema_actions, 'utf8', function(err, ontologyActions) { // read actions ontology
 
     // merge
     classes = mergeOntologies(JSON.parse(ontologyThings), JSON.parse(ontologyActions))

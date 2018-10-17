@@ -17,7 +17,7 @@ cd graphqlapi/prototype
 npm install
 
 # run nodemon in the background - sleep to wait for startup of node server
-nohup node prototype-server.js &
+nohup node prototype-server.js test_schema &
 
 # poll service to check if live
 while true; do
