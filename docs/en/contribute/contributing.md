@@ -38,6 +38,12 @@ Please use [Github's autolink-urls](https://help.github.com/articles/autolinked-
 
 We use [semver](https://semver.org/) for versioning. The version number can be found in the [API specs](../openapi-specs/schema.json) under: `.version`. This version number will also used to publish binaries.
 
+### Gitflow
+
+Weaviate uses [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) which means that the master branch is stable.
+
+_Important: The versioning of `master` is based on the version number that can be found in the [API specs](../openapi-specs/schema.json) under: `.version`._
+
 ## API's
 
 ### RESTful https
