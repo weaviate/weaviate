@@ -43,9 +43,9 @@ func NewWeaviateThingsPropertiesCreate(ctx *middleware.Context, handler Weaviate
 
 /*WeaviateThingsPropertiesCreate swagger:route POST /things/{thingId}/properties/{propertyName} things weaviateThingsPropertiesCreate
 
-Add a single reference to a class-property.
+Add a single reference to a class-property when cardinality is set to 'hasMany'.
 
-Add a single reference to a class-property.
+Add a single reference to a class-property when cardinality is set to 'hasMany'.
 
 */
 type WeaviateThingsPropertiesCreate struct {

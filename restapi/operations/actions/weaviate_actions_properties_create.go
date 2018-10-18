@@ -43,9 +43,9 @@ func NewWeaviateActionsPropertiesCreate(ctx *middleware.Context, handler Weaviat
 
 /*WeaviateActionsPropertiesCreate swagger:route POST /actions/{actionId}/properties/{propertyName} actions weaviateActionsPropertiesCreate
 
-Add a single reference to a class-property.
+Add a single reference to a class-property when cardinality is set to 'hasMany'.
 
-Add a single reference to a class-property.
+Add a single reference to a class-property when cardinality is set to 'hasMany'.
 
 */
 type WeaviateActionsPropertiesCreate struct {
