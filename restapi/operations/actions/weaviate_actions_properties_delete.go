@@ -43,9 +43,9 @@ func NewWeaviateActionsPropertiesDelete(ctx *middleware.Context, handler Weaviat
 
 /*WeaviateActionsPropertiesDelete swagger:route DELETE /actions/{actionId}/properties/{propertyName} actions weaviateActionsPropertiesDelete
 
-Add a single reference to a class-property.
+Delete the single reference that is given in the body from the list of references that this property has.
 
-Delete a single reference from a propery.
+Delete the single reference that is given in the body from the list of references that this property has.
 
 */
 type WeaviateActionsPropertiesDelete struct {

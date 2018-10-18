@@ -65,7 +65,7 @@ func NewWeaviateThingsPropertiesUpdateOK() *WeaviateThingsPropertiesUpdateOK {
 
 /*WeaviateThingsPropertiesUpdateOK handles this case with default header values.
 
-Successfully replaced all the refferences.
+Successfully replaced all the refferences (success is based on the behavior of the datastore).
 */
 type WeaviateThingsPropertiesUpdateOK struct {
 }

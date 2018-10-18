@@ -28,7 +28,7 @@ import (
 // WeaviateThingsPropertiesUpdateOKCode is the HTTP code returned for type WeaviateThingsPropertiesUpdateOK
 const WeaviateThingsPropertiesUpdateOKCode int = 200
 
-/*WeaviateThingsPropertiesUpdateOK Successfully replaced all the refferences.
+/*WeaviateThingsPropertiesUpdateOK Successfully replaced all the refferences (success is based on the behavior of the datastore).
 
 swagger:response weaviateThingsPropertiesUpdateOK
 */
