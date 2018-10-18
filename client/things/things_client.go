@@ -248,9 +248,9 @@ func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams, authInfo
 }
 
 /*
-WeaviateThingsPropertiesCreate adds a single reference to a class property
+WeaviateThingsPropertiesCreate adds a single reference to a class property when cardinality is set to has many
 
-Add a single reference to a class-property.
+Add a single reference to a class-property when cardinality is set to 'hasMany'.
 */
 func (a *Client) WeaviateThingsPropertiesCreate(params *WeaviateThingsPropertiesCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsPropertiesCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -279,9 +279,9 @@ func (a *Client) WeaviateThingsPropertiesCreate(params *WeaviateThingsProperties
 }
 
 /*
-WeaviateThingsPropertiesDelete adds a single reference to a class property
+WeaviateThingsPropertiesDelete deletes the single reference that is given in the body from the list of references that this property has
 
-Delete a single reference from a propery.
+Delete the single reference that is given in the body from the list of references that this property has.
 */
 func (a *Client) WeaviateThingsPropertiesDelete(params *WeaviateThingsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsPropertiesDeleteNoContent, error) {
 	// TODO: Validate the params before sending

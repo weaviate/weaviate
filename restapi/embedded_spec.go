@@ -426,11 +426,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Add a single reference to a class-property.",
+        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
         "tags": [
           "actions"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
         "operationId": "weaviate.actions.properties.create",
         "parameters": [
           {
@@ -478,11 +478,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Delete a single reference from a propery.",
+        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": [
           "actions"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
         "operationId": "weaviate.actions.properties.delete",
         "parameters": [
           {
@@ -1336,7 +1336,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully replaced all the refferences."
+            "description": "Successfully replaced all the refferences (success is based on the behavior of the datastore)."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1355,11 +1355,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Add a single reference to a class-property.",
+        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
         "tags": [
           "things"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
         "operationId": "weaviate.things.properties.create",
         "parameters": [
           {
@@ -1407,11 +1407,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Delete a single reference from a propery.",
+        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": [
           "things"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
         "operationId": "weaviate.things.properties.delete",
         "parameters": [
           {
@@ -2650,11 +2650,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Add a single reference to a class-property.",
+        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
         "tags": [
           "actions"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
         "operationId": "weaviate.actions.properties.create",
         "parameters": [
           {
@@ -2702,11 +2702,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Delete a single reference from a propery.",
+        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": [
           "actions"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
         "operationId": "weaviate.actions.properties.delete",
         "parameters": [
           {
@@ -3576,7 +3576,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully replaced all the refferences."
+            "description": "Successfully replaced all the refferences (success is based on the behavior of the datastore)."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3595,11 +3595,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Add a single reference to a class-property.",
+        "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
         "tags": [
           "things"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
         "operationId": "weaviate.things.properties.create",
         "parameters": [
           {
@@ -3647,11 +3647,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Delete a single reference from a propery.",
+        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": [
           "things"
         ],
-        "summary": "Add a single reference to a class-property.",
+        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
         "operationId": "weaviate.things.properties.delete",
         "parameters": [
           {
