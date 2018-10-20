@@ -15,8 +15,9 @@ IMPORTER_EXIT_CODE=
 
 echo -n "Waiting for the importer container to finish..."
 while [ $SECONDS -lt $END_TIME ]; do
+  IMPORTER_CONTAINER_ID=$(docker ps -aq --filter=name=weaviate_demo_importer)
   IMPORTER_EXIT_CODE=$(
-    docker container wait weaviate_weaviate_demo_importer_1
+    docker container wait "$IMPORTER_CONTAINER_ID"
   )
 
   if [ "$IMPORTER_EXIT_CODE" -eq "0" ]; then
