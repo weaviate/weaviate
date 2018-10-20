@@ -13,6 +13,7 @@ import (
 	"io/ioutil"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	spew "github.com/davecgh/go-spew/spew"
@@ -210,6 +211,15 @@ func findProperty(class *models.SemanticSchemaClass, propName string) *models.Se
 	panic(fmt.Sprintf("property %s in class %s not found", propName, class.Class))
 }
 
+func joinErrorMessages(errResponse *models.ErrorResponse) string {
+	msgs := make([]string, len(errResponse.Error), len(errResponse.Error))
+	for i, err := range errResponse.Error {
+		msgs[i] = err.Message
+	}
+
+	return strings.Join(msgs, ", ")
+}
+
 func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
 	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: t})
 
@@ -218,7 +228,7 @@ func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
 	if err != nil {
 		switch v := err.(type) {
 		case *things.WeaviateThingsCreateUnprocessableEntity:
-			panic(fmt.Sprintf("Can't create thing %#v, because %s", t, v.Payload.Error.Message))
+			panic(fmt.Sprintf("Can't create thing %#v, because %s", t, joinErrorMessages(v.Payload)))
 		default:
 			panic(fmt.Sprintf("Can't create thing %#v, because %#v", t, spew.Sdump(err)))
 		}
@@ -237,7 +247,7 @@ func assertPatchThing(id string, p *models.PatchDocument) *models.ThingGetRespon
 		case *things.WeaviateThingsPatchNotFound:
 			panic(fmt.Sprintf("Can't patch thing with %s, because thing cannot be found", spew.Sdump(p)))
 		case *things.WeaviateThingsPatchUnprocessableEntity:
-			panic(fmt.Sprintf("Can't patch thing, because %s", v.Payload.Error.Message))
+			panic(fmt.Sprintf("Can't patch thing, because %s", joinErrorMessages(v.Payload)))
 		default:
 			_ = v
 			panic(fmt.Sprintf("Can't patch thing with %#v, because %#v", p, spew.Sdump(err)))
