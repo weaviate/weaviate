@@ -36,7 +36,7 @@ before_script:
   - tools/test/run_ci_server.sh || travis_terminate 1
 script: 
   # Verify dev setup is not broken
-  - ./tools/test/import_journey.sh
+  - ./tools/test/import_journey.sh || travis_terminate 1
   # Run all tests
   - |
     ./cc-test-reporter before-build
