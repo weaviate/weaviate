@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -23,6 +24,18 @@ import (
 
 const enableNetworkQueryComparison bool = false
 
+func init() {
+	skipGraphqlTest = (os.Getenv("GRAPHQL_TESTS") == "skip")
+}
+
+var skipGraphqlTest bool
+
+func maybeSkipGraphqlTest(t *testing.T) {
+	if skipGraphqlTest {
+		t.Skip("Skipping GraphQL tests")
+	}
+}
+
 /*
 Loop through all branches of the expected schema and compare each leaf to an
 actual schema retrieved from an introspection query on a local weaviate
@@ -30,6 +43,7 @@ actual schema retrieved from an introspection query on a local weaviate
 Note: Can't compare nested lists ([[][]]) properly, but that is out of scope for the current case
 */
 func TestCompareExpectedToActualSchemaWithIntrospection(t *testing.T) {
+	maybeSkipGraphqlTest(t)
 	t.Parallel()
 
 	// get expected schema
