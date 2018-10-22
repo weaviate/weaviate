@@ -36,7 +36,6 @@ echo -------
 echo "The importer never succeeded in ${MAX_WAIT_SECONDS}s."
 echo "The last exit code was $IMPORTER_EXIT_CODE."
 echo "Here are the last 30 lines of logs from the importer:"
-docker logs weaviate_weaviate_demo_importer_1 --tail 30
+docker logs $IMPORTER_CONTAINER_ID --tail 30
 
 exit $IMPORTER_EXIT_CODE
-
