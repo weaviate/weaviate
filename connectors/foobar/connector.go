@@ -51,6 +51,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema"
+	"github.com/creativesoftwarefdn/weaviate/schema/kind"
 )
 
 // Foobar has some basic variables.
@@ -206,6 +207,32 @@ func (f *Foobar) Init() error {
 // Attach can attach something to the request-context
 func (f *Foobar) Attach(ctx context.Context) (context.Context, error) {
 	return ctx, nil
+}
+
+// Add a class to the Thing or Action schema, depending on the kind parameter.
+func (f *Foobar) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
+	return errors_.New("Not supported")
+}
+
+// Drop a class from the schema.
+func (f *Foobar) DropClass(kind kind.Kind, className string) error {
+	return errors_.New("Not supported")
+}
+
+func (f *Foobar) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+	return errors_.New("Not supported")
+}
+
+func (f *Foobar) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+	return errors_.New("Not supported")
+}
+
+func (f *Foobar) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+	return errors_.New("Not supported")
+}
+
+func (f *Foobar) DropProperty(kind kind.Kind, className string, propName string) error {
+	return errors_.New("Not supported")
 }
 
 // AddThing adds a thing to the Foobar database with the given UUID.
