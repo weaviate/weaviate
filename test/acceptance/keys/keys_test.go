@@ -3,7 +3,6 @@ package test
 // Acceptance tests for keys.
 
 import (
-	"fmt"
 	"testing"
 
 	"sort"
@@ -78,7 +77,7 @@ func TestNestedKeys(t *testing.T) {
 			assert.Regexp(t, strfmt.UUIDPattern, childAPIToken)
 		})
 
-		defer cleanupKey(childAPIKey)
+		defer cleanupKey(t, childAPIKey)
 
 		// Now create a key that is has as a parent: the child of the root key
 		t.Run("Create a grand child", func(t *testing.T) {
@@ -125,7 +124,7 @@ func TestNestedKeys(t *testing.T) {
 				assert.Equal(t, int64(-1), keyResponse.KeyExpiresUnix)
 			})
 
-			defer cleanupKey(grandChildAPIKey)
+			defer cleanupKey(t, grandChildAPIKey)
 		})
 	})
 }
@@ -176,7 +175,7 @@ func TestChildKeyCannotOutliveParent(t *testing.T) {
 		expiringAuth = helper.CreateAuth(expiringKey, string(expiringToken))
 	})
 
-	defer cleanupKey(expiringKey)
+	defer cleanupKey(t, expiringKey)
 
 	t.Run("Cannot create key that expires later than it's parent", func(t *testing.T) {
 		child_expire_at := expire_at.Add(1 * time.Hour)
@@ -221,7 +220,7 @@ func TestExpiredKeys(t *testing.T) {
 		expiringAuth = helper.CreateAuth(expiringKey, string(expiringToken))
 	})
 
-	defer cleanupKey(expiringKey)
+	defer cleanupKey(t, expiringKey)
 
 	// Make sure that the key is expired.
 	time.Sleep(1 * time.Second)
@@ -274,7 +273,7 @@ func TestGetChildKey(t *testing.T) {
 		childAPIKey = resp.Payload.KeyID
 	})
 
-	defer cleanupKey(childAPIKey)
+	defer cleanupKey(t, childAPIKey)
 
 	t.Run("Getting child key is allowed", func(t *testing.T) {
 		params := keys.NewWeaviateKeysGetParams().WithKeyID(childAPIKey)
@@ -303,7 +302,7 @@ func TestChildCannotGetParentKey(t *testing.T) {
 		childAPIToken = resp.Payload.Token
 	})
 
-	defer cleanupKey(childAPIKey)
+	defer cleanupKey(t, childAPIKey)
 
 	t.Run("Child cannot get parent", func(t *testing.T) {
 		childAuth := helper.CreateAuth(childAPIKey, string(childAPIToken))
@@ -346,7 +345,7 @@ func TestParentGetChildrenOfKey(t *testing.T) {
 		parentAPIToken = respParent.Payload.Token
 	})
 
-	defer cleanupKey(parentAPIKey)
+	defer cleanupKey(t, parentAPIKey)
 
 	parentAuth := helper.CreateAuth(parentAPIKey, string(parentAPIToken))
 
@@ -359,7 +358,7 @@ func TestParentGetChildrenOfKey(t *testing.T) {
 		childAPIKeyA = respA.Payload.KeyID
 	})
 
-	defer cleanupKey(childAPIKeyA)
+	defer cleanupKey(t, childAPIKeyA)
 
 	respB, err := helper.Client(t).Keys.WeaviateKeyCreate(params, parentAuth)
 
@@ -370,7 +369,7 @@ func TestParentGetChildrenOfKey(t *testing.T) {
 		childAPIKeyB = respB.Payload.KeyID
 	})
 
-	defer cleanupKey(childAPIKeyB)
+	defer cleanupKey(t, childAPIKeyB)
 
 	createdChildren := []string{string(childAPIKeyA), string(childAPIKeyB)}
 	sort.Strings(createdChildren)
@@ -412,7 +411,7 @@ func TestChildCannotListParentsChildren(t *testing.T) {
 		parentAPIToken = respParent.Payload.Token
 	})
 
-	defer cleanupKey(parentAPIKey)
+	defer cleanupKey(t, parentAPIKey)
 
 	parentAuth := helper.CreateAuth(parentAPIKey, string(parentAPIToken))
 
@@ -425,7 +424,7 @@ func TestChildCannotListParentsChildren(t *testing.T) {
 		childAPIKeyA = respA.Payload.KeyID
 	})
 
-	defer cleanupKey(childAPIKeyA)
+	defer cleanupKey(t, childAPIKeyA)
 
 	respB, err := helper.Client(t).Keys.WeaviateKeyCreate(params, parentAuth)
 
@@ -440,7 +439,7 @@ func TestChildCannotListParentsChildren(t *testing.T) {
 
 	childAuth := helper.CreateAuth(childAPIKeyB, string(childAPITokenB))
 
-	defer cleanupKey(childAPIKeyB)
+	defer cleanupKey(t, childAPIKeyB)
 
 	createdChildren := []string{string(childAPIKeyA), string(childAPIKeyB)}
 	sort.Strings(createdChildren)
@@ -490,7 +489,7 @@ func TestGetChildKeysThroughMeKey(t *testing.T) {
 		parentAPIToken = respParent.Payload.Token
 	})
 
-	defer cleanupKey(parentAPIKey)
+	defer cleanupKey(t, parentAPIKey)
 
 	parentAuth := helper.CreateAuth(parentAPIKey, string(parentAPIToken))
 
@@ -503,7 +502,7 @@ func TestGetChildKeysThroughMeKey(t *testing.T) {
 		childAPIKeyA = respA.Payload.KeyID
 	})
 
-	defer cleanupKey(childAPIKeyA)
+	defer cleanupKey(t, childAPIKeyA)
 
 	respB, err := helper.Client(t).Keys.WeaviateKeyCreate(params, parentAuth)
 
@@ -514,7 +513,7 @@ func TestGetChildKeysThroughMeKey(t *testing.T) {
 		childAPIKeyB = respB.Payload.KeyID
 	})
 
-	defer cleanupKey(childAPIKeyB)
+	defer cleanupKey(t, childAPIKeyB)
 
 	createdChildren := []string{string(childAPIKeyA), string(childAPIKeyB)}
 	sort.Strings(createdChildren)
@@ -555,7 +554,7 @@ func TestRenewToken(t *testing.T) {
 		APIToken = resp.Payload.Token
 	})
 
-	defer cleanupKey(APIKey)
+	defer cleanupKey(t, APIKey)
 
 	t.Run("Renew token", func(t *testing.T) {
 		params := keys.NewWeaviateKeysRenewTokenParams().WithKeyID(APIKey)
@@ -592,7 +591,7 @@ func TestChildKeyCannotRenewParent(t *testing.T) {
 
 	auth := helper.CreateAuth(APIKey, string(APIToken))
 
-	defer cleanupKey(APIKey)
+	defer cleanupKey(t, APIKey)
 
 	t.Run("Child cannot renew parent token", func(t *testing.T) {
 		params := keys.NewWeaviateKeysRenewTokenParams().WithKeyID(helper.RootApiKey)
@@ -628,7 +627,7 @@ func TestKeyCannotRenewItself(t *testing.T) {
 
 	auth := helper.CreateAuth(APIKey, string(APIToken))
 
-	defer cleanupKey(APIKey)
+	defer cleanupKey(t, APIKey)
 
 	t.Run("Child cannot renew its own token", func(t *testing.T) {
 		t.Skip("This was already skipped in the original acceptance test!")
@@ -658,10 +657,10 @@ func TestRenewTokenOfNonExistingKey(t *testing.T) {
 	})
 }
 
-func cleanupKey(uuid strfmt.UUID) {
+func cleanupKey(t *testing.T, uuid strfmt.UUID) {
 	params := keys.NewWeaviateKeysDeleteParams().WithKeyID(uuid)
 	resp, err := helper.Client(nil).Keys.WeaviateKeysDelete(params, helper.RootAuth)
 	if err != nil {
-		panic(fmt.Sprintf("Could not clean up key '%s', because %v. Response: %#v", string(uuid), err, resp))
+		t.Logf("Could not clean up key '%s', because %v. Response: %#v", string(uuid), err, resp)
 	}
 }
