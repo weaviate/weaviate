@@ -2,6 +2,8 @@ package helper
 
 import (
 	"encoding/json"
+	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
@@ -28,5 +30,14 @@ func AssertRequestFail(t *testing.T, response interface{}, err error, check_fn f
 		if check_fn != nil {
 			check_fn()
 		}
+	}
+}
+
+func AssertOneErrorMessage(t *testing.T, expectedMessage string, errors *models.ErrorResponse) {
+	errorLen := len(errors.Error)
+	assert.Equal(t, 1, errorLen)
+
+	if errorLen > 0 {
+		assert.Equal(t, expectedMessage, errors.Error[0].Message)
 	}
 }

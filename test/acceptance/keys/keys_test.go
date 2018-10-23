@@ -145,8 +145,7 @@ func TestKeyCantExpireInThePast(t *testing.T) {
 	resp, err := helper.Client(t).Keys.WeaviateKeyCreate(params, helper.RootAuth)
 
 	helper.AssertRequestFail(t, resp, err, func() {
-		errorMessage := err.(*keys.WeaviateKeyCreateUnprocessableEntity).Payload.Error.Message
-		assert.Equal(t, "Key expiry time is in the past.", errorMessage)
+		helper.AssertOneErrorMessage(t, "Key expiry time is in the past.", err.(*keys.WeaviateKeyCreateUnprocessableEntity).Payload)
 	})
 }
 
@@ -191,8 +190,7 @@ func TestChildKeyCannotOutliveParent(t *testing.T) {
 		resp, err := helper.Client(t).Keys.WeaviateKeyCreate(params, expiringAuth)
 
 		helper.AssertRequestFail(t, resp, err, func() {
-			errorMessage := err.(*keys.WeaviateKeyCreateUnprocessableEntity).Payload.Error.Message
-			assert.Equal(t, "Key expiry time is later than the expiry time of parent.", errorMessage)
+			helper.AssertOneErrorMessage(t, "Key expiry time is later than the expiry time of parent.", err.(*keys.WeaviateKeyCreateUnprocessableEntity).Payload)
 		})
 	})
 }

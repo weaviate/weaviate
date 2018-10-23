@@ -120,7 +120,7 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, validation.ErrorMissingClass, err.Error.Message)
+			helper.AssertOneErrorMessage(t, validation.ErrorMissingClass, err)
 		},
 	},
 	{
@@ -134,7 +134,7 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, validation.ErrorMissingContext, err.Error.Message)
+			helper.AssertOneErrorMessage(t, validation.ErrorMissingContext, err)
 		},
 	},
 	{
@@ -149,7 +149,7 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf(schema.ErrorNoSuchClass, "NonExistingClass"), err.Error.Message)
+			helper.AssertOneErrorMessage(t, fmt.Sprintf(schema.ErrorNoSuchClass, "NonExistingClass"), err)
 		},
 	},
 	{
@@ -164,7 +164,7 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf(schema.ErrorNoSuchProperty, "nonExistingProperty", "TestThing"), err.Error.Message)
+			helper.AssertOneErrorMessage(t, fmt.Sprintf(schema.ErrorNoSuchProperty, "nonExistingProperty", "TestThing"), err)
 		},
 	},
 	{
@@ -182,7 +182,7 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf(validation.ErrorInvalidSingleRef, "TestThing", "testCref"), err.Error.Message)
+			helper.AssertOneErrorMessage(t, fmt.Sprintf(validation.ErrorInvalidSingleRef, "TestThing", "testCref"), err)
 		},
 	},
 	{
@@ -222,7 +222,8 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf(validation.ErrorMissingSingleRefLocationURL, "TestThing", "testCref"), err.Error.Message)
+			expectedErrorMessage := fmt.Sprintf(validation.ErrorMissingSingleRefLocationURL, "TestThing", "testCref")
+			helper.AssertOneErrorMessage(t, expectedErrorMessage, err)
 		},
 	},
 	{
@@ -241,7 +242,8 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf(validation.ErrorInvalidClassType, "TestThing", "testCref", connutils.RefTypeAction, connutils.RefTypeThing, connutils.RefTypeKey), err.Error.Message)
+			expectedErrorMessage := fmt.Sprintf(validation.ErrorInvalidClassType, "TestThing", "testCref", connutils.RefTypeAction, connutils.RefTypeThing, connutils.RefTypeKey)
+			helper.AssertOneErrorMessage(t, expectedErrorMessage, err)
 		},
 	},
 	{
@@ -256,7 +258,8 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Contains(t, fmt.Sprintf(validation.ErrorInvalidString, "TestThing", "testString", 2), err.Error.Message)
+			expectedErrorMessage := fmt.Sprintf(validation.ErrorInvalidString, "TestThing", "testString", 2)
+			helper.AssertOneErrorMessage(t, expectedErrorMessage, err)
 		},
 	},
 }
