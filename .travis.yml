@@ -22,9 +22,8 @@ deploy:
 go: 
   - "1.11"
 env:
-  - GO111MODULE=on
-  # Disable GraphQL tests
-  - GRAPHQL_TESTS=skip
+  # Disable GraphQL tests and force using modules.
+  - GO111MODULE=on GRAPHQL_TESTS=skip
 language: go
 install:  
   - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
