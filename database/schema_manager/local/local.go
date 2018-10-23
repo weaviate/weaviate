@@ -97,11 +97,13 @@ func (l *LocalSchemaManager) load() error {
 	// Fill in empty ontologies if there is no schema file.
 	if !stateFileExists {
 		l.schemaState.ActionSchema = &models.SemanticSchema{
-			Type: "action",
+			Classes: []*models.SemanticSchemaClass{},
+			Type:    "action",
 		}
 
 		l.schemaState.ThingSchema = &models.SemanticSchema{
-			Type: "thing",
+			Classes: []*models.SemanticSchemaClass{},
+			Type:    "thing",
 		}
 
 		// And flush the schema to disk.
