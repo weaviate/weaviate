@@ -45,9 +45,6 @@ type WeaviateSchema struct {
 	ActionSchema schemaProperties
 	ThingSchema  schemaProperties
 
-	// The predicate dict to re-use for every schema (thing/action)
-	predicateDict map[string]DataType
-
 	messaging *messages.Messaging
 }
 
@@ -181,7 +178,6 @@ func IsValidValueDataType(dt string) bool {
 func (f *WeaviateSchema) LoadSchema(usedConfig *config.Environment, m *messages.Messaging) error {
 	f.ThingSchema.schemaLocationFromConfig = usedConfig.Schemas.Thing
 	f.ActionSchema.schemaLocationFromConfig = usedConfig.Schemas.Action
-	f.predicateDict = map[string]DataType{}
 
 	configFiles := map[string]*schemaProperties{
 		"Action": &f.ActionSchema,
@@ -337,9 +333,6 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 					prop.Name,
 				))
 			}
-
-			// Add to predicate dict if it is not empty
-			f.predicateDict[prop.Name] = pred
 		}
 	}
 
