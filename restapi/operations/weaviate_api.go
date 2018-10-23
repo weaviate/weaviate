@@ -120,6 +120,24 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		P2PWeaviateP2pHealthHandler: p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
 			return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 		}),
+		SchemaWeaviateSchemaActionsCreateHandler: schema.WeaviateSchemaActionsCreateHandlerFunc(func(params schema.WeaviateSchemaActionsCreateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsCreate has not yet been implemented")
+		}),
+		SchemaWeaviateSchemaActionsDeleteHandler: schema.WeaviateSchemaActionsDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsDeleteParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsDelete has not yet been implemented")
+		}),
+		SchemaWeaviateSchemaActionsPropertiesAddHandler: schema.WeaviateSchemaActionsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesAddParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsPropertiesAdd has not yet been implemented")
+		}),
+		SchemaWeaviateSchemaActionsPropertiesDeleteHandler: schema.WeaviateSchemaActionsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesDeleteParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsPropertiesDelete has not yet been implemented")
+		}),
+		SchemaWeaviateSchemaActionsPropertiesUpdateHandler: schema.WeaviateSchemaActionsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesUpdateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsPropertiesUpdate has not yet been implemented")
+		}),
+		SchemaWeaviateSchemaActionsUpdateHandler: schema.WeaviateSchemaActionsUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsUpdateParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation SchemaWeaviateSchemaActionsUpdate has not yet been implemented")
+		}),
 		SchemaWeaviateSchemaDumpHandler: schema.WeaviateSchemaDumpHandlerFunc(func(params schema.WeaviateSchemaDumpParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation SchemaWeaviateSchemaDump has not yet been implemented")
 		}),
@@ -273,6 +291,18 @@ type WeaviateAPI struct {
 	P2PWeaviateP2pGenesisUpdateHandler p2_p.WeaviateP2pGenesisUpdateHandler
 	// P2PWeaviateP2pHealthHandler sets the operation handler for the weaviate p2p health operation
 	P2PWeaviateP2pHealthHandler p2_p.WeaviateP2pHealthHandler
+	// SchemaWeaviateSchemaActionsCreateHandler sets the operation handler for the weaviate schema actions create operation
+	SchemaWeaviateSchemaActionsCreateHandler schema.WeaviateSchemaActionsCreateHandler
+	// SchemaWeaviateSchemaActionsDeleteHandler sets the operation handler for the weaviate schema actions delete operation
+	SchemaWeaviateSchemaActionsDeleteHandler schema.WeaviateSchemaActionsDeleteHandler
+	// SchemaWeaviateSchemaActionsPropertiesAddHandler sets the operation handler for the weaviate schema actions properties add operation
+	SchemaWeaviateSchemaActionsPropertiesAddHandler schema.WeaviateSchemaActionsPropertiesAddHandler
+	// SchemaWeaviateSchemaActionsPropertiesDeleteHandler sets the operation handler for the weaviate schema actions properties delete operation
+	SchemaWeaviateSchemaActionsPropertiesDeleteHandler schema.WeaviateSchemaActionsPropertiesDeleteHandler
+	// SchemaWeaviateSchemaActionsPropertiesUpdateHandler sets the operation handler for the weaviate schema actions properties update operation
+	SchemaWeaviateSchemaActionsPropertiesUpdateHandler schema.WeaviateSchemaActionsPropertiesUpdateHandler
+	// SchemaWeaviateSchemaActionsUpdateHandler sets the operation handler for the weaviate schema actions update operation
+	SchemaWeaviateSchemaActionsUpdateHandler schema.WeaviateSchemaActionsUpdateHandler
 	// SchemaWeaviateSchemaDumpHandler sets the operation handler for the weaviate schema dump operation
 	SchemaWeaviateSchemaDumpHandler schema.WeaviateSchemaDumpHandler
 	// SchemaWeaviateSchemaThingsCreateHandler sets the operation handler for the weaviate schema things create operation
@@ -464,6 +494,30 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.P2PWeaviateP2pHealthHandler == nil {
 		unregistered = append(unregistered, "p2_p.WeaviateP2pHealthHandler")
+	}
+
+	if o.SchemaWeaviateSchemaActionsCreateHandler == nil {
+		unregistered = append(unregistered, "schema.WeaviateSchemaActionsCreateHandler")
+	}
+
+	if o.SchemaWeaviateSchemaActionsDeleteHandler == nil {
+		unregistered = append(unregistered, "schema.WeaviateSchemaActionsDeleteHandler")
+	}
+
+	if o.SchemaWeaviateSchemaActionsPropertiesAddHandler == nil {
+		unregistered = append(unregistered, "schema.WeaviateSchemaActionsPropertiesAddHandler")
+	}
+
+	if o.SchemaWeaviateSchemaActionsPropertiesDeleteHandler == nil {
+		unregistered = append(unregistered, "schema.WeaviateSchemaActionsPropertiesDeleteHandler")
+	}
+
+	if o.SchemaWeaviateSchemaActionsPropertiesUpdateHandler == nil {
+		unregistered = append(unregistered, "schema.WeaviateSchemaActionsPropertiesUpdateHandler")
+	}
+
+	if o.SchemaWeaviateSchemaActionsUpdateHandler == nil {
+		unregistered = append(unregistered, "schema.WeaviateSchemaActionsUpdateHandler")
 	}
 
 	if o.SchemaWeaviateSchemaDumpHandler == nil {
@@ -758,6 +812,36 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/p2p/health"] = p2_p.NewWeaviateP2pHealth(o.context, o.P2PWeaviateP2pHealthHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/schema/actions"] = schema.NewWeaviateSchemaActionsCreate(o.context, o.SchemaWeaviateSchemaActionsCreateHandler)
+
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/schema/actions/{className}"] = schema.NewWeaviateSchemaActionsDelete(o.context, o.SchemaWeaviateSchemaActionsDeleteHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/schema/actions/{className}/properties"] = schema.NewWeaviateSchemaActionsPropertiesAdd(o.context, o.SchemaWeaviateSchemaActionsPropertiesAddHandler)
+
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/schema/actions/{className}/properties/{propertyName}"] = schema.NewWeaviateSchemaActionsPropertiesDelete(o.context, o.SchemaWeaviateSchemaActionsPropertiesDeleteHandler)
+
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/schema/actions/{className}/properties/{propertyName}"] = schema.NewWeaviateSchemaActionsPropertiesUpdate(o.context, o.SchemaWeaviateSchemaActionsPropertiesUpdateHandler)
+
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/schema/actions/{className}"] = schema.NewWeaviateSchemaActionsUpdate(o.context, o.SchemaWeaviateSchemaActionsUpdateHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)

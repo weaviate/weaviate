@@ -929,6 +929,250 @@ func init() {
         }
       }
     },
+    "/schema/actions": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Create a new Action class in the ontology.",
+        "operationId": "weaviate.schema.actions.create",
+        "parameters": [
+          {
+            "name": "actionClass",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Action class to the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "422": {
+            "description": "Invalid Action class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the Action",
+        "operationId": "weaviate.schema.actions.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the Action",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a Action class (and all data in the instances) from the ontology",
+        "operationId": "weaviate.schema.actions.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the Action class from the ontology."
+          },
+          "400": {
+            "description": "Could not delete the Action class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}/properties": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Add a property to a Action class",
+        "operationId": "weaviate.schema.actions.properties.add",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the property"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class"
+          },
+          "422": {
+            "description": "Invalid property",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}/properties/{propertyName}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the property",
+        "operationId": "weaviate.schema.actions.properties.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the property",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class or property"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a property from a Action class",
+        "operationId": "weaviate.schema.actions.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the property from the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class or property"
+          }
+        }
+      }
+    },
     "/schema/things": {
       "post": {
         "tags": [
@@ -3420,6 +3664,250 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          }
+        }
+      }
+    },
+    "/schema/actions": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Create a new Action class in the ontology.",
+        "operationId": "weaviate.schema.actions.create",
+        "parameters": [
+          {
+            "name": "actionClass",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Action class to the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "422": {
+            "description": "Invalid Action class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the Action",
+        "operationId": "weaviate.schema.actions.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the Action",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a Action class (and all data in the instances) from the ontology",
+        "operationId": "weaviate.schema.actions.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the Action class from the ontology."
+          },
+          "400": {
+            "description": "Could not delete the Action class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}/properties": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Add a property to a Action class",
+        "operationId": "weaviate.schema.actions.properties.add",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the property"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class"
+          },
+          "422": {
+            "description": "Invalid property",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}/properties/{propertyName}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the property",
+        "operationId": "weaviate.schema.actions.properties.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the property",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class or property"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a property from a Action class",
+        "operationId": "weaviate.schema.actions.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the property from the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class or property"
           }
         }
       }

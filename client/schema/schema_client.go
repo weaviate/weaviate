@@ -25,6 +25,180 @@ type Client struct {
 }
 
 /*
+WeaviateSchemaActionsCreate creates a new action class in the ontology
+*/
+func (a *Client) WeaviateSchemaActionsCreate(params *WeaviateSchemaActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsCreateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateSchemaActionsCreateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.schema.actions.create",
+		Method:             "POST",
+		PathPattern:        "/schema/actions",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateSchemaActionsCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateSchemaActionsCreateOK), nil
+
+}
+
+/*
+WeaviateSchemaActionsDelete removes a action class and all data in the instances from the ontology
+*/
+func (a *Client) WeaviateSchemaActionsDelete(params *WeaviateSchemaActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsDeleteOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateSchemaActionsDeleteParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.schema.actions.delete",
+		Method:             "DELETE",
+		PathPattern:        "/schema/actions/{className}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateSchemaActionsDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateSchemaActionsDeleteOK), nil
+
+}
+
+/*
+WeaviateSchemaActionsPropertiesAdd adds a property to a action class
+*/
+func (a *Client) WeaviateSchemaActionsPropertiesAdd(params *WeaviateSchemaActionsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsPropertiesAddOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateSchemaActionsPropertiesAddParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.schema.actions.properties.add",
+		Method:             "POST",
+		PathPattern:        "/schema/actions/{className}/properties",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateSchemaActionsPropertiesAddReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateSchemaActionsPropertiesAddOK), nil
+
+}
+
+/*
+WeaviateSchemaActionsPropertiesDelete removes a property from a action class
+*/
+func (a *Client) WeaviateSchemaActionsPropertiesDelete(params *WeaviateSchemaActionsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsPropertiesDeleteOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateSchemaActionsPropertiesDeleteParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.schema.actions.properties.delete",
+		Method:             "DELETE",
+		PathPattern:        "/schema/actions/{className}/properties/{propertyName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateSchemaActionsPropertiesDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateSchemaActionsPropertiesDeleteOK), nil
+
+}
+
+/*
+WeaviateSchemaActionsPropertiesUpdate renames or replace the keywords of the property
+*/
+func (a *Client) WeaviateSchemaActionsPropertiesUpdate(params *WeaviateSchemaActionsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsPropertiesUpdateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateSchemaActionsPropertiesUpdateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.schema.actions.properties.update",
+		Method:             "PUT",
+		PathPattern:        "/schema/actions/{className}/properties/{propertyName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateSchemaActionsPropertiesUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateSchemaActionsPropertiesUpdateOK), nil
+
+}
+
+/*
+WeaviateSchemaActionsUpdate renames or replace the keywords of the action
+*/
+func (a *Client) WeaviateSchemaActionsUpdate(params *WeaviateSchemaActionsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsUpdateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateSchemaActionsUpdateParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.schema.actions.update",
+		Method:             "PUT",
+		PathPattern:        "/schema/actions/{className}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateSchemaActionsUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateSchemaActionsUpdateOK), nil
+
+}
+
+/*
 WeaviateSchemaDump dumps the current the database schema
 */
 func (a *Client) WeaviateSchemaDump(params *WeaviateSchemaDumpParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaDumpOK, error) {
