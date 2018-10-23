@@ -49,7 +49,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsCreateOK()
 		} else {
-			errorResponse := models.ErrorResponse{Error: &models.ErrorResponseError{Message: err.Error()}}
+			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
 			return schema.NewWeaviateSchemaThingsCreateUnprocessableEntity().WithPayload(&errorResponse)
 		}
 	})
@@ -66,7 +66,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsDeleteOK()
 		} else {
-			errorResponse := models.ErrorResponse{Error: &models.ErrorResponseError{Message: err.Error()}}
+			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
 			return schema.NewWeaviateSchemaThingsDeleteBadRequest().WithPayload(&errorResponse)
 		}
 	})
