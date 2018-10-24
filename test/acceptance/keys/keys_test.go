@@ -145,8 +145,8 @@ func TestKeyCantExpireInThePast(t *testing.T) {
 	resp, err := helper.Client(t).Keys.WeaviateKeyCreate(params, helper.RootAuth)
 
 	helper.AssertRequestFail(t, resp, err, func() {
-		errorMessage := err.(*keys.WeaviateKeyCreateUnprocessableEntity).Payload.Error.Message
-		assert.Equal(t, "Key expiry time is in the past.", errorMessage)
+		errorMessages := err.(*keys.WeaviateKeyCreateUnprocessableEntity).Payload.Error
+		assert.Contains(t, errorMessages, "Key expiry time is in the past.")
 	})
 }
 
