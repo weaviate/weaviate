@@ -2,6 +2,7 @@ package database
 
 import (
 	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
+	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
 )
 
 type RWLocker interface {
@@ -25,7 +26,7 @@ func (cl *ConnectorLock) Connector() *dbconnector.DatabaseConnector {
 	}
 }
 
-func (cl *ConnectorLock) GetSchema() Schema {
+func (cl *ConnectorLock) GetSchema() db_schema.Schema {
 	if cl.valid {
 		return (*cl.db.manager).GetSchema()
 	} else {
@@ -43,7 +44,7 @@ type SchemaLock struct {
 	valid bool
 }
 
-func (cl *SchemaLock) GetSchema() Schema {
+func (cl *SchemaLock) GetSchema() db_schema.Schema {
 	if cl.valid {
 		return (*cl.db.manager).GetSchema()
 	} else {

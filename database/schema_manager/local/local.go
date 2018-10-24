@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	"os"
 
+	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema/kind"
 	log "github.com/sirupsen/logrus"
@@ -20,8 +22,10 @@ type LocalSchemaManager struct {
 	stateDir string
 
 	// A file handler to the state file.
-	stateFile   *os.File
-	schemaState localSchemaState
+	stateFile         *os.File
+	schemaState       localSchemaState
+	connectorMigrator schema_migrator.Migrator
+	callbacks         []func(updatedSchema db_schema.Schema)
 }
 
 // The state that will be serialized to/from disk.
@@ -43,10 +47,11 @@ func (l *localSchemaState) SchemaFor(k kind.Kind) *models.SemanticSchema {
 	}
 }
 
-func New(stateDirName string) (*LocalSchemaManager, error) {
+func New(stateDirName string, connectorMigrator schema_migrator.Migrator) (*LocalSchemaManager, error) {
 	manager := &LocalSchemaManager{
-		stateDir:    stateDirName,
-		schemaState: localSchemaState{},
+		stateDir:          stateDirName,
+		schemaState:       localSchemaState{},
+		connectorMigrator: connectorMigrator,
 	}
 
 	err := manager.load()
@@ -131,6 +136,7 @@ func (l *LocalSchemaManager) statePath() string {
 }
 
 // Save the schema to the local disk.
+// Triggers callbacks to all interested observers.
 func (l *LocalSchemaManager) saveToDisk() error {
 	log.Info("Updating local schema on disk")
 	// TODO not 100% robust against failures.
@@ -153,6 +159,8 @@ func (l *LocalSchemaManager) saveToDisk() error {
 
 	l.stateFile.Write(stateBytes)
 	l.stateFile.Sync()
+
+	l.triggerCallbacks()
 
 	return nil
 }

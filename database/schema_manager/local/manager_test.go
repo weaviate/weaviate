@@ -14,6 +14,32 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
+// The local manager requires a backend for now (to prevent lots of nil checks).
+type NilMigrator struct{}
+
+func (n *NilMigrator) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
+	return nil
+}
+func (n *NilMigrator) DropClass(kind kind.Kind, className string) error {
+	return nil
+}
+
+func (n *NilMigrator) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+	return nil
+}
+
+func (n *NilMigrator) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+	return nil
+}
+
+func (n *NilMigrator) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+	return nil
+}
+
+func (n *NilMigrator) DropProperty(kind kind.Kind, className string, propName string) error {
+	return nil
+}
+
 var schemaTests = []struct {
 	name string
 	fn   func(*testing.T, *LocalSchemaManager)
@@ -395,7 +421,7 @@ func newLSM(baseTempDir string) *LocalSchemaManager {
 		log.Fatalf("Could not initialize temporary directory: %v\n", err)
 	}
 
-	lsm, err := New(tempDir)
+	lsm, err := New(tempDir, &NilMigrator{})
 	if err != nil {
 		panic(err)
 	}
