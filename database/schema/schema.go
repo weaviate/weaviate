@@ -1,4 +1,4 @@
-package database
+package schema
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/models"

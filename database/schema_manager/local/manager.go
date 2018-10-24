@@ -3,7 +3,7 @@ package local
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/database"
+	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/creativesoftwarefdn/weaviate/schema/kind"
@@ -75,8 +75,8 @@ func validateCanAddProperty(property *models.SemanticSchemaClassProperty, class 
 	return nil
 }
 
-func (l *LocalSchemaManager) GetSchema() database.Schema {
-	return database.Schema{
+func (l *LocalSchemaManager) GetSchema() db_schema.Schema {
+	return db_schema.Schema{
 		Actions: l.schemaState.ActionSchema,
 		Things:  l.schemaState.ThingSchema,
 	}
@@ -99,7 +99,12 @@ func (l *LocalSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSche
 		// TODO keep it sorted.
 		semanticSchema := l.schemaState.SchemaFor(kind)
 		semanticSchema.Classes = append(semanticSchema.Classes, class)
-		return l.saveToDisk()
+		err := l.saveToDisk()
+		if err != nil {
+			return err
+		}
+
+		return l.connectorMigrator.AddClass(kind, class)
 	}
 }
 
@@ -123,7 +128,13 @@ func (l *LocalSchemaManager) DropClass(kind kind.Kind, className string) error {
 	semanticSchema.Classes[len(semanticSchema.Classes)-1] = nil // to prevent leaking this pointer.
 	semanticSchema.Classes = semanticSchema.Classes[:len(semanticSchema.Classes)-1]
 
-	return l.saveToDisk()
+	err := l.saveToDisk()
+	if err != nil {
+		return err
+	}
+
+	// TODO log
+	return l.connectorMigrator.DropClass(kind, className)
 }
 
 func (l *LocalSchemaManager) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
@@ -155,7 +166,13 @@ func (l *LocalSchemaManager) UpdateClass(kind kind.Kind, className string, newCl
 		class.Keywords = *newKeywords
 	}
 
-	return nil
+	err = l.saveToDisk()
+
+	if err != nil {
+		return nil
+	}
+
+	return l.connectorMigrator.UpdateClass(kind, className, newClassName, newKeywords)
 }
 
 func (l *LocalSchemaManager) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
@@ -172,7 +189,13 @@ func (l *LocalSchemaManager) AddProperty(kind kind.Kind, className string, prop 
 
 	class.Properties = append(class.Properties, prop)
 
-	return nil
+	err = l.saveToDisk()
+
+	if err != nil {
+		return nil
+	}
+
+	return l.connectorMigrator.AddProperty(kind, className, prop)
 }
 
 func (l *LocalSchemaManager) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
@@ -210,7 +233,13 @@ func (l *LocalSchemaManager) UpdateProperty(kind kind.Kind, className string, pr
 		prop.Keywords = *newKeywords
 	}
 
-	return nil
+	err = l.saveToDisk()
+
+	if err != nil {
+		return nil
+	}
+
+	return l.connectorMigrator.UpdateProperty(kind, className, propName, newName, newKeywords)
 }
 
 func (l *LocalSchemaManager) DropProperty(kind kind.Kind, className string, propName string) error {
@@ -236,5 +265,11 @@ func (l *LocalSchemaManager) DropProperty(kind kind.Kind, className string, prop
 	class.Properties[len(class.Properties)-1] = nil // to prevent leaking this pointer.
 	class.Properties = class.Properties[:len(class.Properties)-1]
 
-	return l.saveToDisk()
+	err = l.saveToDisk()
+
+	if err != nil {
+		return nil
+	}
+
+	return l.connectorMigrator.DropProperty(kind, className, propName)
 }

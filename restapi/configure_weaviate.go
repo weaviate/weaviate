@@ -48,6 +48,7 @@ import (
 	dblisting "github.com/creativesoftwarefdn/weaviate/connectors/listing"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database"
+	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
 	db_local_schema_manager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/local"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
@@ -63,12 +64,12 @@ import (
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/restapi/swagger_middleware"
 )
 
 const pageOverride int = 1
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
-var databaseSchema schema.WeaviateSchema
 var contextionary *libcontextionary.Contextionary
 var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
@@ -423,6 +424,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &action)
 
 		// Validate schema made after patching with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &action.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -489,6 +491,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -533,6 +536,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(ctx, &params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -558,6 +562,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), params.Body.Action, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -916,6 +921,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body.Thing, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -1179,6 +1185,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema made after patching with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &thing.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -1249,6 +1256,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &params.Body.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -1292,6 +1300,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -1300,6 +1309,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsValidateOK()
 	})
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		// Create response object
 		metaResponse := &models.Meta{}
 
@@ -1468,15 +1480,6 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, err.Error())
 	}
 
-	// Load the schema using the config
-	databaseSchema = schema.WeaviateSchema{}
-	err = databaseSchema.LoadSchema(&serverConfig.Environment, messaging)
-
-	// Fatal error loading schema file
-	if err != nil {
-		messaging.ExitError(78, err.Error())
-	}
-
 	loadContextionary()
 
 	connectToNetwork()
@@ -1494,7 +1497,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, "Local schema manager is not configured.")
 	}
 
-	manager_, err := db_local_schema_manager.New(serverConfig.Environment.Database.LocalSchemaConfig.StateDir)
+	manager_, err := db_local_schema_manager.New(serverConfig.Environment.Database.LocalSchemaConfig.StateDir, dbConnector)
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
 	}
@@ -1514,7 +1517,16 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, err.Error())
 	}
 
-	err = dbConnector.SetSchema(&databaseSchema)
+	manager.RegisterSchemaUpdateCallback(func(updatedSchema db_schema.Schema) {
+		s := schema.HackFromDatabaseSchema(updatedSchema)
+		err := dbConnector.SetSchema(&s)
+		if err != nil {
+			// TODO: log
+		}
+	})
+
+	initialSchema := schema.HackFromDatabaseSchema(manager.GetSchema())
+	err = dbConnector.SetSchema(&initialSchema)
 	// Fatal error loading schema file
 	if err != nil {
 		messaging.ExitError(78, err.Error())
@@ -1541,11 +1553,22 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
 	}
 
-	graphQL, err = graphqlapi.CreateSchema(&dbConnector, serverConfig, &databaseSchema, messaging)
-
+	graphQL, err = graphqlapi.CreateSchema(&dbConnector, serverConfig, &initialSchema, messaging)
 	if err != nil {
-		messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+err.Error())
+	  TODO: trigger safe mode.
+		log.Printf("GraphQL schema initialization gave an error when initializing: %v ", err)
 	}
+
+	manager.RegisterSchemaUpdateCallback(func(updatedSchema db_schema.Schema) {
+		s := schema.HackFromDatabaseSchema(updatedSchema)
+		updatedGraphQL, err := graphqlapi.CreateSchema(nil, serverConfig, &s, messaging)
+		if err != nil {
+			// TODO: log
+		} else {
+			// TODO: atomic update?
+			graphQL = updatedGraphQL
+		}
+	})
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
@@ -1606,27 +1629,31 @@ func loadContextionary() {
 
 	messaging.InfoMessage("Contextionary loaded from disk")
 
-	// Now create the in-memory contextionary based on the classes / properties.
-	in_memory_contextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(mmaped_contextionary)
-	if err != nil {
-		messaging.ExitError(78, fmt.Sprintf("Could not build in-memory contextionary from schema; %+v", err))
-	}
+	//TODO: update on schema change.
+	//// Now create the in-memory contextionary based on the classes / properties.
+	//databaseSchema :=
+	//in_memory_contextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(mmaped_contextionary)
+	//if err != nil {
+	//	messaging.ExitError(78, fmt.Sprintf("Could not build in-memory contextionary from schema; %+v", err))
+	//}
 
-	// Combine contextionaries
-	contextionaries := []libcontextionary.Contextionary{*in_memory_contextionary, *mmaped_contextionary}
-	combined, err := libcontextionary.CombineVectorIndices(contextionaries)
+	//// Combine contextionaries
+	//contextionaries := []libcontextionary.Contextionary{*in_memory_contextionary, *mmaped_contextionary}
+	//combined, err := libcontextionary.CombineVectorIndices(contextionaries)
+	//
+	// if err != nil {
+	// 	messaging.ExitError(78, fmt.Sprintf("Could not combine the contextionary database with the in-memory generated contextionary; %+v", err))
+	// }
 
-	if err != nil {
-		messaging.ExitError(78, fmt.Sprintf("Could not combine the contextionary database with the in-memory generated contextionary; %+v", err))
-	}
+	// messaging.InfoMessage("Contextionary extended with names in the schema")
 
-	messaging.InfoMessage("Contextionary extended with names in the schema")
+	// // urgh, go.
+	// x := libcontextionary.Contextionary(combined)
+	// contextionary = &x
 
-	// urgh, go.
-	x := libcontextionary.Contextionary(combined)
-	contextionary = &x
+	// // whoop!
 
-	// whoop!
+	contextionary = mmaped_contextionary
 }
 
 func connectToNetwork() {

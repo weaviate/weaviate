@@ -24,11 +24,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
-
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // SchemaPrefix is the prefixed used in the database for schema properties
@@ -46,6 +46,17 @@ type WeaviateSchema struct {
 	ThingSchema  schemaProperties
 
 	messaging *messages.Messaging
+}
+
+func HackFromDatabaseSchema(dbSchema db_schema.Schema) WeaviateSchema {
+	return WeaviateSchema{
+		ActionSchema: schemaProperties{
+			Schema: dbSchema.Actions,
+		},
+		ThingSchema: schemaProperties{
+			Schema: dbSchema.Actions,
+		},
+	}
 }
 
 // DataType is a representation of the predicate for queries
@@ -274,6 +285,9 @@ func (f *WeaviateSchema) validateSchema(schema *models.SemanticSchema) error {
 
 			// Predicate init the predicate variable to contain the data type
 			var pred DataType
+
+			// TODO: Remove references to pred.
+			_ = pred
 
 			// Loop through all data types and set if a value or cross-reference is found
 			for _, dataType := range prop.AtDataType {
