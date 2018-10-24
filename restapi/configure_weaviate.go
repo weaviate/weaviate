@@ -1596,6 +1596,7 @@ func setupGlobalMiddleware(handler http.Handler) http.Handler {
 	handleCORS := cors.Default().Handler
 	handler = handleCORS(handler)
 	handler = graphiql.AddMiddleware(handler)
+	handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
 
 	return addLogging(handler)
 }
