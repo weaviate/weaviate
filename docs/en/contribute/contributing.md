@@ -36,13 +36,22 @@ Please use [Github's autolink-urls](https://help.github.com/articles/autolinked-
 
 ## Versioning
 
-We use [semver](https://semver.org/) for versioning. The version number can be found in the [API specs](../openapi-specs/schema.json) under: `.version`. This version number will also used to publish binaries.
+We use [semver](https://semver.org/) for versioning. The version number can be found in the [API specs](../openapi-specs/schema.json) under: `.info.version`. This version number will also used to publish binaries.
+
+To see the latest version, run on of the following [jq](https://stedolan.github.io/jq/) functions;
+
+| Description | Command |
+| ----------- | ------- |
+| From current local branch | `$ jq -r '.info.version' ./openapi-specs/schema.json` |
+| Get current `tree/develop` version | `$ curl -sS https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/openapi-specs/schema.json \| jq -r ".info.version"` |
+| Get current `tree/master` |  version `$ curl -sS https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/openapi-specs/schema.json \| jq -r '.info.version' ` |
+
 
 ### Gitflow
 
 Weaviate uses [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) which means that the master branch is stable.
 
-_Important: The versioning of `master` is based on the version number that can be found in the [API specs](../openapi-specs/schema.json) under: `.version`._
+_Important: The versioning of `tree/master` and `tree/develop` are based on the version number that can be found in the [API specs](../../../openapi-specs/schema.json) under: `.info.version`._
 
 ## API's
 
