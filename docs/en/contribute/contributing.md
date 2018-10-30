@@ -61,7 +61,7 @@ The complete open API specs document is available [here](../openapi-specs/schema
 
 ### GraphQL
 
-We really on GraphQL to expose the graphs both locally and on the network. We have extensive documentation available on this which you can find [here](./) prefixed with `graphql-*.md`.
+We rely on GraphQL to expose the graphs both locally and on the network. We have extensive documentation available on this which you can find [here](./) prefixed with `graphql-*.md`.
 
 ### Error handling
 
