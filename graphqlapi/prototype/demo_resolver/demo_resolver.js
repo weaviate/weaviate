@@ -2,7 +2,6 @@ const _ = require('lodash');
 // file system for reading files
 const fs = require('fs');
 const data = JSON.parse(fs.readFileSync('./demo_resolver/demo_data.json', 'utf8'));
-const network_data = JSON.parse(fs.readFileSync('./network/all_network_demo_data.json', 'utf8'));
 
 var solveMetaRootClass = function(all_data, className, args) {
 	var list = []
@@ -19,7 +18,6 @@ var solveMetaRootClass = function(all_data, className, args) {
 		    list = list.splice(0, args.first)
 	    }
 		all_data = list
-		console.log(all_data)
 		
 	    nodes_in_class = []
 	    for (var i in all_data) { // loop through single things or actions
@@ -103,16 +101,24 @@ var solveMetaRootClass = function(all_data, className, args) {
 }
 
 
-var resolve_IE = function (operator, path, value) {
+var resolve_IE = function (operator, path, value, location="Local") {
 	// loop over filter EQ list
-	var return_list = []	
-	var object_list = data[path[0]]
+	var return_list = []
+
+	if(location=="Local"){
+		var object_list = data[location][path[0]]
+		p_start = 1
+	}
+	else{
+		var object_list = data[location][path[1]]
+		p_start = 2
+	}
 
 	// loop over things/actions in list
 	for(var j=0; j < object_list.length; j++) {
 		var object = object_list[j]
 
-		for (var p=1; p < path.length; p++) { // loop over rest of items in path			
+		for (var p=p_start; p < path.length; p++) { // loop over rest of items in path			
 			if (object.class === path[p]) {
 				continue
 			}
@@ -157,22 +163,37 @@ var resolve_IE = function (operator, path, value) {
 		}
 	}
 	var return_array = {}
-	return_array[path[0]] = return_list
+
+	if(location=="Local"){
+		return_array[path[0]] = return_list
+	}
+	else{
+		return_array[path[0]] = {}
+		return_array[path[0]][path[1]] = return_list
+	}
+	
 	return return_array
 }
 
 
-var resolve_NEQ = function (path, value) {
+var resolve_NEQ = function (path, value, location="Local") {
 	// loop over filter NEQ list
 	var return_list = []
-	var object_list = data[path[0]]
+	if(location=="Local"){
+		var object_list = data[location][path[0]]
+		p_start = 1
+	}
+	else{
+		var object_list = data[location][path[1]]
+		p_start = 2
+	}
 	var short_list = Object.assign([], object_list)
 
 	// loop over things/actions in list
 	for(var j=0; j < object_list.length; j++) {
 		var object = object_list[j]
 
-		for (var p=1; p < path.length; p++) { // loop over rest of items in path
+		for (var p=p_start; p < path.length; p++) { // loop over rest of items in path
 			if (object.class === path[p]) {
 				continue
 			}
@@ -201,23 +222,36 @@ var resolve_NEQ = function (path, value) {
 	}
 	return_list = _.union(return_list, short_list)
 	var return_array = {}
-	return_array[path[0]] = return_list
+	if(location=="Local"){
+		return_array[path[0]] = return_list
+	}
+	else{
+		return_array[path[0]] = {}
+		return_array[path[0]][path[1]] = return_list
+	}
 	return return_array
 }
 
 
-var resolve_EQ = function (path, value) {
+var resolve_EQ = function (path, value, location="Local") {
 	// loop over filter EQ list
 	var return_array = {}
 	var new_list = []
-
-	var object_list = data[path[0]]
+	if(location=="Local"){
+		var object_list = data[location][path[0]]
+		p_start = 1
+	}
+	else{
+		var object_list = data[location][path[1]]
+		p_start = 2
+	}
+	
 
 	// loop over things/actions in list
 	for(var j=0; j < object_list.length; j++) {
 		var object = object_list[j]
 
-		for (var p=1; p < path.length; p++) { // loop over rest of items in path
+		for (var p=p_start; p < path.length; p++) { // loop over rest of items in path
 			if (object.class === path[p]) {
 				continue
 			}
@@ -243,52 +277,59 @@ var resolve_EQ = function (path, value) {
 			}
 		}
 	}
-	return_array[path[0]] = _.union(new_list, return_array[path[0]])
+
+	if(location=="Local"){
+		return_array[path[0]] = _.union(new_list, return_array[path[0]])
+	}
+	else{
+		return_array[path[0]] = {}
+		return_array[path[0]][path[1]] = new_list
+	}
 	return return_array
 }
 
 
-const solve_path = function (operator, path, value) {
+const solve_path = function (operator, path, value, location="Local") {
 
 	if (["GreaterThan", "GreaterThanEqual", "LessThan", "LessThanEqual"].includes(operator)) {
 		// IE
-		return resolve_IE(operator, path, value)
+		return resolve_IE(operator, path, value, location)
 	}
 	else if (operator == "Equal") {
 		// EQ
-		return resolve_EQ(path, value)
+		return resolve_EQ(path, value, location)
 	}
 	else if (operator == "Not" || operator == "NotEqual") {
 		// NEQ
-		return resolve_NEQ(path, value)
+		return resolve_NEQ(path, value, location)
 	}
 }
 
 
-const solve_operands = function (operator, operands) {
+const solve_operands = function (operator, operands, location="Local") {
 	return_data = {}
 
 	for (var i in operands) {
 		operand = operands[i]
 
 		if (operand.operator == 'And' || operand.operator == 'Or') {
-			result = solve_operands(operand.operator, operand.operands)
+			result = solve_operands(operand.operator, operand.operands, location)
 		}
 		else if ((operand.operator == 'Not' || operand.operator == 'NotEqual') && operand.operands) {
 			result = solve_operands(operand.operator, operand.operands)
 		}
 		else {
 			if (operand.valueString) {
-				result = solve_path(operand.operator, operand.path, operand.valueString)
+				result = solve_path(operand.operator, operand.path, operand.valueString, location)
 			}
 			else if (operand.valueInt) {
-				result = solve_path(operand.operator, operand.path, operand.valueInt)
+				result = solve_path(operand.operator, operand.path, operand.valueInt, location)
 			}
 			else if (operand.valueBoolean) {
-				result = solve_path(operand.operator, operand.path, operand.valueBoolean)
+				result = solve_path(operand.operator, operand.path, operand.valueBoolean, location)
 			}
 			else if (operand.valueFloat) {
-				result = solve_path(operand.operator, operand.path, operand.valueFloat)
+				result = solve_path(operand.operator, operand.path, operand.valueFloat, location)
 			}
 		}
 
@@ -343,7 +384,7 @@ module.exports = {
 			}
 		}
 		else {
-			return data
+			return data.Local
 		}
     },
     rootClassResolver: function(return_data, className, args) {
@@ -365,8 +406,34 @@ module.exports = {
 		return solveMetaRootClass(all_data, className, args)
 	},
 	resolveNetworkGet: function(filter) {
-		return network_data
-    },
+		all_data = _.clone(data);
+		if (filter) {
+			path = filter.path
+			if (filter.operator == 'And' || filter.operator == 'Or') {
+				return solve_operands(filter.operator, filter.operands, location=filter.operands[0].path[0])
+			}
+			else if ((filter.operator == 'Not' || filter.operator == 'NotEqual') && filter.operands) {
+				return solve_operands(filter.operator, filter.operands, filter.operands[0].path[0])
+			}
+			else {
+				if (filter.valueString) {
+					return solve_path(filter.operator, filter.path, filter.valueString, location=path[0])
+				}
+				else if (filter.valueInt) {
+					return solve_path(filter.operator, filter.path, filter.valueInt, location=path[0])
+				}
+				else if (filter.valueBoolean) {
+					return solve_path(filter.operator, filter.path, filter.valueBoolean, location=path[0])
+				}
+				else if (filter.valueFloat) {
+					return solve_path(filter.operator, filter.path, filter.valueFloat, location=path[0])
+				}
+			}
+		}
+		else {
+			return data
+		}
+	},
 	resolveNetworkFetch: function(args){
 		var argsClassName = args.where.class[0].name
 		var argsKeywordsValue = args.where.class[0].keywords[0].value
@@ -382,7 +449,22 @@ module.exports = {
 				returnlist.push(node)
 			}
 		}
+		return returnlist
+	},
+	resolveNetworkFetchFuzzy: function(args){
+		var value = args.value
+		var certainty = args.certainty
+		var returnlist = []
 
+		for (var i in networkNodes) {
+			var node = networkNodes[i];
+			for(var property in networkNodes[i].properties){
+				if (networkNodes[i].properties[property].valueString == value){
+					node["certainty"] = 0.98
+					returnlist.push(node)
+				}
+			}
+		}
 		return returnlist
 	},
 	resolveNetworkIntrospect: function(args){
@@ -437,20 +519,20 @@ module.exports = {
 		for (var i in networkNodes) {
 			node = networkNodes[i];
 			if (node.beacon == id) {
-				node["certainty"] = 0.87
+				//node["certainty"] = 0.87
 				for (var j in node.properties) {
 					node.properties[j]["propertyName"] = node.properties[j].name
-					node.properties[j]["certainty"] = 0.96
+					//node.properties[j]["certainty"] = 0.96
 				}
-				return [node]
+				return node
 			}
 		}
 	}
 }
 
 const networkNodes = [{
-	"beacon": "weaviate://weaviate_1/8569c0aa-3e8a-4de4-86a7-89d010152ad6",
-	"weaviate": "weaviate_1",
+	"beacon": "weaviate://weaviateB/8569c0aa-3e8a-4de4-86a7-89d010152ad6",
+	"weaviate": "weaviateB",
 	"className": "City",
 	"properties": [{
 		"name": "name",
@@ -460,8 +542,8 @@ const networkNodes = [{
 		"valueInt": 360000
 	}]
 }, {
-	"beacon": "weaviate://weaviate_1/8569c0aa-3e8a-4de4-86a7-89d010152ad7",
-	"weaviate": "weaviate_1",
+	"beacon": "weaviate://weaviateB/8569c0aa-3e8a-4de4-86a7-89d010152ad7",
+	"weaviate": "weaviateB",
 	"className": "City",
 	"properties": [{
 		"name": "name",
@@ -471,8 +553,8 @@ const networkNodes = [{
 		"valueInt": 250000
 	}]
 }, {
-	"beacon": "weaviate://weaviate_1/8569c0aa-3e8a-4de4-86a7-89d010152ad8",
-	"weaviate": "weaviate_1",
+	"beacon": "weaviate://weaviateB/8569c0aa-3e8a-4de4-86a7-89d010152ad8",
+	"weaviate": "weaviateB",
 	"className": "City",
 	"properties": [{
 		"name": "name",
@@ -482,8 +564,8 @@ const networkNodes = [{
 		"valueInt": 200000
 	}]
 }, {
-	"beacon": "weaviate://weaviate_2/8569c0aa-3e8a-4de4-86a7-89d010152ad9",
-	"weaviate": "weaviate_2",
+	"beacon": "weaviate://weaviateC/8569c0aa-3e8a-4de4-86a7-89d010152ad9",
+	"weaviate": "weaviateC",
 	"className": "Place",
 	"properties": [{
 		"name": "label",
@@ -493,8 +575,8 @@ const networkNodes = [{
 		"valueInt": 360000
 	}]
 }, {
-	"beacon": "weaviate://weaviate_2/8569c0aa-3e8a-4de4-86a7-89d010152ad0",
-	"weaviate": "weaviate_2",
+	"beacon": "weaviate://weaviateC/8569c0aa-3e8a-4de4-86a7-89d010152ad0",
+	"weaviate": "weaviateC",
 	"className": "Place",
 	"properties": [{
 		"name": "label",
@@ -504,8 +586,8 @@ const networkNodes = [{
 		"valueInt": 250000
 	}]
 }, {
-	"beacon": "weaviate://weaviate_2/8569c0aa-3e8a-4de4-86a7-89d010152ad1",
-	"weaviate": "weaviate_2",
+	"beacon": "weaviate://weaviateC/8569c0aa-3e8a-4de4-86a7-89d010152ad1",
+	"weaviate": "weaviateC",
 	"className": "Place",
 	"properties": [{
 		"name": "label",

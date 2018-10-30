@@ -7,37 +7,37 @@
 	}, {
 		"class": "Airport",
 		"uuid": "0101",
-		"inCity": "Rotterdam",
+		"place": "Rotterdam",
 		"code": "1235"
 	}, {
 		"class": "Airport",
 		"uuid": "0111",
-		"inCity": "Dusseldorf",
+		"place": "Dusseldorf",
 		"code": "1236"
 	}, {
 		"class": "Airport",
 		"uuid": "0121",
-		"inCity": "Berlin",
+		"place": "Berlin",
 		"code": "1237"
 	}, {
 		"class": "Airport",
 		"uuid": "0121",
-		"inCity": "Eindhoven",
+		"place": "Eindhoven",
 		"code": "1238"
 	}, {
 		"class": "Airport",
 		"uuid": "0121",
-		"inCity": "London",
+		"place": "London",
 		"code": "1239"
 	}, {
 		"class": "Airport",
 		"uuid": "0121",
-		"inCity": "London",
+		"place": "London",
 		"code": "1240"
 	}, {
 		"class": "Airport",
 		"uuid": "0121",
-		"inCity": "New York",
+		"place": "New York",
 		"code": "1241"
 	}, {
 		"class": "Airline",

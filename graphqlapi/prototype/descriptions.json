@@ -88,6 +88,13 @@
 	"WeaviateNetworkFetchFuzzyArgCertainty": "The minimum certainty the nodes should match the given ontology value",
 	"WeaviateNetworkFetchFuzzyObj": "The objects what to request from this network fuzzy fetch query",
 	"WeaviateNetworkFetchFuzzyBeacon": "The beacon of the node that is a result from the fuzzy network fetch",
-	"WeaviateNetworkFetchFuzzyCertainty": "The certainty the node has a value matching the value searched on in the fuzzy network fetch"
-
+	"WeaviateNetworkFetchFuzzyCertainty": "The certainty the node has a value matching the value searched on in the fuzzy network fetch",
+	"WeaviateNetworkGetMeta": "Query to Get Meta information about the data in the Network Weaviate",
+	"WeaviateNetworkGetMetaWhere": "Filter options for the GetMeta search, to convert the data to the filter input",
+	"WeaviateNetworkGetMetaWhereInpObj": "Filter options for the GetMeta search, to convert the data to the filter input",
+	"WeaviateNetworkGetMetaObj": "Type of Get function to get meta information about Things or Actions on a Weaviate in the Network",
+	"WeaviateNetworkGetMetaThings": "Get Meta information about Things on a Weaviate in a Network",
+	"WeaviateNetworkGetMetaThingsObj": "Type of Things i.e. Things classes to GetMeta information of on a Weaviate in the Network",
+	"WeaviateNetworkGetMetaActions": "Get Meta information about Actions on a Weaviate in the Network",
+	"WeaviateNetworkGetMetaActionsObj": "Type of Actions i.e. Actions classes to GetMeta information of on a Weaviate on the Network"
 }

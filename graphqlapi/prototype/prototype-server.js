@@ -17,7 +17,6 @@ const express = require('express');
 const cors = require('cors');
 const graphqlHTTP = require('express-graphql');
 const demoResolver = require('./demo_resolver/demo_resolver.js');
-const UnionInputType = require('graphql-union-input-type');
 
 // file system for reading files
 const fs = require('fs');
@@ -889,7 +888,7 @@ var NetworkFetchFilterFields = {
  */
 
 
-function getWeaviateNetworkGetWeaviateFields(weaviate) {
+function getWeaviateNetworkGetFields(weaviate) {
   var thingsFile = './network/' + weaviate + '/things_schema.json';
   var actionsFile = './network/' + weaviate + '/actions_schema.json';
 
@@ -941,9 +940,57 @@ return fields
 
 }
 
+function getWeaviateNetworkGetMetaFields(weaviate) {
+  var thingsFile = './network/' + weaviate + '/things_schema.json';
+  var actionsFile = './network/' + weaviate + '/actions_schema.json';
 
-function createNetworkWeaviateFields() {
-  console.log("------START NETWORKWEAVIATEFIELDS--------")
+  let ontologyThings = fs.readFileSync(thingsFile, {encoding:'utf8'});
+  let ontologyActions = fs.readFileSync(actionsFile, {encoding:'utf8'});
+
+  // merge
+  classes = mergeOntologies(JSON.parse(ontologyThings), JSON.parse(ontologyActions))
+  var metaSubClasses = createMetaSubClasses(classes, weaviate);
+  var metaRootClassesNetworkThingsFields = createMetaRootClasses(JSON.parse(ontologyThings), metaSubClasses);
+  var metaRootClassesNetworkActionsFields = createMetaRootClasses(JSON.parse(ontologyActions), metaSubClasses);
+
+  fields = {
+    Things: {
+      name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Things",
+      description: function() {
+        return getDesc("WeaviateNetworkGetMetaThings")},
+      type: new GraphQLObjectType({
+        name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "ThingsObj",
+        description: function() {
+          return getDesc("WeaviateNetworkGetMetaThingsObj")},
+        fields: metaRootClassesNetworkThingsFields
+      }),
+      resolve(parentValue) {
+        console.log("resolve WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Things")
+        return parentValue.Things // resolve with empty array
+      },
+    },
+    Actions: {
+      name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Actions",
+      description: function() {
+        return getDesc("WeaviateNetworkGetMetaActions")},
+      type: new GraphQLObjectType({
+        name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "ActionsObj",
+        description: function() {
+          return getDesc("WeaviateNetworkGetMetaActionsObj")},
+        fields: metaRootClassesNetworkActionsFields
+      }),
+      resolve(parentValue) {
+        console.log("resolve WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Actions")
+        return parentValue.Actions // resolve with empty array
+      }
+    }
+  }
+return fields
+
+}
+
+function createNetworkWeaviateGetFields() {
+  console.log("------START NETWORKWEAVIATEGETFIELDS--------")
   var networkFields = {}
 
   function getDirectories(path) {
@@ -960,7 +1007,7 @@ function createNetworkWeaviateFields() {
       type: new GraphQLObjectType({
         name: "WeaviateNetworkGet" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Obj",
         description: "Objects for the what to Get from the weaviate " + weaviate + " in the network.",
-        fields: getWeaviateNetworkGetWeaviateFields(weaviate)
+        fields: getWeaviateNetworkGetFields(weaviate)
       }),
       resolve(parentValue){
         console.log("resolve WeaviateNetworkGet" + weaviate[0].toUpperCase() + weaviate.substring(1))
@@ -969,7 +1016,38 @@ function createNetworkWeaviateFields() {
     }
   })
 
-  console.log("------STOP NETWORKWEAVIATEFIELDS--------")
+  console.log("------STOP NETWORKWEAVIATEGETFIELDS--------")
+  return networkFields
+}
+
+function createNetworkWeaviateGetMetaFields() {
+  console.log("------START NETWORKWEAVIATEGETMETAFIELDS--------")
+  var networkFields = {}
+
+  function getDirectories(path) {
+    return fs.readdirSync(path).filter(function (file) {
+      return fs.statSync(path+'/'+file).isDirectory();
+    });
+  }
+  var weaviates = getDirectories("./network");
+
+  weaviates.forEach(weaviate => {
+    networkFields[weaviate] = {
+      name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1),
+      description: "Object field for weaviate " + weaviate + " in the network.",
+      type: new GraphQLObjectType({
+        name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Obj",
+        description: "Objects for the what to Get Meta from the weaviate " + weaviate + " in the network.",
+        fields: getWeaviateNetworkGetMetaFields(weaviate)
+      }),
+      resolve(parentValue){
+        console.log("resolve WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1))
+        return parentValue[weaviate] // resolve with empty array
+      }
+    }
+  })
+
+  console.log("------STOP NETWORKWEAVIATEGETMETAFIELDS--------")
   return networkFields
 }
 
@@ -1089,7 +1167,8 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
     var metaRootClassesThingsFields = createMetaRootClasses(JSON.parse(ontologyThings), metaSubClasses);
     var metaRootClassesActionsFields = createMetaRootClasses(JSON.parse(ontologyActions), metaSubClasses);
 
-    var networkWeaviateFields = createNetworkWeaviateFields()
+    var WeaviateNetworkGetFields = createNetworkWeaviateGetFields()
+    var WeaviateNetworkGetMetaFields = createNetworkWeaviateGetMetaFields()
 
     // This is the root 
     var Weaviate = new GraphQLObjectType({
@@ -1231,7 +1310,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                   console.log("resolve WeaviateLocalGetMeta")
                   return demoResolver.resolveGet(args.where) // resolve with empty array
                 },
-              },
+              }
             }
           })
         },
@@ -1283,7 +1362,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                   name: "WeaviateNetworkGetObj",
                   description: function() {
                     return getDesc("WeaviateNetworkGetObj")},
-                  fields: networkWeaviateFields
+                  fields: WeaviateNetworkGetFields
                 }),
                 resolve(parentValue, args) {
                   console.log("resolve WeaviateNetworkGet")
@@ -1338,7 +1417,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                       })),
                       resolve(parentValue, args) {
                         console.log("resolve WeaviateNetworkFetchFuzzy")
-                        return [{}]
+                        return demoResolver.resolveNetworkFetchFuzzy(args)
                       }
                     },
                     Things: {
@@ -1484,6 +1563,34 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                   console.log("resolve WeaviateNetworkIntrospect")
                   return [{}] // resolve with empty array
                 }
+              },
+              GetMeta: {
+                name: "WeaviateNetworkGetMeta",
+                description: function() {
+                  return getDesc("WeaviateNetworkGetMeta")},
+                args: {
+                  where: { 
+                    name: "WeaviateNetworkGetMetaWhere",
+                    description: function() {
+                      return getDesc("WeaviateNetworkGetMetaWhere")},
+                    type: new GraphQLInputObjectType({
+                      name: "WeaviateNetworkGetMetaWhereInpObj",
+                      description: function() {
+                        return getDesc("WeaviateNetworkGetMetaWhereInpObj")},
+                      fields: whereFields
+                    }) 
+                }
+                },
+                type: new GraphQLObjectType({
+                  name: "WeaviateNetworkGetMetaObj",
+                  description: function() {
+                    return getDesc("WeaviateNetworkGetMetaObj")},
+                  fields: WeaviateNetworkGetMetaFields
+                }),
+                resolve(parentValue, args) {
+                  console.log("resolve WeaviateNetworkGetMeta")
+                  return demoResolver.resolveNetworkGet(args.where) 
+                },
               }
             }
           })
