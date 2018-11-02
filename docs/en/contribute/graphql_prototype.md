@@ -15,7 +15,7 @@ The GQL prototype is used to design and develop an UX friendly graphql API. It i
 To run the prototype: 
 - Install `npm install -g nodemon`
 - Install packages: `npm install`
-- Run: `nodemon prototype_server.js demo_schema`
+- Run: `nodemon prototype_server.js demo_schema` or `nodemon prototype_server.js test_schema` if you want to run the prototype with the test schema.
 The GraphQL API prototype will be running at `http://localhost:8081/`. To expore, you can use GraphiQL (an in-browser IDE for exploring GraphQL APIs), which can be found at `http://localhost:8081/graphql`.
 
 To run the CLI tool:
