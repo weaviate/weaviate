@@ -68,6 +68,17 @@ An overview of possible types.
 ]
 ```
 
+## Property datatypes
+
+| Weaviate Type | Exact Data Type | Formatting |
+| ---------|--------|-----------|
+| string   | string | `string` |
+| int      | int64  | `0` |
+| boolean  | boolean | `true`/`false` |
+| number   | float64 | `0.0` |
+| date     | string | [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) |
+| CrossRef | string | [CamelCase](#CamelCase) |
+
 ## Keywords & Context
 
 Keywords give context to a class or property. They help a Weaviate instance to interpret what words which are written in the same way means (so-called homographs). A good example of this is the words `seal`. Do you refer to a `stamp` or the `sea animal`? You can define this by setting keywords.
