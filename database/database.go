@@ -57,6 +57,8 @@ func New(messaging *messages.Messaging, locker RWLocker, manager SchemaManager, 
 
 	manager.SetContextionary(context)
 
+	manager.TriggerSchemaUpdateCallbacks()
+
 	return nil, &database{
 		locker:    locker,
 		manager:   manager,

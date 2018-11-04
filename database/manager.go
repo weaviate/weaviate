@@ -23,7 +23,11 @@ type SchemaManager interface {
 	// Register callbacks that will be called when the schema has been updated. These callbacks
 	// will be invoked before the migration methods return.
 	// Take care to not cause a deadlock by modifying the schema directly again from a callback.
+	// The are also run _once_ after the system has configured itself.
 	RegisterSchemaUpdateCallback(func(updatedSchema db_schema.Schema))
+
+	// Trigger the callbacks to be send out. Used during initialization.
+	TriggerSchemaUpdateCallbacks()
 
 	// Sets a contextionary to be used for future correctness checks of the schema.
 	SetContextionary(context contextionary.Contextionary)

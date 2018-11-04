@@ -8,7 +8,7 @@ func (l *localSchemaManager) RegisterSchemaUpdateCallback(callback func(updatedS
 	l.callbacks = append(l.callbacks, callback)
 }
 
-func (l *localSchemaManager) triggerCallbacks() {
+func (l *localSchemaManager) TriggerSchemaUpdateCallbacks() {
 	schema := l.GetSchema()
 
 	for _, cb := range l.callbacks {

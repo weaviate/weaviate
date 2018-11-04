@@ -240,7 +240,7 @@ func (l *localSchemaManager) saveToDisk() error {
 	l.stateFile.Write(stateBytes)
 	l.stateFile.Sync()
 
-	l.triggerCallbacks()
+	l.TriggerSchemaUpdateCallbacks()
 
 	return nil
 }
