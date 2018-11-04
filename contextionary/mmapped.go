@@ -97,10 +97,10 @@ func LoadVectorFromDisk(annoy_index string, word_index_file_name string) (*Conte
 	knn := annoy.NewAnnoyIndexEuclidean(int(word_index.vectorWidth))
 	knn.Load(annoy_index)
 
-	var idx *mmappedIndex = new(mmappedIndex)
-	idx.word_index = word_index
-	idx.knn = knn
+	idx := &mmappedIndex{
+		word_index: word_index,
+		knn:        knn,
+	}
 
-	var blah Contextionary = Contextionary(idx)
-	return &blah, nil
+	return idx, nil
 }
