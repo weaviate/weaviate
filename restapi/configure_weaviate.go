@@ -69,7 +69,7 @@ import (
 const pageOverride int = 1
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
-var contextionary *libcontextionary.Contextionary
+var contextionary libcontextionary.Contextionary
 var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
 var graphQL graphqlapi.GraphQL
