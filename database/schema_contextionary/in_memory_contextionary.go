@@ -7,9 +7,9 @@ import (
 	"github.com/fatih/camelcase"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/models"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 )

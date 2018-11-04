@@ -1,9 +1,9 @@
 package schema
 
 import (
-//	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	//	"github.com/creativesoftwarefdn/weaviate/models"
 	"fmt"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"regexp"
 )
 
@@ -49,9 +49,4 @@ func AssertValidPropertyName(name string) PropertyName {
 		panic(fmt.Sprintf("Did not expect to be handled '%s', an invalid property name", name))
 	}
 	return n
-}
-
-// Validate that this payload matches the class as defined in the schema
-func (s *Schema) ValidateClassPayload(k kind.Kind, className ClassName, payload interface{}) error {
-  return nil
 }

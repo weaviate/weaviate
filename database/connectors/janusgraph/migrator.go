@@ -9,7 +9,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/gremlin/gremlin_schema_query"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	log "github.com/sirupsen/logrus"
-	"strings"
 )
 
 // Called during initialization of the connector.
@@ -21,12 +20,18 @@ func (j *Janusgraph) ensureBasicSchema() error {
 		query.MakePropertyKey(PROP_UUID, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
 		query.AddGraphCompositeIndex(INDEX_BY_UUID, []string{PROP_UUID}, true)
 
+		// For all classes
 		query.MakePropertyKey(PROP_KIND, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
 		query.MakePropertyKey(PROP_CLASS_ID, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
 		query.AddGraphCompositeIndex(INDEX_BY_KIND_AND_CLASS, []string{PROP_KIND, PROP_CLASS_ID}, false)
 
+		query.MakePropertyKey(PROP_AT_CONTEXT, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
+		query.MakePropertyKey(PROP_CREATION_TIME_UNIX, gremlin_schema_query.DATATYPE_LONG, gremlin_schema_query.CARDINALITY_SINGLE)
+		query.MakePropertyKey(PROP_LAST_UPDATE_TIME_UNIX, gremlin_schema_query.DATATYPE_LONG, gremlin_schema_query.CARDINALITY_SINGLE)
+
 		query.MakeVertexLabel(KEY_VERTEX_LABEL)
 
+		// Keys
 		query.MakeEdgeLabel(KEY_EDGE_LABEL, gremlin_schema_query.MULTIPLICITY_MANY2ONE)
 		query.MakeEdgeLabel(KEY_PARENT_LABEL, gremlin_schema_query.MULTIPLICITY_MANY2ONE)
 
@@ -48,12 +53,13 @@ func (j *Janusgraph) ensureBasicSchema() error {
 			return fmt.Errorf("Could not initialize the basic Janus schema.")
 		}
 
-		gremlin_schema_query.AwaitGraphIndicesAvailable([]string{INDEX_BY_UUID, INDEX_BY_KIND_AND_CLASS})
-		_, err = j.client.Execute(query)
+		// TODO: await answer from janus consultants; it's not avaible in our janus setup.
+		//query = gremlin_schema_query.AwaitGraphIndicesAvailable([]string{INDEX_BY_UUID, INDEX_BY_KIND_AND_CLASS})
+		//_, err = j.client.Execute(query)
 
-		if err != nil {
-			return fmt.Errorf("Could not initialize the basic Janus schema; could not await until the base indices were available.")
-		}
+		//if err != nil {
+		//	return fmt.Errorf("Could not initialize the basic Janus schema; could not await until the base indices were available.")
+		//}
 
 		// Set initial version in state.
 		j.state.Version = 1
@@ -73,9 +79,8 @@ func (j *Janusgraph) AddClass(kind kind.Kind, class *models.SemanticSchemaClass)
 
 	vertexLabel := j.state.addMappedClassName(sanitizedClassName)
 
-	var rawQuery strings.Builder
-	graphOpenManagement(&rawQuery)
-	graphAddClass(&rawQuery, vertexLabel)
+	query := gremlin_schema_query.New()
+	query.MakeVertexLabel(string(vertexLabel))
 
 	for _, prop := range class.Properties {
 		sanitziedPropertyName := schema.AssertValidPropertyName(prop.Name)
@@ -85,15 +90,12 @@ func (j *Janusgraph) AddClass(kind kind.Kind, class *models.SemanticSchemaClass)
 			return fmt.Errorf("Only primitive types supported for now")
 		}
 
-		graphAddProperty(&rawQuery, janusPropertyName, schema.DataType(prop.AtDataType[0]))
+		query.MakePropertyKey(string(janusPropertyName), weaviatePropTypeToJanusPropType(schema.DataType(prop.AtDataType[0])), gremlin_schema_query.CARDINALITY_SINGLE)
 	}
 
-	graphCommit(&rawQuery)
+	query.Commit()
 
-	q := gremlin.RawQuery(rawQuery.String())
-	fmt.Printf("\n#\n#\n#\nEXECUTING QUERY: %#v\n", q)
-
-	_, err := j.client.Execute(q)
+	_, err := j.client.Execute(query)
 
 	if err != nil {
 		return fmt.Errorf("could not create vertex/property types in JanusGraph")
@@ -111,13 +113,9 @@ func (j *Janusgraph) DropClass(kind kind.Kind, name string) error {
 
 	vertexLabel := j.state.addMappedClassName(sanitizedClassName)
 
-	var rawQuery strings.Builder
-	graphOpenManagement(&rawQuery)
-	graphDropClass(&rawQuery, vertexLabel)
-	graphCommit(&rawQuery)
+	query := gremlin.G.V().HasLabel(string(vertexLabel)).HasString(PROP_CLASS_ID, string(vertexLabel)).Drop()
 
-	q := gremlin.RawQuery(rawQuery.String())
-	_, err := j.client.Execute(q)
+	_, err := j.client.Execute(query)
 
 	if err != nil {
 		return fmt.Errorf("could not remove all data of the dropped class in JanusGraph")
@@ -188,17 +186,17 @@ func (j *Janusgraph) DropProperty(kind kind.Kind, className string, propName str
 //
 //// Get Janus data type from a weaviate data type.
 //// Panics if passed a wrong type.
-//func getJanusDataType(type_ schema.DataType) string {
-//	switch type_ {
-//	case schema.DataTypeString:
-//		return "String"
-//	case schema.DataTypeInt:
-//		return "Long"
-//	case schema.DataTypeNumber:
-//		return "Double"
-//	case schema.DataTypeBoolean:
-//		return "Boolean"
-//	default:
-//		panic(fmt.Sprintf("unsupported data type '%v'", type_))
-//	}
-//}
+func weaviatePropTypeToJanusPropType(type_ schema.DataType) gremlin_schema_query.DataType {
+	switch type_ {
+	case schema.DataTypeString:
+		return gremlin_schema_query.DATATYPE_STRING
+	case schema.DataTypeInt:
+		return gremlin_schema_query.DATATYPE_LONG
+	case schema.DataTypeNumber:
+		return gremlin_schema_query.DATATYPE_DOUBLE
+	case schema.DataTypeBoolean:
+		return gremlin_schema_query.DATATYPE_BOOLEAN
+	default:
+		panic(fmt.Sprintf("unsupported data type '%v'", type_))
+	}
+}
