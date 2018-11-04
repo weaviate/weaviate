@@ -6,21 +6,31 @@ type Unlockable interface {
 	Unlock()
 }
 
+type DelayedUnlockable interface {
+	Unlockable
+
+	IncSteps()
+	Go(f func())
+}
+
 // Delay unlocking some interface for a number of steps.
-type DelayedUnlockable struct {
-	sync.Mutex
+type delayedUnlockable struct {
+	inner    sync.Mutex
 	toUnlock Unlockable
 	steps    int
 }
 
-func New(u Unlockable) *DelayedUnlockable {
-	return &DelayedUnlockable{
+func New(u Unlockable) DelayedUnlockable {
+	return &delayedUnlockable{
 		toUnlock: u,
 		steps:    1,
 	}
 }
 
-func (d *DelayedUnlockable) IncSteps() {
+func (d *delayedUnlockable) IncSteps() {
+	d.inner.Lock()
+	defer d.inner.Unlock()
+
 	if d.steps > 0 {
 		d.steps += 1
 	} else {
@@ -28,7 +38,7 @@ func (d *DelayedUnlockable) IncSteps() {
 	}
 }
 
-func (d *DelayedUnlockable) Go(f func()) {
+func (d *delayedUnlockable) Go(f func()) {
 	d.IncSteps()
 
 	go func() {
@@ -37,9 +47,9 @@ func (d *DelayedUnlockable) Go(f func()) {
 	}()
 }
 
-func (d *DelayedUnlockable) Unlock() {
-	d.Lock()
-	defer d.Unlock()
+func (d *delayedUnlockable) Unlock() {
+	d.inner.Lock()
+	defer d.inner.Unlock()
 
 	d.steps -= 1
 
