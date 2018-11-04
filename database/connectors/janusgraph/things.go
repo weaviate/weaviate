@@ -173,24 +173,23 @@ func (f *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingRespon
 
 // TODO check
 func (f *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, response *models.ThingsListResponse) error {
-	//	// TODO: Optimize query to perform just _one_ JanusGraph lookup.
-	//
-	//	response.TotalResults = 0
-	//	response.Things = make([]*models.ThingGetResponse, 0)
-	//
-	//	for _, uuid := range UUIDs {
-	//		var thing_response models.ThingGetResponse
-	//		err := f.GetThing(ctx, uuid, &thing_response)
-	//
-	//		if err == nil {
-	//			response.TotalResults += 1
-	//			response.Things = append(response.Things, &thing_response)
-	//		} else {
-	//			return fmt.Errorf("%s: thing with UUID '%v' not found", connutils.StaticThingNotFound, uuid)
-	//		}
-	//	}
-	//
-	//	return nil
+	// TODO: Optimize query to perform just _one_ JanusGraph lookup.
+
+	response.TotalResults = 0
+	response.Things = make([]*models.ThingGetResponse, 0)
+
+	for _, uuid := range UUIDs {
+		var thing_response models.ThingGetResponse
+		err := f.GetThing(ctx, uuid, &thing_response)
+
+		if err == nil {
+			response.TotalResults += 1
+			response.Things = append(response.Things, &thing_response)
+		} else {
+			return fmt.Errorf("%s: thing with UUID '%v' not found", connutils.StaticThingNotFound, uuid)
+		}
+	}
+
 	return nil
 }
 
