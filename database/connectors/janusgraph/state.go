@@ -12,7 +12,7 @@ import (
 // - the mappings of class names and property names
 type janusGraphConnectorState struct {
 	Version int64 `json:"version"`
-	lastId  int64 `json:"next_id"`
+	LastId  int64 `json:"next_id"`
 
 	ClassMap    map[schema.ClassName]MappedClassName                            `json:"classMap"`
 	PropertyMap map[schema.ClassName]map[schema.PropertyName]MappedPropertyName `json:"propertyMap"`
@@ -26,8 +26,8 @@ type MappedPropertyName string
 // you probably want to use this function whilst modifying more,
 // so that would trigger an unnecessary sync across all instances.
 func (s *janusGraphConnectorState) getNextId() string {
-	s.lastId += 1
-	return strconv.FormatInt(s.lastId, 16)
+	s.LastId += 1
+	return strconv.FormatInt(s.LastId, 16)
 }
 
 // Add a mapping of a classname to mapped name.

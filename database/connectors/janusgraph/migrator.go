@@ -63,7 +63,7 @@ func (j *Janusgraph) ensureBasicSchema() error {
 
 		// Set initial version in state.
 		j.state.Version = 1
-		j.state.lastId = 0
+		j.state.LastId = 0
 		j.state.ClassMap = make(map[schema.ClassName]MappedClassName)
 		j.state.PropertyMap = make(map[schema.ClassName]map[schema.PropertyName]MappedPropertyName)
 		j.UpdateStateInStateManager()
