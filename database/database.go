@@ -49,8 +49,10 @@ func New(messaging *messages.Messaging, locker RWLocker, manager SchemaManager, 
 		messaging.ExitError(1, fmt.Sprintf("Could not connect to backing database: %s", errConnect.Error()))
 	}
 
-	// Init the database.
+	// Init the database. Manually lock the schema, so that initialization happens atomically across all instances.
+	locker.Lock()
 	errInit := connector.Init()
+	locker.Unlock()
 	if errInit != nil {
 		messaging.ExitError(1, fmt.Sprintf("Could not initialize connector: %s", errInit.Error()))
 	}

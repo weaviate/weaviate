@@ -16,7 +16,7 @@ import (
 
 // ValidateToken validates/gets a key to the Grelmin database with the given token (=UUID)
 func (f *Janusgraph) ValidateToken(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
-	q := gremlin.G.V().HasLabel(KEY_LABEL).HasString("uuid", string(UUID))
+	q := gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).HasString("uuid", string(UUID))
 
 	result, err := f.client.Execute(q)
 

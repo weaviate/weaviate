@@ -28,7 +28,7 @@ import (
 
 //TODO fix keys cross weaviates.
 func (f *Janusgraph) AddKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
-	q := gremlin.G.AddV(KEY_LABEL).
+	q := gremlin.G.AddV(KEY_VERTEX_LABEL).
 		StringProperty("uuid", string(UUID)).
 		BoolProperty("isRoot", key.Parent == nil).
 		BoolProperty("delete", key.Delete).
@@ -42,10 +42,10 @@ func (f *Janusgraph) AddKey(ctx context.Context, key *models.Key, UUID strfmt.UU
 		As("newKey")
 
 	if key.Parent != nil {
-		q = q.AddE("parent").
+		q = q.AddE(KEY_PARENT_LABEL).
 			FromRef("newKey").
 			ToQuery(gremlin.G.V().
-				HasLabel(KEY_LABEL).
+				HasLabel(KEY_VERTEX_LABEL).
 				HasString("uuid", key.Parent.NrDollarCref.String()))
 	}
 
@@ -55,7 +55,7 @@ func (f *Janusgraph) AddKey(ctx context.Context, key *models.Key, UUID strfmt.UU
 }
 
 func (f *Janusgraph) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
-	q := gremlin.G.V().HasLabel(KEY_LABEL).HasString("uuid", string(UUID))
+	q := gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).HasString("uuid", string(UUID))
 
 	result, err := f.client.Execute(q)
 
@@ -89,7 +89,7 @@ func (f *Janusgraph) GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keysRespo
 }
 
 func (f *Janusgraph) DeleteKey(ctx context.Context, key *models.Key, UUID strfmt.UUID) error {
-	q := gremlin.G.V().HasLabel(KEY_LABEL).
+	q := gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).
 		HasString("uuid", string(UUID)).Drop()
 
 	_, err := f.client.Execute(q)
@@ -100,7 +100,7 @@ func (f *Janusgraph) DeleteKey(ctx context.Context, key *models.Key, UUID strfmt
 // GetKeyChildren fills the given KeyGetResponse array with the values from the database, based on the given UUID.
 func (f *Janusgraph) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
 	// Fetch the child vertices directly, so that we can run just _one_ query instead of 1 + len(children)
-	q := gremlin.G.V().HasLabel(KEY_LABEL).HasString("uuid", string(UUID)).InEWithLabel("parent").OutV()
+	q := gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).HasString("uuid", string(UUID)).InEWithLabel(KEY_PARENT_LABEL).OutV()
 
 	result, err := f.client.Execute(q)
 	if err != nil {
@@ -122,7 +122,7 @@ func (f *Janusgraph) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, child
 
 // UpdateKey updates the Key in the DB at the given UUID.
 func (f *Janusgraph) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
-	q := gremlin.G.V().HasLabel(KEY_LABEL).
+	q := gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).
 		HasString("uuid", string(UUID)).
 		BoolProperty("isRoot", key.Parent == nil).
 		BoolProperty("delete", key.Delete).
