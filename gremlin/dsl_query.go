@@ -12,7 +12,7 @@ type Query struct {
 }
 
 // Return the string representation of this Query.
-func (q *Query) Query() string {
+func (q *Query) String() string {
 	return q.query
 }
 
@@ -41,7 +41,7 @@ func (q *Query) Select(refs []string) *Query {
 	sanitized := make([]string, 0)
 
 	for _, ref := range refs {
-		sanitized = append(sanitized, fmt.Sprintf(`"%s"`, escapeString(ref)))
+		sanitized = append(sanitized, fmt.Sprintf(`"%s"`, EscapeString(ref)))
 	}
 
 	return extend_query(q, ".select(%s)", strings.Join(sanitized, ","))
@@ -52,7 +52,7 @@ func (q *Query) Values(propNames []string) *Query {
 	sanitized := make([]string, 0)
 
 	for _, propName := range propNames {
-		sanitized = append(sanitized, fmt.Sprintf(`"%s"`, escapeString(propName)))
+		sanitized = append(sanitized, fmt.Sprintf(`"%s"`, EscapeString(propName)))
 	}
 
 	return extend_query(q, ".values(%s)", strings.Join(sanitized, ","))
@@ -63,40 +63,40 @@ func (q *Query) Range(offset int, limit int) *Query {
 }
 
 func (q *Query) AddV(label string) *Query {
-	return extend_query(q, `.addV("%s")`, escapeString(label))
+	return extend_query(q, `.addV("%s")`, EscapeString(label))
 }
 
 func (q *Query) AddE(label string) *Query {
-	return extend_query(q, `.addE("%s")`, escapeString(label))
+	return extend_query(q, `.addE("%s")`, EscapeString(label))
 }
 
 // Set the expected label of the vertex/edge.
 func (q *Query) HasLabel(label string) *Query {
-	return extend_query(q, `.hasLabel("%s")`, escapeString(label))
+	return extend_query(q, `.hasLabel("%s")`, EscapeString(label))
 }
 
 func (q *Query) HasString(key string, value string) *Query {
-	return extend_query(q, `.has("%s", "%s")`, escapeString(key), escapeString(value))
+	return extend_query(q, `.has("%s", "%s")`, EscapeString(key), EscapeString(value))
 }
 
 func (q *Query) HasBool(key string, value bool) *Query {
-	return extend_query(q, `.has("%s", %v)`, escapeString(key), value)
+	return extend_query(q, `.has("%s", %v)`, EscapeString(key), value)
 }
 
 func (q *Query) StringProperty(key string, value string) *Query {
-	return extend_query(q, `.property("%s", "%s")`, escapeString(key), escapeString(value))
+	return extend_query(q, `.property("%s", "%s")`, EscapeString(key), EscapeString(value))
 }
 
 func (q *Query) BoolProperty(key string, value bool) *Query {
-	return extend_query(q, `.property("%s", %v)`, escapeString(key), value)
+	return extend_query(q, `.property("%s", %v)`, EscapeString(key), value)
 }
 
 func (q *Query) Int64Property(key string, value int64) *Query {
-	return extend_query(q, `.property("%s", (long) %v)`, escapeString(key), value)
+	return extend_query(q, `.property("%s", (long) %v)`, EscapeString(key), value)
 }
 
 func (q *Query) Float64Property(key string, value float64) *Query {
-	return extend_query(q, `.property("%s", (double) %v)`, escapeString(key), strconv.FormatFloat(value, 'g', -1, 64))
+	return extend_query(q, `.property("%s", (double) %v)`, EscapeString(key), strconv.FormatFloat(value, 'g', -1, 64))
 }
 
 func (q *Query) In() *Query {
@@ -104,7 +104,7 @@ func (q *Query) In() *Query {
 }
 
 func (q *Query) InWithLabel(label string) *Query {
-	return extend_query(q, `.in("%s")`, escapeString(label))
+	return extend_query(q, `.in("%s")`, EscapeString(label))
 }
 
 func (q *Query) Out() *Query {
@@ -112,7 +112,7 @@ func (q *Query) Out() *Query {
 }
 
 func (q *Query) OutWithLabel(label string) *Query {
-	return extend_query(q, `.out("%s")`, escapeString(label))
+	return extend_query(q, `.out("%s")`, EscapeString(label))
 }
 
 func (q *Query) InE() *Query {
@@ -120,7 +120,7 @@ func (q *Query) InE() *Query {
 }
 
 func (q *Query) InEWithLabel(label string) *Query {
-	return extend_query(q, `.inE("%s")`, escapeString(label))
+	return extend_query(q, `.inE("%s")`, EscapeString(label))
 }
 
 func (q *Query) OutE() *Query {
@@ -128,7 +128,7 @@ func (q *Query) OutE() *Query {
 }
 
 func (q *Query) OutEWithLabel(label string) *Query {
-	return extend_query(q, `.outE("%s")`, escapeString(label))
+	return extend_query(q, `.outE("%s")`, EscapeString(label))
 }
 
 func (q *Query) InV() *Query {
@@ -146,20 +146,20 @@ func (q *Query) Path() *Query {
 
 // Create a reference
 func (q *Query) As(name string) *Query {
-	return extend_query(q, `.as("%s")`, escapeString(name))
+	return extend_query(q, `.as("%s")`, EscapeString(name))
 }
 
 // Point to a reference
 func (q *Query) FromRef(reference string) *Query {
-	return extend_query(q, `.from("%s")`, escapeString(reference))
+	return extend_query(q, `.from("%s")`, EscapeString(reference))
 }
 
 func (q *Query) ToQuery(query *Query) *Query {
-	return extend_query(q, `.to(%s)`, query.Query())
+	return extend_query(q, `.to(%s)`, query.String())
 }
 
 func (q *Query) Optional(query *Query) *Query {
-	return extend_query(q, `.optional(%s)`, query.Query())
+	return extend_query(q, `.optional(%s)`, query.String())
 }
 
 func (q *Query) Drop() *Query {

@@ -19,13 +19,13 @@ func Current() *Query {
 }
 
 func (g *Graph) AddV(label string) *Query {
-	query := fmt.Sprintf(`g.addV("%s")`, escapeString(label))
+	query := fmt.Sprintf(`g.addV("%s")`, EscapeString(label))
 	q := Query{query: query}
 	return &q
 }
 
 func (g *Graph) AddE(label string) *Query {
-	query := fmt.Sprintf(`g.addE("%s")`, escapeString(label))
+	query := fmt.Sprintf(`g.addE("%s")`, EscapeString(label))
 	q := Query{query: query}
 	return &q
 }
