@@ -20,7 +20,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/graphql-go/graphql"
 
-	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -35,7 +34,6 @@ type BaseConnector interface {
 	Connect() error
 	Init() error
 	SetServerAddress(serverAddress string)
-	SetConfig(configInput *config.Environment) error
 	SetSchema(schemaInput *schema.WeaviateSchema) error
 	SetMessaging(m *messages.Messaging) error
 

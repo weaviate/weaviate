@@ -44,11 +44,18 @@ type Config struct {
 	InitialToken *string
 }
 
-func New() dbconnector.DatabaseConnector {
-	return &Janusgraph{}
+func New(config interface{}) (error, dbconnector.DatabaseConnector) {
+	j := &Janusgraph{}
+	err := j.setConfig(config)
+
+	if err != nil {
+		return err, nil
+	} else {
+		return nil, j
+	}
 }
 
-// SetConfig sets variables, which can be placed in the config file section "database_config: {}"
+// setConfig sets variables, which can be placed in the config file section "database_config: {}"
 // can be custom for any connector, in the example below there is only host and port available.
 //
 // Important to bear in mind;
@@ -61,10 +68,10 @@ func New() dbconnector.DatabaseConnector {
 // 			"url": "http://127.0.0.1:8081"
 // 		}
 // 	},
-func (f *Janusgraph) SetConfig(configInput *config.Environment) error {
+func (f *Janusgraph) setConfig(config interface{}) error {
 
 	// Mandatory: needed to add the JSON config represented as a map in f.config
-	err := mapstructure.Decode(configInput.Database.DatabaseConfig, &f.config)
+	err := mapstructure.Decode(config, &f.config)
 
 	// Example to: Validate if the essential  config is available, like host and port.
 	if err != nil || len(f.config.Url) == 0 {
@@ -76,8 +83,6 @@ func (f *Janusgraph) SetConfig(configInput *config.Environment) error {
 }
 
 // SetSchema takes actionSchema and thingsSchema as an input and makes them available globally at f.schema
-// In case you want to modify the schema, this is the place to do so.
-// Note: When this function is called, the schemas (action + things) are already validated, so you don't have to build the validation.
 func (f *Janusgraph) SetSchema(schemaInput *schema.WeaviateSchema) error {
 	f.schema = schemaInput
 
