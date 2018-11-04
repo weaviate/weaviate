@@ -23,7 +23,9 @@ import (
 
 func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	api.SchemaWeaviateSchemaActionsCreateHandler = schema.WeaviateSchemaActionsCreateHandlerFunc(func(params schema.WeaviateSchemaActionsCreateParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaActionsCreateUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
@@ -40,7 +42,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaActionsDeleteHandler = schema.WeaviateSchemaActionsDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsDeleteParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaActionsDeleteUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
@@ -57,7 +61,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaActionsPropertiesAddHandler = schema.WeaviateSchemaActionsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesAddParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaActionsPropertiesAddUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
@@ -74,7 +80,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaActionsPropertiesDeleteHandler = schema.WeaviateSchemaActionsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesDeleteParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaActionsPropertiesDeleteUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
@@ -86,7 +94,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaActionsPropertiesUpdateHandler = schema.WeaviateSchemaActionsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesUpdateParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaActionsPropertiesUpdateUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
@@ -115,7 +125,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaActionsUpdateHandler = schema.WeaviateSchemaActionsUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsUpdateParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaActionsUpdateUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
@@ -143,7 +155,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		}
 	})
 	api.SchemaWeaviateSchemaDumpHandler = schema.WeaviateSchemaDumpHandlerFunc(func(params schema.WeaviateSchemaDumpParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaDumpUnauthorized()
+		}
 
 		connectorLock := db.ConnectorLock()
 		defer connectorLock.Unlock()
@@ -159,7 +173,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsCreateHandler = schema.WeaviateSchemaThingsCreateHandlerFunc(func(params schema.WeaviateSchemaThingsCreateParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaThingsCreateUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
@@ -176,7 +192,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsDeleteHandler = schema.WeaviateSchemaThingsDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsDeleteParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaThingsDeleteUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
@@ -193,7 +211,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsPropertiesAddHandler = schema.WeaviateSchemaThingsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesAddParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaThingsPropertiesAddUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
@@ -210,7 +230,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsPropertiesDeleteHandler = schema.WeaviateSchemaThingsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesDeleteParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaThingsPropertiesDeleteUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
@@ -222,7 +244,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsPropertiesUpdateHandler = schema.WeaviateSchemaThingsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesUpdateParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaThingsPropertiesUpdateUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
@@ -251,7 +275,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsUpdateHandler = schema.WeaviateSchemaThingsUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsUpdateParams, principal interface{}) middleware.Responder {
-		//TODO: auth
+		if !isRoot(principal) {
+			return schema.NewWeaviateSchemaThingsUpdateUnauthorized()
+		}
 
 		schemaLock := db.SchemaLock()
 		defer schemaLock.Unlock()
