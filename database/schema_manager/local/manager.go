@@ -3,10 +3,10 @@ package local
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/schema"
-	"github.com/creativesoftwarefdn/weaviate/schema/kind"
 
 	"github.com/go-openapi/strfmt"
 )

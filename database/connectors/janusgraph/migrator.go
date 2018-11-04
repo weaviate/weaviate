@@ -3,11 +3,11 @@ package janusgraph
 import (
 	"errors"
 	"fmt"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/gremlin/gremlin_schema_query"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/schema"
-	"github.com/creativesoftwarefdn/weaviate/schema/kind"
 	log "github.com/sirupsen/logrus"
 	"strings"
 )

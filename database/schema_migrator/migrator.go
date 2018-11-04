@@ -1,8 +1,8 @@
 package schema_migrator
 
 import (
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/schema/kind"
 )
 
 type Migrator interface {

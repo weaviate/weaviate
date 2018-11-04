@@ -8,19 +8,21 @@ import (
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 )
 
-func (f *WeaviateSchema) BuildInMemoryContextionaryFromSchema(context *libcontextionary.Contextionary) (*libcontextionary.Contextionary, error) {
+func BuildInMemoryContextionaryFromSchema(schema schema.Schema, context *libcontextionary.Contextionary) (*libcontextionary.Contextionary, error) {
 	in_memory_builder := libcontextionary.InMemoryBuilder((*context).GetVectorLength())
 
-	err := add_names_from_schema_properties(context, in_memory_builder, "THING", f.ActionSchema.Schema)
+	err := add_names_from_schema_properties(context, in_memory_builder, "THING", schema.SemanticSchemaFor(kind.THING_KIND))
 	if err != nil {
 		return nil, err
 	}
 
-	err = add_names_from_schema_properties(context, in_memory_builder, "ACTION", f.ThingSchema.Schema)
+	err = add_names_from_schema_properties(context, in_memory_builder, "ACTION", schema.SemanticSchemaFor(kind.ACTION_KIND))
 	if err != nil {
 		return nil, err
 	}

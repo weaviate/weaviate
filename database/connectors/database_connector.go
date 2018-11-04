@@ -21,10 +21,10 @@ import (
 	"github.com/graphql-go/graphql"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/schema"
 )
 
 // BaseConnector is the interface that all connectors should have, cache or DB
@@ -34,7 +34,7 @@ type BaseConnector interface {
 	Connect() error
 	Init() error
 	SetServerAddress(serverAddress string)
-	SetSchema(schemaInput *schema.WeaviateSchema)
+	SetSchema(s schema.Schema)
 	SetMessaging(m *messages.Messaging)
 
 	AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error

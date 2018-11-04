@@ -1,15 +1,11 @@
 package schema
 
 import (
+//	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"fmt"
 	"regexp"
 )
-
-// Newtype to denote that this string is used as a Class name
-type ClassName string
-
-// Newtype to denote that this string is used as a Property name
-type PropertyName string
 
 var validateClassNameRegex *regexp.Regexp
 var validatePropertyNameRegex *regexp.Regexp
@@ -19,6 +15,7 @@ func init() {
 	validatePropertyNameRegex = regexp.MustCompile(`^[a-z]+([A-Z][a-z]+)*$`)
 }
 
+// Validates that this string is a valid class name
 func ValidateClassName(name string) (error, ClassName) {
 	if validateClassNameRegex.MatchString(name) {
 		return nil, ClassName(name)
@@ -27,6 +24,7 @@ func ValidateClassName(name string) (error, ClassName) {
 	}
 }
 
+// Validates that this string is a valid property name
 func ValidatePropertyName(name string) (error, PropertyName) {
 	if validatePropertyNameRegex.MatchString(name) {
 		return nil, PropertyName(name)
@@ -35,6 +33,7 @@ func ValidatePropertyName(name string) (error, PropertyName) {
 	}
 }
 
+// Assert that this string is a valid class name
 func AssertValidClassName(name string) ClassName {
 	err, n := ValidateClassName(name)
 	if err != nil {
@@ -43,10 +42,16 @@ func AssertValidClassName(name string) ClassName {
 	return n
 }
 
+// Assert that this string is a valid property name
 func AssertValidPropertyName(name string) PropertyName {
 	err, n := ValidatePropertyName(name)
 	if err != nil {
 		panic(fmt.Sprintf("Did not expect to be handled '%s', an invalid property name", name))
 	}
 	return n
+}
+
+// Validate that this payload matches the class as defined in the schema
+func (s *Schema) ValidateClassPayload(k kind.Kind, className ClassName, payload interface{}) error {
+  return nil
 }
