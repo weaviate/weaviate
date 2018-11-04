@@ -1,9 +1,7 @@
 package schema
 
 import (
-	//	"github.com/creativesoftwarefdn/weaviate/models"
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"regexp"
 )
 

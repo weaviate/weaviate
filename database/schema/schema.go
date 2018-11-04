@@ -27,8 +27,16 @@ const (
 // Newtype to denote that this string is used as a Class name
 type ClassName string
 
+func (c ClassName) String() string {
+	return string(c)
+}
+
 // Newtype to denote that this string is used as a Property name
 type PropertyName string
+
+func (p PropertyName) String() string {
+	return string(p)
+}
 
 // Describes the schema that is used in Weaviate.
 type Schema struct {

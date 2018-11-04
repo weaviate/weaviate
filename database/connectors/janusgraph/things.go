@@ -15,7 +15,7 @@ package janusgraph
 
 import (
 	"context"
-	//	"errors"
+	"errors"
 	"fmt"
 	"reflect"
 	"time"
@@ -131,45 +131,43 @@ func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID str
 }
 
 func (f *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
-	//	// Fetch the thing, it's key, and it's relations.
-	//	q := gremlin.G.V().
-	//		HasLabel(THING_LABEL).
-	//		HasString("uuid", string(UUID)).
-	//		As("thing").
-	//		OutEWithLabel(KEY_VERTEX_LABEL).As("keyEdge").
-	//		InV().Path().FromRef("keyEdge").As("key"). // also get the path, so that we can learn about the location of the key.
-	//		V().
-	//		HasLabel(THING_LABEL).
-	//		HasString("uuid", string(UUID)).
-	//		Raw(`.optional(outE("thingEdge").as("thingEdge").as("ref")).choose(select("ref"), select("thing", "key", "ref"), select("thing", "key"))`)
-	//
-	//	result, err := f.client.Execute(q)
-	//
-	//	if err != nil {
-	//		return err
-	//	}
-	//
-	//	if len(result.Data) == 0 {
-	//		return errors.New(connutils.StaticThingNotFound)
-	//	}
-	//
-	//	// The outputs 'thing' and 'key' will be repeated over all results. Just get them for one for now.
-	//	thingVertex := result.Data[0].AssertKey("thing").AssertVertex()
-	//	keyPath := result.Data[0].AssertKey("key").AssertPath()
-	//
-	//	// However, we can get multiple refs. In that case, we'll have multiple datums,
-	//	// each with the same thing & key, but a different ref.
-	//	// Let's extract those refs.
-	//	var refEdges []*gremlin.Edge
-	//	for _, datum := range result.Data {
-	//		ref, err := datum.Key("ref")
-	//		if err == nil {
-	//			refEdges = append(refEdges, ref.AssertEdge())
-	//		}
-	//	}
-	//
-	//	thingResponse.Key = newKeySingleRefFromKeyPath(keyPath)
-	//	return fillThingResponseFromVertexAndEdges(thingVertex, refEdges, thingResponse)
+	// Fetch the thing, it's key, and it's relations.
+	q := gremlin.G.V().
+		HasString(PROP_UUID, string(UUID)).
+		As("class").
+		OutEWithLabel(KEY_VERTEX_LABEL).As("keyEdge").
+		InV().Path().FromRef("keyEdge").As("key"). // also get the path, so that we can learn about the location of the key.
+		V().
+		HasString(PROP_UUID, string(UUID)).
+		Raw(`.optional(outE("thingEdge").as("thingEdge").as("ref")).choose(select("ref"), select("class", "key", "ref"), select("class", "key"))`)
+
+	result, err := f.client.Execute(q)
+
+	if err != nil {
+		return err
+	}
+
+	if len(result.Data) == 0 {
+		return errors.New(connutils.StaticThingNotFound)
+	}
+
+	// The outputs 'thing' and 'key' will be repeated over all results. Just get them for one for now.
+	thingVertex := result.Data[0].AssertKey("class").AssertVertex()
+	keyPath := result.Data[0].AssertKey("key").AssertPath()
+
+	// However, we can get multiple refs. In that case, we'll have multiple datums,
+	// each with the same thing & key, but a different ref.
+	// Let's extract those refs.
+	var refEdges []*gremlin.Edge
+	for _, datum := range result.Data {
+		ref, err := datum.Key("ref")
+		if err == nil {
+			refEdges = append(refEdges, ref.AssertEdge())
+		}
+	}
+
+	thingResponse.Key = newKeySingleRefFromKeyPath(keyPath)
+	return f.fillThingResponseFromVertexAndEdges(thingVertex, refEdges, thingResponse)
 	return nil
 }
 
