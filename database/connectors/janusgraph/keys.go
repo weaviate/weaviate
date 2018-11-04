@@ -84,7 +84,15 @@ func (f *Janusgraph) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *
 }
 
 func (f *Janusgraph) GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keysResponse *[]*models.KeyGetResponse) error {
-	fmt.Printf("\n\n\n\n\n\nGETKEYSNOT NOT IMPLEMENTED\n\n\n\n\n")
+	for _, id := range UUIDs {
+		var response *models.KeyGetResponse = new(models.KeyGetResponse)
+		err := f.GetKey(ctx, id, response)
+		if err != nil {
+			return err
+		}
+		*keysResponse = append(*keysResponse, response)
+	}
+
 	return nil
 }
 
