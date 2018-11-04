@@ -2,19 +2,17 @@ package janusgraph
 
 import (
 	"context"
+	"encoding/json"
 	errors_ "errors"
-
 	"fmt"
-
-	"github.com/go-openapi/strfmt"
-
-	"github.com/mitchellh/mapstructure"
-
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema"
+	"github.com/go-openapi/strfmt"
+	"github.com/mitchellh/mapstructure"
 
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/gremlin/http_client"
@@ -176,4 +174,13 @@ func (f *Janusgraph) Connect() error {
 	f.messaging.InfoMessage("Sucessfully pinged Gremlin server")
 
 	return nil
+}
+
+// Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.
+func (j *Janusgraph) SetState(state json.RawMessage) {
+}
+
+// Link a connector to this state manager.
+// When the internal state of some connector is updated, this state connector will call SetState on the provided conn.
+func (j *Janusgraph) SetStateManager(manager connector_state.StateManager) {
 }

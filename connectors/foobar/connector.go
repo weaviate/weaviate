@@ -37,6 +37,7 @@ package foobar
 
 import (
 	"context"
+	"encoding/json"
 	errors_ "errors"
 	"fmt"
 	"runtime"
@@ -48,6 +49,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/schema"
@@ -418,4 +420,13 @@ func (f *Foobar) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUI
 // GetGraph returns the result based on th graphQL request
 func (f *Foobar) GetGraph(request graphql.ResolveParams) (interface{}, error) {
 	return nil, fmt.Errorf("not supported")
+}
+
+// Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.
+func (f *Foobar) SetState(state json.RawMessage) {
+}
+
+// Link a connector to this state manager.
+// When the internal state of some connector is updated, this state connector will call SetState on the provided conn.
+func (f *Foobar) SetStateManager(manager connector_state.StateManager) {
 }

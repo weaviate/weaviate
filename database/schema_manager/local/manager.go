@@ -75,14 +75,14 @@ func validateCanAddProperty(property *models.SemanticSchemaClassProperty, class 
 	return nil
 }
 
-func (l *LocalSchemaManager) GetSchema() db_schema.Schema {
+func (l *localSchemaManager) GetSchema() db_schema.Schema {
 	return db_schema.Schema{
 		Actions: l.schemaState.ActionSchema,
 		Things:  l.schemaState.ThingSchema,
 	}
 }
 
-func (l *LocalSchemaManager) UpdateMeta(kind kind.Kind, atContext strfmt.URI, maintainer strfmt.Email, name string) error {
+func (l *localSchemaManager) UpdateMeta(kind kind.Kind, atContext strfmt.URI, maintainer strfmt.Email, name string) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	semanticSchema.AtContext = atContext
 	semanticSchema.Maintainer = maintainer
@@ -91,7 +91,7 @@ func (l *LocalSchemaManager) UpdateMeta(kind kind.Kind, atContext strfmt.URI, ma
 	return l.saveToDisk()
 }
 
-func (l *LocalSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (l *localSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
 	err := validateCanAddClass(kind, class, &l.schemaState)
 	if err != nil {
 		return err
@@ -108,7 +108,7 @@ func (l *LocalSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSche
 	}
 }
 
-func (l *LocalSchemaManager) DropClass(kind kind.Kind, className string) error {
+func (l *localSchemaManager) DropClass(kind kind.Kind, className string) error {
 	// TODO keep it sorted.
 	semanticSchema := l.schemaState.SchemaFor(kind)
 
@@ -137,7 +137,7 @@ func (l *LocalSchemaManager) DropClass(kind kind.Kind, className string) error {
 	return l.connectorMigrator.DropClass(kind, className)
 }
 
-func (l *LocalSchemaManager) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (l *localSchemaManager) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 
 	class, err := schema.GetClassByName(semanticSchema, className)
@@ -175,7 +175,7 @@ func (l *LocalSchemaManager) UpdateClass(kind kind.Kind, className string, newCl
 	return l.connectorMigrator.UpdateClass(kind, className, newClassName, newKeywords)
 }
 
-func (l *LocalSchemaManager) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (l *localSchemaManager) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
@@ -198,7 +198,7 @@ func (l *LocalSchemaManager) AddProperty(kind kind.Kind, className string, prop 
 	return l.connectorMigrator.AddProperty(kind, className, prop)
 }
 
-func (l *LocalSchemaManager) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (l *localSchemaManager) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 
@@ -242,7 +242,7 @@ func (l *LocalSchemaManager) UpdateProperty(kind kind.Kind, className string, pr
 	return l.connectorMigrator.UpdateProperty(kind, className, propName, newName, newKeywords)
 }
 
-func (l *LocalSchemaManager) DropProperty(kind kind.Kind, className string, propName string) error {
+func (l *localSchemaManager) DropProperty(kind kind.Kind, className string, propName string) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
