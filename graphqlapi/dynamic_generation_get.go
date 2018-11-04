@@ -27,6 +27,10 @@ import (
 func genActionClassFieldsFromSchema(g *GraphQL, getActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
 	actionClassFields := graphql.Fields{}
 
+	if len(g.databaseSchema.ActionSchema.Schema.Classes) == 0 {
+		return nil, nil
+	}
+
 	for _, class := range g.databaseSchema.ActionSchema.Schema.Classes {
 		singleActionClassField, singleActionClassObject := genSingleActionClassField(class, getActionsAndThings)
 		actionClassFields[class.Class] = singleActionClassField
@@ -151,6 +155,10 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 // Build the dynamically generated Get Things part of the schema
 func genThingClassFieldsFromSchema(g *GraphQL, getActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
 	thingClassFields := graphql.Fields{}
+
+	if len(g.databaseSchema.ThingSchema.Schema.Classes) == 0 {
+		return nil, nil
+	}
 
 	for _, class := range g.databaseSchema.ThingSchema.Schema.Classes {
 		singleThingClassField, singleThingClassObject := genSingleThingClassField(class, getActionsAndThings)
