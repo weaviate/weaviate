@@ -53,11 +53,11 @@ services:
       - weaviate
     restart: on-failure:0
   janus:
-    image: janusgraph:0.3.1-hadoop2
+    image: janusgraph:0.2.0-hadoop2
     build:
       dockerfile: Dockerfile.janus
       args:
-        version: 0.3.1
+        version: 0.2.0
         hadoop: hadoop2
       context: ./tools/dev/janusgraph-docker/
     depends_on:

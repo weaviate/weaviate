@@ -1,6 +1,6 @@
 FROM openjdk:8-jdk
 
-ARG version=0.3.1
+ARG version=0.3.0
 ARG hadoop=hadoop2
 
 RUN apt-get update && \
