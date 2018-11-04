@@ -1,23 +1,61 @@
 package database
 
 import (
+	"fmt"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/creativesoftwarefdn/weaviate/schema"
 )
+
+type Database interface {
+	ConnectorLock() ConnectorLock
+	SchemaLock() SchemaLock
+}
 
 // A database consists of a schema manager and a connector.
 // The schema manager ensures that all weaviate instances (or just the one) agree on which schema is used.
 // The connector talks to the backing data store to persist the actual data.
-type Database struct {
-	locker    *RWLocker
-	manager   *SchemaManager
-	connector *dbconnector.DatabaseConnector
+type database struct {
+	locker    RWLocker
+	manager   SchemaManager
+	connector dbconnector.DatabaseConnector
 }
 
-func New(locker *RWLocker, manager *SchemaManager, connector *dbconnector.DatabaseConnector) *Database {
-	(*manager).SetStateConnector(*connector)
-	(*connector).SetStateManager(*manager)
+func New(messaging *messages.Messaging, locker RWLocker, manager SchemaManager, connector dbconnector.DatabaseConnector) (error, Database) {
+	// Link the manager and connector
+	manager.SetStateConnector(connector)
+	connector.SetStateManager(manager)
 
-	return &Database{
+	// Set updates to the schema.
+	manager.RegisterSchemaUpdateCallback(func(updatedSchema db_schema.Schema) {
+		s := schema.HackFromDatabaseSchema(updatedSchema)
+		connector.SetSchema(&s)
+	})
+
+	initialSchema := schema.HackFromDatabaseSchema(manager.GetSchema())
+	initialState := manager.GetInitialConnectorState()
+
+	connector.SetState(initialState)
+	connector.SetSchema(&initialSchema)
+	connector.SetMessaging(messaging)
+
+	// TODO: probably needs to go. We're not using address anymore.
+	//connector.SetServerAddress(serverConfig.GetHostAddress())
+
+	// Make the connector try to connect to a database
+	errConnect := connector.Connect()
+	if errConnect != nil {
+		messaging.ExitError(1, fmt.Sprintf("Could not connect to backing database: %s", errConnect.Error()))
+	}
+
+	// Init the database.
+	errInit := connector.Init()
+	if errInit != nil {
+		messaging.ExitError(1, fmt.Sprintf("Could not initialize connector: %s", errInit.Error()))
+	}
+
+	return nil, &database{
 		locker:    locker,
 		manager:   manager,
 		connector: connector,
@@ -25,10 +63,10 @@ func New(locker *RWLocker, manager *SchemaManager, connector *dbconnector.Databa
 }
 
 // Get a lock on the connector, allow access to the database, cannot modify schema.
-func (db *Database) ConnectorLock() *ConnectorLock {
-	(*db.locker).RLock()
+func (db *database) ConnectorLock() ConnectorLock {
+	db.locker.RLock()
 
-	return &ConnectorLock{
+	return &connectorLock{
 		db:    db,
 		valid: true,
 	}
@@ -36,10 +74,10 @@ func (db *Database) ConnectorLock() *ConnectorLock {
 
 // Get a lock on the schema manager. Can both modify the database and the schema.
 // We ensure that only request in one instance should hold this lock at the same time.
-func (db *Database) SchemaLock() *SchemaLock {
-	(*db.locker).Lock()
+func (db *database) SchemaLock() SchemaLock {
+	db.locker.Lock()
 
-	return &SchemaLock{
+	return &schemaLock{
 		db:    db,
 		valid: true,
 	}

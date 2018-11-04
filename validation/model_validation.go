@@ -58,7 +58,7 @@ const (
 )
 
 // ValidateThingBody Validates a thing body using the 'ThingCreate' object.
-func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseSchema schema.WeaviateSchema, dbConnector *dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
 	// Validate the body
 	bve := validateBody(thing.AtClass, thing.AtContext)
 
@@ -74,7 +74,7 @@ func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseS
 }
 
 // ValidateActionBody Validates a action body using the 'ActionCreate' object.
-func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databaseSchema schema.WeaviateSchema, dbConnector *dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
 	// Validate the body
 	bve := validateBody(action.AtClass, action.AtContext)
 
@@ -111,7 +111,7 @@ func validateRefType(s connutils.RefType) bool {
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
-func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector *dbconnector.DatabaseConnector, errorVal string, keyToken *models.KeyTokenGetResponse) error {
+func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, errorVal string, keyToken *models.KeyTokenGetResponse) error {
 	// Init reftype
 	refType := connutils.RefType(cref.Type)
 
@@ -144,13 +144,13 @@ func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
 		var err error
 		if refType == connutils.RefTypeThing {
 			obj := &models.ThingGetResponse{}
-			err = (*dbConnector).GetThing(ctx, cref.NrDollarCref, obj)
+			err = dbConnector.GetThing(ctx, cref.NrDollarCref, obj)
 		} else if refType == connutils.RefTypeAction {
 			obj := &models.ActionGetResponse{}
-			err = (*dbConnector).GetAction(ctx, cref.NrDollarCref, obj)
+			err = dbConnector.GetAction(ctx, cref.NrDollarCref, obj)
 		} else if refType == connutils.RefTypeKey {
 			obj := &models.KeyGetResponse{}
-			err = (*dbConnector).GetKey(ctx, cref.NrDollarCref, obj)
+			err = dbConnector.GetKey(ctx, cref.NrDollarCref, obj)
 		} else {
 			return fmt.Errorf(ErrorInvalidCRefType, cref.Type)
 		}

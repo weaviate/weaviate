@@ -6,8 +6,8 @@ import (
 )
 
 // Only supposed to be used during initialization of the connector.
-func (l *localSchemaManager) GetState() json.RawMessage {
-  return l.connectorState
+func (l *localSchemaManager) GetInitialConnectorState() json.RawMessage {
+	return l.connectorState
 }
 
 func (l *localSchemaManager) SetState(state json.RawMessage) error {

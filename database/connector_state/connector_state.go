@@ -10,7 +10,7 @@ type StateManager interface {
 	SetState(state json.RawMessage) error
 
 	// Used by a connector to get the initial state.
-	GetState() json.RawMessage
+	GetInitialConnectorState() json.RawMessage
 
 	// Link a connector to this state manager.
 	// When the internal state of some connector is updated, this state connector will call SetState on the provided conn.

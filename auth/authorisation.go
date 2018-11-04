@@ -25,7 +25,7 @@ import (
 )
 
 // IsOwnKeyOrLowerInTree returns whether a key is his own or in his children
-func IsOwnKeyOrLowerInTree(ctx context.Context, currentKey *models.KeyTokenGetResponse, userKeyID strfmt.UUID, databaseConnector *dbconnector.DatabaseConnector) bool {
+func IsOwnKeyOrLowerInTree(ctx context.Context, currentKey *models.KeyTokenGetResponse, userKeyID strfmt.UUID, databaseConnector dbconnector.DatabaseConnector) bool {
 	// If is own key, return true
 	if strings.EqualFold(string(userKeyID), string(currentKey.KeyID)) {
 		return true
@@ -52,7 +52,7 @@ func IsOwnKeyOrLowerInTree(ctx context.Context, currentKey *models.KeyTokenGetRe
 }
 
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
-func ActionsAllowed(ctx context.Context, actions []string, validateObject interface{}, databaseConnector *dbconnector.DatabaseConnector, objectOwnerUUID interface{}) (bool, error) {
+func ActionsAllowed(ctx context.Context, actions []string, validateObject interface{}, databaseConnector dbconnector.DatabaseConnector, objectOwnerUUID interface{}) (bool, error) {
 	// Get the user by the given principal
 	keyObject := validateObject.(*models.KeyTokenGetResponse)
 
@@ -106,7 +106,7 @@ func ActionsAllowed(ctx context.Context, actions []string, validateObject interf
 }
 
 // GetKeyChildrenUUIDs returns children recursively based on its parameters.
-func GetKeyChildrenUUIDs(ctx context.Context, databaseConnector *dbconnector.DatabaseConnector, parentUUID strfmt.UUID, filterOutDeleted bool, allIDs []strfmt.UUID, maxDepth int, depth int) ([]strfmt.UUID, error) {
+func GetKeyChildrenUUIDs(ctx context.Context, databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID, filterOutDeleted bool, allIDs []strfmt.UUID, maxDepth int, depth int) ([]strfmt.UUID, error) {
 	// Append on every depth
 	if depth > 0 {
 		allIDs = append(allIDs, parentUUID)
@@ -116,7 +116,7 @@ func GetKeyChildrenUUIDs(ctx context.Context, databaseConnector *dbconnector.Dat
 	children := []*models.KeyGetResponse{}
 
 	// Get children from the db-connector
-	err := (*databaseConnector).GetKeyChildren(ctx, parentUUID, &children)
+	err := databaseConnector.GetKeyChildren(ctx, parentUUID, &children)
 
 	// Return error
 	if err != nil {

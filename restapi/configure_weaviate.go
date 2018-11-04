@@ -76,7 +76,7 @@ var serverConfig *config.WeaviateConfig
 var graphQL graphqlapi.GraphQL
 var messaging *messages.Messaging
 
-var db *database.Database
+var db database.Database
 
 type keyTokenHeader struct {
 	Key   strfmt.UUID `json:"key"`
@@ -139,7 +139,7 @@ func generateMultipleRefObject(keyIDs []strfmt.UUID) models.MultipleRef {
 	return refs
 }
 
-func deleteKey(ctx context.Context, databaseConnector *dbconnector.DatabaseConnector, parentUUID strfmt.UUID) {
+func deleteKey(ctx context.Context, databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID) {
 	// Find its children
 	var allIDs []strfmt.UUID
 
@@ -155,9 +155,9 @@ func deleteKey(ctx context.Context, databaseConnector *dbconnector.DatabaseConne
 		keyResponse := models.KeyGetResponse{}
 
 		// Get the key to delete
-		(*databaseConnector).GetKey(ctx, keyID, &keyResponse)
+		databaseConnector.GetKey(ctx, keyID, &keyResponse)
 
-		(*databaseConnector).DeleteKey(ctx, &keyResponse.Key, keyID)
+		databaseConnector.DeleteKey(ctx, &keyResponse.Key, keyID)
 	}
 }
 
@@ -202,7 +202,7 @@ func headerAPIKeyHandling(ctx context.Context, keyToken string) (*models.KeyToke
 	validatedKey := models.KeyGetResponse{}
 
 	// Check if the user has access, true if yes
-	hashed, err := (*dbConnector).ValidateToken(ctx, kth.Key, &validatedKey)
+	hashed, err := dbConnector.ValidateToken(ctx, kth.Key, &validatedKey)
 
 	// Error printing
 	if err != nil {
@@ -271,7 +271,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		err := (*dbConnector).GetAction(ctx, params.ActionID, &actionGetResponse)
+		err := dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
 
 		// Object is deleted
 		if err != nil || actionGetResponse.Key == nil {
@@ -302,7 +302,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		errGet := (*dbConnector).GetAction(ctx, UUID, &responseObject)
+		errGet := dbConnector.GetAction(ctx, UUID, &responseObject)
 
 		// Init the response variables
 		historyResponse := &models.ActionGetHistoryResponse{}
@@ -310,7 +310,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		historyResponse.ActionID = UUID
 
 		// Fill the history for these objects
-		errHist := (*dbConnector).HistoryAction(ctx, UUID, &historyResponse.ActionHistory)
+		errHist := dbConnector.HistoryAction(ctx, UUID, &historyResponse.ActionHistory)
 
 		// Check whether dont exist (both give an error) to return a not found
 		if errGet != nil && (errHist != nil || len(historyResponse.PropertyHistory) == 0) {
@@ -350,7 +350,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get and transform object
 		UUID := strfmt.UUID(params.ActionID)
-		errGet := (*dbConnector).GetAction(ctx, UUID, &actionGetResponse)
+		errGet := dbConnector.GetAction(ctx, UUID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
 		oldAction := actionGetResponse
@@ -403,14 +403,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		delayedLock.IncSteps()
 		go func() {
 			defer delayedLock.Unlock()
-			(*dbConnector).MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+			dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
 		}()
 
 		// Update the database
 		delayedLock.IncSteps()
 		go func() {
 			defer delayedLock.Unlock()
-			(*dbConnector).UpdateAction(ctx, action, UUID)
+			dbConnector.UpdateAction(ctx, action, UUID)
 		}()
 
 		// Create return Object
@@ -443,7 +443,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get item from database
 		UUID := params.ActionID
-		errGet := (*dbConnector).GetAction(ctx, UUID, &actionGetResponse)
+		errGet := dbConnector.GetAction(ctx, UUID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
 		oldAction := actionGetResponse
@@ -470,7 +470,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		delayedLock.IncSteps()
 		go func() {
 			defer delayedLock.Unlock()
-			(*dbConnector).MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+			dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
 		}()
 
 		// Update the database
@@ -481,7 +481,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		delayedLock.IncSteps()
 		go func() {
 			defer delayedLock.Unlock()
-			(*dbConnector).UpdateAction(ctx, &params.Body.Action, UUID)
+			dbConnector.UpdateAction(ctx, &params.Body.Action, UUID)
 		}()
 
 		// Create object to return
@@ -562,12 +562,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			delayedLock.IncSteps()
 			go func() {
 				defer delayedLock.Unlock()
-				(*dbConnector).AddAction(ctx, action, UUID)
+				dbConnector.AddAction(ctx, action, UUID)
 			}()
 			return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
 		} else {
 			//TODO: handle errors
-			(*dbConnector).AddAction(ctx, action, UUID)
+			dbConnector.AddAction(ctx, action, UUID)
 			return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
 		}
 	})
@@ -586,7 +586,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		errGet := (*dbConnector).GetAction(ctx, params.ActionID, &actionGetResponse)
+		errGet := dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
 		oldAction := actionGetResponse
@@ -607,14 +607,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		delayedLock.IncSteps()
 		go func() {
 			defer delayedLock.Unlock()
-			(*dbConnector).MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+			dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
 		}()
 
 		// Add new row as GO-routine
 		delayedLock.IncSteps()
 		go func() {
 			defer delayedLock.Unlock()
-			(*dbConnector).DeleteAction(ctx, &actionGetResponse.Action, params.ActionID)
+			dbConnector.DeleteAction(ctx, &actionGetResponse.Action, params.ActionID)
 		}()
 
 		// Return 'No Content'
@@ -659,7 +659,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Save to DB
-		insertErr := (*dbConnector).AddKey(ctx, &newKey.Key, newKey.KeyID, connutils.TokenHasher(newKey.Token))
+		insertErr := dbConnector.AddKey(ctx, &newKey.Key, newKey.KeyID, connutils.TokenHasher(newKey.Token))
 		if insertErr != nil {
 			messaging.ErrorMessage(insertErr)
 			return keys.NewWeaviateKeyCreateUnprocessableEntity().WithPayload(createErrorResponseObject(insertErr.Error()))
@@ -682,7 +682,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		errGet := (*dbConnector).GetKey(ctx, params.KeyID, &keyResponse)
+		errGet := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -719,7 +719,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		errGet := (*dbConnector).GetKey(ctx, params.KeyID, &keyResponse)
+		errGet := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -751,7 +751,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		err := (*dbConnector).GetKey(ctx, params.KeyID, &keyResponse)
+		err := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -806,7 +806,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.Key.IsRoot = &isRoot
 
 		// Get item from database
-		err := (*dbConnector).GetKey(ctx, principal.(*models.KeyTokenGetResponse).KeyID, &responseObject)
+		err := dbConnector.GetKey(ctx, principal.(*models.KeyTokenGetResponse).KeyID, &responseObject)
 
 		// Object is deleted or not-existing
 		if err != nil {
@@ -829,7 +829,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
-		errGet := (*dbConnector).GetKey(ctx, params.KeyID, &keyResponse)
+		errGet := dbConnector.GetKey(ctx, params.KeyID, &keyResponse)
 
 		// Not found
 		if errGet != nil {
@@ -851,7 +851,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		newToken := connutils.GenerateUUID()
 
 		// Update the key in the database
-		insertErr := (*dbConnector).UpdateKey(ctx, &keyResponse.Key, keyResponse.KeyID, connutils.TokenHasher(newToken))
+		insertErr := dbConnector.UpdateKey(ctx, &keyResponse.Key, keyResponse.KeyID, connutils.TokenHasher(newToken))
 		if insertErr != nil {
 			messaging.ErrorMessage(insertErr)
 			return keys.NewWeaviateKeysRenewTokenUnprocessableEntity().WithPayload(createErrorResponseObject(insertErr.Error()))
@@ -921,11 +921,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			delayedLock.IncSteps()
 			go func() {
 				defer delayedLock.Unlock()
-				(*dbConnector).AddThing(ctx, thing, UUID)
+				dbConnector.AddThing(ctx, thing, UUID)
 			}()
 			return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
 		} else {
-			(*dbConnector).AddThing(ctx, thing, UUID)
+			dbConnector.AddThing(ctx, thing, UUID)
 			return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
 		}
 	})
@@ -944,7 +944,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		errGet := (*dbConnector).GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
 
 		// Save the old-thing in a variable
 		oldThing := thingGetResponse
@@ -965,14 +965,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		delayedLock.IncSteps()
 		go func() {
 			delayedLock.Unlock()
-			(*dbConnector).MoveToHistoryThing(ctx, &oldThing.Thing, params.ThingID, true)
+			dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, params.ThingID, true)
 		}()
 
 		// Add new row as GO-routine
 		delayedLock.IncSteps()
 		go func() {
 			delayedLock.Unlock()
-			(*dbConnector).DeleteThing(ctx, &thingGetResponse.Thing, params.ThingID)
+			dbConnector.DeleteThing(ctx, &thingGetResponse.Thing, params.ThingID)
 		}()
 
 		// Return 'No Content'
@@ -991,7 +991,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		err := (*dbConnector).GetThing(ctx, strfmt.UUID(params.ThingID), &responseObject)
+		err := dbConnector.GetThing(ctx, strfmt.UUID(params.ThingID), &responseObject)
 
 		// Object is not found
 		if err != nil || responseObject.Key == nil {
@@ -1024,7 +1024,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := strfmt.UUID(params.ThingID)
 
 		// Get item from database
-		errGet := (*dbConnector).GetThing(params.HTTPRequest.Context(), UUID, &responseObject)
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &responseObject)
 
 		// Init the response variables
 		historyResponse := &models.ThingGetHistoryResponse{}
@@ -1032,7 +1032,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		historyResponse.ThingID = UUID
 
 		// Fill the history for these objects
-		errHist := (*dbConnector).HistoryThing(ctx, UUID, &historyResponse.ThingHistory)
+		errHist := dbConnector.HistoryThing(ctx, UUID, &historyResponse.ThingHistory)
 
 		// Check whether dont exist (both give an error) to return a not found
 		if errGet != nil && (errHist != nil || len(historyResponse.PropertyHistory) == 0) {
@@ -1083,7 +1083,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		thingsResponse.Things = []*models.ThingGetResponse{}
 
 		// List all results
-		err := (*dbConnector).ListThings(ctx, limit, (page-1)*limit, keyID, []*connutils.WhereQuery{}, &thingsResponse)
+		err := dbConnector.ListThings(ctx, limit, (page-1)*limit, keyID, []*connutils.WhereQuery{}, &thingsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)
@@ -1107,7 +1107,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get and transform object
 		UUID := strfmt.UUID(params.ThingID)
-		errGet := (*dbConnector).GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
 
 		// Save the old-thing in a variable
 		oldThing := thingGetResponse
@@ -1164,14 +1164,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		delayedLock.IncSteps()
 		go func() {
 			delayedLock.Unlock()
-			(*dbConnector).MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+			dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
 		}()
 
 		// Update the database
 		delayedLock.IncSteps()
 		go func() {
 			delayedLock.Unlock()
-			(*dbConnector).UpdateThing(ctx, thing, UUID)
+			dbConnector.UpdateThing(ctx, thing, UUID)
 		}()
 
 		// Create return Object
@@ -1205,7 +1205,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get item from database
 		UUID := params.ThingID
-		errGet := (*dbConnector).GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
 
 		// Save the old-thing in a variable
 		oldThing := thingGetResponse
@@ -1235,7 +1235,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		delayedLock.IncSteps()
 		go func() {
 			delayedLock.Unlock()
-			(*dbConnector).MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+			dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
 		}()
 
 		// Update the database
@@ -1245,7 +1245,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		delayedLock.IncSteps()
 		go func() {
 			delayedLock.Unlock()
-			(*dbConnector).UpdateThing(ctx, &params.Body.Thing, UUID)
+			dbConnector.UpdateThing(ctx, &params.Body.Thing, UUID)
 		}()
 
 		// Create object to return
@@ -1343,7 +1343,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
-		errGet := (*dbConnector).GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
+		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
 
 		// If there are no results, there is an error
 		if errGet != nil {
@@ -1356,7 +1356,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
-		err := (*dbConnector).ListActions(ctx, params.ThingID, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
+		err := dbConnector.ListActions(ctx, params.ThingID, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)
@@ -1458,80 +1458,45 @@ func configureServer(s *http.Server, scheme, addr string) {
 
 	// Create the database connector usint the config
 	// TODO  make this configureable
-	dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name)
+	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig)
 
-	// Could not find, or configure database connector.
+	// Could not find, or configure connector.
 	if err != nil {
 		messaging.ExitError(78, err.Error())
 	}
 
+	// Construct a (distributed lock)
+	// TODO: make part of schema manager?
 	localMutex := sync.RWMutex{}
 	dbLock := database.RWLocker(&localMutex)
 
+	// Configure schema manager
 	if serverConfig.Environment.Database.LocalSchemaConfig == nil {
 		messaging.ExitError(78, "Local schema manager is not configured.")
 	}
 
-	manager_, err := db_local_schema_manager.New(serverConfig.Environment.Database.LocalSchemaConfig.StateDir, dbConnector)
+	manager, err := db_local_schema_manager.New(serverConfig.Environment.Database.LocalSchemaConfig.StateDir, dbConnector)
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
-	}
-	var manager database.SchemaManager = manager_
-
-	db = database.New(&dbLock, &manager, &dbConnector)
-
-	manager.RegisterSchemaUpdateCallback(func(updatedSchema db_schema.Schema) {
-		s := schema.HackFromDatabaseSchema(updatedSchema)
-		err := dbConnector.SetSchema(&s)
-		if err != nil {
-			// TODO: log
-		}
-	})
-
-	initialSchema := schema.HackFromDatabaseSchema(manager.GetSchema())
-	err = dbConnector.SetSchema(&initialSchema)
-	// Fatal error loading schema file
-	if err != nil {
-		messaging.ExitError(78, err.Error())
-	}
-
-	err = dbConnector.SetMessaging(messaging)
-	// Fatal error setting messaging
-	if err != nil {
-		messaging.ExitError(78, err.Error())
-	}
-
-	dbConnector.SetServerAddress(serverConfig.GetHostAddress())
-
-	// connect the database
-	errConnect := dbConnector.Connect()
-	if errConnect != nil {
-		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when connecting: "+errConnect.Error())
-	}
-
-	// init the database
-	var errInit error
-	errInit = dbConnector.Init()
-	if errInit != nil {
-		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
-	}
-
-	graphQL, err = graphqlapi.CreateSchema(&dbConnector, serverConfig, &initialSchema, messaging)
-	if err != nil {
-		// messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+err.Error())
-		log.Printf("GraphQL schema initialization gave an error when initializing: %v ", err)
 	}
 
 	manager.RegisterSchemaUpdateCallback(func(updatedSchema db_schema.Schema) {
 		s := schema.HackFromDatabaseSchema(updatedSchema)
 		updatedGraphQL, err := graphqlapi.CreateSchema(nil, serverConfig, &s, messaging)
 		if err != nil {
+			// TODO: turn on safe mode
 			// TODO: log
 		} else {
 			// TODO: atomic update?
 			graphQL = updatedGraphQL
 		}
 	})
+
+	// Now instantiate a database, with the configured lock, manager and connector.
+	err, db = database.New(messaging, dbLock, manager, dbConnector)
+	if err != nil {
+		messaging.ExitError(1, fmt.Sprintf("Could not initialize the database: %s", err.Error()))
+	}
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
