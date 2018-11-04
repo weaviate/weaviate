@@ -72,7 +72,7 @@ var connectorOptionGroup *swag.CommandLineOptionsGroup
 var contextionary libcontextionary.Contextionary
 var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
-var graphQL graphqlapi.GraphQL
+var graphQL *graphqlapi.GraphQL
 var messaging *messages.Messaging
 
 var db database.Database
@@ -1480,14 +1480,18 @@ func configureServer(s *http.Server, scheme, addr string) {
 	}
 
 	manager.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {
+		// Note that this is thread safe; we're running in a single go-routine, because the event
+		// handlers are called when the SchemaLock is still held.
+
 		s := schema.HackFromDatabaseSchema(updatedSchema)
 		updatedGraphQL, err := graphqlapi.CreateSchema(nil, serverConfig, &s, messaging)
 		if err != nil {
 			// TODO: turn on safe mode
-			// TODO: log
+			graphQL = nil
+			messaging.ErrorMessage(fmt.Sprintf("Could not re-generate GraphQL schema, because:\n%#v\n", err))
 		} else {
-			// TODO: atomic update?
-			graphQL = updatedGraphQL
+			messaging.InfoMessage("Updated GraphQL schema")
+			graphQL = &updatedGraphQL
 		}
 	})
 
