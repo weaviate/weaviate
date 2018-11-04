@@ -1,7 +1,7 @@
 package database
 
 import (
-	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 )
 
 // A database consists of a schema manager and a connector.

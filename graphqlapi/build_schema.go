@@ -17,7 +17,7 @@ package graphqlapi
 import (
 	"fmt"
 
-	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/graphql-go/graphql"
 )
 

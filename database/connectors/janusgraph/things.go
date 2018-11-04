@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
-	connutils "github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/models"
 
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
