@@ -18,7 +18,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 
-	connutils "github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 )
 
 const fakeKeyId strfmt.UUID = "11111111-1111-1111-1111-111111111111"

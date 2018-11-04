@@ -1,9 +1,9 @@
 package listing
 
 import (
-	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
-	"github.com/creativesoftwarefdn/weaviate/connectors/foobar"
-	"github.com/creativesoftwarefdn/weaviate/connectors/janusgraph"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/foobar"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph"
 )
 
 // GetAllConnectors contains all available connectors

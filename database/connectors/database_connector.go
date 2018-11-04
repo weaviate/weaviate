@@ -16,7 +16,7 @@ package dbconnector
 import (
 	"context"
 
-	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/go-openapi/strfmt"
 	"github.com/graphql-go/graphql"
 

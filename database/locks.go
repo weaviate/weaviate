@@ -1,7 +1,7 @@
 package database
 
 import (
-	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
 )
 

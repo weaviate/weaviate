@@ -18,7 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
-	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
 

@@ -19,7 +19,7 @@ import (
 	//	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	//	"github.com/creativesoftwarefdn/weaviate/validation"
-	//	connutils "github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	//	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 )
 
 // Test that we can properly list things.
