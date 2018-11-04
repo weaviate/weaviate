@@ -125,7 +125,7 @@ func (f *Janusgraph) Init() error {
 }
 
 func (j *Janusgraph) ensureRootKeyExists() error {
-	q := gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).HasBool("isRoot", true).Count()
+	q := gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).HasBool(PROP_KEY_IS_ROOT, true).Count()
 
 	result, err := j.client.Execute(q)
 	if err != nil {
