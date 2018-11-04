@@ -50,10 +50,10 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/schema"
-	"github.com/creativesoftwarefdn/weaviate/schema/kind"
 )
 
 // Foobar has some basic variables.
@@ -64,7 +64,7 @@ type Foobar struct {
 
 	config        Config
 	serverAddress string
-	schema        *schema.WeaviateSchema
+	schema        schema.Schema
 	messaging     *messages.Messaging
 }
 
@@ -127,11 +127,11 @@ func (f *Foobar) setConfig(config interface{}) error {
 }
 
 // SetSchema takes actionSchema and thingsSchema as an input and makes them available globally at f.schema
-func (f *Foobar) SetSchema(schemaInput *schema.WeaviateSchema) {
+func (f *Foobar) SetSchema(schemaInput schema.Schema) {
 	f.schema = schemaInput
 }
 
-// SetMessaging is used to send messages to the service.
+// SetMessaging is used to send messages to the service
 // Available message types are: f.messaging.Infomessage ...DebugMessage ...ErrorMessage ...ExitError (also exits the service) ...InfoMessage
 func (f *Foobar) SetMessaging(m *messages.Messaging) {
 

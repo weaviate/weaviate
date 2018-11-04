@@ -3,7 +3,7 @@ package janusgraph
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"strconv"
 )
 
@@ -65,7 +65,7 @@ func (s *janusGraphConnectorState) addMappedPropertyName(className schema.ClassN
 	propsOfClass, exists := s.PropertyMap[className]
 
 	if !exists {
-		propsOfClass := make(map[schema.PropertyName]MappedPropertyName)
+		propsOfClass = make(map[schema.PropertyName]MappedPropertyName)
 		s.PropertyMap[className] = propsOfClass
 	}
 

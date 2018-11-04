@@ -3,9 +3,8 @@ package database
 import (
 	"fmt"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
-	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/creativesoftwarefdn/weaviate/schema"
 )
 
 type Database interface {
@@ -28,16 +27,14 @@ func New(messaging *messages.Messaging, locker RWLocker, manager SchemaManager, 
 	connector.SetStateManager(manager)
 
 	// Set updates to the schema.
-	manager.RegisterSchemaUpdateCallback(func(updatedSchema db_schema.Schema) {
-		s := schema.HackFromDatabaseSchema(updatedSchema)
-		connector.SetSchema(&s)
+	manager.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {
+		connector.SetSchema(updatedSchema)
 	})
 
-	initialSchema := schema.HackFromDatabaseSchema(manager.GetSchema())
 	initialState := manager.GetInitialConnectorState()
 
 	connector.SetState(initialState)
-	connector.SetSchema(&initialSchema)
+	connector.SetSchema(manager.GetSchema())
 	connector.SetMessaging(messaging)
 
 	// TODO: probably needs to go. We're not using address anymore.

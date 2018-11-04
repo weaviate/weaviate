@@ -3,8 +3,8 @@ package database
 import (
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
-	"github.com/creativesoftwarefdn/weaviate/schema/kind"
 	"github.com/go-openapi/strfmt"
 )
 

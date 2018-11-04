@@ -17,8 +17,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/schema"
 	middleware "github.com/go-openapi/runtime/middleware"
 
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/schema/kind"
 )
 
 func setupSchemaHandlers(api *operations.WeaviateAPI) {

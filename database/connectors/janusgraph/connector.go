@@ -7,9 +7,9 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/go-openapi/strfmt"
 	"github.com/mitchellh/mapstructure"
 
@@ -32,7 +32,7 @@ type Janusgraph struct {
 
 	config        Config
 	serverAddress string
-	schema        *schema.WeaviateSchema
+	schema        schema.Schema
 	messaging     *messages.Messaging
 }
 
@@ -86,7 +86,7 @@ func (f *Janusgraph) setConfig(config interface{}) error {
 }
 
 // SetSchema takes actionSchema and thingsSchema as an input and makes them available globally at f.schema
-func (f *Janusgraph) SetSchema(schemaInput *schema.WeaviateSchema) {
+func (f *Janusgraph) SetSchema(schemaInput schema.Schema) {
 	f.schema = schemaInput
 }
 

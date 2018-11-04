@@ -48,7 +48,7 @@ import (
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/connectors/listing"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
-	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	db_local_schema_manager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/local"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
@@ -58,7 +58,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/keys"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
-	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/creativesoftwarefdn/weaviate/validation"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
@@ -1480,7 +1479,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
 	}
 
-	manager.RegisterSchemaUpdateCallback(func(updatedSchema db_schema.Schema) {
+	manager.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {
 		s := schema.HackFromDatabaseSchema(updatedSchema)
 		updatedGraphQL, err := graphqlapi.CreateSchema(nil, serverConfig, &s, messaging)
 		if err != nil {
