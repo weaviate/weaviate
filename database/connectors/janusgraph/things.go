@@ -131,8 +131,11 @@ func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID str
 }
 
 func (f *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
+	k := kind.THING_KIND
+
 	// Fetch the thing, it's key, and it's relations.
 	q := gremlin.G.V().
+		StringProperty(PROP_KIND, k.Name()).
 		HasString(PROP_UUID, string(UUID)).
 		As("class").
 		OutEWithLabel(KEY_VERTEX_LABEL).As("keyEdge").
