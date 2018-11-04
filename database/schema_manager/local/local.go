@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 
+	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -35,6 +36,9 @@ type localSchemaManager struct {
 	// Calling the migrator
 	connectorMigrator schema_migrator.Migrator
 	callbacks         []func(updatedSchema db_schema.Schema)
+
+	// Contextionary
+	contextionary libcontextionary.Contextionary
 }
 
 // The state that will be serialized to/from disk.

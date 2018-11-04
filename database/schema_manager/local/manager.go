@@ -3,80 +3,15 @@ package local
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
-
 	"github.com/go-openapi/strfmt"
 )
 
-func validateClassNameUniqueness(className string, schemaState *localSchemaState) error {
-	for _, otherClass := range schemaState.SchemaFor(kind.ACTION_KIND).Classes {
-		if className == otherClass.Class {
-			return fmt.Errorf("Name '%s' already used as a name for an Action class", className)
-		}
-	}
-
-	for _, otherClass := range schemaState.SchemaFor(kind.THING_KIND).Classes {
-		if className == otherClass.Class {
-			return fmt.Errorf("Name '%s' already used as a name for a Thing class", className)
-		}
-	}
-
-	return nil
-}
-
-// TODO extract to library.
-// Validate if a class can be added to the schema
-func validateCanAddClass(knd kind.Kind, class *models.SemanticSchemaClass, schemaState *localSchemaState) error {
-	// First check if there is a name clash.
-	err := validateClassNameUniqueness(class.Class, schemaState)
-	if err != nil {
-		return err
-	}
-
-	// TODO validate name against contextionary / keywords.
-	// TODO validate properties:
-	//  - against contextionary / keywords.
-	//  - primitive types
-	//  - relation types.
-
-	// all is fine!
-	return nil
-}
-
-func validatePropertyNameUniqueness(propertyName string, class *models.SemanticSchemaClass) error {
-	for _, otherProperty := range class.Properties {
-		if propertyName == otherProperty.Name {
-			return fmt.Errorf("Name '%s' already in use as a property name", propertyName)
-		}
-	}
-
-	return nil
-}
-
-// Verify if we can add the passed property to the passed in class.
-// We need the total schema state to be able to check that references etc are valid.
-func validateCanAddProperty(property *models.SemanticSchemaClassProperty, class *models.SemanticSchemaClass, schemaState *localSchemaState) error {
-	// First check if there is a name clash.
-	err := validatePropertyNameUniqueness(property.Name, class)
-	if err != nil {
-		return err
-	}
-
-	// TODO validate name against contextionary / keywords.
-	// TODO validate properties:
-	//  - against contextionary / keywords.
-	//  - primitive types
-	//  - relation types.
-
-	// all is fine!
-	return nil
-}
-
-func (l *localSchemaManager) GetSchema() db_schema.Schema {
-	return db_schema.Schema{
+func (l *localSchemaManager) GetSchema() schema.Schema {
+	return schema.Schema{
 		Actions: l.schemaState.ActionSchema,
 		Things:  l.schemaState.ThingSchema,
 	}
@@ -91,8 +26,12 @@ func (l *localSchemaManager) UpdateMeta(kind kind.Kind, atContext strfmt.URI, ma
 	return l.saveToDisk()
 }
 
+func (l *localSchemaManager) SetContextionary(context contextionary.Contextionary) {
+	l.contextionary = context
+}
+
 func (l *localSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
-	err := validateCanAddClass(kind, class, &l.schemaState)
+	err := l.validateCanAddClass(kind, class)
 	if err != nil {
 		return err
 	} else {
@@ -145,26 +84,28 @@ func (l *localSchemaManager) UpdateClass(kind kind.Kind, className string, newCl
 		return err
 	}
 
+	classNameAfterUpdate := className
+	keywordsAfterUpdate := class.Keywords
+
 	// First validate the request
 	if newClassName != nil {
-		err = validateClassNameUniqueness(*newClassName, &l.schemaState)
+		err = l.validateClassNameUniqueness(*newClassName)
+		classNameAfterUpdate = *newClassName
 		if err != nil {
 			return err
 		}
 	}
 
 	if newKeywords != nil {
-		// TODO validate keywords in contextionary
+		keywordsAfterUpdate = *newKeywords
 	}
+
+	// Validate name / keywords in contextionary
+	l.validateClassNameOrKeywordsCorrect(kind, classNameAfterUpdate, keywordsAfterUpdate)
 
 	// Validated! Now apply the changes.
-	if newClassName != nil {
-		class.Class = *newClassName
-	}
-
-	if newKeywords != nil {
-		class.Keywords = *newKeywords
-	}
+	class.Class = classNameAfterUpdate
+	class.Keywords = keywordsAfterUpdate
 
 	err = l.saveToDisk()
 
@@ -182,7 +123,7 @@ func (l *localSchemaManager) AddProperty(kind kind.Kind, className string, prop 
 		return err
 	}
 
-	err = validateCanAddProperty(prop, class, &l.schemaState)
+	err = l.validateCanAddProperty(prop, class)
 	if err != nil {
 		return err
 	}
@@ -211,27 +152,28 @@ func (l *localSchemaManager) UpdateProperty(kind kind.Kind, className string, pr
 		return err
 	}
 
+	propNameAfterUpdate := propName
+	keywordsAfterUpdate := prop.Keywords
+
 	if newName != nil {
 		// verify uniqueness
 		err = validatePropertyNameUniqueness(*newName, class)
+		propNameAfterUpdate = *newName
 		if err != nil {
 			return err
 		}
 	}
 
 	if newKeywords != nil {
-		// TODO: validate keywords.
+		keywordsAfterUpdate = *newKeywords
 	}
 
-	// The updates are validated. Apply them.
+	// Validate name / keywords in contextionary
+	l.validatePropertyNameOrKeywordsCorrect(className, propNameAfterUpdate, keywordsAfterUpdate)
 
-	if newName != nil {
-		prop.Name = *newName
-	}
-
-	if newKeywords != nil {
-		prop.Keywords = *newKeywords
-	}
+	// Validated! Now apply the changes.
+	prop.Name = propNameAfterUpdate
+	prop.Keywords = keywordsAfterUpdate
 
 	err = l.saveToDisk()
 

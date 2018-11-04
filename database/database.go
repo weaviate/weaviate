@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -21,7 +22,7 @@ type database struct {
 	connector dbconnector.DatabaseConnector
 }
 
-func New(messaging *messages.Messaging, locker RWLocker, manager SchemaManager, connector dbconnector.DatabaseConnector) (error, Database) {
+func New(messaging *messages.Messaging, locker RWLocker, manager SchemaManager, connector dbconnector.DatabaseConnector, context contextionary.Contextionary) (error, Database) {
 	// Link the manager and connector
 	manager.SetStateConnector(connector)
 	connector.SetStateManager(manager)
@@ -53,6 +54,8 @@ func New(messaging *messages.Messaging, locker RWLocker, manager SchemaManager, 
 	if errInit != nil {
 		messaging.ExitError(1, fmt.Sprintf("Could not initialize connector: %s", errInit.Error()))
 	}
+
+	manager.SetContextionary(context)
 
 	return nil, &database{
 		locker:    locker,

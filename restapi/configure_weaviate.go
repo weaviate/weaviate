@@ -1492,7 +1492,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	})
 
 	// Now instantiate a database, with the configured lock, manager and connector.
-	err, db = database.New(messaging, dbLock, manager, dbConnector)
+	err, db = database.New(messaging, dbLock, manager, dbConnector, contextionary)
 	if err != nil {
 		messaging.ExitError(1, fmt.Sprintf("Could not initialize the database: %s", err.Error()))
 	}

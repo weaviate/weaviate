@@ -13,7 +13,7 @@ func init() {
 	validatePropertyNameRegex = regexp.MustCompile(`^[a-z]+([A-Z][a-z]+)*$`)
 }
 
-// Validates that this string is a valid class name
+// Validates that this string is a valid class name (formate wise)
 func ValidateClassName(name string) (error, ClassName) {
 	if validateClassNameRegex.MatchString(name) {
 		return nil, ClassName(name)
