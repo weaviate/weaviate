@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -43,9 +44,8 @@ type Config struct {
 	InitialToken *string
 }
 
-// GetName returns a unique connector name, this name is used to define the connector in the weaviate config
-func (f *Janusgraph) GetName() string {
-	return "janusgraph"
+func New() dbconnector.DatabaseConnector {
+	return &Janusgraph{}
 }
 
 // SetConfig sets variables, which can be placed in the config file section "database_config: {}"

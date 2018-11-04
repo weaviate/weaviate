@@ -34,7 +34,6 @@ type BaseConnector interface {
 
 	Connect() error
 	Init() error
-	GetName() string
 	SetServerAddress(serverAddress string)
 	SetConfig(configInput *config.Environment) error
 	SetSchema(schemaInput *schema.WeaviateSchema) error
