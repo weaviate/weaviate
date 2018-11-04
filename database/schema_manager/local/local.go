@@ -184,17 +184,17 @@ func (l *localSchemaManager) loadOrInitializeConnectorState() error {
 
 	// Fill in null state
 	if !stateFileExists {
-		l.connectorState = json.RawMessage([]byte("null"))
+		l.connectorState = json.RawMessage([]byte("{}"))
 
 		// And flush the connector state
 		err := l.saveConnectorStateToDisk()
 		if err != nil {
-			log.Fatal("Could not save null connector state to disk")
+			log.Fatal("Could not save initial connector state to disk")
 		}
-		log.Infof("Initialized empty schema")
+		log.Infof("Initialized empty connector state")
 	} else {
 		// Load the state from disk.
-		stateBytes, _ := ioutil.ReadAll(l.stateFile)
+		stateBytes, _ := ioutil.ReadAll(l.connectorStateFile)
 		err := l.connectorState.UnmarshalJSON(stateBytes)
 		if err != nil {
 			return fmt.Errorf("Could not parse connector state '%v'", l.connectorStatePath())
