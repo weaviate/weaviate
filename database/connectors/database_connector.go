@@ -34,8 +34,8 @@ type BaseConnector interface {
 	Connect() error
 	Init() error
 	SetServerAddress(serverAddress string)
-	SetSchema(schemaInput *schema.WeaviateSchema) error
-	SetMessaging(m *messages.Messaging) error
+	SetSchema(schemaInput *schema.WeaviateSchema)
+	SetMessaging(m *messages.Messaging)
 
 	AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
 	GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error

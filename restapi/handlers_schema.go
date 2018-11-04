@@ -29,7 +29,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		defer schemaLock.Unlock()
 
 		schemaManager := schemaLock.SchemaManager()
-		err := (*schemaManager).AddClass(kind.ACTION_KIND, params.ActionClass)
+		err := schemaManager.AddClass(kind.ACTION_KIND, params.ActionClass)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaActionsCreateOK()
@@ -46,7 +46,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		defer schemaLock.Unlock()
 
 		schemaManager := schemaLock.SchemaManager()
-		err := (*schemaManager).DropClass(kind.ACTION_KIND, params.ClassName)
+		err := schemaManager.DropClass(kind.ACTION_KIND, params.ClassName)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaActionsDeleteOK()
@@ -63,7 +63,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		defer schemaLock.Unlock()
 
 		schemaManager := schemaLock.SchemaManager()
-		err := (*schemaManager).AddProperty(kind.ACTION_KIND, params.ClassName, params.Body)
+		err := schemaManager.AddProperty(kind.ACTION_KIND, params.ClassName, params.Body)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaActionsPropertiesAddOK()
@@ -80,7 +80,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		defer schemaLock.Unlock()
 
 		schemaManager := schemaLock.SchemaManager()
-		_ = (*schemaManager).DropProperty(kind.ACTION_KIND, params.ClassName, params.PropertyName)
+		_ = schemaManager.DropProperty(kind.ACTION_KIND, params.ClassName, params.PropertyName)
 
 		return schema.NewWeaviateSchemaActionsPropertiesDeleteOK()
 	})
@@ -104,7 +104,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}
-		err := (*schemaManager).UpdateProperty(kind.ACTION_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
+		err := schemaManager.UpdateProperty(kind.ACTION_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaActionsPropertiesUpdateOK()
@@ -133,7 +133,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}
-		err := (*schemaManager).UpdateClass(kind.ACTION_KIND, params.ClassName, newName, newKeywords)
+		err := schemaManager.UpdateClass(kind.ACTION_KIND, params.ClassName, newName, newKeywords)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaActionsUpdateOK()
@@ -165,7 +165,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		defer schemaLock.Unlock()
 
 		schemaManager := schemaLock.SchemaManager()
-		err := (*schemaManager).AddClass(kind.THING_KIND, params.ThingClass)
+		err := schemaManager.AddClass(kind.THING_KIND, params.ThingClass)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsCreateOK()
@@ -182,7 +182,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		defer schemaLock.Unlock()
 
 		schemaManager := schemaLock.SchemaManager()
-		err := (*schemaManager).DropClass(kind.THING_KIND, params.ClassName)
+		err := schemaManager.DropClass(kind.THING_KIND, params.ClassName)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsDeleteOK()
@@ -199,7 +199,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		defer schemaLock.Unlock()
 
 		schemaManager := schemaLock.SchemaManager()
-		err := (*schemaManager).AddProperty(kind.THING_KIND, params.ClassName, params.Body)
+		err := schemaManager.AddProperty(kind.THING_KIND, params.ClassName, params.Body)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsPropertiesAddOK()
@@ -216,7 +216,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		defer schemaLock.Unlock()
 
 		schemaManager := schemaLock.SchemaManager()
-		_ = (*schemaManager).DropProperty(kind.THING_KIND, params.ClassName, params.PropertyName)
+		_ = schemaManager.DropProperty(kind.THING_KIND, params.ClassName, params.PropertyName)
 
 		return schema.NewWeaviateSchemaThingsPropertiesDeleteOK()
 	})
@@ -240,7 +240,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}
-		err := (*schemaManager).UpdateProperty(kind.THING_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
+		err := schemaManager.UpdateProperty(kind.THING_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsPropertiesUpdateOK()
@@ -269,7 +269,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}
-		err := (*schemaManager).UpdateClass(kind.THING_KIND, params.ClassName, newName, newKeywords)
+		err := schemaManager.UpdateClass(kind.THING_KIND, params.ClassName, newName, newKeywords)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsUpdateOK()

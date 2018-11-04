@@ -1,6 +1,7 @@
 package listing
 
 import (
+	"fmt"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/foobar"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph"
@@ -14,8 +15,9 @@ func NewConnector(name string, config interface{}) (err error, conn dbconnector.
 	case "foobar":
 		err, conn = foobar.New(config)
 	default:
-		err := fmt.Errorf("No connector with the name '%s' exists!", name)
+		err = fmt.Errorf("No connector with the name '%s' exists!", name)
 	}
+	return
 }
 
 // GetAllCacheConnectors contains all available cache-connectors

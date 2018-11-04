@@ -47,7 +47,6 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/mitchellh/mapstructure"
 
-	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
@@ -113,10 +112,10 @@ func (f *Foobar) trace() {
 // 			"port": 9080
 // 		}
 // 	},
-func (f *Foobar) setConfig(configInput *config.Environment) error {
+func (f *Foobar) setConfig(config interface{}) error {
 
 	// Mandatory: needed to add the JSON config represented as a map in f.config
-	err := mapstructure.Decode(configInput.Database.DatabaseConfig, &f.config)
+	err := mapstructure.Decode(config, &f.config)
 
 	// Example to: Validate if the essential  config is available, like host and port.
 	if err != nil || len(f.config.Host) == 0 || f.config.Port == 0 {
@@ -128,22 +127,16 @@ func (f *Foobar) setConfig(configInput *config.Environment) error {
 }
 
 // SetSchema takes actionSchema and thingsSchema as an input and makes them available globally at f.schema
-func (f *Foobar) SetSchema(schemaInput *schema.WeaviateSchema) error {
+func (f *Foobar) SetSchema(schemaInput *schema.WeaviateSchema) {
 	f.schema = schemaInput
-
-	// If success return nil, otherwise return the error
-	return nil
 }
 
 // SetMessaging is used to send messages to the service.
 // Available message types are: f.messaging.Infomessage ...DebugMessage ...ErrorMessage ...ExitError (also exits the service) ...InfoMessage
-func (f *Foobar) SetMessaging(m *messages.Messaging) error {
+func (f *Foobar) SetMessaging(m *messages.Messaging) {
 
 	// mandatory, adds the message functions to f.messaging to make them globally accessible.
 	f.messaging = m
-
-	// If success return nil, otherwise return the error
-	return nil
 }
 
 // SetServerAddress is used to fill in a global variable with the server address, but can also be used

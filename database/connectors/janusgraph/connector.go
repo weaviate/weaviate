@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	errors_ "errors"
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
@@ -83,22 +82,16 @@ func (f *Janusgraph) setConfig(config interface{}) error {
 }
 
 // SetSchema takes actionSchema and thingsSchema as an input and makes them available globally at f.schema
-func (f *Janusgraph) SetSchema(schemaInput *schema.WeaviateSchema) error {
+func (f *Janusgraph) SetSchema(schemaInput *schema.WeaviateSchema) {
 	f.schema = schemaInput
-
-	// If success return nil, otherwise return the error
-	return nil
 }
 
 // SetMessaging is used to send messages to the service.
 // Available message types are: f.messaging.Infomessage ...DebugMessage ...ErrorMessage ...ExitError (also exits the service) ...InfoMessage
-func (f *Janusgraph) SetMessaging(m *messages.Messaging) error {
+func (f *Janusgraph) SetMessaging(m *messages.Messaging) {
 
 	// mandatory, adds the message functions to f.messaging to make them globally accessible.
 	f.messaging = m
-
-	// If success return nil, otherwise return the error
-	return nil
 }
 
 // SetServerAddress is used to fill in a global variable with the server address, but can also be used
