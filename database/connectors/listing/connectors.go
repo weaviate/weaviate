@@ -6,15 +6,16 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph"
 )
 
-// GetAllConnectors contains all available connectors
-func GetAllConnectors() []dbconnector.DatabaseConnector {
-	// Set all existing connectors
-	connectors := []dbconnector.DatabaseConnector{
-		&foobar.Foobar{},
-		&janusgraph.Janusgraph{},
+// Build a new connector based on it's name. Returns nil if the connector is unknown.
+func NewConnector(name string) dbconnector.DatabaseConnector {
+	switch name {
+	case "janusgraph":
+		return janusgraph.New()
+	case "foobar":
+		return foobar.New()
 	}
 
-	return connectors
+	return nil
 }
 
 // GetAllCacheConnectors contains all available cache-connectors

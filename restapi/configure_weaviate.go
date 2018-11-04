@@ -161,37 +161,6 @@ func deleteKey(ctx context.Context, databaseConnector *dbconnector.DatabaseConne
 	}
 }
 
-// CreateDatabaseConnector gets the database connector by name from config
-func CreateDatabaseConnector(env *config.Environment) dbconnector.DatabaseConnector {
-	// Get all connectors
-	connectors := dblisting.GetAllConnectors()
-	cacheConnectors := dblisting.GetAllCacheConnectors()
-
-	// Init the db-connector variable
-	var connector dbconnector.DatabaseConnector
-
-	// Loop through all connectors and determine its name
-	for _, c := range connectors {
-		if c.GetName() == env.Database.Name {
-			messaging.InfoMessage(fmt.Sprintf("Using database '%s'", env.Database.Name))
-			connector = c
-			break
-		}
-	}
-
-	// Loop through all cache-connectors and determine its name
-	for _, cc := range cacheConnectors {
-		if cc.GetName() == env.Cache.Name {
-			messaging.InfoMessage(fmt.Sprintf("Using cache layer '%s'", env.Cache.Name))
-			cc.SetDatabaseConnector(connector)
-			connector = cc
-			break
-		}
-	}
-
-	return connector
-}
-
 func configureFlags(api *operations.WeaviateAPI) {
 	connectorOptionGroup = config.GetConfigOptionGroup()
 
@@ -1489,7 +1458,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 
 	// Create the database connector usint the config
 	// TODO  make this configureable
-	dbConnector := CreateDatabaseConnector(&serverConfig.Environment)
+	dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name)
 	localMutex := sync.RWMutex{}
 	dbLock := database.RWLocker(&localMutex)
 

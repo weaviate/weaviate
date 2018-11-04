@@ -49,6 +49,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -66,6 +67,10 @@ type Foobar struct {
 	serverAddress string
 	schema        *schema.WeaviateSchema
 	messaging     *messages.Messaging
+}
+
+func New() dbconnector.DatabaseConnector {
+	return &Foobar{}
 }
 
 // Config represents the config outline for Foobar. The Database config shoud be of the following form:
