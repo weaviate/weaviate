@@ -7,15 +7,15 @@ import (
 )
 
 // Build a new connector based on it's name. Returns nil if the connector is unknown.
-func NewConnector(name string) dbconnector.DatabaseConnector {
+func NewConnector(name string, config interface{}) (err error, conn dbconnector.DatabaseConnector) {
 	switch name {
 	case "janusgraph":
-		return janusgraph.New()
+		err, conn = janusgraph.New(config)
 	case "foobar":
-		return foobar.New()
+		err, conn = foobar.New(config)
+	default:
+		err := fmt.Errorf("No connector with the name '%s' exists!", name)
 	}
-
-	return nil
 }
 
 // GetAllCacheConnectors contains all available cache-connectors

@@ -1459,6 +1459,12 @@ func configureServer(s *http.Server, scheme, addr string) {
 	// Create the database connector usint the config
 	// TODO  make this configureable
 	dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name)
+
+	// Could not find, or configure database connector.
+	if err != nil {
+		messaging.ExitError(78, err.Error())
+	}
+
 	localMutex := sync.RWMutex{}
 	dbLock := database.RWLocker(&localMutex)
 
@@ -1473,18 +1479,6 @@ func configureServer(s *http.Server, scheme, addr string) {
 	var manager database.SchemaManager = manager_
 
 	db = database.New(&dbLock, &manager, &dbConnector)
-
-	// Error the system when the database connector returns no connector
-	if dbConnector == nil {
-		messaging.ExitError(78, "database with the name '"+serverConfig.Environment.Database.Name+"' couldn't be loaded from the config")
-	}
-
-	// Set connector vars
-	err = dbConnector.SetConfig(&serverConfig.Environment)
-	// Fatal error loading config file
-	if err != nil {
-		messaging.ExitError(78, err.Error())
-	}
 
 	manager.RegisterSchemaUpdateCallback(func(updatedSchema db_schema.Schema) {
 		s := schema.HackFromDatabaseSchema(updatedSchema)

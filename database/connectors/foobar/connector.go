@@ -69,8 +69,15 @@ type Foobar struct {
 	messaging     *messages.Messaging
 }
 
-func New() dbconnector.DatabaseConnector {
-	return &Foobar{}
+func New(config interface{}) (error, dbconnector.DatabaseConnector) {
+	f := &Foobar{}
+	err := f.setConfig(config)
+
+	if err != nil {
+		return err, nil
+	} else {
+		return nil, f
+	}
 }
 
 // Config represents the config outline for Foobar. The Database config shoud be of the following form:
@@ -92,12 +99,7 @@ func (f *Foobar) trace() {
 	fmt.Printf("THIS FUNCTION RUNS: %s\n", f2.Name())
 }
 
-// GetName returns a unique connector name, this name is used to define the connector in the weaviate config
-func (f *Foobar) GetName() string {
-	return "foobar"
-}
-
-// SetConfig sets variables, which can be placed in the config file section "database_config: {}"
+// setConfig sets variables, which can be placed in the config file section "database_config: {}"
 // can be custom for any connector, in the example below there is only host and port available.
 //
 // Important to bear in mind;
@@ -111,7 +113,7 @@ func (f *Foobar) GetName() string {
 // 			"port": 9080
 // 		}
 // 	},
-func (f *Foobar) SetConfig(configInput *config.Environment) error {
+func (f *Foobar) setConfig(configInput *config.Environment) error {
 
 	// Mandatory: needed to add the JSON config represented as a map in f.config
 	err := mapstructure.Decode(configInput.Database.DatabaseConfig, &f.config)
@@ -126,8 +128,6 @@ func (f *Foobar) SetConfig(configInput *config.Environment) error {
 }
 
 // SetSchema takes actionSchema and thingsSchema as an input and makes them available globally at f.schema
-// In case you want to modify the schema, this is the place to do so.
-// Note: When this function is called, the schemas (action + things) are already validated, so you don't have to build the validation.
 func (f *Foobar) SetSchema(schemaInput *schema.WeaviateSchema) error {
 	f.schema = schemaInput
 
