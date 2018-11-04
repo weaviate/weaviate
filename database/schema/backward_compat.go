@@ -37,7 +37,7 @@ func HackFromDatabaseSchema(dbSchema Schema) WeaviateSchema {
 			Schema: dbSchema.Actions,
 		},
 		ThingSchema: schemaProperties{
-			Schema: dbSchema.Actions,
+			Schema: dbSchema.Things,
 		},
 	}
 }
