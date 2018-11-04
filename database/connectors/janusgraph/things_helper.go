@@ -9,26 +9,26 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-func fillThingResponseFromVertexAndEdges(vertex *gremlin.Vertex, refEdges []*gremlin.Edge, thingResponse *models.ThingGetResponse) error {
-	// TODO: We should actually read stuff from the database schema, then get only that stuff from JanusGraph.
-	// At this moment, we're just parsing whetever there is in JanusGraph, which might not agree with the database schema
-	// that is defined in Weaviate.
+func (j *Janusgraph) fillThingResponseFromVertexAndEdges(vertex *gremlin.Vertex, refEdges []*gremlin.Edge, thingResponse *models.ThingGetResponse) error {
+	thingResponse.ThingID = strfmt.UUID(vertex.AssertPropertyValue(PROP_UUID).AssertString())
+	mappedClassName := MappedClassName(vertex.AssertPropertyValue(PROP_CLASS_ID).AssertString())
+	className := j.state.getClassNameFromMapped(mappedClassName)
 
-	thingResponse.ThingID = strfmt.UUID(vertex.AssertPropertyValue("uuid").AssertString())
-	thingResponse.AtClass = vertex.AssertPropertyValue("atClass").AssertString()
-	thingResponse.AtContext = vertex.AssertPropertyValue("context").AssertString()
+	thingResponse.AtClass = className.String()
+	thingResponse.AtContext = vertex.AssertPropertyValue(PROP_AT_CONTEXT).AssertString()
 
-	thingResponse.CreationTimeUnix = vertex.AssertPropertyValue("creationTimeUnix").AssertInt64()
-	thingResponse.LastUpdateTimeUnix = vertex.AssertPropertyValue("lastUpdateTimeUnix").AssertInt64()
+	thingResponse.CreationTimeUnix = vertex.AssertPropertyValue(PROP_CREATION_TIME_UNIX).AssertInt64()
+	thingResponse.LastUpdateTimeUnix = vertex.AssertPropertyValue(PROP_LAST_UPDATE_TIME_UNIX).AssertInt64()
 
 	schema := make(map[string]interface{})
 
-	// Walk through all properties, check if they start with 'schema__', and then consider them to be 'schema' properties.
+	// Walk through all properties, check if they start with 'prop_', and then consider them to be 'schema' properties.
 	// Just copy in the value directly. We're not doing any sanity check/casting to proper types for now.
 	for key, val := range vertex.Properties {
-		if strings.HasPrefix(key, "schema__") {
-			key = key[8:len(key)]
-			schema[key] = val.Value.Value
+		if strings.HasPrefix(key, "prop_") {
+			mappedPropertyName := MappedPropertyName(key)
+			propertyName := j.state.getPropertyNameFromMapped(className, mappedPropertyName)
+			schema[propertyName.String()] = val.Value.Value
 		}
 	}
 

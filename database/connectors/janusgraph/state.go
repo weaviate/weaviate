@@ -54,6 +54,17 @@ func (s *janusGraphConnectorState) getMappedClassName(className schema.ClassName
 	return mappedName
 }
 
+// Get the schema name, from a mapped name.
+func (s *janusGraphConnectorState) getClassNameFromMapped(className MappedClassName) schema.ClassName {
+	for org, mapped := range s.ClassMap {
+		if mapped == className {
+			return org
+		}
+	}
+
+	panic(fmt.Sprintf("Fatal error; class name %v is not mapped from a name", className))
+}
+
 // Remove mapped class name, and all properties.
 func (s *janusGraphConnectorState) removeMappedClassName(className schema.ClassName) {
 	delete(s.ClassMap, className)
@@ -93,6 +104,23 @@ func (s *janusGraphConnectorState) getMappedPropertyName(className schema.ClassN
 	}
 
 	return mappedName
+}
+
+// Add mapping from class/property name to mapped property namej
+func (s *janusGraphConnectorState) getPropertyNameFromMapped(className schema.ClassName, mappedPropName MappedPropertyName) schema.PropertyName {
+	propsOfClass, exists := s.PropertyMap[className]
+
+	if !exists {
+		panic(fmt.Sprintf("Fatal error; class name %v does not have mapped properties", className))
+	}
+
+	for name, mapped := range propsOfClass {
+		if mapped == mappedPropName {
+			return name
+		}
+	}
+
+	panic(fmt.Sprintf("Fatal error; property %v for class name %v is not mapped from a janus name", mappedPropName, className))
 }
 
 // Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.
