@@ -2,7 +2,6 @@ package janusgraph
 
 import (
 	"context"
-	"encoding/json"
 	errors_ "errors"
 	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
@@ -25,6 +24,11 @@ import (
 type Janusgraph struct {
 	client *http_client.Client
 	kind   string
+
+	initialized  bool
+	stateManager connector_state.StateManager
+
+	state janusGraphConnectorState
 
 	config        Config
 	serverAddress string
@@ -105,16 +109,23 @@ func (f *Janusgraph) SetServerAddress(addr string) {
 func (f *Janusgraph) Init() error {
 	f.messaging.DebugMessage("Initializeing JanusGraph")
 
-	err := f.ensureRootKeyExists()
+	err := f.ensureBasicSchema()
 	if err != nil {
 		return err
 	}
+
+	err = f.ensureRootKeyExists()
+	if err != nil {
+		return err
+	}
+
+	f.initialized = true
 
 	return nil
 }
 
 func (j *Janusgraph) ensureRootKeyExists() error {
-	q := gremlin.G.V().HasLabel(KEY_LABEL).HasBool("isRoot", true).Count()
+	q := gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).HasBool("isRoot", true).Count()
 
 	result, err := j.client.Execute(q)
 	if err != nil {
@@ -174,11 +185,8 @@ func (f *Janusgraph) Connect() error {
 	return nil
 }
 
-// Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.
-func (j *Janusgraph) SetState(state json.RawMessage) {
-}
-
 // Link a connector to this state manager.
 // When the internal state of some connector is updated, this state connector will call SetState on the provided conn.
 func (j *Janusgraph) SetStateManager(manager connector_state.StateManager) {
+	j.stateManager = manager
 }
