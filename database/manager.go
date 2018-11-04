@@ -1,6 +1,7 @@
 package database
 
 import (
+	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/schema/kind"
@@ -9,6 +10,7 @@ import (
 
 type SchemaManager interface {
 	schema_migrator.Migrator
+	connector_state.StateManager
 
 	// Update the Thing or Action schema's meta data.
 	UpdateMeta(kind kind.Kind, atContext strfmt.URI, maintainer strfmt.Email, name string) error

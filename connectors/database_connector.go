@@ -21,6 +21,7 @@ import (
 	"github.com/graphql-go/graphql"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
+	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -68,6 +69,7 @@ type BaseConnector interface {
 // DatabaseConnector is the interface that all DB-connectors should have
 type DatabaseConnector interface {
 	BaseConnector
+	connector_state.Connector
 
 	GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error
 	GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionResponse *models.ActionsListResponse) error

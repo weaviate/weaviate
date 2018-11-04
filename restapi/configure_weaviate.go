@@ -1555,7 +1555,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 
 	graphQL, err = graphqlapi.CreateSchema(&dbConnector, serverConfig, &initialSchema, messaging)
 	if err != nil {
-	  TODO: trigger safe mode.
+		// messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+err.Error())
 		log.Printf("GraphQL schema initialization gave an error when initializing: %v ", err)
 	}
 

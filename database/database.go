@@ -14,6 +14,9 @@ type Database struct {
 }
 
 func New(locker *RWLocker, manager *SchemaManager, connector *dbconnector.DatabaseConnector) *Database {
+	(*manager).SetStateConnector(*connector)
+	(*connector).SetStateManager(*manager)
+
 	return &Database{
 		locker:    locker,
 		manager:   manager,
