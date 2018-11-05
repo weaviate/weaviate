@@ -53,19 +53,16 @@ services:
       - weaviate
     restart: on-failure:0
   janus:
-    image: janusgraph:0.2.0-hadoop2
-    build:
-      dockerfile: Dockerfile.janus
-      args:
-        version: 0.2.0
-        hadoop: hadoop2
-      context: ./tools/dev/janusgraph-docker/
+    image: gcr.io/cloud-solutions-images/janusgraph:v2
     depends_on:
       - db
       - index
     ports:
      - "8182:8182"
      - "8184:8184"
+    volumes:
+    - ./tools/dev/janusgraph-docker/janusgraph/janusgraph.properties:/janusgraph-config/janusgraph.properties
+    - ./tools/dev/janusgraph-docker/janusgraph/gremlin-server.yaml:/janusgraph-config/gremlin-server.yaml
   db:
     image: scylladb/scylla:2.0.1
     ports:

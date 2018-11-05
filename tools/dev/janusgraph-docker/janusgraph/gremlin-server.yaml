@@ -6,7 +6,7 @@ scriptEvaluationTimeout: 30000
 serializedResponseTimeout: 30000
 channelizer: org.apache.tinkerpop.gremlin.server.channel.WsAndHttpChannelizer
 graphs: {
-  graph: janusgraph.properties
+  graph: conf/gremlin-server/janusgraph.properties
 }
 plugins:
   - janusgraph.imports
