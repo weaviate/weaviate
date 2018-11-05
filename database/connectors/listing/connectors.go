@@ -19,11 +19,3 @@ func NewConnector(name string, config interface{}) (err error, conn dbconnector.
 	}
 	return
 }
-
-// GetAllCacheConnectors contains all available cache-connectors
-func GetAllCacheConnectors() []dbconnector.CacheConnector {
-	// Set all existing connectors
-	connectors := []dbconnector.CacheConnector{}
-
-	return connectors
-}
