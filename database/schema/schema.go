@@ -6,24 +6,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// DataType is a representation of the predicate for queries
-type DataType string
-
-const (
-	// DataTypeCRef The data type is a cross-reference, it is starting with a capital letter
-	DataTypeCRef DataType = "cref"
-	// DataTypeString The data type is a value of type string
-	DataTypeString DataType = "string"
-	// DataTypeInt The data type is a value of type int
-	DataTypeInt DataType = "int"
-	// DataTypeNumber The data type is a value of type number/float
-	DataTypeNumber DataType = "number"
-	// DataTypeBoolean The data type is a value of type boolean
-	DataTypeBoolean DataType = "boolean"
-	// DataTypeDate The data type is a value of type date
-	DataTypeDate DataType = "date"
-)
-
 // Newtype to denote that this string is used as a Class name
 type ClassName string
 
@@ -42,6 +24,17 @@ func (p PropertyName) String() string {
 type Schema struct {
 	Actions *models.SemanticSchema
 	Things  *models.SemanticSchema
+}
+
+func Empty() Schema {
+	return Schema{
+		Actions: &models.SemanticSchema{
+			Classes: []*models.SemanticSchemaClass{},
+		},
+		Things: &models.SemanticSchema{
+			Classes: []*models.SemanticSchemaClass{},
+		},
+	}
 }
 
 // Return one of the semantic schema's
