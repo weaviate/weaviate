@@ -111,7 +111,7 @@ func (j *Janusgraph) DropClass(kind kind.Kind, name string) error {
 	log.Debugf("Removing class '%v' in JanusGraph", name)
 	sanitizedClassName := schema.AssertValidClassName(name)
 
-	vertexLabel := j.state.addMappedClassName(sanitizedClassName)
+	vertexLabel := j.state.getMappedClassName(sanitizedClassName)
 
 	query := gremlin.G.V().HasLabel(string(vertexLabel)).HasString(PROP_CLASS_ID, string(vertexLabel)).Drop()
 
