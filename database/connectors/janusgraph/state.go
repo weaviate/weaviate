@@ -123,6 +123,48 @@ func (s *janusGraphConnectorState) getPropertyNameFromMapped(className schema.Cl
 	panic(fmt.Sprintf("Fatal error; property %v for class name %v is not mapped from a janus name", mappedPropName, className))
 }
 
+func (s *janusGraphConnectorState) removeMappedPropertyName(className schema.ClassName, propName schema.PropertyName) {
+	propsOfClass, exists := s.PropertyMap[className]
+
+	if !exists {
+		panic(fmt.Sprintf("Fatal error; class name %v does not have mapped properties", className))
+	}
+
+	_, exists = propsOfClass[propName]
+	if !exists {
+		panic(fmt.Sprintf("Fatal error; property %v for class name %v is not mapped to a janus name", propName, className))
+	}
+
+	delete(propsOfClass, propName)
+}
+
+func (s *janusGraphConnectorState) renameClass(oldName schema.ClassName, newName schema.ClassName) {
+	mappedName := s.ClassMap[oldName]
+	mappedProperties := s.PropertyMap[oldName]
+
+	delete(s.ClassMap, oldName)
+	delete(s.PropertyMap, oldName)
+
+	s.ClassMap[newName] = mappedName
+	s.PropertyMap[newName] = mappedProperties
+}
+
+func (s *janusGraphConnectorState) renameProperty(className schema.ClassName, oldName schema.PropertyName, newName schema.PropertyName) {
+	propsOfClass, exists := s.PropertyMap[className]
+
+	if !exists {
+		panic(fmt.Sprintf("Fatal error; class name %v does not have mapped properties", className))
+	}
+
+	mappedName, exists := propsOfClass[oldName]
+	if !exists {
+		panic(fmt.Sprintf("Fatal error; property %v for class name %v is not mapped to a janus name", oldName, className))
+	}
+
+	delete(propsOfClass, oldName)
+	propsOfClass[newName] = mappedName
+}
+
 // Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.
 func (j *Janusgraph) SetState(state json.RawMessage) {
 	err := json.Unmarshal(state, &j.state)

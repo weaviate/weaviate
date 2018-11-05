@@ -9,7 +9,7 @@ import (
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
-	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -35,7 +35,7 @@ type localSchemaManager struct {
 
 	// Calling the migrator
 	connectorMigrator schema_migrator.Migrator
-	callbacks         []func(updatedSchema db_schema.Schema)
+	callbacks         []func(updatedSchema schema.Schema)
 
 	// Contextionary
 	contextionary libcontextionary.Contextionary

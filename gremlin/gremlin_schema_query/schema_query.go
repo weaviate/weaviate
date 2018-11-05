@@ -15,6 +15,7 @@ const CARDINALITY_SINGLE Cardinality = "SINGLE"
 type Multiplicity string
 
 const MULTIPLICITY_MANY2ONE Multiplicity = "MANY2ONE"
+const MULTIPLICITY_MULTI Multiplicity = "MULTI"
 
 type DataType string
 
