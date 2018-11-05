@@ -14,6 +14,11 @@ func (g *Graph) V() *Query {
 	return &q
 }
 
+func (g *Graph) E() *Query {
+	q := Query{query: "g.E()"}
+	return &q
+}
+
 func Current() *Query {
 	return &Query{query: "__"}
 }

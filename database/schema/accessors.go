@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
@@ -17,4 +18,18 @@ func (s *Schema) FindClassByName(className ClassName) *models.SemanticSchemaClas
 	}
 
 	return nil
+}
+
+func (s *Schema) GetProperty(kind kind.Kind, className ClassName, propName PropertyName) (error, *models.SemanticSchemaClassProperty) {
+	semSchemaClass, err := GetClassByName(s.SemanticSchemaFor(kind), string(className))
+	if err != nil {
+		return err, nil
+	}
+
+	semProp, err := GetPropertyByName(semSchemaClass, string(propName))
+	if err != nil {
+		return err, nil
+	}
+
+	return nil, semProp
 }

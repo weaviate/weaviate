@@ -36,6 +36,13 @@ func (l *localSchemaManager) validateCanAddClass(knd kind.Kind, class *models.Se
 		}
 
 		foundNames[property.Name] = true
+
+		// Validate data type of property.
+		schema := l.GetSchema()
+		err, _ := (&schema).FindPropertyDataType(property.AtDataType)
+		if err != nil {
+			return fmt.Errorf("Data type fo property '%s' is invalid; %v", property.Name, err)
+		}
 	}
 
 	// all is fine!
@@ -100,6 +107,13 @@ func (l *localSchemaManager) validateCanAddProperty(property *models.SemanticSch
 	err = l.validatePropertyNameOrKeywordsCorrect(class.Class, property.Name, property.Keywords)
 	if err != nil {
 		return err
+	}
+
+	// Validate data type of property.
+	schema := l.GetSchema()
+	err, _ = (&schema).FindPropertyDataType(property.AtDataType)
+	if err != nil {
+		return fmt.Errorf("Data type fo property '%s' is invalid; %v", property.Name, err)
 	}
 
 	// all is fine!

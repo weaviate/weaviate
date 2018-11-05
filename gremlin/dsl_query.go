@@ -37,6 +37,16 @@ func (q *Query) Count() *Query {
 	return extend_query(q, ".count()")
 }
 
+func (q *Query) Properties(names []string) *Query {
+	sanitized := make([]string, 0)
+
+	for _, name := range names {
+		sanitized = append(sanitized, fmt.Sprintf(`"%s"`, EscapeString(name)))
+	}
+
+	return extend_query(q, ".properties(%s)", strings.Join(sanitized, ","))
+}
+
 func (q *Query) Select(refs []string) *Query {
 	sanitized := make([]string, 0)
 

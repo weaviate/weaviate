@@ -1,7 +1,6 @@
 package janusgraph
 
 import (
-	"errors"
 	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
@@ -23,6 +22,7 @@ func (j *Janusgraph) ensureBasicSchema() error {
 		// For all classes
 		query.MakePropertyKey(PROP_KIND, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
 		query.MakePropertyKey(PROP_CLASS_ID, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
+		query.MakePropertyKey(PROP_REF_ID, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
 		query.AddGraphCompositeIndex(INDEX_BY_KIND_AND_CLASS, []string{PROP_KIND, PROP_CLASS_ID}, false)
 
 		query.MakePropertyKey(PROP_AT_CONTEXT, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
@@ -86,11 +86,19 @@ func (j *Janusgraph) AddClass(kind kind.Kind, class *models.SemanticSchemaClass)
 		sanitziedPropertyName := schema.AssertValidPropertyName(prop.Name)
 		janusPropertyName := j.state.addMappedPropertyName(sanitizedClassName, sanitziedPropertyName)
 
-		if len(prop.AtDataType) != 1 {
-			return fmt.Errorf("Only primitive types supported for now")
+		// Determine the type of the property
+		err, propertyDataType := j.schema.FindPropertyDataType(prop.AtDataType)
+		if err != nil {
+			// This must already be validated.
+			panic(fmt.Sprintf("Data type fo property '%s' is invalid; %v", prop.Name, err))
 		}
 
-		query.MakePropertyKey(string(janusPropertyName), weaviatePropTypeToJanusPropType(schema.DataType(prop.AtDataType[0])), gremlin_schema_query.CARDINALITY_SINGLE)
+		if propertyDataType.IsPrimitive() {
+			query.MakePropertyKey(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.AtDataType[0])), gremlin_schema_query.CARDINALITY_SINGLE)
+		} else {
+			// In principle, we could use a Many2One edge for SingleRefs
+			query.MakeEdgeLabel(string(janusPropertyName), gremlin_schema_query.MULTIPLICITY_MULTI)
+		}
 	}
 
 	query.Commit()
@@ -129,28 +137,104 @@ func (j *Janusgraph) DropClass(kind kind.Kind, name string) error {
 }
 
 func (j *Janusgraph) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
-	//  if newClassName != nil {
-	//	  oldName := schema.AssertValidClassName(className)
-	//	  newName := schema.AssertValidClassName(*newClassName)
-	//    return j.state.renameClass(oldName, newName)
-	//  }
-	//
-	//  return nil
+	if newClassName != nil {
+		oldName := schema.AssertValidClassName(className)
+		newName := schema.AssertValidClassName(*newClassName)
+		j.state.renameClass(oldName, newName)
+		j.UpdateStateInStateManager()
+	}
+
 	return nil
 }
 
 func (j *Janusgraph) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
-	return errors.New("Not supported")
+	// Extra sanity check
+	sanitizedClassName := schema.AssertValidClassName(className)
+
+	query := gremlin_schema_query.New()
+	sanitziedPropertyName := schema.AssertValidPropertyName(prop.Name)
+	janusPropertyName := j.state.addMappedPropertyName(sanitizedClassName, sanitziedPropertyName)
+
+	// Determine the type of the property
+	err, propertyDataType := j.schema.FindPropertyDataType(prop.AtDataType)
+	if err != nil {
+		// This must already be validated.
+		panic(fmt.Sprintf("Data type fo property '%s' is invalid; %v", prop.Name, err))
+	}
+
+	if propertyDataType.IsPrimitive() {
+		query.MakePropertyKey(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.AtDataType[0])), gremlin_schema_query.CARDINALITY_SINGLE)
+	} else {
+		// In principle, we could use a Many2One edge for SingleRefs
+		query.MakeEdgeLabel(string(janusPropertyName), gremlin_schema_query.MULTIPLICITY_MULTI)
+	}
+
+	query.Commit()
+
+	_, err = j.client.Execute(query)
+
+	if err != nil {
+		return fmt.Errorf("could not create property type in JanusGraph")
+	}
+
+	// Update mapping
+	j.UpdateStateInStateManager()
+	return nil
 }
 
 func (j *Janusgraph) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
-	// todo: update mapping
-	return errors.New("Not supported")
+	if newName != nil {
+		sanitizedClassName := schema.AssertValidClassName(className)
+		oldName := schema.AssertValidPropertyName(propName)
+		newName := schema.AssertValidPropertyName(*newName)
+		j.state.renameProperty(sanitizedClassName, oldName, newName)
+		j.UpdateStateInStateManager()
+	}
+	return nil
 }
 
 func (j *Janusgraph) DropProperty(kind kind.Kind, className string, propName string) error {
-	return errors.New("Not supported")
-	// g.V().has('lat-old').properties('lat-old').drop()
+	sanitizedClassName := schema.AssertValidClassName(className)
+	sanitizedPropName := schema.AssertValidPropertyName(propName)
+
+	vertexLabel := j.state.getMappedClassName(sanitizedClassName)
+	mappedPropertyName := j.state.getMappedPropertyName(sanitizedClassName, sanitizedPropName)
+
+	err, prop := j.schema.GetProperty(kind, sanitizedClassName, sanitizedPropName)
+	if err != nil {
+		panic("could not get property")
+	}
+
+	err, propertyDataType := j.schema.FindPropertyDataType(prop.AtDataType)
+	if err != nil {
+		// This must already be validated.
+		panic(fmt.Sprintf("Data type fo property '%s' is invalid; %v", prop.Name, err))
+	}
+
+	var query gremlin.Gremlin
+
+	if propertyDataType.IsPrimitive() {
+		query = gremlin.G.V().
+			HasLabel(string(vertexLabel)).
+			HasString(PROP_CLASS_ID, string(vertexLabel)).
+			Properties([]string{string(mappedPropertyName)}).
+			Drop()
+	} else {
+		query = gremlin.G.E().
+			HasLabel(string(mappedPropertyName)).
+			HasString(PROP_REF_ID, string(mappedPropertyName)).
+			Drop()
+	}
+
+	_, err = j.client.Execute(query)
+
+	if err != nil {
+		return fmt.Errorf("could not remove all data of the dropped class in JanusGraph")
+	}
+
+	j.state.removeMappedPropertyName(sanitizedClassName, sanitizedPropName)
+	j.UpdateStateInStateManager()
+	return nil
 }
 
 /////////////////////////////////
@@ -186,7 +270,7 @@ func (j *Janusgraph) DropProperty(kind kind.Kind, className string, propName str
 //
 //// Get Janus data type from a weaviate data type.
 //// Panics if passed a wrong type.
-func weaviatePropTypeToJanusPropType(type_ schema.DataType) gremlin_schema_query.DataType {
+func weaviatePrimitivePropTypeToJanusPropType(type_ schema.DataType) gremlin_schema_query.DataType {
 	switch type_ {
 	case schema.DataTypeString:
 		return gremlin_schema_query.DATATYPE_STRING
