@@ -110,7 +110,10 @@ func (s *Schema) FindPropertyDataType(dataType []string) (error, PropertyDataTyp
 			}
 		} else {
 			// LOOKUP CLASSES.
-			className := AssertValidClassName(someDataType)
+			err, className := ValidateClassName(someDataType)
+			if err != nil {
+				return fmt.Errorf("Class name %s in the SingleRef is invalid", someDataType), nil
+			}
 			if s.FindClassByName(className) == nil {
 				return fmt.Errorf("SingleRef class name '%s' does not exist", className), nil
 			}

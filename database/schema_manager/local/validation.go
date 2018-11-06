@@ -98,8 +98,14 @@ func (l *localSchemaManager) validateClassNameOrKeywordsCorrect(knd kind.Kind, c
 // Verify if we can add the passed property to the passed in class.
 // We need the total schema state to be able to check that references etc are valid.
 func (l *localSchemaManager) validateCanAddProperty(property *models.SemanticSchemaClassProperty, class *models.SemanticSchemaClass) error {
+	// Verify format of property.
+	err, _ := schema.ValidatePropertyName(property.Name)
+	if err != nil {
+		return err
+	}
+
 	// First check if there is a name clash.
-	err := validatePropertyNameUniqueness(property.Name, class)
+	err = validatePropertyNameUniqueness(property.Name, class)
 	if err != nil {
 		return err
 	}
