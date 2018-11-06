@@ -195,7 +195,7 @@ func (f *Janusgraph) ListThings(ctx context.Context, first int, offset int, keyI
 	k := kind.THING_KIND
 
 	if len(wheres) > 0 {
-		return errors.New("Wheres are not supported in LisThings")
+		return errors.New("Wheres are not supported in ListThings")
 	}
 
 	q := gremlin.G.V().
