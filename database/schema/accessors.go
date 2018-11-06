@@ -5,6 +5,17 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
+func (s *Schema) GetClass(k kind.Kind, className ClassName) *models.SemanticSchemaClass {
+	schema := s.SemanticSchemaFor(k)
+	class, err := GetClassByName(schema, string(className))
+
+	if err != nil {
+		return nil
+	}
+
+	return class
+}
+
 // Find either a Thing or Class by name.
 func (s *Schema) FindClassByName(className ClassName) *models.SemanticSchemaClass {
 	semSchemaClass, err := GetClassByName(s.Things, string(className))
