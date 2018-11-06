@@ -53,6 +53,41 @@ func init() {
   "basePath": "/weaviate/v1",
   "paths": {
     "/actions": {
+      "get": {
+        "description": "Lists all actions in reverse order of creation, owned by the user that belongs to the used token.",
+        "tags": [
+          "actions"
+        ],
+        "summary": "Get a list of actionsrelated to this key.",
+        "operationId": "weaviate.actions.list",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
       "post": {
         "description": "Registers a new action. Given meta-data and schema values are validated.",
         "tags": [
@@ -1730,51 +1765,6 @@ func init() {
         "x-available-in-websocket": false
       }
     },
-    "/things/{thingId}/actions": {
-      "get": {
-        "description": "Lists all actions in reverse order of creation, related to the thing that belongs to the used thingId.",
-        "tags": [
-          "things"
-        ],
-        "summary": "Get a thing based on its uuid related to this thing. Also available as Websocket.",
-        "operationId": "weaviate.things.actions.list",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the thing.",
-            "name": "thingId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ActionsListResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
     "/things/{thingId}/history": {
       "get": {
         "description": "Returns a particular thing history.",
@@ -2107,7 +2097,7 @@ func init() {
       ]
     },
     "ActionsListResponse": {
-      "description": "List of actions for specific Thing.",
+      "description": "List of actions.",
       "type": "object",
       "properties": {
         "actions": {
@@ -2792,6 +2782,49 @@ func init() {
   "basePath": "/weaviate/v1",
   "paths": {
     "/actions": {
+      "get": {
+        "description": "Lists all actions in reverse order of creation, owned by the user that belongs to the used token.",
+        "tags": [
+          "actions"
+        ],
+        "summary": "Get a list of actionsrelated to this key.",
+        "operationId": "weaviate.actions.list",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
+            "name": "maxResults",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "description": "The page number of the items to be returned.",
+            "name": "page",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
       "post": {
         "description": "Registers a new action. Given meta-data and schema values are validated.",
         "tags": [
@@ -4477,59 +4510,6 @@ func init() {
         "x-available-in-websocket": false
       }
     },
-    "/things/{thingId}/actions": {
-      "get": {
-        "description": "Lists all actions in reverse order of creation, related to the thing that belongs to the used thingId.",
-        "tags": [
-          "things"
-        ],
-        "summary": "Get a thing based on its uuid related to this thing. Also available as Websocket.",
-        "operationId": "weaviate.things.actions.list",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the thing.",
-            "name": "thingId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "integer",
-            "format": "int64",
-            "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
-            "name": "maxResults",
-            "in": "query"
-          },
-          {
-            "type": "integer",
-            "format": "int64",
-            "description": "The page number of the items to be returned.",
-            "name": "page",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ActionsListResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
     "/things/{thingId}/history": {
       "get": {
         "description": "Returns a particular thing history.",
@@ -4862,7 +4842,7 @@ func init() {
       ]
     },
     "ActionsListResponse": {
-      "description": "List of actions for specific Thing.",
+      "description": "List of actions.",
       "type": "object",
       "properties": {
         "actions": {

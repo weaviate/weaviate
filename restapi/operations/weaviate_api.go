@@ -72,6 +72,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ActionsWeaviateActionsGetHandler: actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsGet has not yet been implemented")
 		}),
+		ActionsWeaviateActionsListHandler: actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation ActionsWeaviateActionsList has not yet been implemented")
+		}),
 		ActionsWeaviateActionsPatchHandler: actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ActionsWeaviateActionsPatch has not yet been implemented")
 		}),
@@ -161,9 +164,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		ThingsWeaviateThingHistoryGetHandler: things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingHistoryGet has not yet been implemented")
-		}),
-		ThingsWeaviateThingsActionsListHandler: things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
-			return middleware.NotImplemented("operation ThingsWeaviateThingsActionsList has not yet been implemented")
 		}),
 		ThingsWeaviateThingsCreateHandler: things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsCreate has not yet been implemented")
@@ -259,6 +259,8 @@ type WeaviateAPI struct {
 	ActionsWeaviateActionsDeleteHandler actions.WeaviateActionsDeleteHandler
 	// ActionsWeaviateActionsGetHandler sets the operation handler for the weaviate actions get operation
 	ActionsWeaviateActionsGetHandler actions.WeaviateActionsGetHandler
+	// ActionsWeaviateActionsListHandler sets the operation handler for the weaviate actions list operation
+	ActionsWeaviateActionsListHandler actions.WeaviateActionsListHandler
 	// ActionsWeaviateActionsPatchHandler sets the operation handler for the weaviate actions patch operation
 	ActionsWeaviateActionsPatchHandler actions.WeaviateActionsPatchHandler
 	// ActionsWeaviateActionsPropertiesCreateHandler sets the operation handler for the weaviate actions properties create operation
@@ -319,8 +321,6 @@ type WeaviateAPI struct {
 	SchemaWeaviateSchemaThingsUpdateHandler schema.WeaviateSchemaThingsUpdateHandler
 	// ThingsWeaviateThingHistoryGetHandler sets the operation handler for the weaviate thing history get operation
 	ThingsWeaviateThingHistoryGetHandler things.WeaviateThingHistoryGetHandler
-	// ThingsWeaviateThingsActionsListHandler sets the operation handler for the weaviate things actions list operation
-	ThingsWeaviateThingsActionsListHandler things.WeaviateThingsActionsListHandler
 	// ThingsWeaviateThingsCreateHandler sets the operation handler for the weaviate things create operation
 	ThingsWeaviateThingsCreateHandler things.WeaviateThingsCreateHandler
 	// ThingsWeaviateThingsDeleteHandler sets the operation handler for the weaviate things delete operation
@@ -430,6 +430,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.ActionsWeaviateActionsGetHandler == nil {
 		unregistered = append(unregistered, "actions.WeaviateActionsGetHandler")
+	}
+
+	if o.ActionsWeaviateActionsListHandler == nil {
+		unregistered = append(unregistered, "actions.WeaviateActionsListHandler")
 	}
 
 	if o.ActionsWeaviateActionsPatchHandler == nil {
@@ -550,10 +554,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.ThingsWeaviateThingHistoryGetHandler == nil {
 		unregistered = append(unregistered, "things.WeaviateThingHistoryGetHandler")
-	}
-
-	if o.ThingsWeaviateThingsActionsListHandler == nil {
-		unregistered = append(unregistered, "things.WeaviateThingsActionsListHandler")
 	}
 
 	if o.ThingsWeaviateThingsCreateHandler == nil {
@@ -733,6 +733,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 	}
 	o.handlers["GET"]["/actions/{actionId}"] = actions.NewWeaviateActionsGet(o.context, o.ActionsWeaviateActionsGetHandler)
 
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/actions"] = actions.NewWeaviateActionsList(o.context, o.ActionsWeaviateActionsListHandler)
+
 	if o.handlers["PATCH"] == nil {
 		o.handlers["PATCH"] = make(map[string]http.Handler)
 	}
@@ -882,11 +887,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/things/{thingId}/history"] = things.NewWeaviateThingHistoryGet(o.context, o.ThingsWeaviateThingHistoryGetHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/things/{thingId}/actions"] = things.NewWeaviateThingsActionsList(o.context, o.ThingsWeaviateThingsActionsListHandler)
 
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)

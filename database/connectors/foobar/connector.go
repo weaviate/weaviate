@@ -324,11 +324,8 @@ func (f *Foobar) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsRes
 	return nil
 }
 
-// ListActions fills the given ActionListResponse with the values from the database, based on the given parameters.
-func (f *Foobar) ListActions(ctx context.Context, UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
-	// actionsResponse should be populated with the response that comes from the DB.
-	// actionsResponse = based on the ontology
-
+// ListActions fills the ActionReponse  with a list of all actions
+func (f *Foobar) ListActions(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
 	// If success return nil, otherwise return the error
 	return nil
 }

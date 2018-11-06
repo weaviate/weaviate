@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ActionsListResponse List of actions for specific Thing.
+// ActionsListResponse List of actions.
 // swagger:model ActionsListResponse
 type ActionsListResponse struct {
 
