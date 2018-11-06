@@ -26,17 +26,18 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 		Int64Property(PROP_CREATION_TIME_UNIX, creationTimeUnix).
 		Int64Property(PROP_LAST_UPDATE_TIME_UNIX, lastUpdateTimeUnix)
 
-	//// map properties in thing.Schema according to the mapping.
-	//type edgeToAdd struct {
-	//	PropertyName string
-	//	Type         string
-	//	Reference    string
-	//	Location     string
-	//}
+	// map properties in thing.Schema according to the mapping.
+	type edgeToAdd struct {
+		PropertyName string
+		Type         string
+		Reference    string
+		Location     string
+	}
 
-	//var edgesToAdd []edgeToAdd
+	var edgesToAdd []edgeToAdd
 
 	properties, schema_ok := rawProperties.(map[string]interface{})
+
 	if schema_ok {
 		for propName, value := range properties {
 			sanitizedPropertyName := schema.AssertValidPropertyName(propName)
@@ -103,27 +104,86 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 					panic(fmt.Sprintf("Unkown primitive datatype %s", propType.AsPrimitive()))
 				}
 			} else {
-				panic("Not supported")
+				switch schema.CardinalityOfProperty(property) {
+				case schema.CardinalityAtMostOne:
+					switch t := value.(type) {
+					case *models.SingleRef:
+						var refClassName schema.ClassName
+						switch t.Type {
+						case "Action":
+							var singleRefValue models.ActionGetResponse
+							err = j.GetAction(nil, t.NrDollarCref, &singleRefValue)
+							if err != nil {
+								return fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", t.NrDollarCref.String(), err)
+							}
+							refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
+						case "Thing":
+							var singleRefValue models.ThingGetResponse
+							err = j.GetThing(nil, t.NrDollarCref, &singleRefValue)
+							if err != nil {
+								return fmt.Errorf("Illegal value for property %s; could not resolve thing with UUID: %v", t.NrDollarCref.String(), err)
+							}
+							refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
+						default:
+							return fmt.Errorf("Illegal value for property %s; only Thing or Action supported, got ", t.Type)
+						}
+
+						// Verify the cross reference
+						if !propType.ContainsClass(refClassName) {
+							return fmt.Errorf("Illegal value for property %s; cannot point to %s", sanitizedPropertyName, t.Type)
+						}
+						edgesToAdd = append(edgesToAdd, edgeToAdd{
+							PropertyName: janusPropertyName,
+							Reference:    t.NrDollarCref.String(),
+							Type:         t.Type,
+							Location:     *t.LocationURL,
+						})
+					default:
+						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+					}
+				case schema.CardinalityMany:
+					switch t := value.(type) {
+					case *models.MultipleRef:
+						for _, ref := range *t {
+							err, refClassName := schema.ValidateClassName(ref.Type)
+							if err != nil {
+								return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+							}
+							if !propType.ContainsClass(refClassName) {
+								return fmt.Errorf("Illegal value for property %s; cannot point to %s", sanitizedPropertyName, ref.Type)
+							}
+							edgesToAdd = append(edgesToAdd, edgeToAdd{
+								PropertyName: janusPropertyName,
+								Reference:    ref.NrDollarCref.String(),
+								Type:         ref.Type,
+								Location:     *ref.LocationURL,
+							})
+						}
+					default:
+						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+					}
+				default:
+					panic(fmt.Sprintf("Unexpected cardinality %v", schema.CardinalityOfProperty(property)))
+				}
 			}
 		}
 	}
-	//
-	//	// Add edges to all referened things.
-	//	for _, edge := range edgesToAdd {
-	//		q = q.AddE("thingEdge").
-	//			FromRef("newClass").
-	//			ToQuery(gremlin.G.V().HasLabel(THING_LABEL).HasString("uuid", edge.Reference)).
-	//			StringProperty(PROPERTY_EDGE_LABEL, edge.PropertyName).
-	//			StringProperty("$cref", edge.Reference).
-	//			StringProperty("type", edge.Type).
-	//			StringProperty("locationUrl", edge.Location)
-	//	}
+	// Add edges to all referened things.
+	for _, edge := range edgesToAdd {
+		q = q.AddE(edge.PropertyName).
+			FromRef("newClass").
+			ToQuery(gremlin.G.V().HasString(PROP_UUID, edge.Reference)).
+			StringProperty(PROP_REF_ID, edge.PropertyName).
+			StringProperty(PROP_REF_EDGE_CREF, edge.Reference).
+			StringProperty(PROP_REF_EDGE_TYPE, edge.Type).
+			StringProperty(PROP_REF_EDGE_LOCATION, edge.Location)
+	}
 
 	// Link to key
-	q = q.AddE(KEY_VERTEX_LABEL)
-	if key.LocationURL != nil {
-		q = q.StringProperty("locationUrl", *key.LocationURL)
-	}
+	q = q.AddE(KEY_VERTEX_LABEL).
+		StringProperty(PROP_REF_EDGE_CREF, string(key.NrDollarCref)).
+		StringProperty(PROP_REF_EDGE_TYPE, key.Type).
+		StringProperty(PROP_REF_EDGE_LOCATION, *key.LocationURL)
 
 	q = q.FromRef("newClass").
 		ToQuery(gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).HasString(PROP_UUID, key.NrDollarCref.String()))
@@ -131,9 +191,6 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 	_, err := j.client.Execute(q)
 
 	return err
-	return nil
-
-	return nil
 }
 
 func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *string, atContext *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema, key **models.SingleRef) error {
@@ -146,8 +203,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		InV().Path().FromRef("keyEdge").As("key"). // also get the path, so that we can learn about the location of the key.
 		V().
 		HasString(PROP_UUID, string(searchUUID)).
-		Raw(`.optional(outE("thingEdge").as("ref")).choose(select("ref"), select("class", "key", "ref"), select("class", "key"))`)
-
+		Raw(`.optional(outE().has("refId").as("ref")).choose(select("ref"), select("class", "key", "ref"), select("class", "key"))`)
 	result, err := j.client.Execute(q)
 
 	if err != nil {
@@ -190,7 +246,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	*creationTimeUnix = vertex.AssertPropertyValue(PROP_CREATION_TIME_UNIX).AssertInt64()
 	*lastUpdateTimeUnix = vertex.AssertPropertyValue(PROP_LAST_UPDATE_TIME_UNIX).AssertInt64()
 
-	schema := make(map[string]interface{})
+	classSchema := make(map[string]interface{})
 
 	// Walk through all properties, check if they start with 'prop_', and then consider them to be 'schema' properties.
 	// Just copy in the value directly. We're not doing any sanity check/casting to proper types for now.
@@ -209,9 +265,9 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 			}
 
 			if propType.IsPrimitive() {
-				schema[propertyName.String()] = decodeJanusPrimitiveType(propType.AsPrimitive(), val.Value)
+				classSchema[propertyName.String()] = decodeJanusPrimitiveType(propType.AsPrimitive(), val.Value)
 			} else {
-				panic(fmt.Sprintf("Proptery '%s' should be a primitive type!", propertyName))
+				panic(fmt.Sprintf("Property '%s' should be a primitive type!", propertyName))
 			}
 		}
 	}
@@ -219,20 +275,49 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	// For each of the connected edges, get the property values,
 	// and store the reference.
 	for _, edge := range refEdges {
-		locationUrl := edge.AssertPropertyValue("locationUrl").AssertString()
-		type_ := edge.AssertPropertyValue("type").AssertString()
-		edgeName := edge.AssertPropertyValue("propertyEdge").AssertString()
-		uuid := edge.AssertPropertyValue("$cref").AssertString()
+		locationUrl := edge.AssertPropertyValue(PROP_REF_EDGE_LOCATION).AssertString()
+		type_ := edge.AssertPropertyValue(PROP_REF_EDGE_TYPE).AssertString()
+		mappedPropertyName := MappedPropertyName(edge.AssertPropertyValue(PROP_REF_ID).AssertString())
+		uuid := edge.AssertPropertyValue(PROP_REF_EDGE_CREF).AssertString()
 
-		key := edgeName[8:len(edgeName)]
-		ref := make(map[string]interface{})
-		ref["$cref"] = uuid
-		ref["locationUrl"] = locationUrl
-		ref["type"] = type_
-		schema[key] = ref
+		propertyName := j.state.getPropertyNameFromMapped(className, mappedPropertyName)
+		err, property := j.schema.GetProperty(kind, className, propertyName)
+		if err != nil {
+			panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
+		}
+
+		err, propType := j.schema.FindPropertyDataType(property.AtDataType)
+		if err != nil {
+			panic(fmt.Sprintf("Could not get property type of '%s' in class %s; %v", property.AtDataType, className, err))
+		}
+
+		if propType.IsReference() {
+			ref := make(map[string]interface{})
+			ref["$cref"] = uuid
+			ref["locationUrl"] = locationUrl
+			ref["type"] = type_
+			switch schema.CardinalityOfProperty(property) {
+			case schema.CardinalityAtMostOne:
+				classSchema[propertyName.String()] = ref
+			case schema.CardinalityMany:
+				var potentialMany []interface{}
+				potentialMany_, present := classSchema[propertyName.String()]
+				if present {
+					potentialMany = potentialMany_.([]interface{})
+				} else {
+					potentialMany = make([]interface{}, 0)
+					classSchema[propertyName.String()] = potentialMany
+				}
+				classSchema[propertyName.String()] = append(potentialMany, ref)
+			default:
+				panic(fmt.Sprintf("Unexpected cardinality %v", schema.CardinalityOfProperty(property)))
+			}
+		} else {
+			panic(fmt.Sprintf("Property '%s' should be a reference type!", propertyName))
+		}
 	}
 
-	*properties = schema
+	*properties = classSchema
 	return nil
 }
 

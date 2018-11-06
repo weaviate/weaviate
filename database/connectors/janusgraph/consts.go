@@ -28,6 +28,11 @@ const PROP_KEY_IP_ORIGIN = "keyIpOrigin"
 const PROP_KEY_EXPIRES_UNIX = "keyExpiresUnix"
 const PROP_KEY_TOKEN = "keyToken"
 
+// Properties for SingleRef/MultipleRef's
+const PROP_REF_EDGE_CREF = "$cref"
+const PROP_REF_EDGE_TYPE = "refType"
+const PROP_REF_EDGE_LOCATION = "locationUrl"
+
 // Common indices
 const INDEX_BY_UUID = "byUUID"
 const INDEX_BY_KIND_AND_CLASS = "byKindAndClass"

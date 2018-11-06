@@ -28,8 +28,7 @@ var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeInt, Data
 type PropertyKind int
 
 const PropertyKindPrimitive PropertyKind = 1
-const PropertyKindSingleRef PropertyKind = 2
-const PropertyKindMultipleRef PropertyKind = 3
+const PropertyKindRef PropertyKind = 2
 
 type PropertyDataType interface {
 	Kind() PropertyKind
@@ -37,18 +36,16 @@ type PropertyDataType interface {
 	IsPrimitive() bool
 	AsPrimitive() DataType
 
-	IsSingleRef() bool
-	AsSingleRef() ClassName
+	IsReference() bool
+	Classes() []ClassName
 
-	IsMultipleRef() bool
-	AsMultipleRef() []ClassName
+	ContainsClass(name ClassName) bool
 }
 
 type propertyDataType struct {
-	kind            PropertyKind
-	primitiveType   DataType
-	singleRefClass  ClassName
-	multiRefClasses []ClassName
+	kind          PropertyKind
+	primitiveType DataType
+	classes       []ClassName
 }
 
 func (p *propertyDataType) Kind() PropertyKind {
@@ -67,28 +64,30 @@ func (p *propertyDataType) AsPrimitive() DataType {
 	return p.primitiveType
 }
 
-func (p *propertyDataType) IsSingleRef() bool {
-	return p.kind == PropertyKindSingleRef
+func (p *propertyDataType) IsReference() bool {
+	return p.kind == PropertyKindRef
 }
 
-func (p *propertyDataType) AsSingleRef() ClassName {
-	if p.kind != PropertyKindSingleRef {
-		panic("not SingleRef type")
-	}
-
-	return p.singleRefClass
-}
-
-func (p *propertyDataType) IsMultipleRef() bool {
-	return p.kind == PropertyKindMultipleRef
-}
-
-func (p *propertyDataType) AsMultipleRef() []ClassName {
-	if p.kind != PropertyKindMultipleRef {
+func (p *propertyDataType) Classes() []ClassName {
+	if p.kind != PropertyKindRef {
 		panic("not MultipleRef type")
 	}
 
-	return p.multiRefClasses
+	return p.classes
+}
+
+func (p *propertyDataType) ContainsClass(needle ClassName) bool {
+	if p.kind != PropertyKindRef {
+		panic("not MultipleRef type")
+	}
+
+	for _, class := range p.classes {
+		if class == needle {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Based on the schema, return a valid description of the defined datatype
@@ -108,35 +107,22 @@ func (s *Schema) FindPropertyDataType(dataType []string) (error, PropertyDataTyp
 			default:
 				return fmt.Errorf("Unknown primitive data type '%s'", someDataType), nil
 			}
-		} else {
-			// LOOKUP CLASSES.
-			err, className := ValidateClassName(someDataType)
-			if err != nil {
-				return fmt.Errorf("Class name %s in the SingleRef is invalid", someDataType), nil
-			}
-			if s.FindClassByName(className) == nil {
-				return fmt.Errorf("SingleRef class name '%s' does not exist", className), nil
-			}
-			return nil, &propertyDataType{
-				kind:           PropertyKindSingleRef,
-				singleRefClass: className,
-			}
 		}
-	} else /* implies len(dataType) > 1 */ {
-		var classes []ClassName
+	}
+	/* implies len(dataType) > 1, or first element is a class already */
+	var classes []ClassName
 
-		for _, someDataType := range dataType {
-			className := AssertValidClassName(someDataType)
-			if s.FindClassByName(className) == nil {
-				return fmt.Errorf("SingleRef class name '%s' does not exist", className), nil
-			}
-
-			classes = append(classes, className)
+	for _, someDataType := range dataType {
+		className := AssertValidClassName(someDataType)
+		if s.FindClassByName(className) == nil {
+			return fmt.Errorf("SingleRef class name '%s' does not exist", className), nil
 		}
 
-		return nil, &propertyDataType{
-			kind:            PropertyKindMultipleRef,
-			multiRefClasses: classes,
-		}
+		classes = append(classes, className)
+	}
+
+	return nil, &propertyDataType{
+		kind:    PropertyKindRef,
+		classes: classes,
 	}
 }

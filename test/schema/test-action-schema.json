@@ -121,7 +121,7 @@
                       { "keyword": "reference", "weight": 1.0 }
                     ],
                     "@dataType": [
-                        "TestThing"
+                        "TestAction"
                     ],
                     "description": "Value of testCref."
                 }
