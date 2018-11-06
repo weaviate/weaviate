@@ -508,6 +508,16 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 	return err
 }
 
+func (j *Janusgraph) deleteClass(k kind.Kind, UUID strfmt.UUID) error {
+	q := gremlin.G.V().HasString(PROP_KIND, k.Name()).
+		HasString(PROP_UUID, string(UUID)).
+		Drop()
+
+	_, err := j.client.Execute(q)
+
+	return err
+}
+
 func decodeJanusPrimitiveType(dataType schema.DataType, value gremlin.PropertyValue) interface{} {
 	switch dataType {
 	case schema.DataTypeInt:

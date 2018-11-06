@@ -72,7 +72,7 @@ func (j *Janusgraph) UpdateAction(ctx context.Context, action *models.Action, UU
 }
 
 func (j *Janusgraph) DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
-	return nil
+	return j.deleteClass(kind.ACTION_KIND, UUID)
 }
 
 func (j *Janusgraph) HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error {
