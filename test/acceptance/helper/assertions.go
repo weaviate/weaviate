@@ -2,6 +2,7 @@ package helper
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -11,7 +12,7 @@ func AssertRequestOk(t *testing.T, response interface{}, err error, check_fn fun
 	if err != nil {
 		response_json, _ := json.MarshalIndent(response, "", "  ")
 		errorPayload, _ := json.MarshalIndent(err, "", " ")
-		t.Fatalf("Failed to perform request, because %s. Response:\n%s", errorPayload, response_json)
+		t.Fatalf("Failed to perform request! Error: %s %s. Response: %s", getType(err), errorPayload, response_json)
 	} else {
 		if check_fn != nil {
 			check_fn()
@@ -29,5 +30,14 @@ func AssertRequestFail(t *testing.T, response interface{}, err error, check_fn f
 		if check_fn != nil {
 			check_fn()
 		}
+	}
+}
+
+// Get type name of some value, according to https://stackoverflow.com/questions/35790935/using-reflection-in-go-to-get-the-name-of-a-struct
+func getType(myvar interface{}) string {
+	if t := reflect.TypeOf(myvar); t.Kind() == reflect.Ptr {
+		return "*" + t.Elem().Name()
+	} else {
+		return t.Name()
 	}
 }
