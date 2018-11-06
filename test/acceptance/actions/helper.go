@@ -17,6 +17,7 @@ func assertCreateAction(t *testing.T, className string, schema map[string]interf
 			AtClass:   className,
 			Schema:    schema,
 		},
+		Async: false,
 	})
 
 	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params, helper.RootAuth)
