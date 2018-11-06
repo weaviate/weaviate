@@ -409,7 +409,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		delayedLock.IncSteps()
 		go func() {
 			defer delayedLock.Unlock()
-			dbConnector.UpdateAction(ctx, action, UUID)
+			err := dbConnector.UpdateAction(ctx, action, UUID)
+			if err != nil {
+				fmt.Printf("Update action failed, because %s", err)
+			}
 		}()
 
 		// Create return Object
