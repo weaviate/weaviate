@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
+	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
@@ -49,7 +50,8 @@ func (j *Janusgraph) ListActions(ctx context.Context, UUID strfmt.UUID, first in
 }
 
 func (j *Janusgraph) UpdateAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
-	return nil
+	sanitizedClassName := schema.AssertValidClassName(action.AtClass)
+	return j.updateClass(kind.ACTION_KIND, sanitizedClassName, UUID, action.AtContext, action.LastUpdateTimeUnix, action.Schema)
 }
 
 func (j *Janusgraph) DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
