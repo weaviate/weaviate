@@ -566,7 +566,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
 		} else {
 			//TODO: handle errors
-			dbConnector.AddAction(ctx, action, UUID)
+			err := dbConnector.AddAction(ctx, action, UUID)
+			if err != nil {
+				panic(err)
+			}
 			return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
 		}
 	})
