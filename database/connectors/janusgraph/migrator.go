@@ -268,8 +268,9 @@ func (j *Janusgraph) DropProperty(kind kind.Kind, className string, propName str
 //	//s.WriteString(fmt.Sprintf("mgmt.getPropertyKey(\"%s\").remove()\n", janusPropName))
 //}
 //
-//// Get Janus data type from a weaviate data type.
-//// Panics if passed a wrong type.
+
+// Get Janus data type from a weaviate data type.
+// Panics if passed a wrong type.
 func weaviatePrimitivePropTypeToJanusPropType(type_ schema.DataType) gremlin_schema_query.DataType {
 	switch type_ {
 	case schema.DataTypeString:
