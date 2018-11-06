@@ -35,12 +35,6 @@ import (
 func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	k := kind.THING_KIND
 
-	fmt.Printf("########### ADDING THING #######\n")
-	fmt.Printf("########### ADDING THING #######\n")
-	fmt.Printf("########### ADDING THING #######\n")
-	fmt.Printf("########### ADDING THING #######\n")
-	fmt.Printf("########### ADDING THING #######\n")
-
 	sanitizedClassName := schema.AssertValidClassName(thing.AtClass)
 	vertexLabel := j.state.getMappedClassName(sanitizedClassName)
 
