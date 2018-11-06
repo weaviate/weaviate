@@ -1321,7 +1321,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 	})
 
-	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams, principal interface{}) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		defer dbLock.Unlock()
 
@@ -1343,22 +1343,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Initialize response
-		thingGetResponse := models.ThingGetResponse{}
-		thingGetResponse.Schema = map[string]models.JSONObject{}
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
-
-		// If there are no results, there is an error
-		if errGet != nil {
-			// Object not found response.
-			return things.NewWeaviateThingsActionsListNotFound()
-		}
-
-		// Initialize response
 		actionsResponse := models.ActionsListResponse{}
 		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
-		err := dbConnector.ListActions(ctx, params.ThingID, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
+		err := dbConnector.ListActions(ctx, limit, (page-1)*limit, keyObject.KeyID, []*connutils.WhereQuery{}, &actionsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)

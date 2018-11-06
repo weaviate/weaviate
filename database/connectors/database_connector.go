@@ -47,7 +47,7 @@ type BaseConnector interface {
 
 	AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
 	GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error
-	ListActions(ctx context.Context, UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error
+	ListActions(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error
 	UpdateAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
 	DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
 	HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error

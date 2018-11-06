@@ -45,7 +45,7 @@ func (j *Janusgraph) GetActions(ctx context.Context, UUIDs []strfmt.UUID, action
 	return nil
 }
 
-func (j *Janusgraph) ListActions(ctx context.Context, UUID strfmt.UUID, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
+func (f *Janusgraph) ListActions(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
 	return nil
 }
 
