@@ -134,7 +134,7 @@
       "type": "object"
     },
     "ActionsListResponse": {
-      "description": "List of actions for specific Thing.",
+      "description": "List of actions.",
       "properties": {
         "actions": {
           "description": "The actual list of actions.",
@@ -766,6 +766,41 @@
   },
   "paths": {
     "/actions": {
+      "get": {
+        "description": "Lists all actions in reverse order of creation, owned by the user that belongs to the used token.",
+        "operationId": "weaviate.actions.list",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          }
+        },
+        "summary": "Get a list of actionsrelated to this key.",
+        "tags": [
+          "actions"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
       "post": {
         "description": "Registers a new action. Given meta-data and schema values are validated.",
         "operationId": "weaviate.actions.create",
@@ -2400,51 +2435,6 @@
           }
         },
         "summary": "Update a thing based on its uuid related to this key.",
-        "tags": [
-          "things"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/things/{thingId}/actions": {
-      "get": {
-        "description": "Lists all actions in reverse order of creation, related to the thing that belongs to the used thingId.",
-        "operationId": "weaviate.things.actions.list",
-        "parameters": [
-          {
-            "description": "Unique ID of the thing.",
-            "format": "uuid",
-            "in": "path",
-            "name": "thingId",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ActionsListResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          }
-        },
-        "summary": "Get a thing based on its uuid related to this thing. Also available as Websocket.",
         "tags": [
           "things"
         ],
