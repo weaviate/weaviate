@@ -10,7 +10,8 @@ import (
 func AssertRequestOk(t *testing.T, response interface{}, err error, check_fn func()) {
 	if err != nil {
 		response_json, _ := json.MarshalIndent(response, "", "  ")
-		t.Fatalf("Failed to perform request, because %#v. Response:\n%s", err, response_json)
+		errorPayload, _ := json.MarshalIndent(err, "", " ")
+		t.Fatalf("Failed to perform request, because %s. Response:\n%s", errorPayload, response_json)
 	} else {
 		if check_fn != nil {
 			check_fn()
