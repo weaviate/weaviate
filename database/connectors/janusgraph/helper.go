@@ -508,6 +508,32 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 	return err
 }
 
+func (j *Janusgraph) listClass(k kind.Kind, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, yield func(id strfmt.UUID)) error {
+	if len(wheres) > 0 {
+		return errors.New("Wheres are not supported in ListThings")
+	}
+
+	q := gremlin.G.V().
+		HasString(PROP_KIND, k.Name()).
+		Range(offset, first).
+		Values([]string{PROP_UUID})
+
+	result, err := j.client.Execute(q)
+
+	if err != nil {
+		return err
+	}
+
+	// Get the UUIDs from the first query.
+	UUIDs := result.AssertStringSlice()
+
+	for _, uuid := range UUIDs {
+		yield(strfmt.UUID(uuid))
+	}
+
+	return nil
+}
+
 func (j *Janusgraph) deleteClass(k kind.Kind, UUID strfmt.UUID) error {
 	q := gremlin.G.V().HasString(PROP_KIND, k.Name()).
 		HasString(PROP_UUID, string(UUID)).

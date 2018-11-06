@@ -62,8 +62,21 @@ func (j *Janusgraph) GetActions(ctx context.Context, UUIDs []strfmt.UUID, respon
 	return nil
 }
 
-func (f *Janusgraph) ListActions(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error {
-	return nil
+func (j *Janusgraph) ListActions(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, response *models.ActionsListResponse) error {
+	response.TotalResults = 0
+	response.Actions = make([]*models.ActionGetResponse, 0)
+
+	return j.listClass(kind.ACTION_KIND, first, offset, keyID, wheres, func(uuid strfmt.UUID) {
+		var action_response models.ActionGetResponse
+		err := j.GetAction(ctx, uuid, &action_response)
+
+		if err == nil {
+			response.TotalResults += 1
+			response.Actions = append(response.Actions, &action_response)
+		} else {
+			// Silently ignorre the potentially removed actions.
+		}
+	})
 }
 
 func (j *Janusgraph) UpdateAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
