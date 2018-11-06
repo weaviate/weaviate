@@ -65,7 +65,7 @@
                       { "keyword": "reference", "weight": 1.0 }
                     ],
                     "@dataType": [
-                        "TestThing2"
+                        "TestThingTwo"
                     ],
                     "description": "Value of testCref."
                 }, {
