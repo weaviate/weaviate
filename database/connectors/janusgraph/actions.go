@@ -41,7 +41,24 @@ func (j *Janusgraph) GetAction(ctx context.Context, UUID strfmt.UUID, actionResp
 		&actionResponse.Key)
 }
 
-func (j *Janusgraph) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsResponse *models.ActionsListResponse) error {
+func (j *Janusgraph) GetActions(ctx context.Context, UUIDs []strfmt.UUID, response *models.ActionsListResponse) error {
+	// TODO: Optimize query to perform just _one_ JanusGraph lookup.
+
+	response.TotalResults = 0
+	response.Actions = make([]*models.ActionGetResponse, 0)
+
+	for _, uuid := range UUIDs {
+		var action_response models.ActionGetResponse
+		err := j.GetAction(ctx, uuid, &action_response)
+
+		if err == nil {
+			response.TotalResults += 1
+			response.Actions = append(response.Actions, &action_response)
+		} else {
+			return fmt.Errorf("%s: action with UUID '%v' not found", connutils.StaticActionNotFound, uuid)
+		}
+	}
+
 	return nil
 }
 
