@@ -6,19 +6,6 @@ branches:
   only: 
     - master
     - develop
-deploy: 
-  access_key_id: GOOG4QOEU2HGYSA6CRE6
-  acl: public-read
-  bucket: weaviate-dist
-  detect_encoding: true
-  provider: gcs
-  secret_access_key: 
-    secure: EhYZQtPi22lksyksxWBRJxtqDcnld+CryI9L577cc+VoC8G57P9hWqrPByh22J/3X5iLf1ryNQww68RU2RJTTagPEM11O1eDwvWiso4LF2X+od6cZpwy4+FmQ0XUY7OD/65Ej0E/Hek4v0WL4B9OouWM/x5awO4iHm6ef9EniGw5wlPuqEM9cwiQWVxki8YUyKuJbWkI658eAGYl5xxj1LGQTJuCf/IiWfcQ/R9IV+PruXJ9Alh8DK4RMGDmaqbftTo5aKeidGgX+jef58yY3cgIWyDr5HAr5IFQ1hMpjHWbsl4Hhy1jc3HSS5x9BLbdD76JKHyUpTLk7t+DoM/Jks1bT2bjDBfBAtNK83JorjO95VGOZZs08FOuUylvcp+5dB49OqmAuyYiIAEe6rRK1lyQcaktIXYx30UIklTJnCVdIRu+HNbkzOadz1RlOpN3M7W2Nb5vDYzxLnfUMKJw4G1GCgUyBByNzAUUpTp2jjxR4tnVpHtbXVcWU+wVTCANV7SY41hqIFDTe5mnf8bxL9d2f1xjBsANXl1wONnVbgPZN2XaxNmHR/GvGx0h0dFO/BtYfzMu8LwrUbNKWzuxAa7VuyVfjg6wkJh1bmzP2jsZZiOWFVAlT0++1cWkq9c+oPh6tXYuvnHvvXPRigrf7AEiQss+NnGJJvitXDmo+5w=
-  skip_cleanup: true
-  true: 
-    branch: 
-      - master
-      - develop
 go: 
   - "1.11"
 env:
@@ -53,42 +40,6 @@ script:
     grep -h -v "^mode:" ./*.cover >> c.out
     rm -f *.cover
     ./cc-test-reporter after-build
-after_script:
-  # Install goreleaser and create build dirs
-  - |
-      # If the branch is not master or develop we are done :-)
-      if [ $TRAVIS_BRANCH -ne "master" ] && [ $TRAVIS_BRANCH -ne "develop" ]; then
-        travis_terminate 0
-      fi
-      if [ $TRAVIS_PULL_REQUEST = "false" ]; then
-          # Make distribution dir if not exsists
-          mkdir -p releases
-          # Get latest goreleaser
-          curl -s -L -o "goreleaser.tar.gz" "https://github.com/goreleaser/goreleaser/releases/download/v0.58.0/goreleaser_$(uname -s)_$(uname -m).tar.gz"
-          tar -xzf goreleaser.tar.gz
-          ./goreleaser --rm-dist --snapshot
-          rm goreleaser goreleaser.tar.gz
-          # if master, upload version nr otherwise nightly
-          if [ $TRAVIS_BRANCH = "master" ]; then
-              # create folder with releases for master
-              mv dist releases/$(cat openapi-specs/schema.json | jq -r '.info.version')
-              # Create txt file with version number
-              echo $(cat openapi-specs/schema.json | jq -r '.info.version') > releases/latest.master.txt
-              # Check if the version number is now, if not, kill and fail the process
-              if [[ `wget -S --spider https://storage.googleapis.com/weaviate-dist/releases/$(cat openapi-specs/schema.json | jq -r '.info.version')/config.yaml 2>&1 | grep 'HTTP/1.1 200 OK'` ]]; then
-                  echo "ERROR - This version is already released, master build will fail! Increate version number in OPENAPI schema file"
-                  exit 1
-              fi
-          fi
-          if [ $TRAVIS_BRANCH = "develop" ]; then
-              # if develop, create nightly
-              mv dist releases/nightly
-              # Create txt file with version number of nightly build
-              echo $(cat openapi-specs/schema.json | jq -r '.info.version') > releases/latest.nightly.txt
-          fi
-          # remove all except for releases
-          rm -r !(releases)
-      fi
 services: 
   - docker
 sudo: required
