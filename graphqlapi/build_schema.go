@@ -27,8 +27,8 @@ var dbConnector dbconnector.DatabaseConnector
 // 1) the static query structure (e.g. Get)
 // 2) the (dynamic) database schema from Weaviate
 
-func (g *GraphQL) buildGraphqlSchema() error {
-	rootFieldsObject, err := assembleFullSchema(g)
+func (g *graphQL) buildGraphqlSchema() error {
+	rootFieldsObject, err := g.assembleFullSchema()
 
 	if err != nil {
 		return fmt.Errorf("could not build GraphQL schema, because: %v", err)
@@ -66,19 +66,19 @@ func (g *GraphQL) buildGraphqlSchema() error {
 	return nil
 }
 
-func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
+func (g *graphQL) assembleFullSchema() (graphql.Fields, error) {
 	// This map is used to store all the Thing and Action Objects, so that we can use them in references.
 	getActionsAndThings := make(map[string]*graphql.Object)
 	// this map is used to store all the Filter InputObjects, so that we can use them in references.
 	filterOptions := make(map[string]*graphql.InputObject)
 
-	localGetActions, err := genActionClassFieldsFromSchema(g, &getActionsAndThings)
+	localGetActions, err := g.genActionClassFieldsFromSchema(&getActionsAndThings)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate action fields from schema for local Get because: %v", err)
 	}
 
-	localGetThings, err := genThingClassFieldsFromSchema(g, &getActionsAndThings)
+	localGetThings, err := g.genThingClassFieldsFromSchema(&getActionsAndThings)
 
 	// No things, nor actions. Bail out!
 	if localGetActions == nil && localGetThings == nil {
@@ -108,7 +108,7 @@ func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
 		}
 	}
 
-	localGetObject := genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions, localGetThings)
+	localGetObject := g.genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions, localGetThings)
 
 	localGetMetaObject := genThingsAndActionsFieldsForWeaviateLocalGetMetaObj(localGetMetaActions, localGetMetaThings)
 
@@ -132,7 +132,7 @@ func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
 }
 
 // generate the static parts of the schema
-func genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Object, localGetThings *graphql.Object) *graphql.Object {
+func (g *graphQL) genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Object, localGetThings *graphql.Object) *graphql.Object {
 	getThingsAndActionFields := graphql.Fields{}
 
 	if localGetActions != nil {
