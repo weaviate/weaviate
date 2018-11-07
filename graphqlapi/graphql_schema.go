@@ -22,8 +22,12 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
+type GraphQL interface {
+	Schema() *graphql.Schema
+}
+
 // GraphQL stores all relevant variables and functions
-type GraphQL struct {
+type graphQL struct {
 	weaviateGraphQLSchema graphql.Schema
 	serverConfig          *config.WeaviateConfig
 	databaseSchema        *schema.WeaviateSchema
@@ -32,14 +36,14 @@ type GraphQL struct {
 }
 
 // Schema is called by the RestAPI handler to receive the schema.
-func (g *GraphQL) Schema() *graphql.Schema {
+func (g *graphQL) Schema() *graphql.Schema {
 	return &g.weaviateGraphQLSchema
 }
 
 // CreateSchema initializes the Graphl
 func CreateSchema(dbConnector *dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, databaseSchema *schema.WeaviateSchema, messaging *messages.Messaging) (GraphQL, error) {
 	messaging.InfoMessage("Creating GraphQL schema...")
-	var g GraphQL
+	var g graphQL
 
 	// Store for later use.
 	g.dbConnector = dbConnector
@@ -49,5 +53,6 @@ func CreateSchema(dbConnector *dbconnector.DatabaseConnector, serverConfig *conf
 
 	// Now build the graphql schema
 	err := g.buildGraphqlSchema()
-	return g, err
+
+	return &g, err
 }

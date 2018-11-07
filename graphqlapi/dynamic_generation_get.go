@@ -24,7 +24,7 @@ import (
 )
 
 // Build the dynamically generated Get Actions part of the schema
-func genActionClassFieldsFromSchema(g *GraphQL, getActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
+func (g *graphQL) genActionClassFieldsFromSchema(getActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
 	actionClassFields := graphql.Fields{}
 
 	if len(g.databaseSchema.ActionSchema.Schema.Classes) == 0 {
@@ -153,7 +153,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 }
 
 // Build the dynamically generated Get Things part of the schema
-func genThingClassFieldsFromSchema(g *GraphQL, getActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
+func (g *graphQL) genThingClassFieldsFromSchema(getActionsAndThings *map[string]*graphql.Object) (*graphql.Object, error) {
 	thingClassFields := graphql.Fields{}
 
 	if len(g.databaseSchema.ThingSchema.Schema.Classes) == 0 {
