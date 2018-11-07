@@ -40,6 +40,8 @@ script:
   - ./tools/test/import_journey.sh || travis_terminate 1
   # Run all tests
   - |
+    # Load the test schema in weaviate.
+    go run ./tools/schema_loader -action-schema test/schema/test-action-schema.json -thing-schema test/schema/test-thing-schema.json
     ./cc-test-reporter before-build
     for pkg in $(go list ./... | grep -v main); do
         if ! go test -race -v -coverprofile=$(echo $pkg | tr / -).cover $pkg; then
