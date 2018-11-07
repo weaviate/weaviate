@@ -113,8 +113,8 @@ func (g *graphQL) assembleFullSchema() (graphql.Fields, error) {
 		Type:        localGetAndGetMetaObject,
 		Description: "Query a local Weaviate instance",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			result, err := dbConnector.GetGraph(p)
-			return result, err
+			// This step does nothing; all ways allow the resolver to continue
+			return true, nil
 		},
 	}
 
@@ -136,8 +136,8 @@ func (g *graphQL) genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetAction
 			Description: "Get Actions on the Local Weaviate",
 			Type:        localGetActions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
+				// Does nothing; pass through the filters
+				return p.Source, nil
 			},
 		}
 	}
@@ -148,8 +148,8 @@ func (g *graphQL) genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetAction
 			Description: "Get Things on the Local Weaviate",
 			Type:        localGetThings,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
+				// Does nothing; pass through the filters
+				return p.Source, nil
 			},
 		}
 	}
@@ -220,8 +220,8 @@ func genGetAndGetMetaFields(localGetObject *graphql.Object, localGetMetaObject *
 				},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
+				filters, err := extractLocalGetFilters(p)
+				return filters, err
 			},
 		},
 
