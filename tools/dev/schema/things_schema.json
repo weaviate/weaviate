@@ -23,7 +23,7 @@
                     ],
                     "description": "The city's longitude and latitude",
                     "keywords": [
-                      { "kind": "location", "weight": 1.0 }
+                      { "keyword": "location", "weight": 1.0 }
                     ]
                 },
                 {
@@ -81,9 +81,9 @@
                     ],
                     "description": "Nationality of the person",
                     "keywords": [
-                      { "kind": "nation", "weight": 1.0 },
-                      { "kind": "country", "weight": 1.0 },
-                      { "kind": "person", "weight": 1.0 }
+                      { "keyword": "nation", "weight": 1.0 },
+                      { "keyword": "country", "weight": 1.0 },
+                      { "keyword": "person", "weight": 1.0 }
                     ]
 
                 }
