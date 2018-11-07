@@ -14,13 +14,12 @@ import (
 	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"os"
+	"reflect"
 )
 
 type Loader interface {
 	SetLogger(logger *log.Logger) Loader
-	SetHost(host string) Loader
-	SetPort(port string) Loader
-	SetScheme(scheme string) Loader
+	SetTransport(transport *httptransport.Runtime) Loader
 	SetKeyAndToken(key string, token string) Loader
 
 	FromSchemaFiles(actionSchemaFile string, thingSchemaFile string) Loader
@@ -46,8 +45,9 @@ type loader struct {
 	replaceExisting bool
 
 	// Client and auth
-	client *apiclient.WeaviateDecentralisedKnowledgeGraph
-	auth   runtime.ClientAuthInfoWriterFunc
+	auth      runtime.ClientAuthInfoWriterFunc
+	transport *httptransport.Runtime
+	client    *apiclient.WeaviateDecentralisedKnowledgeGraph
 
 	// Internal state
 	schema         schema.Schema  // schema to be imported
@@ -63,18 +63,8 @@ func (l *loader) SetLogger(logger *log.Logger) Loader {
 	return l
 }
 
-func (l *loader) SetHost(host string) Loader {
-	l.host = host
-	return l
-}
-
-func (l *loader) SetPort(port string) Loader {
-	l.port = port
-	return l
-}
-
-func (l *loader) SetScheme(scheme string) Loader {
-	l.scheme = scheme
+func (l *loader) SetTransport(transport *httptransport.Runtime) Loader {
+	l.transport = transport
 	return l
 }
 
@@ -114,10 +104,9 @@ func (l *loader) Load() error {
 	}
 
 	// Build client
-	transport := httptransport.New(fmt.Sprintf("%s:%s", l.host, l.port), "/weaviate/v1", []string{l.scheme})
-	transport.SetDebug(true)
-	transport.SetLogger(&httpLogger{log: l.log})
-	l.client = apiclient.New(transport, strfmt.Default)
+	l.transport.SetDebug(true)
+	l.transport.SetLogger(&httpLogger{log: l.log})
+	l.client = apiclient.New(l.transport, strfmt.Default)
 
 	// Create an auth writer that both sets the api key & token.
 	l.auth = func(r runtime.ClientRequest, _ strfmt.Registry) error {
@@ -278,7 +267,7 @@ func (l *loader) defineActionClasses() error {
 		params := apischema.NewWeaviateSchemaActionsCreateParams().WithActionClass(&classToAdd)
 		_, err := l.client.Schema.WeaviateSchemaActionsCreate(params, l.auth)
 		if err != nil {
-			l.log.Debugf("Could not create action class: %v", err)
+			l.log.Debugf("Could not create action class: %s", debugResponse(err))
 			return err
 		}
 	}
@@ -297,7 +286,7 @@ func (l *loader) defineThingClasses() error {
 		params := apischema.NewWeaviateSchemaThingsCreateParams().WithThingClass(&classToAdd)
 		_, err := l.client.Schema.WeaviateSchemaThingsCreate(params, l.auth)
 		if err != nil {
-			l.log.Debugf("Could not create thing class: %v", err)
+			l.log.Debugf("Could not create thing class: %s", debugResponse(err))
 			return err
 		}
 	}
@@ -314,7 +303,7 @@ func (l *loader) addActionProperties() error {
 			params := apischema.NewWeaviateSchemaActionsPropertiesAddParams().WithClassName(class.Class).WithBody(property)
 			_, err := l.client.Schema.WeaviateSchemaActionsPropertiesAdd(params, l.auth)
 			if err != nil {
-				l.log.Debugf("Could not add property %s for action class %s: %v", property.Name, class.Class, err)
+				l.log.Debugf("Could not add property %s for action class %s: %s", property.Name, class.Class, debugResponse(err))
 				return err
 			}
 		}
@@ -333,11 +322,25 @@ func (l *loader) addThingProperties() error {
 			params := apischema.NewWeaviateSchemaThingsPropertiesAddParams().WithClassName(class.Class).WithBody(property)
 			_, err := l.client.Schema.WeaviateSchemaThingsPropertiesAdd(params, l.auth)
 			if err != nil {
-				l.log.Debugf("Could not add property %s for thing class %s: %v", property.Name, class.Class, err)
+				l.log.Debugf("Could not add property %s for thing class %s: %s", property.Name, class.Class, debugResponse(err))
 				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+func debugResponse(err interface{}) string {
+	errorPayload, _ := json.MarshalIndent(err, "", " ")
+	return fmt.Sprintf("Error: %s %s. Response: %s", getType(err), errorPayload)
+}
+
+// Get type name of some value, according to https://stackoverflow.com/questions/35790935/using-reflection-in-go-to-get-the-name-of-a-struct
+func getType(myvar interface{}) string {
+	if t := reflect.TypeOf(myvar); t.Kind() == reflect.Ptr {
+		return "*" + t.Elem().Name()
+	} else {
+		return t.Name()
+	}
 }
