@@ -46,12 +46,7 @@ func (g *graphQL) buildGraphqlSchema() error {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				var ok bool
-				err, ok = r.(error) // can't shadow err here; we need the err from outside the function closure.
-
-				if !ok {
-					err = fmt.Errorf("%v", err)
-				}
+				err = fmt.Errorf("%v", r)
 			}
 		}()
 
