@@ -17,7 +17,7 @@ package graphqlapi
 import (
 	"fmt"
 
-	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/graphql-go/graphql"
 )
 
@@ -80,22 +80,32 @@ func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
 
 	localGetThings, err := genThingClassFieldsFromSchema(g, &getActionsAndThings)
 
+	// No things, nor actions. Bail out!
+	if localGetActions == nil && localGetThings == nil {
+		return nil, fmt.Errorf("There are not any Actions or Things classes defined yet.")
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate thing fields from schema for local Get because: %v", err)
 	}
 
-	classParentTypeIsAction := true
-	localGetMetaActions, err := genMetaClassFieldsFromSchema(g.databaseSchema.ActionSchema.Schema.Classes, classParentTypeIsAction)
+	var localGetMetaActions *graphql.Object
 
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate action fields from schema for local MetaGet because: %v", err)
+	if localGetActions != nil {
+		classParentTypeIsAction := true
+		localGetMetaActions, err = genMetaClassFieldsFromSchema(g.databaseSchema.ActionSchema.Schema.Classes, classParentTypeIsAction)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate action fields from schema for local MetaGet because: %v", err)
+		}
 	}
 
-	classParentTypeIsAction = false
-	localGetMetaThings, err := genMetaClassFieldsFromSchema(g.databaseSchema.ThingSchema.Schema.Classes, classParentTypeIsAction)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate thing fields from schema for local MetaGet because: %v", err)
+	var localGetMetaThings *graphql.Object
+	if localGetThings != nil {
+		classParentTypeIsAction := false
+		localGetMetaThings, err = genMetaClassFieldsFromSchema(g.databaseSchema.ThingSchema.Schema.Classes, classParentTypeIsAction)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate thing fields from schema for local MetaGet because: %v", err)
+		}
 	}
 
 	localGetObject := genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions, localGetThings)
@@ -123,9 +133,10 @@ func assembleFullSchema(g *GraphQL) (graphql.Fields, error) {
 
 // generate the static parts of the schema
 func genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Object, localGetThings *graphql.Object) *graphql.Object {
-	getThingsAndActionFields := graphql.Fields{
+	getThingsAndActionFields := graphql.Fields{}
 
-		"Actions": &graphql.Field{
+	if localGetActions != nil {
+		getThingsAndActionFields["Actions"] = &graphql.Field{
 			Name:        "WeaviateLocalGetActions",
 			Description: "Get Actions on the Local Weaviate",
 			Type:        localGetActions,
@@ -133,9 +144,11 @@ func genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Ob
 				result, err := dbConnector.GetGraph(p)
 				return result, err
 			},
-		},
+		}
+	}
 
-		"Things": &graphql.Field{
+	if localGetThings != nil {
+		getThingsAndActionFields["Things"] = &graphql.Field{
 			Name:        "WeaviateLocalGetThings",
 			Description: "Get Things on the Local Weaviate",
 			Type:        localGetThings,
@@ -143,7 +156,7 @@ func genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Ob
 				result, err := dbConnector.GetGraph(p)
 				return result, err
 			},
-		},
+		}
 	}
 
 	getThingsAndActionFieldsObject := graphql.ObjectConfig{
@@ -156,9 +169,10 @@ func genThingsAndActionsFieldsForWeaviateLocalGetObj(localGetActions *graphql.Ob
 }
 
 func genThingsAndActionsFieldsForWeaviateLocalGetMetaObj(localGetMetaActions *graphql.Object, localGetMetaThings *graphql.Object) *graphql.Object {
-	getMetaThingsAndActionFields := graphql.Fields{
+	getMetaThingsAndActionFields := graphql.Fields{}
 
-		"Actions": &graphql.Field{
+	if localGetMetaActions != nil {
+		getMetaThingsAndActionFields["Actions"] = &graphql.Field{
 			Name:        "WeaviateLocalGetMetaActions",
 			Description: "Get Meta information about Actions on the Local Weaviate",
 			Type:        localGetMetaActions,
@@ -166,9 +180,11 @@ func genThingsAndActionsFieldsForWeaviateLocalGetMetaObj(localGetMetaActions *gr
 				result, err := dbConnector.GetGraph(p)
 				return result, err
 			},
-		},
+		}
+	}
 
-		"Things": &graphql.Field{
+	if localGetMetaThings != nil {
+		getMetaThingsAndActionFields["Things"] = &graphql.Field{
 			Name:        "WeaviateLocalGetMetaThings",
 			Description: "Get Meta information about Things on the Local Weaviate",
 			Type:        localGetMetaThings,
@@ -176,7 +192,7 @@ func genThingsAndActionsFieldsForWeaviateLocalGetMetaObj(localGetMetaActions *gr
 				result, err := dbConnector.GetGraph(p)
 				return result, err
 			},
-		},
+		}
 	}
 
 	getMetaThingsAndActionFieldsObject := graphql.ObjectConfig{

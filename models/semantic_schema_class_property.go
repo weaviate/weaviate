@@ -18,12 +18,13 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"strconv"
+	"encoding/json"
 
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // SemanticSchemaClassProperty semantic schema class property
@@ -33,11 +34,15 @@ type SemanticSchemaClassProperty struct {
 	// Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise "string" or "int".
 	AtDataType []string `json:"@dataType"`
 
+	// The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.
+	// Enum: [atMostOne many]
+	Cardinality *string `json:"cardinality,omitempty"`
+
 	// Description of the property
 	Description string `json:"description,omitempty"`
 
-	// Describes the kind of class. For example Geolocation for the class City.
-	Keywords []*SemanticSchemaClassPropertyKeywordsItems0 `json:"keywords"`
+	// keywords
+	Keywords SemanticSchemaKeywords `json:"keywords"`
 
 	// Name of the property as URI relative to the schema URL.
 	Name string `json:"name,omitempty"`
@@ -46,6 +51,10 @@ type SemanticSchemaClassProperty struct {
 // Validate validates this semantic schema class property
 func (m *SemanticSchemaClassProperty) Validate(formats strfmt.Registry) error {
 	var res []error
+
+	if err := m.validateCardinality(formats); err != nil {
+		res = append(res, err)
+	}
 
 	if err := m.validateKeywords(formats); err != nil {
 		res = append(res, err)
@@ -57,26 +66,60 @@ func (m *SemanticSchemaClassProperty) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
+var semanticSchemaClassPropertyTypeCardinalityPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["atMostOne","many"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		semanticSchemaClassPropertyTypeCardinalityPropEnum = append(semanticSchemaClassPropertyTypeCardinalityPropEnum, v)
+	}
+}
+
+const (
+
+	// SemanticSchemaClassPropertyCardinalityAtMostOne captures enum value "atMostOne"
+	SemanticSchemaClassPropertyCardinalityAtMostOne string = "atMostOne"
+
+	// SemanticSchemaClassPropertyCardinalityMany captures enum value "many"
+	SemanticSchemaClassPropertyCardinalityMany string = "many"
+)
+
+// prop value enum
+func (m *SemanticSchemaClassProperty) validateCardinalityEnum(path, location string, value string) error {
+	if err := validate.Enum(path, location, value, semanticSchemaClassPropertyTypeCardinalityPropEnum); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *SemanticSchemaClassProperty) validateCardinality(formats strfmt.Registry) error {
+
+	if swag.IsZero(m.Cardinality) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateCardinalityEnum("cardinality", "body", *m.Cardinality); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *SemanticSchemaClassProperty) validateKeywords(formats strfmt.Registry) error {
 
 	if swag.IsZero(m.Keywords) { // not required
 		return nil
 	}
 
-	for i := 0; i < len(m.Keywords); i++ {
-		if swag.IsZero(m.Keywords[i]) { // not required
-			continue
+	if err := m.Keywords.Validate(formats); err != nil {
+		if ve, ok := err.(*errors.Validation); ok {
+			return ve.ValidateName("keywords")
 		}
-
-		if m.Keywords[i] != nil {
-			if err := m.Keywords[i].Validate(formats); err != nil {
-				if ve, ok := err.(*errors.Validation); ok {
-					return ve.ValidateName("keywords" + "." + strconv.Itoa(i))
-				}
-				return err
-			}
-		}
-
+		return err
 	}
 
 	return nil
@@ -93,40 +136,6 @@ func (m *SemanticSchemaClassProperty) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *SemanticSchemaClassProperty) UnmarshalBinary(b []byte) error {
 	var res SemanticSchemaClassProperty
-	if err := swag.ReadJSON(b, &res); err != nil {
-		return err
-	}
-	*m = res
-	return nil
-}
-
-// SemanticSchemaClassPropertyKeywordsItems0 semantic schema class property keywords items0
-// swagger:model SemanticSchemaClassPropertyKeywordsItems0
-type SemanticSchemaClassPropertyKeywordsItems0 struct {
-
-	// kind
-	Kind string `json:"kind,omitempty"`
-
-	// weight
-	Weight float32 `json:"weight,omitempty"`
-}
-
-// Validate validates this semantic schema class property keywords items0
-func (m *SemanticSchemaClassPropertyKeywordsItems0) Validate(formats strfmt.Registry) error {
-	return nil
-}
-
-// MarshalBinary interface implementation
-func (m *SemanticSchemaClassPropertyKeywordsItems0) MarshalBinary() ([]byte, error) {
-	if m == nil {
-		return nil, nil
-	}
-	return swag.WriteJSON(m)
-}
-
-// UnmarshalBinary interface implementation
-func (m *SemanticSchemaClassPropertyKeywordsItems0) UnmarshalBinary(b []byte) error {
-	var res SemanticSchemaClassPropertyKeywordsItems0
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

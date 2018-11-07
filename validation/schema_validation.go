@@ -21,10 +21,10 @@ import (
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
-	"github.com/creativesoftwarefdn/weaviate/connectors"
-	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/schema"
 )
 
 const (

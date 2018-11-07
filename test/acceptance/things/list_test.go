@@ -3,23 +3,13 @@ package test
 // Acceptance tests for things.
 
 import (
-	//	"fmt"
 	"testing"
-
-	//	"sort"
-	//	"time"
-
-	//	"github.com/go-openapi/runtime"
-	//	"github.com/go-openapi/strfmt"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/creativesoftwarefdn/weaviate/client/things"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	//	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
-	//	"github.com/creativesoftwarefdn/weaviate/validation"
-	//	connutils "github.com/creativesoftwarefdn/weaviate/connectors/utils"
 )
 
 // Test that we can properly list things.

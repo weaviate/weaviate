@@ -14,18 +14,23 @@ func (g *Graph) V() *Query {
 	return &q
 }
 
+func (g *Graph) E() *Query {
+	q := Query{query: "g.E()"}
+	return &q
+}
+
 func Current() *Query {
 	return &Query{query: "__"}
 }
 
 func (g *Graph) AddV(label string) *Query {
-	query := fmt.Sprintf(`g.addV("%s")`, escapeString(label))
+	query := fmt.Sprintf(`g.addV("%s")`, EscapeString(label))
 	q := Query{query: query}
 	return &q
 }
 
 func (g *Graph) AddE(label string) *Query {
-	query := fmt.Sprintf(`g.addE("%s")`, escapeString(label))
+	query := fmt.Sprintf(`g.addE("%s")`, EscapeString(label))
 	q := Query{query: query}
 	return &q
 }
