@@ -24,6 +24,7 @@ import (
 
 type GraphQL interface {
 	Schema() *graphql.Schema
+	setResolver(r resolver)
 }
 
 // GraphQL stores all relevant variables and functions
@@ -33,6 +34,7 @@ type graphQL struct {
 	databaseSchema        *schema.WeaviateSchema
 	dbConnector           *dbconnector.DatabaseConnector
 	messaging             *messages.Messaging
+	resolver              resolver
 }
 
 // Schema is called by the RestAPI handler to receive the schema.
@@ -42,7 +44,7 @@ func (g *graphQL) Schema() *graphql.Schema {
 
 // CreateSchema initializes the Graphl
 func CreateSchema(dbConnector *dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, databaseSchema *schema.WeaviateSchema, messaging *messages.Messaging) (GraphQL, error) {
-	messaging.InfoMessage("Creating GraphQL schema...")
+	//messaging.InfoMessage("Creating GraphQL schema...")
 	var g graphQL
 
 	// Store for later use.
@@ -55,4 +57,8 @@ func CreateSchema(dbConnector *dbconnector.DatabaseConnector, serverConfig *conf
 	err := g.buildGraphqlSchema()
 
 	return &g, err
+}
+
+func (g *graphQL) setResolver(r resolver) {
+	g.resolver = r
 }

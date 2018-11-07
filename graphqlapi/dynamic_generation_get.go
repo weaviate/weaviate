@@ -15,12 +15,15 @@
 package graphqlapi
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
+	graphql_ast "github.com/graphql-go/graphql/language/ast"
 )
 
 // Build the dynamically generated Get Actions part of the schema
@@ -32,7 +35,7 @@ func (g *graphQL) genActionClassFieldsFromSchema(getActionsAndThings *map[string
 	}
 
 	for _, class := range g.databaseSchema.ActionSchema.Schema.Classes {
-		singleActionClassField, singleActionClassObject := genSingleActionClassField(class, getActionsAndThings)
+		singleActionClassField, singleActionClassObject := g.genSingleActionClassField(class, getActionsAndThings)
 		actionClassFields[class.Class] = singleActionClassField
 		// this line assigns the created class to a Hashmap which is used in thunks to handle cyclical relationships (Classes with other Classes as properties)
 		(*getActionsAndThings)[class.Class] = singleActionClassObject
@@ -47,14 +50,14 @@ func (g *graphQL) genActionClassFieldsFromSchema(getActionsAndThings *map[string
 	return graphql.NewObject(localGetActions), nil
 }
 
-func genSingleActionClassField(class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object) {
+func (g *graphQL) genSingleActionClassField(class *models.SemanticSchemaClass, getActionsAndThings *map[string]*graphql.Object) (*graphql.Field, *graphql.Object) {
 	singleActionClassPropertyFields := graphql.ObjectConfig{
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			singleActionClassPropertyFields, err := genSingleActionClassPropertyFields(class, getActionsAndThings)
 
 			if err != nil {
-				panic("Failed to generate single Action Class property fields")
+				panic(fmt.Sprintf("Failed to generate single Action Class property fields; %#v", err))
 			}
 
 			return singleActionClassPropertyFields
@@ -78,8 +81,31 @@ func genSingleActionClassField(class *models.SemanticSchemaClass, getActionsAndT
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			result, err := dbConnector.GetGraph(p)
-			return result, err
+			filters := p.Source.(*localGetFilters)
+
+			pagination, err := extractPaginationFromArgs(p.Args)
+			if err != nil {
+				return nil, err
+			}
+
+			properties, err := extractPropertiesFromFieldASTs(p.Info.FieldASTs)
+			if err != nil {
+				return nil, err
+			}
+			getAction := &getClassParams{
+				filters:    filters,
+				pagination: pagination,
+				kind:       kind.ACTION_KIND,
+				className:  class.Class,
+				properties: properties,
+			}
+
+			result, err := g.resolver.ResolveGetClass(getAction)
+			if err != nil {
+				return nil, err
+			} else {
+				return result.ToMap()
+			}
 		},
 	}
 	return singleActionClassPropertyFieldsField, singleActionClassPropertyFieldsObj
@@ -114,6 +140,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 				Name:  fmt.Sprintf("%s%s%s", class.Class, capitalizedPropertyName, "Obj"),
 				Types: dataTypeClasses,
 				ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+					fmt.Printf("WHOOPTYDOO\n")
 					return nil
 				},
 				Description: property.Description,
@@ -125,8 +152,8 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 				Type:        multipleClassDataTypesUnion,
 				Description: property.Description,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					result, err := dbConnector.GetGraph(p)
-					return result, err
+					fmt.Printf("WHOOPTYDOO2\n")
+					return nil, nil
 				},
 			}
 		} else {
@@ -144,8 +171,8 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 		Description: "UUID of the thing or action given by the local Weaviate instance",
 		Type:        graphql.String,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			result, err := dbConnector.GetGraph(p)
-			return result, err
+			fmt.Printf("WHOOPTYDOO uuid\n")
+			return "uuid", nil
 		},
 	}
 
@@ -334,4 +361,40 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype)
 	}
+}
+
+func extractPaginationFromArgs(args map[string]interface{}) (*pagination, error) {
+	afterVal, afterOk := args["after"]
+	firstVal, firstOk := args["first"]
+
+	if firstOk && afterOk {
+		after := afterVal.(int)
+		first := firstVal.(int)
+		return &pagination{
+			after: after,
+			first: first,
+		}, nil
+	}
+
+	if firstOk || afterOk {
+		return nil, errors.New("after and first must both be specified")
+	}
+
+	return nil, nil
+}
+
+func extractPropertiesFromFieldASTs(fieldASTs []*graphql_ast.Field) ([]property, error) {
+	var properties []property
+
+	for _, fieldAST := range fieldASTs {
+		selections := fieldAST.SelectionSet.Selections
+		if len(selections) != 1 {
+			panic("unspected length")
+		}
+		selection := selections[0].(*graphql_ast.Field)
+		name := selection.Name.Value
+		properties = append(properties, property{name: name})
+	}
+
+	return properties, nil
 }
