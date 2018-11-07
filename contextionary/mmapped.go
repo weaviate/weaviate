@@ -87,7 +87,7 @@ func (m *mmappedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex,
 	}
 }
 
-func LoadVectorFromDisk(annoy_index string, word_index_file_name string) (*Contextionary, error) {
+func LoadVectorFromDisk(annoy_index string, word_index_file_name string) (Contextionary, error) {
 	word_index, err := LoadWordlist(word_index_file_name)
 
 	if err != nil {
@@ -97,10 +97,10 @@ func LoadVectorFromDisk(annoy_index string, word_index_file_name string) (*Conte
 	knn := annoy.NewAnnoyIndexEuclidean(int(word_index.vectorWidth))
 	knn.Load(annoy_index)
 
-	var idx *mmappedIndex = new(mmappedIndex)
-	idx.word_index = word_index
-	idx.knn = knn
+	idx := &mmappedIndex{
+		word_index: word_index,
+		knn:        knn,
+	}
 
-	var blah Contextionary = Contextionary(idx)
-	return &blah, nil
+	return idx, nil
 }

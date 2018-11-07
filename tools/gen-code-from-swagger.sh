@@ -15,6 +15,8 @@ fi
 # Remove old stuff.
 (cd $DIR/; rm -rf models restapi/operations/)
 
+set -e
+
 (cd $DIR/..; $SWAGGER generate server --name=weaviate --spec=openapi-specs/schema.json --default-scheme=https)
 (cd $DIR/..; $SWAGGER generate client --spec=openapi-specs/schema.json --default-scheme=https)
 

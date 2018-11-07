@@ -24,6 +24,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
@@ -43,34 +44,38 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/auth"
 	"github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/config"
-	dbconnector "github.com/creativesoftwarefdn/weaviate/connectors"
-	dblisting "github.com/creativesoftwarefdn/weaviate/connectors/listing"
-	"github.com/creativesoftwarefdn/weaviate/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	dblisting "github.com/creativesoftwarefdn/weaviate/database/connectors/listing"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	db_local_schema_manager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/local"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
+	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/keys"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
-	"github.com/creativesoftwarefdn/weaviate/schema"
 	"github.com/creativesoftwarefdn/weaviate/validation"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/restapi/swagger_middleware"
 )
 
 const pageOverride int = 1
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
-var databaseSchema schema.WeaviateSchema
-var contextionary *libcontextionary.Contextionary
+var contextionary libcontextionary.Contextionary
 var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
-var dbConnector dbconnector.DatabaseConnector
-var graphQL graphqlapi.GraphQL
+var graphQL *graphqlapi.GraphQL
 var messaging *messages.Messaging
+
+var db database.Database
 
 type keyTokenHeader struct {
 	Key   strfmt.UUID `json:"key"`
@@ -149,41 +154,10 @@ func deleteKey(ctx context.Context, databaseConnector dbconnector.DatabaseConnec
 		keyResponse := models.KeyGetResponse{}
 
 		// Get the key to delete
-		dbConnector.GetKey(ctx, keyID, &keyResponse)
+		databaseConnector.GetKey(ctx, keyID, &keyResponse)
 
 		databaseConnector.DeleteKey(ctx, &keyResponse.Key, keyID)
 	}
-}
-
-// CreateDatabaseConnector gets the database connector by name from config
-func CreateDatabaseConnector(env *config.Environment) dbconnector.DatabaseConnector {
-	// Get all connectors
-	connectors := dblisting.GetAllConnectors()
-	cacheConnectors := dblisting.GetAllCacheConnectors()
-
-	// Init the db-connector variable
-	var connector dbconnector.DatabaseConnector
-
-	// Loop through all connectors and determine its name
-	for _, c := range connectors {
-		if c.GetName() == env.Database.Name {
-			messaging.InfoMessage(fmt.Sprintf("Using database '%s'", env.Database.Name))
-			connector = c
-			break
-		}
-	}
-
-	// Loop through all cache-connectors and determine its name
-	for _, cc := range cacheConnectors {
-		if cc.GetName() == env.Cache.Name {
-			messaging.InfoMessage(fmt.Sprintf("Using cache layer '%s'", env.Cache.Name))
-			cc.SetDatabaseConnector(connector)
-			connector = cc
-			break
-		}
-	}
-
-	return connector
 }
 
 func configureFlags(api *operations.WeaviateAPI) {
@@ -210,6 +184,10 @@ func createErrorResponseObject(messages ...string) *models.ErrorResponse {
 }
 
 func headerAPIKeyHandling(ctx context.Context, keyToken string) (*models.KeyTokenGetResponse, error) {
+	dbLock := db.ConnectorLock()
+	defer dbLock.Unlock()
+	dbConnector := dbLock.Connector()
+
 	// Convert JSON string to struct
 	kth := keyTokenHeader{}
 	json.Unmarshal([]byte(keyToken), &kth)
@@ -256,6 +234,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	api.JSONConsumer = runtime.JSONConsumer()
 
+	setupSchemaHandlers(api)
+
 	/*
 	 * HANDLE X-API-KEY
 	 */
@@ -278,6 +258,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE EVENTS
 	 */
 	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
@@ -302,6 +286,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
 	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		responseObject := models.ActionGetResponse{}
 		responseObject.Schema = map[string]models.JSONObject{}
@@ -346,6 +334,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionHistoryGetOK().WithPayload(historyResponse)
 	})
 	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
@@ -398,16 +392,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		json.Unmarshal([]byte(updatedJSON), &action)
 
 		// Validate schema made after patching with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &action.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		}()
 
 		// Update the database
-		go dbConnector.UpdateAction(ctx, action, UUID)
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			err := dbConnector.UpdateAction(ctx, action, UUID)
+			if err != nil {
+				fmt.Printf("Update action failed, because %s", err)
+			}
+		}()
 
 		// Create return Object
 		actionGetResponse.Action = *action
@@ -425,6 +431,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation actions.WeaviateActionsPropertiesUpdate has not yet been implemented")
 	})
 	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
@@ -451,19 +462,29 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		}()
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = actionGetResponse.CreationTimeUnix
 		params.Body.Key = actionGetResponse.Key
-		go dbConnector.UpdateAction(ctx, &params.Body.Action, UUID)
+
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			dbConnector.UpdateAction(ctx, &params.Body.Action, UUID)
+		}()
 
 		// Create object to return
 		responseObject := &models.ActionGetResponse{}
@@ -478,10 +499,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionUpdateAccepted().WithPayload(responseObject)
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(ctx, &params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -490,6 +516,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return actions.NewWeaviateActionsValidateOK()
 	})
 	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
 
@@ -502,6 +533,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), params.Body.Action, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -529,14 +561,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.ActionID = UUID
 
 		if params.Body.Async {
-			go dbConnector.AddAction(ctx, action, UUID)
+			delayedLock.IncSteps()
+			go func() {
+				defer delayedLock.Unlock()
+				dbConnector.AddAction(ctx, action, UUID)
+			}()
 			return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
 		} else {
-			dbConnector.AddAction(ctx, action, UUID)
+			//TODO: handle errors
+			err := dbConnector.AddAction(ctx, action, UUID)
+			if err != nil {
+				panic(err)
+			}
 			return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
 		}
 	})
 	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
@@ -563,10 +609,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+		}()
 
 		// Add new row as GO-routine
-		go dbConnector.DeleteAction(ctx, &actionGetResponse.Action, params.ActionID)
+		delayedLock.IncSteps()
+		go func() {
+			defer delayedLock.Unlock()
+			dbConnector.DeleteAction(ctx, &actionGetResponse.Action, params.ActionID)
+		}()
 
 		// Return 'No Content'
 		return actions.NewWeaviateActionsDeleteNoContent()
@@ -576,6 +630,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE KEYS
 	 */
 	api.KeysWeaviateKeyCreateHandler = keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Create current User object from principal
 		key := principal.(*models.KeyTokenGetResponse)
 
@@ -617,6 +675,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	})
 	api.KeysWeaviateKeysChildrenGetHandler = keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
@@ -649,6 +712,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysChildrenGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysDeleteHandler = keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
@@ -676,6 +744,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysDeleteNoContent()
 	})
 	api.KeysWeaviateKeysGetHandler = keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
@@ -700,6 +773,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysGetOK().WithPayload(&keyResponse)
 	})
 	api.KeysWeaviateKeysMeChildrenGetHandler = keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// First check on 'not found', otherwise it will say 'forbidden' in stead of 'not found'
 		currentKey := principal.(*models.KeyTokenGetResponse)
 
@@ -718,6 +796,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysMeChildrenGetOK().WithPayload(responseObject)
 	})
 	api.KeysWeaviateKeysMeGetHandler = keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response object
 		responseObject := models.KeyGetResponse{}
 
@@ -739,6 +822,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return keys.NewWeaviateKeysMeGetOK().WithPayload(&responseObject)
 	})
 	api.KeysWeaviateKeysRenewTokenHandler = keys.WeaviateKeysRenewTokenHandlerFunc(func(params keys.WeaviateKeysRenewTokenParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		keyResponse := models.KeyGetResponse{}
 
@@ -786,6 +874,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE THINGS
 	 */
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
 
@@ -801,6 +895,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body.Thing, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -828,7 +923,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		responseObject.ThingID = UUID
 
 		if params.Body.Async {
-			go dbConnector.AddThing(ctx, thing, UUID)
+			delayedLock.IncSteps()
+			go func() {
+				defer delayedLock.Unlock()
+				dbConnector.AddThing(ctx, thing, UUID)
+			}()
 			return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
 		} else {
 			dbConnector.AddThing(ctx, thing, UUID)
@@ -836,6 +935,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
@@ -859,34 +964,30 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsDeleteForbidden()
 		}
 
-		// Delete the Actions
-		actionsExist := true
-		lastActionsCount := int64(0)
-		for actionsExist {
-			actions := models.ActionsListResponse{}
-			actions.Actions = []*models.ActionGetResponse{}
-			dbConnector.ListActions(ctx, params.ThingID, 50, 0, []*connutils.WhereQuery{}, &actions)
-			for _, v := range actions.Actions {
-				go dbConnector.DeleteAction(ctx, &v.Action, v.ActionID)
-			}
-
-			// Exit if total results are 0 or the total results are not lowering, then there is some kind of error
-			actionsExist = (actions.TotalResults > 0 && actions.TotalResults != lastActionsCount)
-			lastActionsCount = actions.TotalResults
-		}
-
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, params.ThingID, true)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, params.ThingID, true)
+		}()
 
 		// Add new row as GO-routine
-		go dbConnector.DeleteThing(ctx, &thingGetResponse.Thing, params.ThingID)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			dbConnector.DeleteThing(ctx, &thingGetResponse.Thing, params.ThingID)
+		}()
 
 		// Return 'No Content'
 		return things.NewWeaviateThingsDeleteNoContent()
 	})
 	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		responseObject := models.ThingGetResponse{}
 		responseObject.Schema = map[string]models.JSONObject{}
@@ -913,6 +1014,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.ThingsWeaviateThingHistoryGetHandler = things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		responseObject := models.ThingGetResponse{}
 		responseObject.Schema = map[string]models.JSONObject{}
@@ -959,6 +1064,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Get limit and page
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
@@ -988,6 +1097,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
 	})
 	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
@@ -1044,16 +1159,25 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema made after patching with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &thing.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+		}()
 
 		// Update the database
-		go dbConnector.UpdateThing(ctx, thing, UUID)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			dbConnector.UpdateThing(ctx, thing, UUID)
+		}()
 
 		// Create return Object
 		thingGetResponse.Thing = *thing
@@ -1071,6 +1195,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation things.WeaviateThingsPropertiesUpdate has not yet been implemented")
 	})
 	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
 		thingGetResponse.Schema = map[string]models.JSONObject{}
@@ -1100,19 +1230,28 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &params.Body.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		// Move the current properties to the history
-		go dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+		}()
 
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = thingGetResponse.CreationTimeUnix
 		params.Body.Key = thingGetResponse.Key
-		go dbConnector.UpdateThing(ctx, &params.Body.Thing, UUID)
+		delayedLock.IncSteps()
+		go func() {
+			delayedLock.Unlock()
+			dbConnector.UpdateThing(ctx, &params.Body.Thing, UUID)
+		}()
 
 		// Create object to return
 		responseObject := &models.ThingGetResponse{}
@@ -1127,10 +1266,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsUpdateAccepted().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		dbConnector := dbLock.Connector()
+
 		// Convert principal to object
 		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema given in body with the weaviate schema
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema, dbConnector, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
@@ -1139,6 +1283,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return things.NewWeaviateThingsValidateOK()
 	})
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		// Create response object
 		metaResponse := &models.Meta{}
 
@@ -1177,7 +1324,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 	})
 
-	api.ThingsWeaviateThingsActionsListHandler = things.WeaviateThingsActionsListHandlerFunc(func(params things.WeaviateThingsActionsListParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams, principal interface{}) middleware.Responder {
+		dbLock := db.ConnectorLock()
+		defer dbLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
 		// Get limit and page
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
@@ -1194,22 +1346,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Initialize response
-		thingGetResponse := models.ThingGetResponse{}
-		thingGetResponse.Schema = map[string]models.JSONObject{}
-		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), params.ThingID, &thingGetResponse)
-
-		// If there are no results, there is an error
-		if errGet != nil {
-			// Object not found response.
-			return things.NewWeaviateThingsActionsListNotFound()
-		}
-
-		// Initialize response
 		actionsResponse := models.ActionsListResponse{}
 		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
-		err := dbConnector.ListActions(ctx, params.ThingID, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
+		err := dbConnector.ListActions(ctx, limit, (page-1)*limit, keyObject.KeyID, []*connutils.WhereQuery{}, &actionsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)
@@ -1302,15 +1443,6 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, err.Error())
 	}
 
-	// Load the schema using the config
-	databaseSchema = schema.WeaviateSchema{}
-	err = databaseSchema.LoadSchema(&serverConfig.Environment, messaging)
-
-	// Fatal error loading schema file
-	if err != nil {
-		messaging.ExitError(78, err.Error())
-	}
-
 	loadContextionary()
 
 	connectToNetwork()
@@ -1319,51 +1451,49 @@ func configureServer(s *http.Server, scheme, addr string) {
 	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
 
 	// Create the database connector usint the config
-	dbConnector = CreateDatabaseConnector(&serverConfig.Environment)
+	// TODO  make this configureable
+	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig)
 
-	// Error the system when the database connector returns no connector
-	if dbConnector == nil {
-		messaging.ExitError(78, "database with the name '"+serverConfig.Environment.Database.Name+"' couldn't be loaded from the config")
-	}
-
-	// Set connector vars
-	err = dbConnector.SetConfig(&serverConfig.Environment)
-	// Fatal error loading config file
+	// Could not find, or configure connector.
 	if err != nil {
 		messaging.ExitError(78, err.Error())
 	}
 
-	err = dbConnector.SetSchema(&databaseSchema)
-	// Fatal error loading schema file
+	// Construct a (distributed lock)
+	// TODO: make part of schema manager?
+	localMutex := sync.RWMutex{}
+	dbLock := database.RWLocker(&localMutex)
+
+	// Configure schema manager
+	if serverConfig.Environment.Database.LocalSchemaConfig == nil {
+		messaging.ExitError(78, "Local schema manager is not configured.")
+	}
+
+	manager, err := db_local_schema_manager.New(serverConfig.Environment.Database.LocalSchemaConfig.StateDir, dbConnector)
 	if err != nil {
-		messaging.ExitError(78, err.Error())
+		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
 	}
 
-	err = dbConnector.SetMessaging(messaging)
-	// Fatal error setting messaging
+	manager.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {
+		// Note that this is thread safe; we're running in a single go-routine, because the event
+		// handlers are called when the SchemaLock is still held.
+
+		s := schema.HackFromDatabaseSchema(updatedSchema)
+		updatedGraphQL, err := graphqlapi.CreateSchema(nil, serverConfig, &s, messaging)
+		if err != nil {
+			// TODO: turn on safe mode
+			graphQL = nil
+			messaging.ErrorMessage(fmt.Sprintf("Could not re-generate GraphQL schema, because:\n%#v\n", err))
+		} else {
+			messaging.InfoMessage("Updated GraphQL schema")
+			graphQL = &updatedGraphQL
+		}
+	})
+
+	// Now instantiate a database, with the configured lock, manager and connector.
+	err, db = database.New(messaging, dbLock, manager, dbConnector, contextionary)
 	if err != nil {
-		messaging.ExitError(78, err.Error())
-	}
-
-	dbConnector.SetServerAddress(serverConfig.GetHostAddress())
-
-	// connect the database
-	errConnect := dbConnector.Connect()
-	if errConnect != nil {
-		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when connecting: "+errConnect.Error())
-	}
-
-	// init the database
-	var errInit error
-	errInit = dbConnector.Init()
-	if errInit != nil {
-		messaging.ExitError(1, "database with the name '"+serverConfig.Environment.Database.Name+"' gave an error when initializing: "+errInit.Error())
-	}
-
-	graphQL, err = graphqlapi.CreateSchema(&dbConnector, serverConfig, &databaseSchema, messaging)
-
-	if err != nil {
-		messaging.ExitError(1, "GraphQL schema initialization gave an error when initializing: "+err.Error())
+		messaging.ExitError(1, fmt.Sprintf("Could not initialize the database: %s", err.Error()))
 	}
 }
 
@@ -1382,14 +1512,7 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 
 		messaging.InfoMessage("generated both headers X-API-KEY and X-API-TOKEN")
 
-		ctx := r.Context()
-		ctx, err := dbConnector.Attach(ctx)
-
-		if err != nil {
-			messaging.ExitError(1, "database or cache gave an error when attaching context: "+err.Error())
-		}
-
-		handler.ServeHTTP(w, r.WithContext(ctx))
+		handler.ServeHTTP(w, r)
 	})
 }
 
@@ -1399,6 +1522,7 @@ func setupGlobalMiddleware(handler http.Handler) http.Handler {
 	handleCORS := cors.Default().Handler
 	handler = handleCORS(handler)
 	handler = graphiql.AddMiddleware(handler)
+	handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
 
 	return addLogging(handler)
 }
@@ -1432,27 +1556,31 @@ func loadContextionary() {
 
 	messaging.InfoMessage("Contextionary loaded from disk")
 
-	// Now create the in-memory contextionary based on the classes / properties.
-	in_memory_contextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(mmaped_contextionary)
-	if err != nil {
-		messaging.ExitError(78, fmt.Sprintf("Could not build in-memory contextionary from schema; %+v", err))
-	}
+	//TODO: update on schema change.
+	//// Now create the in-memory contextionary based on the classes / properties.
+	//databaseSchema :=
+	//in_memory_contextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(mmaped_contextionary)
+	//if err != nil {
+	//	messaging.ExitError(78, fmt.Sprintf("Could not build in-memory contextionary from schema; %+v", err))
+	//}
 
-	// Combine contextionaries
-	contextionaries := []libcontextionary.Contextionary{*in_memory_contextionary, *mmaped_contextionary}
-	combined, err := libcontextionary.CombineVectorIndices(contextionaries)
+	//// Combine contextionaries
+	//contextionaries := []libcontextionary.Contextionary{*in_memory_contextionary, *mmaped_contextionary}
+	//combined, err := libcontextionary.CombineVectorIndices(contextionaries)
+	//
+	// if err != nil {
+	// 	messaging.ExitError(78, fmt.Sprintf("Could not combine the contextionary database with the in-memory generated contextionary; %+v", err))
+	// }
 
-	if err != nil {
-		messaging.ExitError(78, fmt.Sprintf("Could not combine the contextionary database with the in-memory generated contextionary; %+v", err))
-	}
+	// messaging.InfoMessage("Contextionary extended with names in the schema")
 
-	messaging.InfoMessage("Contextionary extended with names in the schema")
+	// // urgh, go.
+	// x := libcontextionary.Contextionary(combined)
+	// contextionary = &x
 
-	// urgh, go.
-	x := libcontextionary.Contextionary(combined)
-	contextionary = &x
+	// // whoop!
 
-	// whoop!
+	contextionary = mmaped_contextionary
 }
 
 func connectToNetwork() {

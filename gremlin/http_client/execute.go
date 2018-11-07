@@ -29,12 +29,13 @@ type gremlinResponse struct {
 	Result gremlinResponseResult `json:"result"`
 }
 
-func (c *Client) Execute(query *gremlin.Query) (*gremlin.Response, error) {
-	log := c.logger.WithField("query", query.Query())
+func (c *Client) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
+	queryString := query.String()
+	log := c.logger.WithField("query", queryString)
 	log.Debugf("Sending query")
 
 	q := gremlin_http_query{
-		Gremlin: query.Query(),
+		Gremlin: queryString,
 	}
 
 	json_bytes, err := json.Marshal(&q)
@@ -64,7 +65,7 @@ func (c *Client) Execute(query *gremlin.Query) (*gremlin.Response, error) {
 	var response_data gremlinResponse
 	json.Unmarshal(buf, &response_data)
 
-	log.WithField("status_code", http_response.StatusCode).Debugf("Received reply: %s", string(buf))
+	c.logger.WithField("status_code", http_response.StatusCode).Debugf("Received reply: %s", string(buf))
 	switch http_response.StatusCode {
 	case 200:
 		data := make([]gremlin.Datum, 0)

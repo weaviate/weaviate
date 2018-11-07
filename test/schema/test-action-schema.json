@@ -10,7 +10,7 @@
             "description": "This is a Test",
             "properties": [
                 {
-                    "name": "testString",
+                   "name": "testString",
                     "@dataType": [
                         "string"
                     ],
@@ -19,8 +19,8 @@
                 {
                     "name": "testInt",
                     "keywords": [
-                      { "kind": "test", "weight": 1.0 },
-                      { "kind": "number", "weight": 1.0 }
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "number", "weight": 1.0 }
                     ],
                     "@dataType": [
                         "int"
@@ -30,9 +30,9 @@
                 {
                     "name": "testBoolean",
                     "keywords": [
-                      { "kind": "test", "weight": 1.0 },
-                      { "kind": "truth", "weight": 1.0 },
-                      { "kind": "value", "weight": 1.0 }
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "truth", "weight": 1.0 },
+                      { "keyword": "value", "weight": 1.0 }
                     ],
                     "@dataType": [
                         "boolean"
@@ -56,8 +56,8 @@
                 {
                     "name": "testCref",
                     "keywords": [
-                      { "kind": "test", "weight": 1.0 },
-                      { "kind": "reference", "weight": 1.0 }
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "reference", "weight": 1.0 }
                     ],
                     "@dataType": [
                         "TestThing"
@@ -67,7 +67,7 @@
             ]
         },
         {
-            "class": "TestAction2",
+            "class": "TestActionTwo",
             "description": "This is a Test",
             "properties": [
                 {
@@ -83,17 +83,17 @@
                         "int"
                     ],
                     "keywords": [
-                      { "kind": "test", "weight": 1.0 },
-                      { "kind": "number", "weight": 1.0 }
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "number", "weight": 1.0 }
                     ],
                     "description": "Value of testInt."
                 },
                 {
                     "name": "testBoolean",
                     "keywords": [
-                      { "kind": "test", "weight": 1.0 },
-                      { "kind": "truth", "weight": 1.0 },
-                      { "kind": "value", "weight": 1.0 }
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "truth", "weight": 1.0 },
+                      { "keyword": "value", "weight": 1.0 }
                     ],
                     "@dataType": [
                         "boolean"
@@ -117,11 +117,11 @@
                 {
                     "name": "testCref",
                     "keywords": [
-                      { "kind": "test", "weight": 1.0 },
-                      { "kind": "reference", "weight": 1.0 }
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "reference", "weight": 1.0 }
                     ],
                     "@dataType": [
-                        "TestThing"
+                        "TestAction"
                     ],
                     "description": "Value of testCref."
                 }

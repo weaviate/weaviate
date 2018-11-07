@@ -56,37 +56,6 @@ func (a *Client) WeaviateThingHistoryGet(params *WeaviateThingHistoryGetParams, 
 }
 
 /*
-WeaviateThingsActionsList gets a thing based on its uuid related to this thing also available as websocket
-
-Lists all actions in reverse order of creation, related to the thing that belongs to the used thingId.
-*/
-func (a *Client) WeaviateThingsActionsList(params *WeaviateThingsActionsListParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsActionsListOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewWeaviateThingsActionsListParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.things.actions.list",
-		Method:             "GET",
-		PathPattern:        "/things/{thingId}/actions",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &WeaviateThingsActionsListReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*WeaviateThingsActionsListOK), nil
-
-}
-
-/*
 WeaviateThingsCreate creates a new thing based on a thing template related to this key
 
 Registers a new thing. Given meta-data and schema values are validated.

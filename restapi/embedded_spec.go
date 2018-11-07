@@ -53,6 +53,41 @@ func init() {
   "basePath": "/weaviate/v1",
   "paths": {
     "/actions": {
+      "get": {
+        "description": "Lists all actions in reverse order of creation, owned by the user that belongs to the used token.",
+        "tags": [
+          "actions"
+        ],
+        "summary": "Get a list of actionsrelated to this key.",
+        "operationId": "weaviate.actions.list",
+        "parameters": [
+          {
+            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
+          },
+          {
+            "$ref": "#/parameters/CommonPageParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
       "post": {
         "description": "Registers a new action. Given meta-data and schema values are validated.",
         "tags": [
@@ -901,6 +936,522 @@ func init() {
         "x-available-in-websocket": false
       }
     },
+    "/schema": {
+      "get": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Dump the current the database schema",
+        "operationId": "weaviate.schema.dump",
+        "responses": {
+          "200": {
+            "description": "Successfully dumped the database schema.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "actions": {
+                  "$ref": "#/definitions/SemanticSchema"
+                },
+                "things": {
+                  "$ref": "#/definitions/SemanticSchema"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          }
+        }
+      }
+    },
+    "/schema/actions": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Create a new Action class in the ontology.",
+        "operationId": "weaviate.schema.actions.create",
+        "parameters": [
+          {
+            "name": "actionClass",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Action class to the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "422": {
+            "description": "Invalid Action class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the Action",
+        "operationId": "weaviate.schema.actions.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the Action",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a Action class (and all data in the instances) from the ontology",
+        "operationId": "weaviate.schema.actions.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the Action class from the ontology."
+          },
+          "400": {
+            "description": "Could not delete the Action class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}/properties": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Add a property to a Action class",
+        "operationId": "weaviate.schema.actions.properties.add",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the property"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class"
+          },
+          "422": {
+            "description": "Invalid property",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}/properties/{propertyName}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the property",
+        "operationId": "weaviate.schema.actions.properties.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the property",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class or property"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a property from a Action class",
+        "operationId": "weaviate.schema.actions.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the property from the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class or property"
+          }
+        }
+      }
+    },
+    "/schema/things": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Create a new Thing class in the ontology.",
+        "operationId": "weaviate.schema.things.create",
+        "parameters": [
+          {
+            "name": "thingClass",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Thing class to the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "422": {
+            "description": "Invalid Thing class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/things/{className}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the Thing",
+        "operationId": "weaviate.schema.things.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the Thing",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Thing class"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a Thing class (and all data in the instances) from the ontology",
+        "operationId": "weaviate.schema.things.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the Thing class from the ontology."
+          },
+          "400": {
+            "description": "Could not delete the Thing class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          }
+        }
+      }
+    },
+    "/schema/things/{className}/properties": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Add a property to a Thing class",
+        "operationId": "weaviate.schema.things.properties.add",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the property"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Thing class"
+          },
+          "422": {
+            "description": "Invalid property",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/things/{className}/properties/{propertyName}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the property",
+        "operationId": "weaviate.schema.things.properties.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the property",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Thing class or property"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a property from a Thing class",
+        "operationId": "weaviate.schema.things.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the property from the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Thing class or property"
+          }
+        }
+      }
+    },
     "/things": {
       "get": {
         "description": "Lists all things in reverse order of creation, owned by the user that belongs to the used token.",
@@ -1208,51 +1759,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/things/{thingId}/actions": {
-      "get": {
-        "description": "Lists all actions in reverse order of creation, related to the thing that belongs to the used thingId.",
-        "tags": [
-          "things"
-        ],
-        "summary": "Get a thing based on its uuid related to this thing. Also available as Websocket.",
-        "operationId": "weaviate.things.actions.list",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the thing.",
-            "name": "thingId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "$ref": "#/parameters/CommonMaxResultsParameterQuery"
-          },
-          {
-            "$ref": "#/parameters/CommonPageParameterQuery"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ActionsListResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
           }
         },
         "x-available-in-mqtt": false,
@@ -1591,7 +2097,7 @@ func init() {
       ]
     },
     "ActionsListResponse": {
-      "description": "List of actions for specific Thing.",
+      "description": "List of actions.",
       "type": "object",
       "properties": {
         "actions": {
@@ -1913,10 +2419,6 @@ func init() {
             "thing",
             "action"
           ]
-        },
-        "version": {
-          "description": "Version number of the schema in semver format.",
-          "type": "string"
         }
       }
     },
@@ -1932,20 +2434,7 @@ func init() {
           "type": "string"
         },
         "keywords": {
-          "description": "Describes the kind of class. For example Geolocation for the class City.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string"
-              },
-              "weight": {
-                "type": "number",
-                "format": "float"
-              }
-            }
-          }
+          "$ref": "#/definitions/SemanticSchemaKeywords"
         },
         "properties": {
           "description": "The properties of the class.",
@@ -1966,29 +2455,41 @@ func init() {
             "type": "string"
           }
         },
+        "cardinality": {
+          "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
+          "type": "string",
+          "default": "atMostOne",
+          "enum": [
+            "atMostOne",
+            "many"
+          ]
+        },
         "description": {
           "description": "Description of the property",
           "type": "string"
         },
         "keywords": {
-          "description": "Describes the kind of class. For example Geolocation for the class City.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string"
-              },
-              "weight": {
-                "type": "number",
-                "format": "float"
-              }
-            }
-          }
+          "$ref": "#/definitions/SemanticSchemaKeywords"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        }
+      }
+    },
+    "SemanticSchemaKeywords": {
+      "description": "Describes a class or property using multiple weighted other words",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "number",
+            "format": "float"
+          }
         }
       }
     },
@@ -2247,6 +2748,10 @@ func init() {
     },
     {
       "name": "things"
+    },
+    {
+      "description": "These operations enable manipulation of the schema in Weaviate schema.",
+      "name": "schema"
     }
   ],
   "externalDocs": {
@@ -2277,6 +2782,49 @@ func init() {
   "basePath": "/weaviate/v1",
   "paths": {
     "/actions": {
+      "get": {
+        "description": "Lists all actions in reverse order of creation, owned by the user that belongs to the used token.",
+        "tags": [
+          "actions"
+        ],
+        "summary": "Get a list of actionsrelated to this key.",
+        "operationId": "weaviate.actions.list",
+        "parameters": [
+          {
+            "type": "integer",
+            "format": "int64",
+            "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
+            "name": "maxResults",
+            "in": "query"
+          },
+          {
+            "type": "integer",
+            "format": "int64",
+            "description": "The page number of the items to be returned.",
+            "name": "page",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ActionsListResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
       "post": {
         "description": "Registers a new action. Given meta-data and schema values are validated.",
         "tags": [
@@ -3125,6 +3673,522 @@ func init() {
         "x-available-in-websocket": false
       }
     },
+    "/schema": {
+      "get": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Dump the current the database schema",
+        "operationId": "weaviate.schema.dump",
+        "responses": {
+          "200": {
+            "description": "Successfully dumped the database schema.",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "actions": {
+                  "$ref": "#/definitions/SemanticSchema"
+                },
+                "things": {
+                  "$ref": "#/definitions/SemanticSchema"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          }
+        }
+      }
+    },
+    "/schema/actions": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Create a new Action class in the ontology.",
+        "operationId": "weaviate.schema.actions.create",
+        "parameters": [
+          {
+            "name": "actionClass",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Action class to the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "422": {
+            "description": "Invalid Action class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the Action",
+        "operationId": "weaviate.schema.actions.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the Action",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a Action class (and all data in the instances) from the ontology",
+        "operationId": "weaviate.schema.actions.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the Action class from the ontology."
+          },
+          "400": {
+            "description": "Could not delete the Action class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}/properties": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Add a property to a Action class",
+        "operationId": "weaviate.schema.actions.properties.add",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the property"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class"
+          },
+          "422": {
+            "description": "Invalid property",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/actions/{className}/properties/{propertyName}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the property",
+        "operationId": "weaviate.schema.actions.properties.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the property",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class or property"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a property from a Action class",
+        "operationId": "weaviate.schema.actions.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the property from the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Action class or property"
+          }
+        }
+      }
+    },
+    "/schema/things": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Create a new Thing class in the ontology.",
+        "operationId": "weaviate.schema.things.create",
+        "parameters": [
+          {
+            "name": "thingClass",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClass"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the new Thing class to the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "422": {
+            "description": "Invalid Thing class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/things/{className}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the Thing",
+        "operationId": "weaviate.schema.things.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the Thing",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Thing class"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a Thing class (and all data in the instances) from the ontology",
+        "operationId": "weaviate.schema.things.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the Thing class from the ontology."
+          },
+          "400": {
+            "description": "Could not delete the Thing class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          }
+        }
+      }
+    },
+    "/schema/things/{className}/properties": {
+      "post": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Add a property to a Thing class",
+        "operationId": "weaviate.schema.things.properties.add",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SemanticSchemaClassProperty"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added the property"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Thing class"
+          },
+          "422": {
+            "description": "Invalid property",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/schema/things/{className}/properties/{propertyName}": {
+      "put": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Rename, or replace the keywords of the property",
+        "operationId": "weaviate.schema.things.properties.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "keywords": {
+                  "$ref": "#/definitions/SemanticSchemaKeywords"
+                },
+                "newName": {
+                  "description": "The new name of the property",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Changes applied"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Thing class or property"
+          },
+          "422": {
+            "description": "Invalid update",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "schema"
+        ],
+        "summary": "Remove a property from a Thing class",
+        "operationId": "weaviate.schema.things.properties.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "className",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "name": "propertyName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed the property from the ontology."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Could not find the Thing class or property"
+          }
+        }
+      }
+    },
     "/things": {
       "get": {
         "description": "Lists all things in reverse order of creation, owned by the user that belongs to the used token.",
@@ -3440,59 +4504,6 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          }
-        },
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/things/{thingId}/actions": {
-      "get": {
-        "description": "Lists all actions in reverse order of creation, related to the thing that belongs to the used thingId.",
-        "tags": [
-          "things"
-        ],
-        "summary": "Get a thing based on its uuid related to this thing. Also available as Websocket.",
-        "operationId": "weaviate.things.actions.list",
-        "parameters": [
-          {
-            "type": "string",
-            "format": "uuid",
-            "description": "Unique ID of the thing.",
-            "name": "thingId",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "integer",
-            "format": "int64",
-            "description": "The maximum number of items to be returned per page. Default value is set in Weaviate config.",
-            "name": "maxResults",
-            "in": "query"
-          },
-          {
-            "type": "integer",
-            "format": "int64",
-            "description": "The page number of the items to be returned.",
-            "name": "page",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ActionsListResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
           }
         },
         "x-available-in-mqtt": false,
@@ -3831,7 +4842,7 @@ func init() {
       ]
     },
     "ActionsListResponse": {
-      "description": "List of actions for specific Thing.",
+      "description": "List of actions.",
       "type": "object",
       "properties": {
         "actions": {
@@ -4153,10 +5164,6 @@ func init() {
             "thing",
             "action"
           ]
-        },
-        "version": {
-          "description": "Version number of the schema in semver format.",
-          "type": "string"
         }
       }
     },
@@ -4172,20 +5179,7 @@ func init() {
           "type": "string"
         },
         "keywords": {
-          "description": "Describes the kind of class. For example Geolocation for the class City.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string"
-              },
-              "weight": {
-                "type": "number",
-                "format": "float"
-              }
-            }
-          }
+          "$ref": "#/definitions/SemanticSchemaKeywords"
         },
         "properties": {
           "description": "The properties of the class.",
@@ -4206,29 +5200,41 @@ func init() {
             "type": "string"
           }
         },
+        "cardinality": {
+          "description": "The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.",
+          "type": "string",
+          "default": "atMostOne",
+          "enum": [
+            "atMostOne",
+            "many"
+          ]
+        },
         "description": {
           "description": "Description of the property",
           "type": "string"
         },
         "keywords": {
-          "description": "Describes the kind of class. For example Geolocation for the class City.",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string"
-              },
-              "weight": {
-                "type": "number",
-                "format": "float"
-              }
-            }
-          }
+          "$ref": "#/definitions/SemanticSchemaKeywords"
         },
         "name": {
           "description": "Name of the property as URI relative to the schema URL.",
           "type": "string"
+        }
+      }
+    },
+    "SemanticSchemaKeywords": {
+      "description": "Describes a class or property using multiple weighted other words",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "number",
+            "format": "float"
+          }
         }
       }
     },
@@ -4487,6 +5493,10 @@ func init() {
     },
     {
       "name": "things"
+    },
+    {
+      "description": "These operations enable manipulation of the schema in Weaviate schema.",
+      "name": "schema"
     }
   ],
   "externalDocs": {

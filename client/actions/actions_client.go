@@ -186,6 +186,37 @@ func (a *Client) WeaviateActionsGet(params *WeaviateActionsGetParams, authInfo r
 }
 
 /*
+WeaviateActionsList gets a list of actionsrelated to this key
+
+Lists all actions in reverse order of creation, owned by the user that belongs to the used token.
+*/
+func (a *Client) WeaviateActionsList(params *WeaviateActionsListParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsListOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateActionsListParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.actions.list",
+		Method:             "GET",
+		PathPattern:        "/actions",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateActionsListReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateActionsListOK), nil
+
+}
+
+/*
 WeaviateActionsPatch updates an action based on its uuid using patch semantics related to this key
 
 Updates an action. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.

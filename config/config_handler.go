@@ -50,7 +50,6 @@ type Environment struct {
 	Schemas       Schemas       `json:"schemas"`
 	Broker        Broker        `json:"broker"`
 	Network       *Network      `json:"network"`
-	Cache         Cache         `json:"cache"`
 	Limit         int64         `json:"limit"`
 	Debug         bool          `json:"debug"`
 	Development   Development   `json:"development"`
@@ -77,19 +76,19 @@ type Broker struct {
 
 // Database is the outline of the database
 type Database struct {
-	Name           string      `json:"name"`
-	DatabaseConfig interface{} `json:"database_config"`
+	Name              string             `json:"name"`
+	DatabaseConfig    interface{}        `json:"database_config"`
+	LocalSchemaConfig *LocalSchemaConfig `json:"local_schema"`
+}
+
+type LocalSchemaConfig struct {
+	StateDir string `json:"state_dir"`
 }
 
 // Schemas contains the schema for 'things' and for 'actions'
 type Schemas struct {
 	Thing  string `json:"thing"`
 	Action string `json:"action"`
-}
-
-// Cache is the outline of the cache-system
-type Cache struct {
-	Name string `json:"name"`
 }
 
 // Development is the outline of (temporary) config variables

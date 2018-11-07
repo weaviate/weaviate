@@ -79,8 +79,8 @@
                     ],
                     "description": "The seller of the thing",
                     "keywords": [
-                      { "kind": "sale", "weight": 0.5 },
-                      { "kind": "person", "weight": 0.5 }
+                      { "keyword": "sale", "weight": 0.5 },
+                      { "keyword": "person", "weight": 0.5 }
                     ]
                 },
                 {
@@ -97,8 +97,8 @@
                     ],
                     "description": "The buyer of the good",
                     "keywords": [
-                      { "kind": "buy", "weight": 0.5 },
-                      { "kind": "person", "weight": 0.5 }
+                      { "keyword": "buy", "weight": 0.5 },
+                      { "keyword": "person", "weight": 0.5 }
                     ]
 
                 }

@@ -7,9 +7,11 @@ set -euo pipefail
 # of the weaviate developer.
 
 docker-compose -f docker-compose-dev.yml build
-docker-compose -f docker-compose-dev.yml up --force-recreate -d 
+docker-compose -f docker-compose-dev.yml up -d
 
-MAX_WAIT_SECONDS=120
+# wait for 5 minutes
+MAX_WAIT_SECONDS=300
+
 END_TIME=$(( SECONDS + MAX_WAIT_SECONDS ))
 IMPORTER_EXIT_CODE=
 
