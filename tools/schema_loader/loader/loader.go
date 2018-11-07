@@ -333,7 +333,7 @@ func (l *loader) addThingProperties() error {
 
 func debugResponse(err interface{}) string {
 	errorPayload, _ := json.MarshalIndent(err, "", " ")
-	return fmt.Sprintf("Error: %s %s. Response: %s", getType(err), errorPayload)
+	return fmt.Sprintf("Error: %s. Response: %s", getType(err), errorPayload)
 }
 
 // Get type name of some value, according to https://stackoverflow.com/questions/35790935/using-reflection-in-go-to-get-the-name-of-a-struct

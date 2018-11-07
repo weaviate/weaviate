@@ -76,18 +76,22 @@ func (l *localSchemaManager) validateClassNameOrKeywordsCorrect(knd kind.Kind, c
 	if len(keywords) > 0 {
 		for _, keyword := range keywords {
 			word := strings.ToLower(keyword.Keyword)
-			idx := l.contextionary.WordToItemIndex(word)
-			if !idx.IsPresent() {
-				return fmt.Errorf("Could not find the keyword '%s' for class '%s' in the contextionary", word, className)
+			if l.contextionary != nil {
+				idx := l.contextionary.WordToItemIndex(word)
+				if !idx.IsPresent() {
+					return fmt.Errorf("Could not find the keyword '%s' for class '%s' in the contextionary", word, className)
+				}
 			}
 		}
 	} else {
 		camelParts := camelcase.Split(className)
 		for _, part := range camelParts {
 			word := strings.ToLower(part)
-			idx := l.contextionary.WordToItemIndex(word)
-			if !idx.IsPresent() {
-				return fmt.Errorf("Could not find the word '%s' from the class name '%s' in the contextionary. Consider using keywords to define the semantic meaning of this class.", word, className)
+			if l.contextionary != nil {
+				idx := l.contextionary.WordToItemIndex(word)
+				if !idx.IsPresent() {
+					return fmt.Errorf("Could not find the word '%s' from the class name '%s' in the contextionary. Consider using keywords to define the semantic meaning of this class.", word, className)
+				}
 			}
 		}
 	}
@@ -147,18 +151,22 @@ func (l *localSchemaManager) validatePropertyNameOrKeywordsCorrect(className str
 	if len(keywords) > 0 {
 		for _, keyword := range keywords {
 			word := strings.ToLower(keyword.Keyword)
-			idx := l.contextionary.WordToItemIndex(word)
-			if !idx.IsPresent() {
-				return fmt.Errorf("Could not find the keyword '%s' for property '%s' in the class '%s' in the contextionary", word, propertyName, className)
+			if l.contextionary != nil {
+				idx := l.contextionary.WordToItemIndex(word)
+				if !idx.IsPresent() {
+					return fmt.Errorf("Could not find the keyword '%s' for property '%s' in the class '%s' in the contextionary", word, propertyName, className)
+				}
 			}
 		}
 	} else {
 		camelParts := camelcase.Split(propertyName)
 		for _, part := range camelParts {
 			word := strings.ToLower(part)
-			idx := l.contextionary.WordToItemIndex(word)
-			if !idx.IsPresent() {
-				return fmt.Errorf("Could not find the word '%s' from the property '%s' in the class name '%s' in the contextionary. Consider using keywords to define the semantic meaning of this class.", word, propertyName, className)
+			if l.contextionary != nil {
+				idx := l.contextionary.WordToItemIndex(word)
+				if !idx.IsPresent() {
+					return fmt.Errorf("Could not find the word '%s' from the property '%s' in the class name '%s' in the contextionary. Consider using keywords to define the semantic meaning of this class.", word, propertyName, className)
+				}
 			}
 		}
 	}

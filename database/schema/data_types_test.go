@@ -51,29 +51,7 @@ func TestExistingClassSingleRef(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if !pdt.IsSingleRef() {
+	if !pdt.IsReference() {
 		t.Fatal("not single ref")
-	}
-}
-
-func TestExistingClassMultipleRef(t *testing.T) {
-	s := Empty()
-
-	s.Actions.Classes = append(s.Actions.Classes, &models.SemanticSchemaClass{
-		Class: "ExistingClass",
-	})
-
-	s.Actions.Classes = append(s.Actions.Classes, &models.SemanticSchemaClass{
-		Class: "ExistingClassTwo",
-	})
-
-	err, pdt := s.FindPropertyDataType([]string{"ExistingClass", "ExistingClassTwo"})
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !pdt.IsMultipleRef() {
-		t.Fatal("not multiple ref")
 	}
 }
