@@ -837,38 +837,38 @@ var NetworkIntrospectWhereFilterFields = {
 
 var NetworkFetchFilterFields = {
   where: { 
-    name: "NetworkFetchWhere",
+    name: "WeaviateNetworkFetchWhere",
     description: function() {
       return getDesc("NetworkFetchWhere")},
     type: new GraphQLNonNull( new GraphQLInputObjectType({
-      name: "NetworkFetchWhereInpObj",
+      name: "WeaviateNetworkFetchWhereInpObj",
       description: function() {
         return getDesc("NetworkFetchWhereInpObj")},
       fields: {
         class: {
-          name: "NetworkFetchWhereInpObjClass",
+          name: "WeaviateNetworkFetchWhereInpObjClass",
           description: function() {
             return getDesc("NetworkFetchWhereInpObjClass")},
           type: new GraphQLList(new GraphQLInputObjectType({
-            name: "NetworkFetchWhereInpObjClassInpObj",
+            name: "WeaviateNetworkFetchWhereInpObjClassInpObj",
             description: function() {
               return getDesc("NetworkFetchWhereInpObjClassInpObj")},
             fields: NetworkIntrospectWhereClassAndPropertyFilterFields
           }))
         },
         properties: {
-          name: "NetworkFetchWhereInpObjProperties",
+          name: "WeaviateNetworkFetchWhereInpObjProperties",
           description: function() {
             return getDesc("NetworkFetchWhereInpObjProperties")},
           type: new GraphQLList(new GraphQLInputObjectType({
-            name: "NetworkFetchWhereInpObjProperties",
+            name: "WeaviateNetworkFetchWhereInpObjProperties",
             description: function() {
               return getDesc("NetworkFetchWhereInpObjProperties")},
             fields: NetworkFetchWherePropertyFilterFields
           }))
         },
         first: {
-          name: "NetworkFetchWhereInpObjFirst",
+          name: "WeaviateNetworkFetchWhereInpObjFirst",
           description: function() {
             return getDesc("NetworkFetchWhereInpObjFirst")},
           type: GraphQLInt,
