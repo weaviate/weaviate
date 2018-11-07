@@ -270,23 +270,23 @@ function createMetaSubClasses(ontologyThings, location='') {
 
     // create recursive sub classes
     subClasses[singleClass.class] = new GraphQLObjectType({
-      name: location + " Meta" + singleClass.class,
+      name: location + "Meta" + singleClass.class,
       description: singleClass.description,
       fields: function(){
         // declare props that should be returned
         var returnProps = {}
 
         returnProps["meta"] = {
-          name: location + " Meta"+ singleClass.class + "Meta",
+          name: location + "Meta"+ singleClass.class + "Meta",
           description: function() {
             return getDesc("MetaClassMeta")},
           type: new GraphQLObjectType({
-            name: location + " Meta" + singleClass.class + "MetaObj",
+            name: location + "Meta" + singleClass.class + "MetaObj",
             description: function() {
               return getDesc("MetaClassMetaObj")},
             fields: {
               count: {
-                name: location + " Meta" + singleClass.class + "MetaCount",
+                name: location + "Meta" + singleClass.class + "MetaCount",
                 description: function() {
                   return getDesc("MetaClassMetaCount")},
                 type: GraphQLInt
@@ -300,13 +300,13 @@ function createMetaSubClasses(ontologyThings, location='') {
           returntypes = []
           standard_fields = {
             type: {
-              name: location + " Meta" + singleClass.class + singleClassProperty.name + "Type",
+              name: location + "Meta" + singleClass.class + singleClassProperty.name + "Type",
               description: function() {
                 return getDesc("MetaClassPropertyType")},
               type: GraphQLString,
             },
             count: {
-              name: location + " Meta" + singleClass.class + singleClassProperty.name + "Count",
+              name: location + "Meta" + singleClass.class + singleClassProperty.name + "Count",
               description: function() {
                 return getDesc("MetaClassPropertyCount")},
               type: GraphQLInt,
@@ -317,15 +317,15 @@ function createMetaSubClasses(ontologyThings, location='') {
             // if class (start with capital, return Class)
             if(singleClassPropertyDatatype[0] === singleClassPropertyDatatype[0].toUpperCase()){
               returnProps[singleClassProperty.name] = {
-                name: location + " Meta" + singleClass.class + singleClassProperty.name,
+                name: location + "Meta" + singleClass.class + singleClassProperty.name,
                 description: "Meta information about the property \"" + singleClassProperty.name + "\"",
                 type: new GraphQLObjectType({
-                  name: location + " Meta" + singleClass.class + singleClassProperty.name + "Obj",
+                  name: location + "Meta" + singleClass.class + singleClassProperty.name + "Obj",
                   description: function() {
                     return getDesc("MetaClassPropertyObj")},
                   fields: Object.assign(standard_fields, {
                     pointingTo: {
-                      name: location + " Meta" + singleClass.class + singleClassProperty.name + "PointingTo",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "PointingTo",
                       description: function() {
                         return getDesc("MetaClassPropertyPointingTo")},
                       type: new GraphQLList(GraphQLString)
@@ -335,18 +335,18 @@ function createMetaSubClasses(ontologyThings, location='') {
               }
             } else if(singleClassPropertyDatatype === "string" || singleClassPropertyDatatype === "date") {
               topOccurrencesType = new GraphQLObjectType({
-                name: location + " Meta" + singleClass.class + singleClassProperty.name + "TopOccurrencesObj",
+                name: location + "Meta" + singleClass.class + singleClassProperty.name + "TopOccurrencesObj",
                 description: function() {
                   return getDesc("MetaClassPropertyTopOccurrencesObj")},
                 fields: {
                   value: {
-                    name: location + " Meta" + singleClass.class + singleClassProperty.name + "TopOccurrencesValue",
+                    name: location + "Meta" + singleClass.class + singleClassProperty.name + "TopOccurrencesValue",
                     description: function() {
                       return getDesc("MetaClassPropertyTopOccurrencesValue")},
                     type: GraphQLString
                   },
                   occurs: {
-                    name: location + " Meta" + singleClass.class + singleClassProperty.name + "TopOccurrencesOccurs",
+                    name: location + "Meta" + singleClass.class + singleClassProperty.name + "TopOccurrencesOccurs",
                     description: function() {
                       return getDesc("MetaClassPropertyTopOccurrencesOccurs")},
                     type: GraphQLInt
@@ -357,12 +357,12 @@ function createMetaSubClasses(ontologyThings, location='') {
                 name: "Meta" + singleClass.class + singleClassProperty.name,
                 description: location + " Meta information about the property \"" + singleClassProperty.name + "\"",
                 type: new GraphQLObjectType({
-                  name: location + " Meta" + singleClass.class + singleClassProperty.name + "Obj",
+                  name: location + "Meta" + singleClass.class + singleClassProperty.name + "Obj",
                   description: function() {
                     return getDesc("MetaClassPropertyObj")},
                   fields: Object.assign(standard_fields, {
                     topOccurrences: {
-                      name: location + " Meta" + singleClass.class + singleClassProperty.name + "TopOccurrences",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "TopOccurrences",
                       description: function() {
                         return getDesc("MetaClassPropertyTopOccurrences")},
                       type: new GraphQLList( topOccurrencesType ),
@@ -396,33 +396,33 @@ function createMetaSubClasses(ontologyThings, location='') {
               }
             } else if(singleClassPropertyDatatype === "int" || singleClassPropertyDatatype === "number") {
               returnProps[singleClassProperty.name] = {
-                name: location + " Meta" + singleClass.class + singleClassProperty.name,
+                name: location + "Meta" + singleClass.class + singleClassProperty.name,
                 description: "Meta information about the property \"" + singleClassProperty.name + "\"",
                 type: new GraphQLObjectType({
-                  name: location + " Meta" + singleClass.class + singleClassProperty.name + "Obj",
+                  name: location + "Meta" + singleClass.class + singleClassProperty.name + "Obj",
                   description: function() {
                     return getDesc("MetaClassPropertyObj")},
                   fields: Object.assign(standard_fields, {
                     lowest: {
-                      name: location + " Meta" + singleClass.class + singleClassProperty.name + "Lowest",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "Lowest",
                       description: function() {
                         return getDesc("MetaClassPropertyLowest")},
                       type: GraphQLFloat,
                     },
                     highest: {
-                      name: location + " Meta" + singleClass.class + singleClassProperty.name + "Highest",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "Highest",
                       description: function() {
                         return getDesc("MetaClassPropertyHighest")},
                       type: GraphQLFloat,
                     },
                     average: {
-                      name: location + " Meta" + singleClass.class + singleClassProperty.name + "Average",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "Average",
                       description: function() {
                         return getDesc("MetaClassPropertyAverage")},
                       type: GraphQLFloat,
                     },
                     sum: {
-                      name: location + " Meta" + singleClass.class + singleClassProperty.name + "Sum",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "Sum",
                       description: function() {
                         return getDesc("MetaClassPropertySum")},
                       type: GraphQLFloat,
@@ -432,21 +432,21 @@ function createMetaSubClasses(ontologyThings, location='') {
               }
             } else if(singleClassPropertyDatatype === "boolean") {
               returnProps[singleClassProperty.name] = {
-                name: location + " Meta" + singleClass.class + singleClassProperty.name,
+                name: location + "Meta" + singleClass.class + singleClassProperty.name,
                 description: "Meta information about the property \"" + singleClassProperty.name + "\"",
                 type: new GraphQLObjectType({
-                  name: location + " Meta" + singleClass.class + singleClassProperty.name + "Obj",
+                  name: location + "Meta" + singleClass.class + singleClassProperty.name + "Obj",
                   description: function() {
                     return getDesc("MetaClassPropertyObj")},
                   fields: Object.assign(standard_fields, {
                     totalTrue: {
-                      name: location + " Meta" + singleClass.class + singleClassProperty.name + "TotalTrue",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "TotalTrue",
                       description: function() {
                         return getDesc("MetaClassPropertyTotalTrue")},
                       type: GraphQLInt,
                     },
                     percentageTrue: {
-                      name: location + " Meta" + singleClass.class + singleClassProperty.name + "PercentageTrue",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "PercentageTrue",
                       description: function() {
                         return getDesc("MetaClassPropertyPerentageTrue")},
                       type: GraphQLFloat,
@@ -464,7 +464,7 @@ function createMetaSubClasses(ontologyThings, location='') {
             } else {
               console.error("I DONT KNOW THIS VALUE! " + singleClassProperty["@dataType"][0])
               returnProps[singleClassProperty.name] = {
-                name: location + " Meta" + singleClass.class + singleClassProperty.name,
+                name: location + "Meta" + singleClass.class + singleClassProperty.name,
                 description: singleClassProperty.description,
                 type: GraphQLString
               }
