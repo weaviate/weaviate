@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/creativesoftwarefdn/weaviate/database"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/schema/kind"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -42,7 +43,7 @@ func (n *NilMigrator) DropProperty(kind kind.Kind, className string, propName st
 
 var schemaTests = []struct {
 	name string
-	fn   func(*testing.T, *LocalSchemaManager)
+	fn   func(*testing.T, database.SchemaManager)
 }{
 	{name: "UpdateMeta", fn: testUpdateMeta},
 	{name: "AddThingClass", fn: testAddThingClass},
@@ -61,7 +62,7 @@ var schemaTests = []struct {
 	{name: "UpdatePropertyKeywords", fn: testUpdatePropertyKeywords},
 }
 
-func testUpdateMeta(t *testing.T, lsm *LocalSchemaManager) {
+func testUpdateMeta(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	assert.Equal(t, lsm.GetSchema().Things.AtContext, strfmt.URI(""))
@@ -75,7 +76,7 @@ func testUpdateMeta(t *testing.T, lsm *LocalSchemaManager) {
 	assert.Equal(t, lsm.GetSchema().Things.Name, "somename")
 }
 
-func testAddThingClass(t *testing.T, lsm *LocalSchemaManager) {
+func testAddThingClass(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	thingClasses := testGetClassNames(lsm, kind.THING_KIND)
@@ -91,7 +92,7 @@ func testAddThingClass(t *testing.T, lsm *LocalSchemaManager) {
 	assert.Contains(t, thingClasses, "Car")
 }
 
-func testRemoveThingClass(t *testing.T, lsm *LocalSchemaManager) {
+func testRemoveThingClass(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
@@ -111,7 +112,7 @@ func testRemoveThingClass(t *testing.T, lsm *LocalSchemaManager) {
 	assert.NotContains(t, thingClasses, "Car")
 }
 
-func testCantAddSameClassTwice(t *testing.T, lsm *LocalSchemaManager) {
+func testCantAddSameClassTwice(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
@@ -128,7 +129,7 @@ func testCantAddSameClassTwice(t *testing.T, lsm *LocalSchemaManager) {
 	assert.NotNil(t, err)
 }
 
-func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *LocalSchemaManager) {
+func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
@@ -145,7 +146,7 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm *LocalSchemaManag
 	assert.NotNil(t, err)
 }
 
-func testUpdateClassName(t *testing.T, lsm *LocalSchemaManager) {
+func testUpdateClassName(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	// Create a simple class.
@@ -160,7 +161,7 @@ func testUpdateClassName(t *testing.T, lsm *LocalSchemaManager) {
 	assert.Equal(t, thingClasses[0], "NewName")
 }
 
-func testUpdateClassNameCollision(t *testing.T, lsm *LocalSchemaManager) {
+func testUpdateClassNameCollision(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	// Create a class to rename
@@ -182,7 +183,7 @@ func testUpdateClassNameCollision(t *testing.T, lsm *LocalSchemaManager) {
 	assert.Equal(t, thingClasses[0], "InitialName")
 }
 
-func testAddThingClassWithKeywords(t *testing.T, lsm *LocalSchemaManager) {
+func testAddThingClassWithKeywords(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	keywords := models.SemanticSchemaKeywords{
@@ -205,7 +206,7 @@ func testAddThingClassWithKeywords(t *testing.T, lsm *LocalSchemaManager) {
 	assert.Equal(t, thingClasses[0].Keywords[1].Weight, float32(0.4))
 }
 
-func testUpdateClassKeywords(t *testing.T, lsm *LocalSchemaManager) {
+func testUpdateClassKeywords(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	// Create class with a keyword
@@ -233,7 +234,7 @@ func testUpdateClassKeywords(t *testing.T, lsm *LocalSchemaManager) {
 	assert.Equal(t, thingClasses[0].Keywords[0].Weight, float32(1.0))
 }
 
-func testAddPropertyDuringCreation(t *testing.T, lsm *LocalSchemaManager) {
+func testAddPropertyDuringCreation(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
@@ -253,7 +254,7 @@ func testAddPropertyDuringCreation(t *testing.T, lsm *LocalSchemaManager) {
 	assert.Equal(t, thingClasses[0].Properties[0].AtDataType, []string{"string"})
 }
 
-func testAddInvalidPropertyDuringCreation(t *testing.T, lsm *LocalSchemaManager) {
+func testAddInvalidPropertyDuringCreation(t *testing.T, lsm database.SchemaManager) {
 	t.Skip("Validation")
 	t.Parallel()
 
@@ -268,7 +269,7 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, lsm *LocalSchemaManager)
 	assert.NotNil(t, err)
 }
 
-func testDropProperty(t *testing.T, lsm *LocalSchemaManager) {
+func testDropProperty(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	var properties []*models.SemanticSchemaClassProperty = []*models.SemanticSchemaClassProperty{
@@ -293,7 +294,7 @@ func testDropProperty(t *testing.T, lsm *LocalSchemaManager) {
 	assert.Len(t, thingClasses[0].Properties, 0)
 }
 
-func testUpdatePropertyName(t *testing.T, lsm *LocalSchemaManager) {
+func testUpdatePropertyName(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	// Create a class & property
@@ -320,7 +321,7 @@ func testUpdatePropertyName(t *testing.T, lsm *LocalSchemaManager) {
 	assert.Equal(t, thingClasses[0].Properties[0].AtDataType, []string{"string"})
 }
 
-func testUpdatePropertyNameCollision(t *testing.T, lsm *LocalSchemaManager) {
+func testUpdatePropertyNameCollision(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	// Create a class & property
@@ -348,7 +349,7 @@ func testUpdatePropertyNameCollision(t *testing.T, lsm *LocalSchemaManager) {
 	assert.Equal(t, thingClasses[0].Properties[1].Name, "smell")
 }
 
-func testUpdatePropertyKeywords(t *testing.T, lsm *LocalSchemaManager) {
+func testUpdatePropertyKeywords(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	// Create a class Car with a property color.
@@ -415,7 +416,7 @@ func TestSchema(t *testing.T) {
 }
 
 // New Local Schema Manager
-func newLSM(baseTempDir string) *LocalSchemaManager {
+func newLSM(baseTempDir string) database.SchemaManager {
 	tempDir, err := ioutil.TempDir(baseTempDir, "test-schema-manager")
 	if err != nil {
 		log.Fatalf("Could not initialize temporary directory: %v\n", err)
@@ -429,7 +430,7 @@ func newLSM(baseTempDir string) *LocalSchemaManager {
 	return lsm
 }
 
-func testGetClasses(l *LocalSchemaManager, k kind.Kind) []*models.SemanticSchemaClass {
+func testGetClasses(l database.SchemaManager, k kind.Kind) []*models.SemanticSchemaClass {
 	var classes []*models.SemanticSchemaClass
 	schema := l.GetSchema()
 
@@ -440,7 +441,7 @@ func testGetClasses(l *LocalSchemaManager, k kind.Kind) []*models.SemanticSchema
 	return classes
 }
 
-func testGetClassNames(l *LocalSchemaManager, k kind.Kind) []string {
+func testGetClassNames(l database.SchemaManager, k kind.Kind) []string {
 	var names []string
 	schema := l.GetSchema()
 
