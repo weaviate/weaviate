@@ -906,32 +906,32 @@ function getWeaviateNetworkGetFields(weaviate) {
 
   fields = {
     Things: {
-      name: "WeaviateNetworkGet" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Things",
+      name: "WeaviateNetworkGet" + weaviate + "Things",
       description: function() {
         return getDesc("WeaviateNetworkGetThings")},
       type: new GraphQLObjectType({
-        name: "WeaviateNetworkGet" + weaviate[0].toUpperCase() + weaviate.substring(1) + "ThingsObj",
+        name: "WeaviateNetworkGet" + weaviate + "ThingsObj",
         description: function() {
           return getDesc("WeaviateNetworkGetThingsObj")},
         fields: rootClassesNetworkThingsFields
       }),
       resolve(parentValue) {
-        console.log("resolve WeaviateNetworkGet" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Things")
+        console.log("resolve WeaviateNetworkGet" + weaviate + "Things")
         return parentValue.Things // resolve with empty array
       },
     },
     Actions: {
-      name: "WeaviateNetworkGet" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Actions",
+      name: "WeaviateNetworkGet" + weaviate + "Actions",
       description: function() {
         return getDesc("WeaviateNetworkGetActions")},
       type: new GraphQLObjectType({
-        name: "WeaviateNetworkGet" + weaviate[0].toUpperCase() + weaviate.substring(1) + "ActionsObj",
+        name: "WeaviateNetworkGet" + weaviate + "ActionsObj",
         description: function() {
           return getDesc("WeaviateNetworkGetActionsObj")},
         fields: rootClassesNetworkActionsFields
       }),
       resolve(parentValue) {
-        console.log("resolve WeaviateNetworkGet" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Actions")
+        console.log("resolve WeaviateNetworkGet" + weaviate + "Actions")
         return parentValue.Actions // resolve with empty array
       }
     }
@@ -955,32 +955,32 @@ function getWeaviateNetworkGetMetaFields(weaviate) {
 
   fields = {
     Things: {
-      name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Things",
+      name: "WeaviateNetworkGetMeta" + weaviate + "Things",
       description: function() {
         return getDesc("WeaviateNetworkGetMetaThings")},
       type: new GraphQLObjectType({
-        name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "ThingsObj",
+        name: "WeaviateNetworkGetMeta" + weaviate + "ThingsObj",
         description: function() {
           return getDesc("WeaviateNetworkGetMetaThingsObj")},
         fields: metaRootClassesNetworkThingsFields
       }),
       resolve(parentValue) {
-        console.log("resolve WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Things")
+        console.log("resolve WeaviateNetworkGetMeta" + weaviate + "Things")
         return parentValue.Things // resolve with empty array
       },
     },
     Actions: {
-      name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Actions",
+      name: "WeaviateNetworkGetMeta" + weaviate + "Actions",
       description: function() {
         return getDesc("WeaviateNetworkGetMetaActions")},
       type: new GraphQLObjectType({
-        name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "ActionsObj",
+        name: "WeaviateNetworkGetMeta" + weaviate + "ActionsObj",
         description: function() {
           return getDesc("WeaviateNetworkGetMetaActionsObj")},
         fields: metaRootClassesNetworkActionsFields
       }),
       resolve(parentValue) {
-        console.log("resolve WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Actions")
+        console.log("resolve WeaviateNetworkGetMeta" + weaviate + "Actions")
         return parentValue.Actions // resolve with empty array
       }
     }
@@ -1001,16 +1001,17 @@ function createNetworkWeaviateGetFields() {
   var weaviates = getDirectories("./network");
 
   weaviates.forEach(weaviate => {
+    weaviate = weaviate[0].toUpperCase() + weaviate.substring(1);
     networkFields[weaviate] = {
-      name: "WeaviateNetworkGet" + weaviate[0].toUpperCase() + weaviate.substring(1),
+      name: "WeaviateNetworkGet" + weaviate,
       description: "Object field for weaviate " + weaviate + " in the network.",
       type: new GraphQLObjectType({
-        name: "WeaviateNetworkGet" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Obj",
+        name: "WeaviateNetworkGet" + weaviate + "Obj",
         description: "Objects for the what to Get from the weaviate " + weaviate + " in the network.",
         fields: getWeaviateNetworkGetFields(weaviate)
       }),
       resolve(parentValue){
-        console.log("resolve WeaviateNetworkGet" + weaviate[0].toUpperCase() + weaviate.substring(1))
+        console.log("resolve WeaviateNetworkGet" + weaviate)
         return parentValue[weaviate] // resolve with empty array
       }
     }
@@ -1032,16 +1033,17 @@ function createNetworkWeaviateGetMetaFields() {
   var weaviates = getDirectories("./network");
 
   weaviates.forEach(weaviate => {
+    weaviate = weaviate[0].toUpperCase() + weaviate.substring(1)
     networkFields[weaviate] = {
-      name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1),
+      name: "WeaviateNetworkGetMeta" + weaviate,
       description: "Object field for weaviate " + weaviate + " in the network.",
       type: new GraphQLObjectType({
-        name: "WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1) + "Obj",
+        name: "WeaviateNetworkGetMeta" + weaviate + "Obj",
         description: "Objects for the what to Get Meta from the weaviate " + weaviate + " in the network.",
         fields: getWeaviateNetworkGetMetaFields(weaviate)
       }),
       resolve(parentValue){
-        console.log("resolve WeaviateNetworkGetMeta" + weaviate[0].toUpperCase() + weaviate.substring(1))
+        console.log("resolve WeaviateNetworkGetMeta" + weaviate)
         return parentValue[weaviate] // resolve with empty array
       }
     }
