@@ -20,9 +20,10 @@ type resolvedClass struct {
 }
 
 type resolvedProperty interface{}
+type resolvePromise func() (interface{}, error)
 
 type resolver interface {
-	ResolveGetClass(info *getClassParams) (func() interface{}, error)
+	ResolveGetClass(info *getClassParams) (resolvePromise, error)
 }
 
 type pagination struct {

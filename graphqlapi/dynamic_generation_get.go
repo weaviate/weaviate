@@ -81,6 +81,7 @@ func (g *graphQL) genSingleActionClassField(class *models.SemanticSchemaClass, g
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			fmt.Printf("- singleActionClassPropertyFieldsObj (extract pagination)\n")
 			filters := p.Source.(*localGetFilters)
 
 			pagination, err := extractPaginationFromArgs(p.Args)
@@ -101,10 +102,14 @@ func (g *graphQL) genSingleActionClassField(class *models.SemanticSchemaClass, g
 			}
 
 			result, err := g.resolver.ResolveGetClass(getAction)
+
 			if err != nil {
 				return nil, err
 			} else {
-				return result.ToMap()
+				fmt.Printf("RESLVER PROMISE: %#v\n", result)
+				return func() (interface{}, error) {
+					return "jep", nil
+				}, nil
 			}
 		},
 	}
@@ -139,12 +144,14 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 			dataTypeUnionConf := graphql.UnionConfig{
 				Name:  fmt.Sprintf("%s%s%s", class.Class, capitalizedPropertyName, "Obj"),
 				Types: dataTypeClasses,
-				ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-					fmt.Printf("WHOOPTYDOO\n")
-					return nil
-				},
+				//ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+				//	fmt.Printf("Resolver: WHOOPTYDOO\n")
+				//	return nil
+				//},
 				Description: property.Description,
 			}
+
+			fmt.Printf("genSingleActionClassPropertyFields union: %s %s\n", class.Class, capitalizedPropertyName)
 
 			multipleClassDataTypesUnion := graphql.NewUnion(dataTypeUnionConf)
 
@@ -152,6 +159,7 @@ func genSingleActionClassPropertyFields(class *models.SemanticSchemaClass, getAc
 				Type:        multipleClassDataTypesUnion,
 				Description: property.Description,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					fmt.Printf("- Resolve action property field (ref?)\n")
 					fmt.Printf("WHOOPTYDOO2\n")
 					return nil, nil
 				},
@@ -231,8 +239,8 @@ func genSingleThingClassField(class *models.SemanticSchemaClass, getActionsAndTh
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			result, err := dbConnector.GetGraph(p)
-			return result, err
+			fmt.Printf("- thing class (supposed to extract pagination, now return nil)\n")
+			return nil, nil
 		},
 	}
 	return thingClassPropertyFieldsField, thingClassPropertyFieldsObject
@@ -279,8 +287,8 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 				Type:        multipleClassDataTypesUnion,
 				Description: property.Description,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					result, err := dbConnector.GetGraph(p)
-					return result, err
+					fmt.Printf("- thing class resolve blurgh (ret nil)\n")
+					return nil, nil
 				},
 			}
 		} else {
@@ -298,8 +306,8 @@ func genSingleThingClassPropertyFields(class *models.SemanticSchemaClass, getAct
 		Description: "UUID of the thing or action given by the local Weaviate instance",
 		Type:        graphql.String,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			result, err := dbConnector.GetGraph(p)
-			return result, err
+			fmt.Printf("- thing class get uuid (return 'foo')\n")
+			return "foo", nil
 		},
 	}
 
@@ -314,7 +322,8 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				fmt.Printf("GET PRIMITIVE PROP: string\n")
+				return "primitive string", nil
 			},
 		}, nil
 
@@ -323,8 +332,8 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.Int,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
+				fmt.Printf("GET PRIMITIVE PROP: int\n")
+				return nil, nil
 			},
 		}, nil
 
@@ -333,8 +342,8 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
+				fmt.Printf("GET PRIMITIVE PROP: float\n")
+				return 4.2, nil
 			},
 		}, nil
 
@@ -343,8 +352,8 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.Boolean,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
+				fmt.Printf("GET PRIMITIVE PROP: bool\n")
+				return true, nil
 			},
 		}, nil
 
@@ -353,12 +362,13 @@ func handleGetNonObjectDataTypes(dataType schema.DataType, property *models.Sema
 			Description: property.Description,
 			Type:        graphql.String, // String since no graphql date datatype exists
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				result, err := dbConnector.GetGraph(p)
-				return result, err
+				fmt.Printf("GET PRIMITIVE PROP: date\n")
+				return "somedate", nil
 			},
 		}, nil
 
 	default:
+		fmt.Printf("ASDLKJASL:DJASKL:DJSKL:ADJ %#v\n", dataType)
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype)
 	}
 }
