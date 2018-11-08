@@ -47,7 +47,7 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 
 			janusPropertyName := string(j.state.getMappedPropertyName(className, sanitizedPropertyName))
 
-			err, propType := j.schema.FindPropertyDataType(property.AtDataType)
+			propType, err := j.schema.FindPropertyDataType(property.AtDataType)
 			if err != nil {
 				return err
 			}
@@ -258,7 +258,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 				panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
 			}
 
-			err, propType := j.schema.FindPropertyDataType(property.AtDataType)
+			propType, err := j.schema.FindPropertyDataType(property.AtDataType)
 			if err != nil {
 				panic(fmt.Sprintf("Could not decode property '%s'; %v", propertyName, err))
 			}
@@ -285,7 +285,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 			panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
 		}
 
-		err, propType := j.schema.FindPropertyDataType(property.AtDataType)
+		propType, err := j.schema.FindPropertyDataType(property.AtDataType)
 		if err != nil {
 			panic(fmt.Sprintf("Could not get property type of '%s' in class %s; %v", property.AtDataType, className, err))
 		}
@@ -353,7 +353,7 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 
 			janusPropertyName := string(j.state.getMappedPropertyName(className, sanitizedPropertyName))
 
-			err, propType := j.schema.FindPropertyDataType(property.AtDataType)
+			propType, err := j.schema.FindPropertyDataType(property.AtDataType)
 			if err != nil {
 				return err
 			}
