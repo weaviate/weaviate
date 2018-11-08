@@ -91,21 +91,21 @@ func (p *propertyDataType) ContainsClass(needle ClassName) bool {
 }
 
 // Based on the schema, return a valid description of the defined datatype
-func (s *Schema) FindPropertyDataType(dataType []string) (error, PropertyDataType) {
+func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, error) {
 	if len(dataType) < 1 {
-		return errors.New("Empty datatype is invalid"), nil
+		return nil, errors.New("Empty datatype is invalid")
 	} else if len(dataType) == 1 {
 		someDataType := dataType[0]
 		firstLetter := rune(someDataType[0])
 		if unicode.IsLower(firstLetter) {
 			switch someDataType {
 			case string(DataTypeString), string(DataTypeInt), string(DataTypeNumber), string(DataTypeBoolean), string(DataTypeDate):
-				return nil, &propertyDataType{
+				return &propertyDataType{
 					kind:          PropertyKindPrimitive,
 					primitiveType: DataType(someDataType),
-				}
+				}, nil
 			default:
-				return fmt.Errorf("Unknown primitive data type '%s'", someDataType), nil
+				return nil, fmt.Errorf("Unknown primitive data type '%s'", someDataType)
 			}
 		}
 	}
@@ -115,14 +115,14 @@ func (s *Schema) FindPropertyDataType(dataType []string) (error, PropertyDataTyp
 	for _, someDataType := range dataType {
 		className := AssertValidClassName(someDataType)
 		if s.FindClassByName(className) == nil {
-			return fmt.Errorf("SingleRef class name '%s' does not exist", className), nil
+			return nil, fmt.Errorf("SingleRef class name '%s' does not exist", className)
 		}
 
 		classes = append(classes, className)
 	}
 
-	return nil, &propertyDataType{
+	return &propertyDataType{
 		kind:    PropertyKindRef,
 		classes: classes,
-	}
+	}, nil
 }
