@@ -22,4 +22,3 @@ func (m *mockResolver) LocalGetClass(params *LocalGetClassParams) (func() interf
 	args := m.Called(params)
 	return args.Get(0).(func() interface{}), args.Error(1)
 }
-

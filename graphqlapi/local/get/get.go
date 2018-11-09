@@ -276,8 +276,6 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 				return nil, err
 			}
 
-
-      fmt.Printf("RESOLVING THING CLASS %s\n", class.Class)
 			properties, err := extractPropertiesFromFieldASTs(p.Info.FieldASTs)
 			if err != nil {
 				return nil, err
@@ -292,10 +290,7 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 			}
 
 			promise, err := filtersAndResolver.resolver.LocalGetClass(&params)
-
-      fmt.Printf("LOCALCLASS GET RESULT: %#v\n", promise())
-
-      return promise, err
+			return promise, err
 		},
 	}
 
@@ -313,11 +308,11 @@ func extractPropertiesFromFieldASTs(fieldASTs []*graphql_ast.Field) ([]SelectPro
 
 	for _, fieldAST := range fieldASTs {
 		selections := fieldAST.SelectionSet.Selections
-    for _, selection := range selections {
-      field:= selection.(*graphql_ast.Field)
-      name := field.Name.Value
-      properties = append(properties, SelectProperty{Name: name})
-    }
+		for _, selection := range selections {
+			field := selection.(*graphql_ast.Field)
+			name := field.Name.Value
+			properties = append(properties, SelectProperty{Name: name})
+		}
 	}
 
 	return properties, nil

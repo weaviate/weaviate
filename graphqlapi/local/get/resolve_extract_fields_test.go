@@ -2,16 +2,15 @@
 package local_get
 
 import (
-	//"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
 	common_local "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_resolver"
 	test_helper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
 	"testing"
-  "encoding/json"
 )
 
 func TestExtractIntField(t *testing.T) {
-  t.Parallel()
+	t.Parallel()
 
 	resolver := newMockResolver()
 
@@ -22,24 +21,32 @@ func TestExtractIntField(t *testing.T) {
 		Properties: []SelectProperty{{Name: "intField"}},
 	}
 
-  expectedResponse := `{ "Root": { "Actions": { "SomeAction": [ { "intField": 42} ] } } }`
-  var expected interface{}
-  err := json.Unmarshal([]byte(`[ { "intField": 42} ]`), &expected)
-  if err != nil { panic(err) }
+	resolver.On("LocalGetClass", expectedParams).
+		Return(test_helper.EmptyListThunk(), nil).Once()
 
-  //oneResult := test_helper.SingletonThunk(LocalGetClassResult {
-  //  Kind: kind.ACTION_KIND,
-	//	ClassName:  schema.AssertValidClassName("SomeAction"),
-  //  Properties: ResolvedProperties {
-  //    "intField": ResolvedProperty {
-  //      Value: interface{}(42),
-  //    },
-  //  },
-  //})
+	query := "{ Root { Actions { SomeAction { intField } } } }"
+	resolver.AssertResolve(t, query)
+}
+
+func TestExtractFilters(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver()
+
+	expectedParams := &LocalGetClassParams{
+		Kind:       kind.ACTION_KIND,
+		ClassName:  "SomeAction",
+		Filters:    &common_local.LocalFilters{},
+		Properties: []SelectProperty{{Name: "intField"}},
+		Pagination: &common_resolver.Pagination{
+			First: 10,
+			After: 20,
+		},
+	}
 
 	resolver.On("LocalGetClass", expectedParams).
-		Return(test_helper.IdentityThunk(expected), nil).Once()
+		Return(test_helper.EmptyListThunk(), nil).Once()
 
-  query := "{ Root { Actions { SomeAction { intField } } } }"
-  resolver.AssertJSONResponse(t, query, expectedResponse)
+	query := "{ Root { Actions { SomeAction(first:10, after: 20) { intField } } } }"
+	resolver.AssertResolve(t, query)
 }
