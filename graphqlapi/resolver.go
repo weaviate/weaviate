@@ -9,3 +9,16 @@ import (
 type Resolver interface {
 	local.Resolver
 }
+
+
+// In practise, we need a read lock on the database to run GraphQL queries.
+type ClosingResolver interface {
+  Resolver
+
+  // Close the handle of this resolver
+  Close()
+}
+
+type ResolverProvider interface {
+  GetResolver() ClosingResolver
+}

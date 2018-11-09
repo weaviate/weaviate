@@ -33,9 +33,9 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		Type:        localObject,
 		Description: "Query a local Weaviate instance",
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			fmt.Printf("- localGetAndMetaObjectResolver (pass on true)\n")
+			fmt.Printf("- localGetAndMetaObjectResolver (pass on source; the resolver)\n")
 			// This step does nothing; all ways allow the resolver to continue
-			return true, nil
+			return p.Source, nil
 		},
 	}
 

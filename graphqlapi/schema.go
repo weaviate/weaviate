@@ -24,18 +24,18 @@ import (
 
 // The communication interface between the REST API and the GraphQL API.
 type GraphQL interface {
-
 	// Resolve the GraphQL query in 'query'.
 	Resolve(query string, operationName string, variables map[string]interface{}, context context.Context) *graphql.Result
 }
 
+
 type graphQL struct {
 	schema   graphql.Schema
-	resolver Resolver
+	resolverProvider ResolverProvider
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
-func Build(dbSchema *schema.Schema, resolver Resolver) (GraphQL, error) {
+func Build(dbSchema *schema.Schema, resolverProvider ResolverProvider) (GraphQL, error) {
 	graphqlSchema, err := buildGraphqlSchema(dbSchema)
 
 	if err != nil {
@@ -44,14 +44,21 @@ func Build(dbSchema *schema.Schema, resolver Resolver) (GraphQL, error) {
 
 	return &graphQL{
 		schema:   graphqlSchema,
-		resolver: resolver,
+		resolverProvider: resolverProvider,
 	}, nil
 }
 
 func (g *graphQL) Resolve(query string, operationName string, variables map[string]interface{}, context context.Context) *graphql.Result {
+  if g.resolverProvider == nil {
+    panic("Empty resolver provider")
+  }
+
+  resolver := g.resolverProvider.GetResolver()
+  defer resolver.Close()
+
 	return graphql.Do(graphql.Params{
 		Schema:         g.schema,
-		RootObject:     map[string]interface{}{"Resolver": g.resolver},
+		RootObject:     map[string]interface{}{"Resolver": resolver},
 		RequestString:  query,
 		OperationName:  operationName,
 		VariableValues: variables,
