@@ -37,7 +37,6 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-	gographql "github.com/graphql-go/graphql"
 	"github.com/rs/cors"
 	"google.golang.org/grpc/grpclog"
 
@@ -72,7 +71,7 @@ var connectorOptionGroup *swag.CommandLineOptionsGroup
 var contextionary libcontextionary.Contextionary
 var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
-var graphQL *graphqlapi.GraphQL
+var graphQL graphqlapi.GraphQL
 var messaging *messages.Messaging
 
 var db database.Database
@@ -1382,14 +1381,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Add security principal to context that we pass on to the GraphQL resolver.
 		graphql_context := context.WithValue(params.HTTPRequest.Context(), "principal", (principal.(*models.KeyTokenGetResponse)))
 
-		// Do the request
-		result := gographql.Do(gographql.Params{
-			Schema:         *graphQL.Schema(),
-			RequestString:  query,
-			OperationName:  operationName,
-			VariableValues: variables,
-			Context:        graphql_context,
-		})
+		result := graphQL.Resolve(query, operationName, variables, graphql_context)
 
 		// Marshal the JSON
 		resultJSON, jsonErr := json.Marshal(result)
@@ -1478,15 +1470,14 @@ func configureServer(s *http.Server, scheme, addr string) {
 		// Note that this is thread safe; we're running in a single go-routine, because the event
 		// handlers are called when the SchemaLock is still held.
 
-		s := schema.HackFromDatabaseSchema(updatedSchema)
-		updatedGraphQL, err := graphqlapi.CreateSchema(nil, serverConfig, &s, messaging)
+		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, nil)
 		if err != nil {
 			// TODO: turn on safe mode
 			graphQL = nil
 			messaging.ErrorMessage(fmt.Sprintf("Could not re-generate GraphQL schema, because:\n%#v\n", err))
 		} else {
 			messaging.InfoMessage("Updated GraphQL schema")
-			graphQL = &updatedGraphQL
+			graphQL = updatedGraphQL
 		}
 	})
 
