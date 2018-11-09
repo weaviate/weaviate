@@ -4,7 +4,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	common "github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
-	common_local "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_resolver"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -14,7 +14,7 @@ type Resolver interface {
 
 type LocalGetClassParams struct {
 	Kind       kind.Kind
-	Filters    *common_local.LocalFilters
+	Filters    *common_filters.LocalFilter
 	ClassName  string
 	Pagination *common.Pagination
 	Properties []SelectProperty
@@ -26,7 +26,7 @@ type SelectProperty struct {
 
 // Internal struct to bubble data through the resolvers.
 type filtersAndResolver struct {
-	filters  *common_local.LocalFilters
+	filters  *common_filters.LocalFilter
 	resolver Resolver
 }
 
