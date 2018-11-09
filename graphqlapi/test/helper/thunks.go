@@ -1,12 +1,12 @@
 package helper
 
-func nilThunk() func() interface{} {
+func NilThunk() func() interface{} {
 	return func() interface{} {
 		return nil
 	}
 }
 
-func identityThunk(x interface{}) func() interface{} {
+func IdentityThunk(x interface{}) func() interface{} {
 	return func() interface{} {
 		return x
 	}

@@ -79,7 +79,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			Description: "Type of Get function to get Things or Actions on the Local Weaviate",
 		}),
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			fmt.Printf("- LocalGet (extracting filters, retrieving resolver)\n")
+			fmt.Printf("- LocalGet (extract resolver from source, parse filters )\n")
 			resolver := p.Source.(map[string]interface{})["Resolver"].(Resolver)
 			filters, err := extractLocalGetFilters(p)
 
@@ -204,8 +204,6 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 					}
 
 					propertyField.Name = property.Name
-
-					fmt.Printf("ADDING CLASS PROPERTY %s.%s.%s = %#v\n", k.Name(), class.Class, property.Name, propertyField)
 					classProperties[property.Name] = propertyField
 				} else {
 					// This is a reference
@@ -278,6 +276,8 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 				return nil, err
 			}
 
+
+      fmt.Printf("RESOLVING THING CLASS %s\n", class.Class)
 			properties, err := extractPropertiesFromFieldASTs(p.Info.FieldASTs)
 			if err != nil {
 				return nil, err
@@ -293,7 +293,9 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 
 			promise, err := filtersAndResolver.resolver.LocalGetClass(&params)
 
-			return promise, err
+      fmt.Printf("LOCALCLASS GET RESULT: %#v\n", promise())
+
+      return promise, err
 		},
 	}
 
@@ -311,12 +313,11 @@ func extractPropertiesFromFieldASTs(fieldASTs []*graphql_ast.Field) ([]SelectPro
 
 	for _, fieldAST := range fieldASTs {
 		selections := fieldAST.SelectionSet.Selections
-		if len(selections) != 1 {
-			panic("unspected length")
-		}
-		selection := selections[0].(*graphql_ast.Field)
-		name := selection.Name.Value
-		properties = append(properties, SelectProperty{Name: name})
+    for _, selection := range selections {
+      field:= selection.(*graphql_ast.Field)
+      name := field.Name.Value
+      properties = append(properties, SelectProperty{Name: name})
+    }
 	}
 
 	return properties, nil
