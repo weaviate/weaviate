@@ -11,18 +11,19 @@ import (
 
 type MockResolver struct {
 	mock.Mock
-	Schema     *schema.Schema
-	RootField  *graphql.Field
-	RootObject map[string]interface{}
+	Schema        *schema.Schema
+	RootField     *graphql.Field
+	RootFieldName string
+	RootObject    map[string]interface{}
 }
 
 func (mr *MockResolver) Resolve(query string) *graphql.Result {
+	fields := graphql.Fields{}
+	fields[mr.RootFieldName] = mr.RootField
 	schemaObject := graphql.ObjectConfig{
 		Name:        "RootObj",
 		Description: "Location of the root query",
-		Fields: graphql.Fields{
-			"Root": mr.RootField,
-		},
+		Fields:      fields,
 	}
 
 	schema, err := graphql.NewSchema(graphql.SchemaConfig{
