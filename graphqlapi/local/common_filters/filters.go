@@ -1,6 +1,10 @@
 package common_filters
 
 import (
+	"encoding/json"
+	"fmt"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/graphql-go/graphql"
 )
 
@@ -66,4 +70,64 @@ func init() {
 		Type:        graphql.NewList(operands),
 		Description: "Operands in the 'where' filter field, is a list of objects",
 	}
+}
+
+type Operator int
+
+const OperatorEqual = 1
+
+type LocalFilter struct {
+	Root *Clause
+}
+
+type Path struct {
+	Kind     kind.Kind
+	Class    schema.ClassName
+	Property schema.PropertyName
+}
+
+type Value struct {
+	Value interface{}
+}
+
+type Clause struct {
+	Operator Operator
+	On       *Path
+	Value    *Value
+}
+
+func ExtractFilters(args map[string]interface{}) (*LocalFilter, error) {
+	where, wherePresent := args["where"]
+	if !wherePresent {
+		return nil, nil
+	} else {
+		whereMap := where.(map[string]interface{}) // guaranteed by GraphQL to be a map.
+		rootClause, err := parseClause(whereMap)
+		if err != nil {
+			return nil, err
+		} else {
+			return &LocalFilter{Root: rootClause}, nil
+		}
+	}
+}
+
+func parseClause(args map[string]interface{}) (*Clause, error) {
+	operator, operatorOk := args["operator"]
+	if !operatorOk {
+		return nil, fmt.Errorf("operand is missing in clause %s", jsonify(args))
+	}
+
+	switch operator {
+	case "Equal":
+		return &Clause{
+			Operator: OperatorEqual,
+		}, nil
+	default:
+		return nil, fmt.Errorf("Unknown operator '%s' in clause %s", operator, jsonify(args))
+	}
+}
+
+func jsonify(stuff interface{}) string {
+	j, _ := json.Marshal(stuff)
+	return string(j)
 }

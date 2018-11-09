@@ -6,7 +6,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	common "github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_resolver"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 	graphql_ast "github.com/graphql-go/graphql/language/ast"
@@ -81,7 +80,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			fmt.Printf("- LocalGet (extract resolver from source, parse filters )\n")
 			resolver := p.Source.(map[string]interface{})["Resolver"].(Resolver)
-			filters, err := extractLocalGetFilters(p)
+			filters, err := common_filters.ExtractFilters(p.Args)
 
 			if err != nil {
 				return nil, err
@@ -295,12 +294,6 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 	}
 
 	return &classField, nil
-}
-
-func extractLocalGetFilters(p graphql.ResolveParams) (*common_resolver.LocalFilters, error) {
-	filters := common_resolver.LocalFilters{}
-
-	return &filters, nil
 }
 
 func extractPropertiesFromFieldASTs(fieldASTs []*graphql_ast.Field) ([]SelectProperty, error) {
