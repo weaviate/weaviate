@@ -14,6 +14,7 @@ func newMockResolver() *mockResolver {
 		panic(err)
 	}
 	mocker := &mockResolver{}
+	mocker.RootFieldName = "Get"
 	mocker.RootField = field
 	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker)}
 	return mocker
