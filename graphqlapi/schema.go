@@ -28,9 +28,8 @@ type GraphQL interface {
 	Resolve(query string, operationName string, variables map[string]interface{}, context context.Context) *graphql.Result
 }
 
-
 type graphQL struct {
-	schema   graphql.Schema
+	schema           graphql.Schema
 	resolverProvider ResolverProvider
 }
 
@@ -43,18 +42,18 @@ func Build(dbSchema *schema.Schema, resolverProvider ResolverProvider) (GraphQL,
 	}
 
 	return &graphQL{
-		schema:   graphqlSchema,
+		schema:           graphqlSchema,
 		resolverProvider: resolverProvider,
 	}, nil
 }
 
 func (g *graphQL) Resolve(query string, operationName string, variables map[string]interface{}, context context.Context) *graphql.Result {
-  if g.resolverProvider == nil {
-    panic("Empty resolver provider")
-  }
+	if g.resolverProvider == nil {
+		panic("Empty resolver provider")
+	}
 
-  resolver := g.resolverProvider.GetResolver()
-  defer resolver.Close()
+	resolver := g.resolverProvider.GetResolver()
+	defer resolver.Close()
 
 	return graphql.Do(graphql.Params{
 		Schema:         g.schema,

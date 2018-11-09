@@ -5,12 +5,12 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
+	"github.com/creativesoftwarefdn/weaviate/messages"
 )
 
 type Database interface {
-  graphqlapi.ResolverProvider
+	graphqlapi.ResolverProvider
 
 	ConnectorLock() ConnectorLock
 	SchemaLock() SchemaLock
@@ -89,9 +89,9 @@ func (db *database) SchemaLock() SchemaLock {
 }
 
 func (db *database) GetResolver() graphqlapi.ClosingResolver {
-  lock := db.ConnectorLock()
+	lock := db.ConnectorLock()
 
-  return &dbClosingResolver {
-    connectorLock: lock,
-  }
+	return &dbClosingResolver{
+		connectorLock: lock,
+	}
 }

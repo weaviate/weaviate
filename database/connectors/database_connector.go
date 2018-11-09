@@ -23,9 +23,9 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 )
 
 // BaseConnector is the interface that all connectors should have
@@ -68,7 +68,7 @@ type BaseConnector interface {
 type DatabaseConnector interface {
 	BaseConnector
 	connector_state.Connector
-  graphqlapi.Resolver
+	graphqlapi.Resolver
 
 	GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error
 	GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionResponse *models.ActionsListResponse) error

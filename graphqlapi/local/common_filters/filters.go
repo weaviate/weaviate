@@ -4,9 +4,7 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
-var CommonFilters graphql.InputObjectConfigFieldMap
-
-var staticFilterElements graphql.InputObjectConfigFieldMap = graphql.InputObjectConfigFieldMap{
+var CommonFilters graphql.InputObjectConfigFieldMap = graphql.InputObjectConfigFieldMap{
 	"operator": &graphql.InputObjectFieldConfig{
 		Type: graphql.NewEnum(graphql.EnumConfig{
 			Name: "WhereOperatorEnum",
@@ -54,23 +52,18 @@ func init() {
 		graphql.InputObjectConfig{
 			Name: "WhereOperandsInpObj",
 			Fields: (graphql.InputObjectConfigFieldMapThunk)(func() graphql.InputObjectConfigFieldMap {
-				outputFieldConfigMap := staticFilterElements
-
-				outputFieldConfigMap["operands"] = &graphql.InputObjectFieldConfig{
+				CommonFilters["operands"] = &graphql.InputObjectFieldConfig{
 					Type:        graphql.NewList(operands),
 					Description: "Operands in the 'where' filter field, is a list of objects",
 				}
-
-				return outputFieldConfigMap
+				return CommonFilters
 			}),
 			Description: "Operands in the 'where' filter field, is a list of objects",
 		},
 	)
 
-	CommonFilters = graphql.InputObjectConfigFieldMap{
-		"operands": &graphql.InputObjectFieldConfig{
-			Type:        graphql.NewList(operands),
-			Description: "Operands in the 'where' filter field, is a list of objects",
-		},
+	CommonFilters["operands"] = &graphql.InputObjectFieldConfig{
+		Type:        graphql.NewList(operands),
+		Description: "Operands in the 'where' filter field, is a list of objects",
 	}
 }

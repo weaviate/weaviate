@@ -1,12 +1,12 @@
 package helper
 
 import (
+	"encoding/json"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/graphql-go/graphql"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"testing"
-  "encoding/json"
-  "github.com/stretchr/testify/assert"
 )
 
 type MockResolver struct {
@@ -52,14 +52,14 @@ func (mr *MockResolver) AssertResolve(t *testing.T, query string) interface{} {
 	return result.Data
 }
 
-func (mr *MockResolver) AssertJSONResponse(t *testing.T, query string, expectedResponseString string)  {
-  var expectedResponse map[string]interface{}
-  err := json.Unmarshal([]byte(expectedResponseString), &expectedResponse)
-  if err != nil {
-    t.Fatalf("Could not parse '%s' as json: %v", expectedResponseString, err)
-  }
+func (mr *MockResolver) AssertJSONResponse(t *testing.T, query string, expectedResponseString string) {
+	var expectedResponse map[string]interface{}
+	err := json.Unmarshal([]byte(expectedResponseString), &expectedResponse)
+	if err != nil {
+		t.Fatalf("Could not parse '%s' as json: %v", expectedResponseString, err)
+	}
 
-  response := mr.AssertResolve(t, query)
+	response := mr.AssertResolve(t, query)
 
-  assert.Equal(t, expectedResponse, response)
+	assert.Equal(t, expectedResponse, response)
 }

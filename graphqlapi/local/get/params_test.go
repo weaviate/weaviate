@@ -9,7 +9,7 @@ import (
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {
-  t.Parallel()
+	t.Parallel()
 
 	resolver := newMockResolver()
 

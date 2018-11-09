@@ -1470,7 +1470,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 		// Note that this is thread safe; we're running in a single go-routine, because the event
 		// handlers are called when the SchemaLock is still held.
 
-    fmt.Printf("UPDATESCHEMA DB: %#v\n", db)
+		fmt.Printf("UPDATESCHEMA DB: %#v\n", db)
 		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, db)
 		if err != nil {
 			// TODO: turn on safe mode
@@ -1487,7 +1487,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	if err != nil {
 		messaging.ExitError(1, fmt.Sprintf("Could not initialize the database: %s", err.Error()))
 	}
-  manager.TriggerSchemaUpdateCallbacks()
+	manager.TriggerSchemaUpdateCallbacks()
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.

@@ -52,9 +52,9 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 )
 
 // Foobar has some basic variables.
@@ -428,5 +428,5 @@ func (f *Foobar) SetStateManager(manager connector_state.StateManager) {
 }
 
 func (f *Foobar) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (func() interface{}, error) {
-  return func() interface{} { return nil }, nil
+	return func() interface{} { return nil }, nil
 }
