@@ -66,3 +66,7 @@ _local
 weave-current.json
 weave-current-discovery.json
 .vscode/
+
+
+# local nodes folders
+graphqlapi/prototype/node_modules/

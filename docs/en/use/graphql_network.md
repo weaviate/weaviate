@@ -15,6 +15,7 @@ subject: OSS
 - [Introspect function](#introspect-function)
 	- [Introspect Things and Actions](#introspect-things-and-actions)
 	- [Introspect a beacon](#introspect-a-beacon)
+- [GetMeta function](#getmeta-function)
 - [Filters](#filters)
 
 
@@ -63,15 +64,15 @@ Via the P2P network, it will be possible to request ontologies of the Weaviate i
 {
   Network{
     Get(where:{
-        path: ["weaviateB", "Things", "City", "name"],
+        path: ["weaviateB", "Things", "Airport", "place"],
         operator: Equal,
         valueString: "Amsterdam"
       }){
       weaviateB{
       	Things{
           Airport {
+            code
             place
-            label
           }
         }
       }
@@ -80,14 +81,11 @@ Via the P2P network, it will be possible to request ontologies of the Weaviate i
           Municipality {
             name
           }
-          Human {
-            birthday
-            name
-          }
         }
       }
     }
   }
+}
 ```
 
 
@@ -233,6 +231,39 @@ Where
 
 Note that this query does not resolve in a list, but returns only one class name with a list of its properties.
 
+
+## GetMeta function
+For nodes in the network, meta information can be queried just like for nodes in a local Weaviate. 
+
+``` graphql
+{
+  Network{
+    GetMeta(where:{
+        path: ["weaviateB", "Things", "Airport", "place"],
+        operator: Equal,
+        valueString: "Amsterdam"
+      }){
+      weaviateB{
+      	Things{
+          Airport {
+            meta{
+              count
+            }
+            place{
+              type
+              count
+              topOccurrences(first:2) {
+                value
+                occurs
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 ## Filters
 
