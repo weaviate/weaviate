@@ -1,8 +1,13 @@
+---
+publishedOnWebsite: false
+title: Contextionary
+subject: OSS
+---
+
 # Contextionary
 
 The contextionary is a stand-alone library that can be used to understand words, in a certain context, and how they relate to each other.
-It is based on [Spotify's Annoy Library](https://github.com/spotify/annoy), but adds a wrapping layer to be more user friendly.
-
+It is based on [Spotify's Annoy Library](https://github.com/spotify/annoy) and the models are trained using [GloVe](https://github.com/stanfordnlp/GloVe), but adds a wrapping layer to be more user friendly.
 
 ## API
 The API that the user of this library will use is the Contextionary interface.
@@ -68,7 +73,6 @@ There are several implementations of the `Contextionary` interface
 - In-memory index
 - Combining index
 
-
 The **Memory Mapped index**, uses an optimized pre-build datastructure that is loaded on-demand
 and efficiently from disk.
 This is suitable for big datasets that you don't want to load on-line, but preprocess before.
@@ -105,4 +109,25 @@ var indices_to_be_combined []Contextionary = { vi1, vi2, }
 combined_index, err := contextionary.CombineVectorIndices(indices_to_be_combined)
 
 // after which it can be queries as descrbied in the interface section.
+```
+
+## Helper Functions
+
+There are a few helper functions available that you can call.
+
+```golang
+import libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
+```
+
+Overview of the API
+
+```golang
+// Calculate a centroid of vector points
+ComputeCentroid(vectors []Vector) (*Vector, error)
+
+// Calculate a centroid of vector points with a weight, used to put more emphasis on a certain word
+ComputeWeightedCentroid(vectors []Vector, weights []float32) (*Vector, error)
+
+// Combined vector indices, allows you to create one "new word"
+CombineVectorIndices(indices []Contextionary) (*CombinedIndex, error)
 ```
