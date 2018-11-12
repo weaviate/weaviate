@@ -1,56 +1,70 @@
-###                        _       _
-#__      _____  __ ___   ___  __ _| |_ ___
-#\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-# \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-#  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-#
-# Copyright © 2016 - 2018 Weaviate. All rights reserved.
-# LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
-# AUTHOR: Bob van Luijt (bob@kub.design)
-# See www.creativesoftwarefdn.org for details
-# Contact: @CreativeSofwFdn / bob@kub.design
-###
+# Dockerfile for development purposes.
+# Read docs/development.md for more information
 
-# Run on Ubuntu
-FROM ubuntu:16.04
+# vi: ft=dockerfile
 
-# Set config args
-ARG config_file=./weaviate.conf.json 
-ARG action_schema=./test/schema/test-action-schema.json
-ARG thing_schema=./test/schema/test-thing-schema.json
+###############################################################################
+# Base build image
+FROM golang:1.11-alpine AS build_base
+RUN apk add bash ca-certificates git gcc g++ libc-dev
+WORKDIR /go/src/github.com/creativesoftwarefdn/weaviate
+ENV GO111MODULE=on
+# Populate the module cache based on the go.{mod,sum} files.
+COPY go.mod .
+COPY go.sum .
+RUN go mod download
 
-# Set parametrase build args
-ARG release=nightly
-ARG platform=linux
-ARG architecture=amd64
+###############################################################################
+# This image builds the old acceptance testss
+FROM build_base AS acceptance_test
+COPY . .
+ENTRYPOINT ["go", "test", "./test/full_test.go"]
 
-# Crearing the dir of weaviate
-RUN mkdir -p /var/weaviate/config && cd /var/weaviate
+###############################################################################
+# This image builds the new acceptance testss
+FROM build_base AS new_acceptance_test
+COPY . .
+ENTRYPOINT ["go", "test", "./test/acceptance"]
 
-# Install needed packages and scripts
-RUN echo "BUILDING ${release}_${platform}_${architecture}.zip"
 
-RUN apt-get -qq update && apt-get -qq install -y jq curl zip wget python-pip && \
-    wget -q -O /var/weaviate/weaviate.zip "https://storage.googleapis.com/weaviate-dist/nightly/weaviate_${release}_${platform}_${architecture}.zip" && \
-    cd /var/weaviate && unzip -o -q -j /var/weaviate/weaviate.zip && \
-    rm /var/weaviate/weaviate.zip && \
-    chmod +x /var/weaviate/weaviate && \
-    pip install --upgrade pip && \
-    pip install cqlsh
-    
-# Expose dgraph ports
-EXPOSE 80
+###############################################################################
+# This image builds the weavaite server
+FROM build_base AS server_builder
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go install -a -tags netgo -ldflags '-w -extldflags "-static"' ./cmd/weaviate-server
 
-# Copying config files with using args
-COPY $config_file /var/weaviate/$config_file
-COPY $action_schema /var/weaviate/$action_schema
-COPY $thing_schema /var/weaviate/$thing_schema
+###############################################################################
+# This image builds the contextionary fixtures.
+FROM build_base AS contextionary_fixture_builder
+COPY . .
+RUN ./test/contextionary/gen_simple_contextionary.sh
 
-# Copy script in container
-COPY ./weaviate-entrypoint.sh /var/weaviate/weaviate-entrypoint.sh
+###############################################################################
+# This creates an image that can be run to import the demo dataset for development
+FROM build_base AS data_importer
+COPY . .
+ENTRYPOINT ["./tools/dev/import_demo_data.sh"]
 
-# Set workdir
-WORKDIR /var/weaviate/
+###############################################################################
+# This is the base image for running waviates configurations; contains the executable & contextionary
+FROM alpine as weaviate_base
+COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
+COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
+COPY --from=contextionary_fixture_builder /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.idx /contextionary/example.idx
+COPY --from=contextionary_fixture_builder /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.knn /contextionary/example.knn
+ENTRYPOINT ["/bin/weaviate"]
 
-# Run!
-ENTRYPOINT ["./weaviate-entrypoint.sh"]
+###############################################################################
+# Development configuration with demo dataset
+FROM weaviate_base AS development
+COPY ./tools/dev/schema /schema
+COPY ./tools/dev/config.json /weaviate.conf.json
+CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config", "janusgraph_docker"]
+
+###############################################################################
+# Configuration used for the acceptance tests.
+FROM weaviate_base AS test
+COPY ./test/schema/test-action-schema.json /schema/actions_schema.json
+COPY ./test/schema/test-thing-schema.json /schema/things_schema.json
+COPY ./tools/dev/config.json /weaviate.conf.json
+CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config", "janusgraph_docker"]
