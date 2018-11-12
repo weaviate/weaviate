@@ -195,7 +195,7 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *string, atContext *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema, key **models.SingleRef) error {
 	// Fetch the class, it's key, and it's relations.
 	q := gremlin.G.V().
-		StringProperty(PROP_KIND, k.Name()).
+		HasString(PROP_KIND, k.Name()).
 		HasString(PROP_UUID, string(searchUUID)).
 		As("class").
 		OutEWithLabel(KEY_VERTEX_LABEL).As("keyEdge").
