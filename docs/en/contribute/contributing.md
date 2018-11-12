@@ -46,7 +46,6 @@ To see the latest version, run on of the following [jq](https://stedolan.github.
 | Get current `tree/develop` version | `$ curl -sS https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/openapi-specs/schema.json \| jq -r ".info.version"` |
 | Get current `tree/master` |  version `$ curl -sS https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/openapi-specs/schema.json \| jq -r '.info.version' ` |
 
-
 ### Gitflow
 
 Weaviate uses [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) which means that the master branch is stable.
@@ -85,16 +84,24 @@ Be sure to run a weaviate instance backed by the schema in test/schema.
 Then run the acceptance tests:
 
 ```
-docker build -f Dockerfile.dev --target acceptance_test -t weaviate/acceptance_test .
-docker run --net=host --rm weaviate/acceptance_test -args -server-port=8080 -server-host=localhost -api-token=blah -api-key=blah
+docker build -f Dockerfile --target acceptance_test -t weaviate/acceptance_test .
+docker run --net=host --rm weaviate/acceptance_test -args -server-port=8080 -server-host=localhost -api-token=blah -api-key=foobar
 ```
 
 and the refactored (and faster, but incomplete) acceptance tests:
 
 ```
-docker build -f Dockerfile.dev --target new_acceptance_test -t weaviate/new_acceptance_test .
-docker run --net=host --rm weaviate/new_acceptance_test -args -server-port=8080 -server-host=localhost -api-token=blah -api-key=blah
+docker build -f Dockerfile --target new_acceptance_test -t weaviate/new_acceptance_test .
+docker run --net=host --rm weaviate/new_acceptance_test -args -server-port=8080 -server-host=localhost -api-token=blah -api-key=foobar
 ```
+
+### Docker Images
+
+Running Docker works as follows:
+
+- `weaviate/dev-server:latest` = Master branch.
+- `weaviate/dev-server:unstable` = Develop branch (note our [Gitflow](#gitflow) process).
+- `weaviate/dev-server:vx.y.z` = Specific [release](https://github.com/creativesoftwarefdn/weaviate/releases).
 
 # Contribute to documentation
 
