@@ -75,7 +75,7 @@ createErrorResponseObject("Error 1", "Error 2", "etc")
 ## Dockerized development environment
 
 Want to quickly build & run the currently checked out version of weaviate?
-Check the instructions in the [docker-compose-dev.yml](../docker-compose-dev.yml) file.
+Check the instructions in the [docker-compose.yml](../docker-compose.yml) file.
 
 ### Build and run the acceptance tests in Docker
 

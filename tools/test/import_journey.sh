@@ -6,8 +6,8 @@ set -euo pipefail
 # but also if test data cannot be importet. It therefore tests the journey
 # of the weaviate developer.
 
-docker-compose -f docker-compose-dev.yml build
-docker-compose -f docker-compose-dev.yml up -d
+docker-compose -f docker-compose.yml build
+docker-compose -f docker-compose.yml up -d
 
 # wait for 5 minutes
 MAX_WAIT_SECONDS=300
