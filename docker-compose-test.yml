@@ -12,13 +12,7 @@ services:
     ports:
      - "8080:8080"
   janus:
-    image: janusgraph:0.2.0-hadoop2
-    build:
-      dockerfile: Dockerfile.janus
-      args:
-        version: 0.2.0
-        hadoop: hadoop2
-      context: ./tools/dev/janusgraph-docker/
+    image: creativesoftwarefdn/janusgraph-docker
     depends_on:
       - db
       - index
