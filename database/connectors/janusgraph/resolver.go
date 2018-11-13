@@ -26,7 +26,14 @@ func (j *Janusgraph) LocalGetClass(params *graphql_local_get.LocalGetClassParams
 	ch := make(chan resolveResult, 1)
 
 	go func() {
-		defer close(ch)
+		defer func() {
+			if r := recover(); r != nil {
+				// send error over the channel
+				ch <- resolveResult{err: fmt.Errorf("Janusgraph.LocalGetClass paniced: %#v", r)}
+			}
+			close(ch)
+		}()
+
 		results := []interface{}{}
 
 		className := schema.AssertValidClassName(params.ClassName)
