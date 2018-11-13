@@ -66,7 +66,7 @@ func (j *Janusgraph) ListThings(ctx context.Context, first int, offset int, keyI
 	response.TotalResults = 0
 	response.Things = make([]*models.ThingGetResponse, 0)
 
-	return j.listClass(kind.THING_KIND, first, offset, keyID, wheres, func(uuid strfmt.UUID) {
+	return j.listClass(kind.THING_KIND, nil, first, offset, keyID, wheres, func(uuid strfmt.UUID) {
 		var thing_response models.ThingGetResponse
 		err := j.GetThing(ctx, uuid, &thing_response)
 

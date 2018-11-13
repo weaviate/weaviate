@@ -6,6 +6,7 @@ import (
 	common "github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/go-openapi/strfmt"
+	"unicode"
 )
 
 type Resolver interface {
@@ -22,6 +23,15 @@ type LocalGetClassParams struct {
 
 type SelectProperty struct {
 	Name string
+}
+
+func (sp SelectProperty) IsPrimitive() bool {
+	var first rune
+	for _, c := range sp.Name {
+		first = c
+		break
+	}
+	return unicode.IsLower(first)
 }
 
 // Internal struct to bubble data through the resolvers.
