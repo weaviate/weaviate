@@ -508,13 +508,20 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 	return err
 }
 
-func (j *Janusgraph) listClass(k kind.Kind, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, yield func(id strfmt.UUID)) error {
+func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, yield func(id strfmt.UUID)) error {
 	if len(wheres) > 0 {
 		return errors.New("Wheres are not supported in ListThings")
 	}
 
 	q := gremlin.G.V().
-		HasString(PROP_KIND, k.Name()).
+		HasString(PROP_KIND, k.Name())
+
+	if className != nil {
+		vertexLabel := j.state.getMappedClassName(*className)
+		q = q.HasString(PROP_CLASS_ID, string(vertexLabel))
+	}
+
+	q = q.
 		Range(offset, first).
 		Values([]string{PROP_UUID})
 
