@@ -78,7 +78,17 @@ func init() {
 
 type Operator int
 
-const OperatorEqual = 1
+const (
+  OperatorEqual              Operator = 1
+  OperatorNotEqual           Operator = 2
+  OperatorGreaterThan        Operator = 3
+  OperatorGreaterThanEqual   Operator = 4
+  OperatorLessThan           Operator = 5
+  OperatorLessThanEqual      Operator = 6
+  OperatorAnd                Operator = 7
+  OperatorOr                 Operator = 8
+  OperatorNot                Operator = 9
+)
 
 type LocalFilter struct {
 	Root *Clause
@@ -104,6 +114,7 @@ type Clause struct {
 	Operator Operator
 	On       *Path
 	Value    *Value
+  Operands []Clause
 }
 
 func ExtractFilters(args map[string]interface{}) (*LocalFilter, error) {
@@ -131,8 +142,24 @@ func parseClause(args map[string]interface{}) (*Clause, error) {
 	var err error
 
 	switch operator {
+	case "And":
+		clause, err = parseOperandsOp(args, OperatorAnd)
+	case "Or":
+		clause, err = parseOperandsOp(args, OperatorOr)
+	case "Not":
+		clause, err = parseOperandsOp(args, OperatorOr)
 	case "Equal":
 		clause, err = parseCompareOp(args, OperatorEqual)
+	case "NotEqual":
+		clause, err = parseCompareOp(args, OperatorNotEqual)
+	case "GreaterThan":
+		clause, err = parseCompareOp(args, OperatorGreaterThan)
+	case "GreaterThanEqual":
+		clause, err = parseCompareOp(args, OperatorGreaterThanEqual)
+	case "LessThan":
+		clause, err = parseCompareOp(args, OperatorLessThan)
+	case "LessThanEqual":
+		clause, err = parseCompareOp(args, OperatorLessThanEqual)
 	default:
 		err = fmt.Errorf("Unknown operator '%s' in clause %s", operator, jsonify(args))
 	}
@@ -156,6 +183,40 @@ func parseCompareOp(args map[string]interface{}, operator Operator) (*Clause, er
 		On:       path,
 		Value:    value,
 	}, nil
+}
+
+func parseOperandsOp(args map[string]interface{}, operator Operator) (*Clause, error) {
+	path, err := parsePath(args)
+	if err != nil {
+		return nil, err
+	}
+
+  rawOperands, ok = args["operands"]
+  if !ok {
+    return nil, fmt.Errorf("No operands given in clause '%s'", jsonify(args))
+  }
+  
+  operands, ok = rawOperands.([]interface{})
+  pasdasdf
+	operands, err := parseOperands(operands)
+	if err != nil {
+		return nil, err
+	}
+
+  if len(operands) == 0 {
+    return nil, fmt.Errorf("Empty clause given")
+  }
+
+	return &Clause{
+		Operator: operator,
+		On:       path,
+		Operands: operands,
+	}, nil
+}
+
+func parseOperands(operands []interface{}) ([]Clause, error) {
+  for each blah
+  return nil, nil
 }
 
 func parsePath(args map[string]interface{}) (*Path, error) {
