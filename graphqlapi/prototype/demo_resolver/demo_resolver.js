@@ -322,6 +322,9 @@ const solve_operands = function (operator, operands, location="Local") {
 			if (operand.valueString) {
 				result = solve_path(operand.operator, operand.path, operand.valueString, location)
 			}
+			else if (operand.valueDate) {
+				result = solve_path(operand.operator, operand.path, operand.valueDate, location)
+			}
 			else if (operand.valueInt) {
 				result = solve_path(operand.operator, operand.path, operand.valueInt, location)
 			}
@@ -332,26 +335,29 @@ const solve_operands = function (operator, operands, location="Local") {
 				result = solve_path(operand.operator, operand.path, operand.valueFloat, location)
 			}
 		}
-
 		if (operator == 'And') {
 			for (var key in result) {
-				if (all_data[key] !== undefined) {
-					all_data[key] = result[key].filter(value => -1 !== all_data[key].indexOf(value));
+				if (all_data[location][key] !== undefined) {
+					all_data[location][key] = result[key].filter(value => -1 !== all_data[location][key].indexOf(value));
 				}
 			}
-			return_data = all_data
+			return_data = all_data[location]
 		}
 		else if (operator == 'Or') {
 			for (var key in result) {
-				all_data[key] = _.union(result[key], all_data[key])
+				all_data[location][key] = _.union(result[key], all_data[location][key])
 			}
-			return_data = all_data
+			return_data = all_data[location]
+
 		}
 		else if (operator == 'Not' || operator == 'NotEqual') {
+			data1 = JSON.parse(fs.readFileSync('./demo_resolver/demo_data.json', 'utf8'));
+			all_data1 = _.clone(data1);
 			for (var key in result) { // list of things and actions
-				all_data[key] = _.differenceWith(data[key], result[key], _.isEqual)
+				console.log(all_data1)
+				all_data1[location][key] = _.differenceWith(data1[location][key], result[key], _.isEqual)
 			}
-			return_data = all_data
+			return_data = all_data1[location]
 		}
 	}
 	return return_data
@@ -371,6 +377,9 @@ module.exports = {
 			else {
 				if (filter.valueString) {
 					return solve_path(filter.operator, filter.path, filter.valueString)
+				}
+				else if (filter.valueDate) {
+					return solve_path(filter.operator, filter.path, filter.valueDate)
 				}
 				else if (filter.valueInt) {
 					return solve_path(filter.operator, filter.path, filter.valueInt)
@@ -418,6 +427,9 @@ module.exports = {
 			else {
 				if (filter.valueString) {
 					return solve_path(filter.operator, filter.path, filter.valueString, location=path[0])
+				}
+				else if (filter.valueDate) {
+					return solve_path(filter.operator, filter.path, filter.valueDate, location=path[0])
 				}
 				else if (filter.valueInt) {
 					return solve_path(filter.operator, filter.path, filter.valueInt, location=path[0])

@@ -71,10 +71,11 @@ More generally, the `where` filter is an algrebraic designed object, which takes
   - `LessThanEqual`
 - `Operands`: Is a list of filter objects of this same structure
 - `Path`: Is a list of Strings indicating the path from 'Things' or 'Actions' to the specific property name
-- `ValueInt`: The integer value where the Path's last property name should be compared to
-- `ValueBoolean`: The boolean value where the Path's last property name should be compared to
-- `ValueString`: The string value where the Path's last property name should be compared to
-- `ValueNumber`: The number (float) value where the Path's last property name should be compared to
+- `ValueInt`: The integer value where the path's last property name should be compared to
+- `ValueBoolean`: The boolean value where the path's last property name should be compared to
+- `ValueString`: The string value where the path's last property name should be compared to
+- `ValueNumber`: The number (float) value where the path's last property name should be compared to
+- `ValueDate`: The date (ISO 8601 timestamp) value where the path's last property name should be compared to
 
 The following 'rules' for using the 'where' filter apply:
 - If the operator is `And` or `Or`, the `Operands` must be filled.

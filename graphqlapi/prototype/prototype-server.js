@@ -140,6 +140,12 @@ var whereFields = {
     description: function() {
       return getDesc("WhereValueString")},
     type: GraphQLString 
+  },
+  valueString: { 
+    name: "WhereValueDate",
+    description: function() {
+      return getDesc("WhereValueDate")},
+    type: GraphQLString 
   }
 }
 
@@ -741,6 +747,12 @@ var NetworkFetchWherePropertyFilterFields = {
     name: "NetworkFetchWherePropertyWhereValueString",
     description: function() {
       return getDesc("WhereValueString")},
+    type: GraphQLString 
+  },
+  valueDate: { 
+    name: "NetworkFetchWherePropertyWhereValueDate",
+    description: function() {
+      return getDesc("WhereValueDate")},
     type: GraphQLString 
   }
 }
