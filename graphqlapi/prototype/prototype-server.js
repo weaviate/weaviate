@@ -141,7 +141,7 @@ var whereFields = {
       return getDesc("WhereValueString")},
     type: GraphQLString 
   },
-  valueString: { 
+  valueDate: { 
     name: "WhereValueDate",
     description: function() {
       return getDesc("WhereValueDate")},
@@ -454,7 +454,19 @@ function createMetaSubClasses(ontologyThings, location='') {
                     percentageTrue: {
                       name: location + "Meta" + singleClass.class + singleClassProperty.name + "PercentageTrue",
                       description: function() {
-                        return getDesc("MetaClassPropertyPerentageTrue")},
+                        return getDesc("MetaClassPropertyPercentageTrue")},
+                      type: GraphQLFloat,
+                    },
+                    totalFalse: {
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "TotalFalse",
+                      description: function() {
+                        return getDesc("MetaClassPropertyTotalFalse")},
+                      type: GraphQLInt,
+                    },
+                    percentageFalse: {
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "PercentageFalse",
+                      description: function() {
+                        return getDesc("MetaClassPropertyPercentageFalse")},
                       type: GraphQLFloat,
                     }
                   })

@@ -148,6 +148,8 @@ The query below returns metadata of the nodes in the class `City`.
             count
             totalTrue
             percentageTrue
+            totalFalse
+            percentageFalse
           }
           population {
             type
@@ -198,6 +200,8 @@ The same filters as the converted fetch can be used to filter the data. The foll
             count
             totalTrue
             percentageTrue
+            totalFalse
+            percentageFalse
           }
           population {
             type

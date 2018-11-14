@@ -45,7 +45,9 @@ var solveMetaRootClass = function(all_data, className, args) {
 			else if (type == "boolean") {
 				metadata[key]["type"] = "boolean"
 				metadata[key]["totalTrue"] = 0
+				metadata[key]["totalFalse"] = 0
 				metadata[key]["percentageTrue"] = 0
+				metadata[key]["percentageFalse"] = 0
 			}
 			else if (type == "string") {
 				if (!isNaN(nodes_in_class[0][key])) {
@@ -74,7 +76,11 @@ var solveMetaRootClass = function(all_data, className, args) {
 					if (nodes_in_class[node][key] == true) {
 						metadata[key]["totalTrue"] += 1;
 					}
+					else {
+						metadata[key]["totalFalse"] += 1;
+					}
 					metadata[key]["percentageTrue"] = (metadata[key]["totalTrue"] / metadata[key]["count"] * 100);
+					metadata[key]["percentageFalse"] = (metadata[key]["totalFalse"] / metadata[key]["count"] * 100);
 				}
 				else if (type == "string") {
 					if (!isNaN(nodes_in_class[node][key])) {

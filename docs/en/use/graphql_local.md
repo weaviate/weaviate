@@ -96,6 +96,8 @@ Generic meta data about classes and its properties can be queried. Property meta
 - `Boolean`: 
 	- `totalTrue`
 	- `percentageTrue`
+  - `totalFalse`
+  - `percentageFalse`
 - Reference:
 	- `pointingTo`
 
@@ -139,6 +141,8 @@ The query below returns metadata of the nodes in the class `Animal`.
             count
             totalTrue
             percentageTrue
+            totalFalse
+            percentageFalse
           }
         }
       }
