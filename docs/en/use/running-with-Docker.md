@@ -11,9 +11,9 @@ The easiest way to get Weaviate running is through Docker Compose. Below is a li
 ### simple-http-service
 
 - Build Weaviate: `docker-compose -f docker-compose.yml build weaviate`
-- Run Weaviate: `TBD`
+- Run Weaviate: `docker-compose up -d`
 - Directly builds and runs Weaviate, JanusGraph, Cassandra and Elastic with the [standard contextionary](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/use/FAQ.md#q-what-does-the-standard-contextionary-consists-of). The docker compose files are available [here](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docker-compose.yml)
-- Weaviate will become available on: http://test
+- Weaviate will become available on: http://localhost:8080/
 
 ### simple-https-service
 
