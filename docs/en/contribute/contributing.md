@@ -97,11 +97,11 @@ docker run --net=host --rm weaviate/new_acceptance_test -args -server-port=8080 
 
 ### Docker Images
 
-Running Docker works as follows:
+The Docker image naming structure works as follows:
 
-- `weaviate/dev-server:latest` = Master branch.
-- `weaviate/dev-server:unstable` = Develop branch (note our [Gitflow](#gitflow) process).
-- `weaviate/dev-server:vx.y.z` = Specific [release](https://github.com/creativesoftwarefdn/weaviate/releases).
+- `creativesoftwarefdn/weaviate-dev-server:latest` = Master branch.
+- `creativesoftwarefdn/weaviate-dev-server:unstable` = Develop branch (note our [Gitflow](#gitflow) process).
+- `creativesoftwarefdn/weaviate-dev-server:vx.y.z` = Specific [release](https://github.com/creativesoftwarefdn/weaviate/releases).
 
 # Contribute to documentation
 
