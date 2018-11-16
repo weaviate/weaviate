@@ -70,7 +70,7 @@ var WhereOperators = new GraphQLEnumType({
       value: "Equal"
     }, 
     "Not": {
-      value: "NotEqual"
+      value: "Not"
     }, 
     "NotEqual": {
       value: "NotEqual"
