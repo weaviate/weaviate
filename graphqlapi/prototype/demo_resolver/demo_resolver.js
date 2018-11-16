@@ -305,7 +305,7 @@ const solve_path = function (operator, path, value, location="Local") {
 		// EQ
 		return resolve_EQ(path, value, location)
 	}
-	else if (operator == "Not" || operator == "NotEqual") {
+	else if (operator == "NotEqual") {
 		// NEQ
 		return resolve_NEQ(path, value, location)
 	}
@@ -318,12 +318,12 @@ const solve_operands = function (operator, operands, location="Local") {
 	for (var i in operands) {
 		operand = operands[i]
 
-		if (operand.operator == 'And' || operand.operator == 'Or') {
+		if (operand.operator == 'And' || operand.operator == 'Or' || operand.operator == 'Not') {
 			result = solve_operands(operand.operator, operand.operands, location)
 		}
-		else if ((operand.operator == 'Not' || operand.operator == 'NotEqual') && operand.operands) {
-			result = solve_operands(operand.operator, operand.operands)
-		}
+		// else if ((operand.operator == 'Not' || operand.operator == 'NotEqual') && operand.operands) {
+		// 	result = solve_operands(operand.operator, operand.operands)
+		// }
 		else {
 			if (operand.valueString) {
 				result = solve_path(operand.operator, operand.path, operand.valueString, location)
@@ -374,12 +374,12 @@ module.exports = {
 	resolveGet: function(filter) {
 		all_data = _.clone(data);
 		if (filter) {
-			if (filter.operator == 'And' || filter.operator == 'Or') {
+			if (filter.operator == 'And' || filter.operator == 'Or' || filter.operator == 'Not') {
 				return solve_operands(filter.operator, filter.operands)
 			}
-			else if ((filter.operator == 'Not' || filter.operator == 'NotEqual') && filter.operands) {
-				return solve_operands(filter.operator, filter.operands)
-			}
+			// else if ((filter.operator == 'Not' || filter.operator == 'NotEqual') && filter.operands) {
+			// 	return solve_operands(filter.operator, filter.operands)
+			// }
 			else {
 				if (filter.valueString) {
 					return solve_path(filter.operator, filter.path, filter.valueString)
@@ -424,12 +424,12 @@ module.exports = {
 		all_data = _.clone(data);
 		if (filter) {
 			path = filter.path
-			if (filter.operator == 'And' || filter.operator == 'Or') {
+			if (filter.operator == 'And' || filter.operator == 'Or' || filter.operator == 'Not') {
 				return solve_operands(filter.operator, filter.operands, location=filter.operands[0].path[0])
 			}
-			else if ((filter.operator == 'Not' || filter.operator == 'NotEqual') && filter.operands) {
-				return solve_operands(filter.operator, filter.operands, filter.operands[0].path[0])
-			}
+			// else if ((filter.operator == 'Not' || filter.operator == 'NotEqual') && filter.operands) {
+			// 	return solve_operands(filter.operator, filter.operands, filter.operands[0].path[0])
+			// }
 			else {
 				if (filter.valueString) {
 					return solve_path(filter.operator, filter.path, filter.valueString, location=path[0])
