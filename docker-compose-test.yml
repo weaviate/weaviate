@@ -12,7 +12,7 @@ services:
     ports:
      - "8080:8080"
   janus:
-    image: creativesoftwarefdn/janusgraph-docker
+    image: creativesoftwarefdn/janusgraph-docker:0.2.0
     depends_on:
       - db
       - index

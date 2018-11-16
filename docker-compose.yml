@@ -53,7 +53,7 @@ services:
       - weaviate
     restart: on-failure:0
   janus:
-    image: creativesoftwarefdn/janusgraph-docker
+    image: creativesoftwarefdn/janusgraph-docker:0.2.0
     depends_on:
       - db
       - index
