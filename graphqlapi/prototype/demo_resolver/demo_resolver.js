@@ -3,6 +3,88 @@ const _ = require('lodash');
 const fs = require('fs');
 const data = JSON.parse(fs.readFileSync('./demo_resolver/demo_data.json', 'utf8'));
 
+var solve_groupBy = function(filter, list) {
+	var groups = {}
+	var groupBy = filter.group;
+	
+	// group the items in the list on the group filter
+	for(var i=0; i<list.length; i++) {
+		if (list[i][groupBy] in groups) {
+			groups[list[i][groupBy]].push(list[i])
+		}
+		else {
+			groups[list[i][groupBy]] = [list[i]]
+		}
+	}
+
+	var returndict = {};
+	for(var group in groups) {
+		if (group == 'false') { group = false};
+		returndict[group] = {[groupBy]: group};
+	}
+
+	// apply the aggregation filters to the grouped data
+	if (filter.mean) {
+		for(var group in groups) {
+			var total = 0; count = 0;
+			for(var j=0; j<groups[group].length; j++) {
+				total += parseFloat(groups[group][j][filter.mean]);
+				count += 1;
+			};
+			var mean = total/count;
+			returndict[group][filter.mean] = mean
+		}
+	}
+	if (filter.maximum) {
+		for(var group in groups) {
+			var max = -9999999.;
+			for(var j=0; j<groups[group].length; j++) {
+				if (parseFloat(groups[group][j][filter.maximum]) > max) {
+					max = groups[group][j][filter.maximum];
+				};
+			};
+			returndict[group][filter.maximum] = max
+		}
+	}
+	if (filter.minimum) {
+		for(var group in groups) {
+			var min = 99999999;
+			for(var j=0; j<groups[group].length; j++) {
+				if (parseFloat(groups[group][j][filter.minimum]) < min) {
+					min = groups[group][j][filter.minimum];
+				};
+			};
+			returndict[group][filter.minimum] = min
+		}
+	}
+	if (filter.sum) {
+		for(var group in groups) {
+			var total = 0;
+			for(var j=0; j<groups[group].length; j++) {
+				total += parseFloat(groups[group][j][filter.sum])
+			};
+			returndict[group][filter.sum] = sum
+		}
+	}
+	if (filter.count) {
+		for(var group in groups) {
+			var count = 0;
+			count = groups[group].length
+			returndict[group][filter.count] = count
+		}
+	}
+
+
+	var returnlist = [];
+	for(var i in returndict) {
+		returnlist.push(returndict[i]);
+	}
+	
+	console.log(returnlist)
+	return returnlist
+}
+
+
 var solveMetaRootClass = function(all_data, className, args) {
 	var list = []
 	    for(var i=0; i < all_data.length; i++){
@@ -414,7 +496,10 @@ module.exports = {
 	    }
 	    if (args.first) {
 		    list = list.splice(0, args.first)
-	    }
+		}
+		if (args.groupBy) {[
+			list = solve_groupBy(args.groupBy, list)
+		]}
 	    return list
     },
     metaRootClassResolver: function(all_data, className, args) {

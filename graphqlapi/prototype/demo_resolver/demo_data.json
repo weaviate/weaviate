@@ -3,9 +3,7 @@
 		"Things": [{
 			"class": "TestThing",
 			"testString": "Amsterdam"
-		},
-			
-			{
+		}, {
 			"class": "City",
 			"uuid": "001",
 			"name": "Amsterdam",
