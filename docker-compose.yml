@@ -60,6 +60,8 @@ services:
     ports:
      - "8182:8182"
      - "8184:8184"
+    environment:
+     - DEV_MODE=true
   db:
     image: scylladb/scylla:2.0.1
     ports:
