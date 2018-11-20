@@ -229,6 +229,93 @@ var argsKeywords = new GraphQLInputObjectType({
 })
 
 /**
+ * create group by filter input object
+ */
+
+var groupByFilter = new GraphQLInputObjectType({
+  name: "groupByFilterInpObj",
+  description: function() {
+    return getDesc("groupByFilterInpObj")},
+  fields: {
+    group: {
+      name: "groupByFilterGroup",
+      description: function() {
+        return getDesc("groupByFilterGroup")},
+      type: new GraphQLNonNull(GraphQLString),
+    },
+    sum: {
+      name: "groupByFilterSum",
+      description: function() {
+        return getDesc("groupByFilterSum")},
+      type: GraphQLString,
+    },
+    maximum: {
+      name: "groupByFilterMaximum",
+      description: function() {
+        return getDesc("groupByFilterMaximum")},
+      type: GraphQLString,
+    },
+    minimum: {
+      name: "groupByFilterMinimum",
+      description: function() {
+        return getDesc("groupByFilterMinimum")},
+      type: GraphQLString,
+    },
+    count: {
+      name: "groupByFilterCount",
+      description: function() {
+        return getDesc("groupByFilterCount")},
+      type: GraphQLString,
+    },
+    median: {
+      name: "groupByFilterMedian",
+      description: function() {
+        return getDesc("groupByFilterMedian")},
+      type: GraphQLString,
+    },
+    mean: {
+      name: "groupByFilterMean",
+      description: function() {
+        return getDesc("groupByFilterMean")},
+      type: GraphQLString,
+    },
+    mode: {
+      name: "groupByFilterMode",
+      description: function() {
+        return getDesc("groupByFilterMode")},
+      type: GraphQLString,
+    },
+    percentage: {
+      name: "groupByFilterPercentage",
+      description: function() {
+        return getDesc("groupByFilterPercentage")},
+      type: new GraphQLInputObjectType({
+        name: "groupByFilterPercentageInpObj", 
+        description: getDesc("groupByFilterPercentageInpObj"),
+        fields: {
+          from: {
+            name: "groupByFilterPercentageFrom",
+            description: getDesc("groupByFilterPercentageFrom"),
+            type: GraphQLFloat
+          },
+          to: {
+            name: "groupByFilterPercentageTo",
+            description: getDesc("groupByFilterPercentageTo"),
+            type: GraphQLFloat
+          },
+          property: {
+            name: "groupByFilterPercentageProperty",
+            description: getDesc("groupByFilterPercentageProperty"),
+            type: GraphQLString
+          }
+        }
+      }),
+    }
+  }
+})
+
+
+/**
  * create arguments for a search
  */
 var propsForArgs = {} //global
@@ -254,6 +341,15 @@ function createArgs(item){
       description: function() {
         return getDesc("afterFilter")},
     }
+
+    propsForArgs[item.class]["groupBy"] = {
+      name: "groupByFilter",
+      type: groupByFilter,
+      description: function() {
+        return getDesc("groupByFilter")},
+    }
+
+    
   }
   
   return propsForArgs[item.class] // return the prop with the argument

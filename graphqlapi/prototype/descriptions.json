@@ -11,6 +11,8 @@
 	"WhereValueBoolean": "Boolean value that the property at the provided path will be compared to by an operator",
 	"firstFilter": "Pagination option, show the first x results",
 	"afterFilter": "Pagination option, show the results after the first x results",
+	"groupByFilter": "Filter to group results",
+	"groupByFilterInpObj": "Input object for the filter to group results",
 	"MetaClassMeta": "Meta information about a class object and its (filtered) objects",
 	"MetaClassMetaObj": "Meta information about a class object and its (filtered) objects",
 	"MetaClassMetaCount": "Total amount of found instances",
