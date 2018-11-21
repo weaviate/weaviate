@@ -17,7 +17,7 @@ The easiest way to get Weaviate running is through Docker Compose. Below is a li
 
 ### simple-https-service
 
-- `TBD`
+- You can set the environment variable `SCHEME` to override the default (`http`) E.g. `SCHEME=https docker-compose up -d`
 - Runs like the `simple-http-service` but with certificates.
 - Weaviate will become available on: http://test
 
@@ -33,5 +33,5 @@ The easiest way to get Weaviate running is through Docker Compose. Below is a li
 
 ### Custom Port or Custom host
 
-- `TBD`
+- You can set the environment variables `HOST` and `PORT` to override the defaults. E.g. `HOST=0.0.0.0 PORT=1337 docker-compose up -d`
 - Weaviate exposes the service by default on port 8080 and host 127.0.0.1
