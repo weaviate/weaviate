@@ -422,6 +422,9 @@ const solve_operands = function (operator, operands, location="Local") {
 			else if (operand.valueFloat) {
 				result = solve_path(operand.operator, operand.path, operand.valueFloat, location)
 			}
+			else if (operand.valueText) {
+				return 'error'
+			}
 		}
 		if (operator == 'And') {
 			for (var key in result) {
@@ -478,6 +481,9 @@ module.exports = {
 				else if (filter.valueFloat) {
 					return solve_path(filter.operator, filter.path, filter.valueFloat)
 				}
+				else if (filter.valueText) {
+					return 'error'
+				}
 			}
 		}
 		else {
@@ -530,6 +536,9 @@ module.exports = {
 				}
 				else if (filter.valueFloat) {
 					return solve_path(filter.operator, filter.path, filter.valueFloat, location=path[0])
+				}
+				else if (filter.valueText) {
+					return 'error'
 				}
 			}
 		}
