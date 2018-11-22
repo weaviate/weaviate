@@ -7,6 +7,7 @@
 	"WhereValueInt": "Integer value that the property at the provided path will be compared to by an operator",
 	"WhereValueNumber": "Number value that the property at the provided path will be compared to by an operator",
 	"WhereValueString": "String value that the property at the provided path will be compared to by an operator",
+	"WhereValueText": "Text value that the property at the provided path will be compared to by an operator",
 	"WhereValueDate": "Date value that the property at the provided path will be compared to by an operator",
 	"WhereValueBoolean": "Boolean value that the property at the provided path will be compared to by an operator",
 	"firstFilter": "Pagination option, show the first x results",

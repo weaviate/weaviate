@@ -146,6 +146,12 @@ var whereFields = {
     description: function() {
       return getDesc("WhereValueDate")},
     type: GraphQLString 
+  },
+  valueText: { 
+    name: "NetworkFetchWherePropertyWhereValueText",
+    description: function() {
+      return getDesc("WhereValueText")},
+    type: GraphQLString 
   }
 }
 
@@ -435,7 +441,7 @@ function createMetaSubClasses(ontologyThings, location='') {
                   })
                 })
               }
-            } else if(singleClassPropertyDatatype === "string" || singleClassPropertyDatatype === "date") {
+            } else if(singleClassPropertyDatatype === "string" || singleClassPropertyDatatype === "date" || singleClassPropertyDatatype === "text") {
               topOccurrencesType = new GraphQLObjectType({
                 name: location + "Meta" + singleClass.class + singleClassProperty.name + "TopOccurrencesObj",
                 description: function() {
@@ -692,7 +698,14 @@ function createSubClasses(ontologyThings, weaviate){
                 name: weaviate + singleClass.class + singleClassProperty.name,
                 description: singleClassProperty.description,
                 type: GraphQLString // string since no GraphQL date type exists
-              }} else {
+              }
+            } else if(singleClassPropertyDatatype === "text") {
+              returnProps[singleClassProperty.name] = {
+                name: weaviate + singleClass.class + singleClassProperty.name,
+                description: singleClassProperty.description,
+                type: GraphQLString // text datatype is formatted as string
+              }
+            } else {
               console.error("I DONT KNOW THIS VALUE! " + singleClassProperty["@dataType"][0])
               returnProps[singleClassProperty.name] = {
                 name: weaviate + singleClass.class + singleClassProperty.name,
@@ -861,6 +874,12 @@ var NetworkFetchWherePropertyFilterFields = {
     name: "NetworkFetchWherePropertyWhereValueDate",
     description: function() {
       return getDesc("WhereValueDate")},
+    type: GraphQLString 
+  },
+  valueText: { 
+    name: "NetworkFetchWherePropertyWhereValueText",
+    description: function() {
+      return getDesc("WhereValueText")},
     type: GraphQLString 
   }
 }
@@ -1375,7 +1394,11 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 }),
                 resolve(parentValue, args) {
                   console.log("resolve WeaviateLocalGet")
-                  return demoResolver.resolveGet(args.where) // resolve with empty array
+                  result = demoResolver.resolveGet(args.where)
+                  if (result != 'error') {
+                    return result
+                  }
+                  else {throw new Error('Text values cannot be filtered because they are not indexed.')}
                 },
               },
               GetMeta: {
@@ -1434,7 +1457,11 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 }),
                 resolve(parentValue, args) {
                   console.log("resolve WeaviateLocalGetMeta")
-                  return demoResolver.resolveGet(args.where) // resolve with empty array
+                  result = demoResolver.resolveGet(args.where)
+                  if (result != 'error') {
+                    return result
+                  }
+                  else {throw new Error('Text values cannot be filtered because they are not indexed.')}
                 },
               }
             }
@@ -1492,7 +1519,11 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 }),
                 resolve(parentValue, args) {
                   console.log("resolve WeaviateNetworkGet")
-                  return demoResolver.resolveNetworkGet(args.where) // resolve with empty array
+                  result = demoResolver.resolveNetworkGet(args.where)
+                  if (result != 'error') {
+                    return result
+                  }
+                  else {throw new Error('Text values cannot be filtered because they are not indexed.')}
                 },
               },
               Fetch: {
@@ -1715,7 +1746,11 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 }),
                 resolve(parentValue, args) {
                   console.log("resolve WeaviateNetworkGetMeta")
-                  return demoResolver.resolveNetworkGet(args.where) 
+                  result = demoResolver.resolveNetworkGet(args.where)
+                  if (result != 'error') {
+                    return result
+                  }
+                  else {throw new Error('Text values cannot be filtered because they are not indexed.')}
                 },
               }
             }
