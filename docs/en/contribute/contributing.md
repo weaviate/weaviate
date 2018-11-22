@@ -17,7 +17,7 @@ subject: OSS
 - The file `restapi/configure_weaviate.go` is partially automatically generated, partially hand-edited.
 
 ## Getting Started with Contributing
-## This is a heading 2
+## This Is A Heading 2
 
 Great that you want to help out with Weaviate!
 
