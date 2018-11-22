@@ -59,6 +59,13 @@ An overview of possible types.
     "description": "Value of testDateTime."
   },
   {
+    "name": "testText",
+    "@dataType": [
+      "text"
+    ],
+    "description": "Value of Text."
+  },
+  {
     "name": "testCref",
     "@dataType": [
       "TestThing2"
@@ -70,13 +77,14 @@ An overview of possible types.
 
 ## Property datatypes
 
-| Weaviate Type | Exact Data Type | Formatting |
-| ---------|--------|-----------|
+| Weaviate Type | Exact Data Type | Formatting | Misc |
+| ---------|--------|-----------| --- |
 | string   | string | `string` |
 | int      | int64  | `0` |
 | boolean  | boolean | `true`/`false` |
 | number   | float64 | `0.0` |
 | date     | string | [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) |
+| text     | text   | `string` | Used for large texts and is not queryable |
 | CrossRef | string | [CamelCase](#CamelCase) |
 
 ## Keywords & Context
