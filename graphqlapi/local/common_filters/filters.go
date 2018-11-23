@@ -2,6 +2,7 @@ package common_filters
 
 import (
 	"github.com/graphql-go/graphql"
+	"sync"
 )
 
 // The filters common to Local->Get and Local->GetMeta queries.
@@ -50,6 +51,9 @@ var CommonFilters graphql.InputObjectConfigFieldMap = graphql.InputObjectConfigF
 	},
 }
 
+// Used to setup the link between operands, and the
+var defineOnce sync.Once
+
 // We need to bootstrap the operands back to the commonfilters
 func init() {
 	var operands *graphql.InputObject
@@ -58,10 +62,13 @@ func init() {
 		graphql.InputObjectConfig{
 			Name: "WhereOperandsInpObj",
 			Fields: (graphql.InputObjectConfigFieldMapThunk)(func() graphql.InputObjectConfigFieldMap {
-				CommonFilters["operands"] = &graphql.InputObjectFieldConfig{
-					Type:        graphql.NewList(operands),
-					Description: "Operands in the 'where' filter field, is a list of objects",
-				}
+				// Set up this link just once.
+				defineOnce.Do(func() {
+					CommonFilters["operands"] = &graphql.InputObjectFieldConfig{
+						Type:        graphql.NewList(operands),
+						Description: "Operands in the 'where' filter field, is a list of objects",
+					}
+				})
 				return CommonFilters
 			}),
 			Description: "Operands in the 'where' filter field, is a list of objects",
