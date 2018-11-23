@@ -30,6 +30,9 @@ func newMockResolver() *mockResolver {
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			resolver := p.Source.(map[string]interface{})["Resolver"].(*mockResolver)
 			filters, err := ExtractFilters(p.Args)
+			if err != nil {
+				return nil, err
+			}
 
 			result, err := resolver.ReportFilters(filters)
 			return result, err

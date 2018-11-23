@@ -18,6 +18,31 @@ const (
 	OperatorNot              Operator = 9
 )
 
+func (o Operator) Name() string {
+	switch o {
+	case OperatorEqual:
+		return "Equal"
+	case OperatorNotEqual:
+		return "NotEqual"
+	case OperatorGreaterThan:
+		return "GreaterThan"
+	case OperatorGreaterThanEqual:
+		return "GreaterThanEqual"
+	case OperatorLessThan:
+		return "LessThan"
+	case OperatorLessThanEqual:
+		return "LessThanEqual"
+	case OperatorAnd:
+		return "And"
+	case OperatorOr:
+		return "Or"
+	case OperatorNot:
+		return "Not"
+	default:
+		panic("Unknown operator")
+	}
+}
+
 type LocalFilter struct {
 	Root *Clause
 }
