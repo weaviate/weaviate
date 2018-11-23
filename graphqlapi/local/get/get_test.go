@@ -108,7 +108,7 @@ func TestExtractFilterNestedField(t *testing.T) {
 			Operator: common_filters.OperatorEqual,
 			On: &common_filters.Path{
 				Class:    schema.AssertValidClassName("SomeAction"),
-				Property: schema.AssertValidPropertyName("otherAction"),
+				Property: schema.AssertValidPropertyName("hasAction"),
 				Child: &common_filters.Path{
 					Class:    schema.AssertValidClassName("SomeAction"),
 					Property: schema.AssertValidPropertyName("intField"),
@@ -125,6 +125,6 @@ func TestExtractFilterNestedField(t *testing.T) {
 	resolver.On("LocalGetClass", expectedParams).
 		Return(test_helper.EmptyListThunk(), nil).Once()
 
-	query := `{ Get(where: { path: ["SomeAction", "otherAction", "SomeAction", "intField"], operator: Equal, valueInt: 42}) { Actions { SomeAction { intField } } } }`
+	query := `{ Get(where: { path: ["SomeAction", "HasAction", "SomeAction", "intField"], operator: Equal, valueInt: 42}) { Actions { SomeAction { intField } } } }`
 	resolver.AssertResolve(t, query)
 }

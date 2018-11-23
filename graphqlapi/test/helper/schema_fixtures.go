@@ -5,6 +5,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
+var many string = "many"
+
 var SimpleSchema = schema.Schema{
 	Things: &models.SemanticSchema{
 		Classes: []*models.SemanticSchemaClass{
@@ -21,6 +23,15 @@ var SimpleSchema = schema.Schema{
 					&models.SemanticSchemaClassProperty{
 						Name:       "intField",
 						AtDataType: []string{"int"},
+					},
+					&models.SemanticSchemaClassProperty{
+						Name:       "hasAction",
+						AtDataType: []string{"SomeAction"},
+					},
+					&models.SemanticSchemaClassProperty{
+						Name:        "hasActions",
+						AtDataType:  []string{"SomeAction"},
+						Cardinality: &many,
 					},
 				},
 			},
