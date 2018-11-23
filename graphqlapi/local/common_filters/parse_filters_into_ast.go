@@ -4,12 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"strings"
 	"time"
 )
 
+// Extract the filters from the arguments of a Local->Get or Local->GetMeta query.
 func ExtractFilters(args map[string]interface{}) (*LocalFilter, error) {
 	where, wherePresent := args["where"]
 	if !wherePresent {
+		// No filters; all is fine!
 		return nil, nil
 	} else {
 		whereMap := where.(map[string]interface{}) // guaranteed by GraphQL to be a map.
@@ -22,6 +25,7 @@ func ExtractFilters(args map[string]interface{}) (*LocalFilter, error) {
 	}
 }
 
+// Parse a single clause
 func parseClause(args map[string]interface{}) (*Clause, error) {
 	operator, operatorOk := args["operator"]
 	if !operatorOk {
@@ -57,6 +61,11 @@ func parseClause(args map[string]interface{}) (*Clause, error) {
 	return clause, err
 }
 
+// Parses a 'comperator' filter
+// Each of those has:
+// 1. The operator applied (e.g. Equal, LessThanEqual)
+// 2. A value (valueString, valueDate)
+// 3. The path ["SomeAction", "color"]
 func parseCompareOp(args map[string]interface{}, operator Operator) (*Clause, error) {
 	path, err := parsePath(args)
 	if err != nil {
@@ -75,6 +84,11 @@ func parseCompareOp(args map[string]interface{}, operator Operator) (*Clause, er
 	}, nil
 }
 
+// Parse an 'operand' filter.
+// One of those has:
+// 1. The operator appied (e.g. And, Or)
+// 2. The operands (e.g. a list of operands)
+//    Each operand will be parsed as a new clause.
 func parseOperandsOp(args map[string]interface{}, operator Operator) (*Clause, error) {
 	path, err := parsePath(args)
 	if err != nil {
@@ -96,7 +110,7 @@ func parseOperandsOp(args map[string]interface{}, operator Operator) (*Clause, e
 	for _, rawOperand := range rawOperandsList {
 		rawOperandMap, ok := rawOperand.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("The operand '%s' is not valid")
+			return nil, fmt.Errorf("The operand '%s' is not valid", jsonify(rawOperand))
 		}
 
 		operand, err := parseClause(rawOperandMap)
@@ -119,6 +133,10 @@ func parseOperandsOp(args map[string]interface{}, operator Operator) (*Clause, e
 	}, nil
 }
 
+// Parses the path
+// It parses an array of strings in this format
+// [0] ClassName -> The root class name we're drilling down from
+// [1] propertyName -> The property name we're interested in.
 func parsePath(args map[string]interface{}) (*Path, error) {
 	rawPath, ok := args["path"]
 	if !ok {
@@ -134,9 +152,16 @@ func parsePath(args map[string]interface{}) (*Path, error) {
 		return nil, fmt.Errorf("The 'path' field for the filter '%s' is empty! You need to specify at least a class and a property name", jsonify(args))
 	}
 
+	// The sentinel is used to bootstrap the inlined recursion.
+	// we return sentinal.Child at the end.
 	var sentinel Path
+
+	// Keep track of where we are in the path (e.g. always points to latest Path segment)
 	var current *Path = &sentinel
 
+	// Now go through the path elements, step over it in increments of two.
+	// Simple case:      ClassName -> property
+	// Nested path case: ClassName -> HasRef -> ClassOfRef -> Property
 	for i := 0; i < len(pathElements); i += 2 {
 		lengthRemaining := len(pathElements) - i
 		if lengthRemaining < 2 {
@@ -159,8 +184,16 @@ func parsePath(args map[string]interface{}) (*Path, error) {
 		}
 
 		err, propertyName := schema.ValidatePropertyName(rawPropertyName)
+
+		// Invalid property name?
+		// Try to parse it as as a reference.
 		if err != nil {
-			return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter '%s', but got '%s'", jsonify(args), rawPropertyName)
+			untitlizedPropertyName := strings.ToLower(rawPropertyName[0:1]) + rawPropertyName[1:len(rawPropertyName)]
+			err, propertyName = schema.ValidatePropertyName(untitlizedPropertyName)
+
+			if err != nil {
+				return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter '%s', but got '%s'", jsonify(args), rawPropertyName)
+			}
 		}
 
 		current.Child = &Path{
@@ -168,14 +201,47 @@ func parsePath(args map[string]interface{}) (*Path, error) {
 			Property: propertyName,
 		}
 
+		// And down we go.
 		current = current.Child
 	}
 
 	return sentinel.Child, nil
 }
 
+// Parse a value used in a comparator operator.
+func parseValue(args map[string]interface{}) (*Value, error) {
+	// Split into this two parts:
+	// 1. This function that loops over the extractors and ensures exactly one value is found
+	// 2. A list of extractors that test if any of them matches (valueExtractors)
+
+	var value *Value
+
+	for _, extractor := range valueExtractors {
+		foundValue, err := extractor(args)
+
+		// Abort if we found a value, but it's for being passed a string to an int value.
+		if err != nil {
+			return nil, err
+		}
+
+		if foundValue != nil {
+			if value != nil {
+				return nil, fmt.Errorf("Found two values the clause '%s'", jsonify(args))
+			} else {
+				value = foundValue
+			}
+		}
+	}
+
+	if value == nil {
+		return nil, fmt.Errorf("No value given in filter '%s'", jsonify(args))
+	}
+
+	return value, nil
+}
+
 // List of functions that can potentially extract a Value from the various valueXXXX fields in a clause.
-var dataTypeExtractors [](func(args map[string]interface{}) (*Value, error)) = [](func(args map[string]interface{}) (*Value, error)){
+var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](func(args map[string]interface{}) (*Value, error)){
 	// Ints
 	func(args map[string]interface{}) (*Value, error) {
 		rawVal, ok := args["valueInt"]
@@ -269,31 +335,7 @@ var dataTypeExtractors [](func(args map[string]interface{}) (*Value, error)) = [
 	},
 }
 
-func parseValue(args map[string]interface{}) (*Value, error) {
-	var value *Value
-
-	for _, extractor := range dataTypeExtractors {
-		foundValue, err := extractor(args)
-		if err != nil {
-			return nil, err
-		}
-
-		if foundValue != nil {
-			if value != nil {
-				return nil, fmt.Errorf("Found two values the clause '%s'", jsonify(args))
-			} else {
-				value = foundValue
-			}
-		}
-	}
-
-	if value == nil {
-		return nil, fmt.Errorf("No value given in filter '%s'", jsonify(args))
-	}
-
-	return value, nil
-}
-
+// Small utility function used in printing error messages.
 func jsonify(stuff interface{}) string {
 	j, _ := json.Marshal(stuff)
 	return string(j)
