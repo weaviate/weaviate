@@ -53,6 +53,15 @@ func (mr *MockResolver) AssertResolve(t *testing.T, query string) interface{} {
 	return result.Data
 }
 
+func (mr *MockResolver) AssertFailToResolve(t *testing.T, query string) {
+	result := mr.Resolve(query)
+	if len(result.Errors) == 0 {
+		t.Fatalf("Expected to not resulve resolve; %#v", result.Errors)
+	} else {
+		t.Log("Resolve failed, as expected, with error", result.Errors)
+	}
+}
+
 func (mr *MockResolver) AssertJSONResponse(t *testing.T, query string, expectedResponseString string) {
 	var expectedResponse map[string]interface{}
 	err := json.Unmarshal([]byte(expectedResponseString), &expectedResponse)
