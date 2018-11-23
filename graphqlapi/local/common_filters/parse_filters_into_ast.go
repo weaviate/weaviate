@@ -90,11 +90,6 @@ func parseCompareOp(args map[string]interface{}, operator Operator) (*Clause, er
 // 2. The operands (e.g. a list of operands)
 //    Each operand will be parsed as a new clause.
 func parseOperandsOp(args map[string]interface{}, operator Operator) (*Clause, error) {
-	path, err := parsePath(args)
-	if err != nil {
-		return nil, err
-	}
-
 	rawOperands, ok := args["operands"]
 	if !ok {
 		return nil, fmt.Errorf("No operands given in clause '%s'", jsonify(args))
@@ -128,7 +123,6 @@ func parseOperandsOp(args map[string]interface{}, operator Operator) (*Clause, e
 
 	return &Clause{
 		Operator: operator,
-		On:       path,
 		Operands: operands,
 	}, nil
 }
