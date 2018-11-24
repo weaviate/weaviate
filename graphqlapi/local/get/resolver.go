@@ -23,15 +23,17 @@ type LocalGetClassParams struct {
 
 type SelectProperty struct {
 	Name string
+
+	IsPrimitive bool
+
+	// Not a primitive type? Then select these properties.
+	Refs []SelectClass
 }
 
-func (sp SelectProperty) IsPrimitive() bool {
-	var first rune
-	for _, c := range sp.Name {
-		first = c
-		break
-	}
-	return unicode.IsLower(first)
+// TODO move from ClassName and Properties to SelectClass in LocalGetClassParams.
+type SelectClass struct {
+	ClassName     string
+	RefProperties []SelectProperty
 }
 
 // Internal struct to bubble data through the resolvers.

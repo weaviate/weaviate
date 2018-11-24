@@ -54,7 +54,7 @@ func (j *Janusgraph) LocalGetClass(params *graphql_local_get.LocalGetClassParams
 
 				for _, selectProperty := range params.Properties {
 					// Primitive properties are trivial; just copy them.
-					if selectProperty.IsPrimitive() {
+					if selectProperty.IsPrimitive {
 						if selectProperty.Name == "uuid" {
 							result["uuid"] = interface{}(foundUUID)
 						} else {

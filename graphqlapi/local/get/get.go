@@ -275,7 +275,13 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 				return nil, err
 			}
 
-			properties, err := extractPropertiesFromFieldASTs(p.Info.FieldASTs)
+			// There can only be exactly one graphql_ast.Field; it is the class name.
+			if len(p.Info.FieldASTs) != 1 {
+				panic("Only one Field expected here")
+			}
+
+			selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
+			properties, err := extractProperties(selectionsOfClass)
 			if err != nil {
 				return nil, err
 			}
@@ -296,16 +302,44 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 	return &classField, nil
 }
 
-func extractPropertiesFromFieldASTs(fieldASTs []*graphql_ast.Field) ([]SelectProperty, error) {
+func extractProperties(selections *graphql_ast.SelectionSet) ([]SelectProperty, error) {
+	//debugFieldAsts(fieldASTs)
 	var properties []SelectProperty
 
-	for _, fieldAST := range fieldASTs {
-		selections := fieldAST.SelectionSet.Selections
-		for _, selection := range selections {
-			field := selection.(*graphql_ast.Field)
-			name := field.Name.Value
-			properties = append(properties, SelectProperty{Name: name})
+	for _, selection := range selections.Selections {
+		field := selection.(*graphql_ast.Field)
+		name := field.Name.Value
+		property := SelectProperty{Name: name}
+
+		property.IsPrimitive = (field.SelectionSet == nil)
+
+		if !property.IsPrimitive {
+			// We can interpret this property in different ways
+			for _, subSelection := range field.SelectionSet.Selections {
+				// These _must_ be inline fragments
+				fragment, ok := subSelection.(*graphql_ast.InlineFragment)
+				if !ok {
+					return nil, fmt.Errorf("Expected a InlineFragment; you need to specify as which type you want to retrieve a reference")
+				}
+
+				err, className := schema.ValidateClassName(fragment.TypeCondition.Name.Value)
+				if err != nil {
+					return nil, fmt.Errorf("The inline fragment type name '%s' is not a valid class name.", fragment.TypeCondition.Name.Value)
+				}
+
+				subProperties, err := extractProperties(fragment.SelectionSet)
+				if err != nil {
+					return nil, err
+				}
+
+				property.Refs = append(property.Refs, SelectClass{
+					ClassName:     string(className),
+					RefProperties: subProperties,
+				})
+			}
 		}
+
+		properties = append(properties, property)
 	}
 
 	return properties, nil
