@@ -29,8 +29,8 @@ func TestCanUpdateActionSetNumber(t *testing.T) {
 
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
-	updatedThing := assertGetThing(t, uuid)
-	updatedSchema := updatedThing.Schema.(map[string]interface{})
+	updatedAction := assertGetAction(t, uuid)
+	updatedSchema := updatedAction.Schema.(map[string]interface{})
 	assert.Equal(t, updatedSchema["testNumber"], 41.0)
 }
 
@@ -53,8 +53,8 @@ func TestCanUpdateActionSetString(t *testing.T) {
 
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
-	updatedThing := assertGetThing(t, uuid)
-	updatedSchema := updatedThing.Schema.(map[string]interface{})
+	updatedAction := assertGetAction(t, uuid)
+	updatedSchema := updatedAction.Schema.(map[string]interface{})
 	assert.Equal(t, updatedSchema["testString"], "wibbly wobbly")
 }
 
@@ -76,7 +76,7 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
-	updatedThing := assertGetThing(t, uuid)
-	updatedSchema := updatedThing.Schema.(map[string]interface{})
+	updatedAction := assertGetAction(t, uuid)
+	updatedSchema := updatedAction.Schema.(map[string]interface{})
 	assert.Equal(t, updatedSchema["testBoolean"], true)
 }
