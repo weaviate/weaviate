@@ -397,28 +397,44 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
-		// Move the current properties to the history
-		delayedLock.IncSteps()
-		go func() {
-			defer delayedLock.Unlock()
-			dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
-		}()
+		if params.Async != nil && *params.Async == true {
+			// Move the current properties to the history
+			delayedLock.IncSteps()
+			go func() {
+				defer delayedLock.Unlock()
+				dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+			}()
 
-		// Update the database
-		delayedLock.IncSteps()
-		go func() {
-			defer delayedLock.Unlock()
+			// Update the database
+			delayedLock.IncSteps()
+			go func() {
+				defer delayedLock.Unlock()
+				err := dbConnector.UpdateAction(ctx, action, UUID)
+				if err != nil {
+					fmt.Printf("Update action failed, because %s", err)
+				}
+			}()
+
+			// Create return Object
+			actionGetResponse.Action = *action
+
+			// Returns accepted so a Go routine can process in the background
+			return actions.NewWeaviateActionsPatchAccepted().WithPayload(&actionGetResponse)
+		} else {
+			// Move the current properties to the history
+			dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+
 			err := dbConnector.UpdateAction(ctx, action, UUID)
 			if err != nil {
-				fmt.Printf("Update action failed, because %s", err)
+				return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 			}
-		}()
 
-		// Create return Object
-		actionGetResponse.Action = *action
+			// Create return Object
+			actionGetResponse.Action = *action
 
-		// Returns accepted so a Go routine can process in the background
-		return actions.NewWeaviateActionsPatchAccepted().WithPayload(&actionGetResponse)
+			// Returns accepted so a Go routine can process in the background
+			return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
+		}
 	})
 	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(params actions.WeaviateActionsPropertiesCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation actions.WeaviateActionsPropertiesCreate has not yet been implemented")
@@ -1147,6 +1163,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		updatedJSON, applyErr := patchObject.Apply(thingUpdateJSON)
 
 		if applyErr != nil {
+			fmt.Printf("patch attempt on %#v failed. Patch: %#v", thingUpdateJSON, patchObject)
+			panic("NOPE")
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(applyErr.Error()))
 		}
 
@@ -1164,25 +1182,43 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
-		// Move the current properties to the history
-		delayedLock.IncSteps()
-		go func() {
-			delayedLock.Unlock()
+		if params.Async != nil && *params.Async == true {
+			// Move the current properties to the history
+			delayedLock.IncSteps()
+			go func() {
+				delayedLock.Unlock()
+				dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+			}()
+
+			// Update the database
+			delayedLock.IncSteps()
+			go func() {
+				delayedLock.Unlock()
+				dbConnector.UpdateThing(ctx, thing, UUID)
+			}()
+
+			// Create return Object
+			thingGetResponse.Thing = *thing
+
+			// Returns accepted so a Go routine can process in the background
+			return things.NewWeaviateThingsPatchAccepted().WithPayload(&thingGetResponse)
+		} else {
+			// Move the current properties to the history
 			dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
-		}()
 
-		// Update the database
-		delayedLock.IncSteps()
-		go func() {
-			delayedLock.Unlock()
-			dbConnector.UpdateThing(ctx, thing, UUID)
-		}()
+			// Update the database
+			err := dbConnector.UpdateThing(ctx, thing, UUID)
 
-		// Create return Object
-		thingGetResponse.Thing = *thing
+			if err != nil {
+				return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+			}
 
-		// Returns accepted so a Go routine can process in the background
-		return things.NewWeaviateThingsPatchAccepted().WithPayload(&thingGetResponse)
+			// Create return Object
+			thingGetResponse.Thing = *thing
+
+			// Returns accepted so a Go routine can process in the background
+			return things.NewWeaviateThingsPatchOK().WithPayload(&thingGetResponse)
+		}
 	})
 	api.ThingsWeaviateThingsPropertiesCreateHandler = things.WeaviateThingsPropertiesCreateHandlerFunc(func(params things.WeaviateThingsPropertiesCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation things.WeaviateThingsPropertiesCreate has not yet been implemented")
