@@ -981,6 +981,12 @@
             "type": "string"
           },
           {
+            "description": "If `async` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the update is persisted. The value of `async` defaults to false.",
+            "name": "async",
+            "in": "query",
+            "type": "boolean"
+          },
+          {
             "description": "JSONPatch document as defined by RFC 6902.",
             "in": "body",
             "name": "body",
@@ -994,6 +1000,12 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "Successfully applied.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
           "202": {
             "description": "Successfully received.",
             "schema": {
@@ -2345,6 +2357,12 @@
             "type": "string"
           },
           {
+            "description": "If `async` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the update is persisted. The value of `async` defaults to false.",
+            "name": "async",
+            "in": "query",
+            "type": "boolean"
+          },
+          {
             "description": "JSONPatch document as defined by RFC 6902.",
             "in": "body",
             "name": "body",
@@ -2358,6 +2376,12 @@
           }
         ],
         "responses": {
+          "200": {
+            "description": "Successfully applied.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
           "202": {
             "description": "Successfully received.",
             "schema": {
