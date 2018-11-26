@@ -25,6 +25,50 @@ import (
 	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
+// WeaviateThingsPatchOKCode is the HTTP code returned for type WeaviateThingsPatchOK
+const WeaviateThingsPatchOKCode int = 200
+
+/*WeaviateThingsPatchOK Successfully applied.
+
+swagger:response weaviateThingsPatchOK
+*/
+type WeaviateThingsPatchOK struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ThingGetResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateThingsPatchOK creates WeaviateThingsPatchOK with default headers values
+func NewWeaviateThingsPatchOK() *WeaviateThingsPatchOK {
+
+	return &WeaviateThingsPatchOK{}
+}
+
+// WithPayload adds the payload to the weaviate things patch o k response
+func (o *WeaviateThingsPatchOK) WithPayload(payload *models.ThingGetResponse) *WeaviateThingsPatchOK {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate things patch o k response
+func (o *WeaviateThingsPatchOK) SetPayload(payload *models.ThingGetResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateThingsPatchOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(200)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // WeaviateThingsPatchAcceptedCode is the HTTP code returned for type WeaviateThingsPatchAccepted
 const WeaviateThingsPatchAcceptedCode int = 202
 

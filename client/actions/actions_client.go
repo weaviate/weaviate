@@ -221,7 +221,7 @@ WeaviateActionsPatch updates an action based on its uuid using patch semantics r
 
 Updates an action. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPatchAccepted, error) {
+func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPatchOK, *WeaviateActionsPatchAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateActionsPatchParams()
@@ -241,9 +241,15 @@ func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authIn
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return result.(*WeaviateActionsPatchAccepted), nil
+	switch value := result.(type) {
+	case *WeaviateActionsPatchOK:
+		return value, nil, nil
+	case *WeaviateActionsPatchAccepted:
+		return nil, value, nil
+	}
+	return nil, nil, nil
 
 }
 

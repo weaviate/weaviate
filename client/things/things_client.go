@@ -190,7 +190,7 @@ WeaviateThingsPatch updates a thing based on its uuid using patch semantics rela
 
 Updates a thing data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
-func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsPatchAccepted, error) {
+func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsPatchOK, *WeaviateThingsPatchAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateThingsPatchParams()
@@ -210,9 +210,15 @@ func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams, authInfo
 		Client:             params.HTTPClient,
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return result.(*WeaviateThingsPatchAccepted), nil
+	switch value := result.(type) {
+	case *WeaviateThingsPatchOK:
+		return value, nil, nil
+	case *WeaviateThingsPatchAccepted:
+		return nil, value, nil
+	}
+	return nil, nil, nil
 
 }
 

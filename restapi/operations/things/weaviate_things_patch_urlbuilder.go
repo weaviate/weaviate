@@ -24,11 +24,14 @@ import (
 	"strings"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // WeaviateThingsPatchURL generates an URL for the weaviate things patch operation
 type WeaviateThingsPatchURL struct {
 	ThingID strfmt.UUID
+
+	Async *bool
 
 	_basePath string
 	// avoid unkeyed usage
@@ -68,6 +71,18 @@ func (o *WeaviateThingsPatchURL) Build() (*url.URL, error) {
 		_basePath = "/weaviate/v1"
 	}
 	result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var async string
+	if o.Async != nil {
+		async = swag.FormatBool(*o.Async)
+	}
+	if async != "" {
+		qs.Set("async", async)
+	}
+
+	result.RawQuery = qs.Encode()
 
 	return &result, nil
 }
