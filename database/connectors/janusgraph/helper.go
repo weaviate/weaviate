@@ -66,6 +66,20 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 						q = q.Int64Property(janusPropertyName, int64(t))
 					case int64:
 						q = q.Int64Property(janusPropertyName, t)
+					case uint:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case uint8:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case uint16:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case uint32:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case uint64:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case float32:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case float64:
+						q = q.Int64Property(janusPropertyName, int64(t))
 					default:
 						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
 					}
@@ -399,6 +413,10 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 					case uint32:
 						q = q.Int64Property(janusPropertyName, int64(t))
 					case uint64:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case float32:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case float64:
 						q = q.Int64Property(janusPropertyName, int64(t))
 					default:
 						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
