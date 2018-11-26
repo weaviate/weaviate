@@ -6,7 +6,6 @@ import (
 	common "github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/go-openapi/strfmt"
-	"unicode"
 )
 
 type Resolver interface {
@@ -25,6 +24,9 @@ type SelectProperty struct {
 	Name string
 
 	IsPrimitive bool
+
+	// Include the __typename in all the Refs below.
+	IncludeTypeName bool
 
 	// Not a primitive type? Then select these properties.
 	Refs []SelectClass
@@ -56,4 +58,14 @@ type ResolvedProperties map[schema.PropertyName]ResolvedProperty
 type ResolvedProperty struct {
 	DataType schema.PropertyDataType
 	Value    interface{}
+}
+
+func (sp SelectProperty) FindSelectClass(className schema.ClassName) *SelectClass {
+	for _, selectClass := range sp.Refs {
+		if selectClass.ClassName == string(className) {
+			return &selectClass
+		}
+	}
+
+	return nil
 }
