@@ -80,19 +80,69 @@ func (j *Janusgraph) LocalGetClass(params *graphql_local_get.LocalGetClassParams
 							panic(fmt.Sprintf("janusgraph.LocalGetClass: could not find property %s in class %s", propertyName, className))
 						}
 
-						dataType, err := j.schema.FindPropertyDataType(property.AtDataType)
-						if err != nil {
-							panic(fmt.Sprintf("janusgraph.LocalGetClass: could find datatype '%#v' for property %s in class", property.AtDataType, propertyName, className))
-						}
-
 						cardinality := schema.CardinalityOfProperty(property)
-						if cardinality != schema.CardinalityAtMostOne {
-							panic("only cardinality of up to most one is currently supported")
+
+						// Normalize the refs to a list
+						var rawRefs []map[string]interface{}
+						if cardinality == schema.CardinalityAtMostOne {
+							propAsMap := propertiesMap[string(propertyName)].(map[string]interface{})
+							rawRefs = append(rawRefs, propAsMap)
+						} else {
+							for _, rpropAsMap := range propertiesMap[string(propertyName)].([]interface{}) {
+								propAsMap := rpropAsMap.(map[string]interface{})
+								rawRefs = append(rawRefs, propAsMap)
+							}
 						}
 
-						// blurgh
-						_ = dataType
-						result[selectProperty.Name] = "foobar"
+						refResults := []interface{}{}
+
+						// Loop over the raw results
+						for _, rawRef := range rawRefs {
+							refType := rawRef["type"].(string)
+							refId := strfmt.UUID(rawRef["$cref"].(string))
+
+							var refAtClass string
+							var refPropertiesSchema models.Schema
+
+							var lookupClassKind kind.Kind
+							switch refType {
+							case "Thing":
+								lookupClassKind = kind.THING_KIND
+							case "Action":
+								lookupClassKind = kind.ACTION_KIND
+							default:
+								panic("unsupported kind in reference")
+							}
+
+							err := j.getClass(lookupClassKind, refId, &refAtClass, nil, nil, nil, nil, &refPropertiesSchema, nil)
+							if err != nil {
+								// TODO; skipping broken links for now.
+								continue
+							}
+							refProperties := refPropertiesSchema.(map[string]interface{})
+
+							// Determine if this is one of the classes that we want to have.
+							if sc := selectProperty.FindSelectClass(schema.AssertValidClassName(refAtClass)); sc != nil {
+								refResult := map[string]interface{}{}
+
+								if selectProperty.IncludeTypeName {
+									refResult["__typename"] = refAtClass
+								}
+
+								// todo: loop over sub props.
+								// TODO recurse
+								for _, prop := range sc.RefProperties {
+									if prop.IsPrimitive {
+										refResult[prop.Name] = refProperties[prop.Name]
+									}
+								}
+
+								refResults = append(refResults, refResult)
+							}
+						}
+
+						// Yes refer to the original name here, not the normalized name.
+						result[selectProperty.Name] = refResults
 					}
 				}
 

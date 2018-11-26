@@ -316,10 +316,21 @@ func extractProperties(selections *graphql_ast.SelectionSet) ([]SelectProperty, 
 		if !property.IsPrimitive {
 			// We can interpret this property in different ways
 			for _, subSelection := range field.SelectionSet.Selections {
-				// These _must_ be inline fragments
+				// Is it a field with the name __typename?
+				subsectionField, ok := subSelection.(*graphql_ast.Field)
+				if ok {
+					if subsectionField.Name.Value == "__typename" {
+						property.IncludeTypeName = true
+						continue
+					} else {
+						return nil, fmt.Errorf("Expected a InlineFragment, not a '%s' field ", subsectionField.Name.Value)
+					}
+				}
+
+				// Otherwise these _must_ be inline fragments
 				fragment, ok := subSelection.(*graphql_ast.InlineFragment)
 				if !ok {
-					return nil, fmt.Errorf("Expected a InlineFragment; you need to specify as which type you want to retrieve a reference")
+					return nil, fmt.Errorf("Expected a InlineFragment; you need to specify as which type you want to retrieve a reference %#v", subSelection)
 				}
 
 				err, className := schema.ValidateClassName(fragment.TypeCondition.Name.Value)
