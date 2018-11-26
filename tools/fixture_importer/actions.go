@@ -175,7 +175,7 @@ func assertCreateAction(t *models.ActionCreate) *models.ActionGetResponse {
 func assertPatchAction(id string, p *models.PatchDocument) *models.ActionGetResponse {
 	params := actions.NewWeaviateActionsPatchParams().WithBody([]*models.PatchDocument{p}).WithActionID(strfmt.UUID(id))
 
-	resp, err := client.Actions.WeaviateActionsPatch(params, auth)
+	resp, _, err := client.Actions.WeaviateActionsPatch(params, auth)
 
 	if err != nil {
 		switch v := err.(type) {
