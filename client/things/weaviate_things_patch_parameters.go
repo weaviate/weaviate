@@ -14,6 +14,7 @@ import (
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/swag"
 
 	strfmt "github.com/go-openapi/strfmt"
 
@@ -64,6 +65,11 @@ for the weaviate things patch operation typically these are written to a http.Re
 */
 type WeaviateThingsPatchParams struct {
 
+	/*Async
+	  If `async` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the update is persisted. The value of `async` defaults to false.
+
+	*/
+	Async *bool
 	/*Body
 	  JSONPatch document as defined by RFC 6902.
 
@@ -113,6 +119,17 @@ func (o *WeaviateThingsPatchParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithAsync adds the async to the weaviate things patch params
+func (o *WeaviateThingsPatchParams) WithAsync(async *bool) *WeaviateThingsPatchParams {
+	o.SetAsync(async)
+	return o
+}
+
+// SetAsync adds the async to the weaviate things patch params
+func (o *WeaviateThingsPatchParams) SetAsync(async *bool) {
+	o.Async = async
+}
+
 // WithBody adds the body to the weaviate things patch params
 func (o *WeaviateThingsPatchParams) WithBody(body []*models.PatchDocument) *WeaviateThingsPatchParams {
 	o.SetBody(body)
@@ -142,6 +159,22 @@ func (o *WeaviateThingsPatchParams) WriteToRequest(r runtime.ClientRequest, reg 
 		return err
 	}
 	var res []error
+
+	if o.Async != nil {
+
+		// query param async
+		var qrAsync bool
+		if o.Async != nil {
+			qrAsync = *o.Async
+		}
+		qAsync := swag.FormatBool(qrAsync)
+		if qAsync != "" {
+			if err := r.SetQueryParam("async", qAsync); err != nil {
+				return err
+			}
+		}
+
+	}
 
 	if o.Body != nil {
 		if err := r.SetBodyParam(o.Body); err != nil {

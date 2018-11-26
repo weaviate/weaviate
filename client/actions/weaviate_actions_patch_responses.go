@@ -25,6 +25,13 @@ type WeaviateActionsPatchReader struct {
 func (o *WeaviateActionsPatchReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
 
+	case 200:
+		result := NewWeaviateActionsPatchOK()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return result, nil
+
 	case 202:
 		result := NewWeaviateActionsPatchAccepted()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -70,6 +77,35 @@ func (o *WeaviateActionsPatchReader) ReadResponse(response runtime.ClientRespons
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
+}
+
+// NewWeaviateActionsPatchOK creates a WeaviateActionsPatchOK with default headers values
+func NewWeaviateActionsPatchOK() *WeaviateActionsPatchOK {
+	return &WeaviateActionsPatchOK{}
+}
+
+/*WeaviateActionsPatchOK handles this case with default header values.
+
+Successfully applied.
+*/
+type WeaviateActionsPatchOK struct {
+	Payload *models.ActionGetResponse
+}
+
+func (o *WeaviateActionsPatchOK) Error() string {
+	return fmt.Sprintf("[PATCH /actions/{actionId}][%d] weaviateActionsPatchOK  %+v", 200, o.Payload)
+}
+
+func (o *WeaviateActionsPatchOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ActionGetResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
 }
 
 // NewWeaviateActionsPatchAccepted creates a WeaviateActionsPatchAccepted with default headers values

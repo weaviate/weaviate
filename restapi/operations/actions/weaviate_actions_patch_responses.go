@@ -25,6 +25,50 @@ import (
 	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
+// WeaviateActionsPatchOKCode is the HTTP code returned for type WeaviateActionsPatchOK
+const WeaviateActionsPatchOKCode int = 200
+
+/*WeaviateActionsPatchOK Successfully applied.
+
+swagger:response weaviateActionsPatchOK
+*/
+type WeaviateActionsPatchOK struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ActionGetResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateActionsPatchOK creates WeaviateActionsPatchOK with default headers values
+func NewWeaviateActionsPatchOK() *WeaviateActionsPatchOK {
+
+	return &WeaviateActionsPatchOK{}
+}
+
+// WithPayload adds the payload to the weaviate actions patch o k response
+func (o *WeaviateActionsPatchOK) WithPayload(payload *models.ActionGetResponse) *WeaviateActionsPatchOK {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate actions patch o k response
+func (o *WeaviateActionsPatchOK) SetPayload(payload *models.ActionGetResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateActionsPatchOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(200)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // WeaviateActionsPatchAcceptedCode is the HTTP code returned for type WeaviateActionsPatchAccepted
 const WeaviateActionsPatchAcceptedCode int = 202
 
