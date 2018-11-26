@@ -228,9 +228,14 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		}
 	}
 
-	*key = newKeySingleRefFromKeyPath(keyPath)
+	if key != nil {
+		*key = newKeySingleRefFromKeyPath(keyPath)
+	}
 
-	*foundUUID = strfmt.UUID(vertex.AssertPropertyValue(PROP_UUID).AssertString())
+	if foundUUID != nil {
+		*foundUUID = strfmt.UUID(vertex.AssertPropertyValue(PROP_UUID).AssertString())
+	}
+
 	kind := kind.KindByName(vertex.AssertPropertyValue(PROP_KIND).AssertString())
 	mappedClassName := MappedClassName(vertex.AssertPropertyValue(PROP_CLASS_ID).AssertString())
 	className := j.state.getClassNameFromMapped(mappedClassName)
@@ -239,11 +244,21 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		panic(fmt.Sprintf("Could not get %s class '%s' from schema", kind.Name(), className))
 	}
 
-	*atClass = className.String()
-	*atContext = vertex.AssertPropertyValue(PROP_AT_CONTEXT).AssertString()
+	if atClass != nil {
+		*atClass = className.String()
+	}
 
-	*creationTimeUnix = vertex.AssertPropertyValue(PROP_CREATION_TIME_UNIX).AssertInt64()
-	*lastUpdateTimeUnix = vertex.AssertPropertyValue(PROP_LAST_UPDATE_TIME_UNIX).AssertInt64()
+	if atContext != nil {
+		*atContext = vertex.AssertPropertyValue(PROP_AT_CONTEXT).AssertString()
+	}
+
+	if creationTimeUnix != nil {
+		*creationTimeUnix = vertex.AssertPropertyValue(PROP_CREATION_TIME_UNIX).AssertInt64()
+	}
+
+	if lastUpdateTimeUnix != nil {
+		*lastUpdateTimeUnix = vertex.AssertPropertyValue(PROP_LAST_UPDATE_TIME_UNIX).AssertInt64()
+	}
 
 	classSchema := make(map[string]interface{})
 
@@ -316,7 +331,10 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		}
 	}
 
-	*properties = classSchema
+	if properties != nil {
+		*properties = classSchema
+	}
+
 	return nil
 }
 
