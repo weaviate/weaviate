@@ -80,3 +80,40 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 	updatedSchema := updatedAction.Schema.(map[string]interface{})
 	assert.Equal(t, updatedSchema["testBoolean"], true)
 }
+
+func TestCanPatchActionsSetCref(t *testing.T) {
+	t.Parallel()
+
+	thingToRefID := assertCreateThing(t, "TestThing", nil)
+	actionID := assertCreateAction(t, "TestAction", nil)
+
+	op := "add"
+	path := "/schema/testCref"
+
+	patch := &models.PatchDocument{
+		Op:   &op,
+		Path: &path,
+		Value: map[string]interface{}{
+			"$cref":       thingToRefID,
+			"locationUrl": "http://localhost:8080",
+			"type":        "Thing",
+		},
+	}
+
+	// Now to try to link
+	params := actions.NewWeaviateActionsPatchParams().
+		WithBody([]*models.PatchDocument{patch}).
+		WithActionID(actionID)
+	patchResp, err := helper.Client(t).Actions.WeaviateActionsPatch(params, helper.RootAuth)
+	helper.AssertRequestOk(t, patchResp, err, nil)
+
+	// Great! Let's fetch the action, and see if the property is set properly.
+
+	patchedAction := assertGetAction(t, actionID)
+
+	rawCref := patchedAction.Schema.(map[string]interface{})["testCref"]
+	cref := rawCref.(map[string]interface{})
+
+	assert.Equal(t, cref["type"], "Thing")
+	assert.Equal(t, cref["$cref"], string(thingToRefID))
+}
