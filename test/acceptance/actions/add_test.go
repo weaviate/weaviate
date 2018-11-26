@@ -104,9 +104,9 @@ func TestCanAddSingleRefAction(t *testing.T) {
 		},
 	})
 
-	secondThing := assertGetThing(t, secondActionId)
+	secondAction := assertGetAction(t, secondActionId)
 
-	singleRef := secondThing.Schema.(map[string]interface{})["testCref"].(map[string]interface{})
+	singleRef := secondAction.Schema.(map[string]interface{})["testCref"].(map[string]interface{})
 	assert.Equal(t, singleRef["type"].(string), "Action")
 	assert.Equal(t, singleRef["$cref"].(string), string(firstActionId))
 }

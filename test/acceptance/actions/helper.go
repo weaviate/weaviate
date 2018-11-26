@@ -32,7 +32,7 @@ func assertCreateAction(t *testing.T, className string, schema map[string]interf
 	return actionID
 }
 
-func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.ActionGetResponse {
+func assertGetAction(t *testing.T, uuid strfmt.UUID) *models.ActionGetResponse {
 	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(uuid), helper.RootAuth)
 
 	var action *models.ActionGetResponse
