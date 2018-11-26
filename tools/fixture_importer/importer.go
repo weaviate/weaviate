@@ -1,10 +1,6 @@
 package main
 
-// Import fixtures.
-// For now, what is importd, and which credentials are used is hardcoded.
-// It'll work just fine with the tools/dev/run_dev_server.sh instance.
-
-// Check out the init() function at the bottom of the file. It load the dataset and schema
+// Import fixture data
 
 import (
 	"encoding/json"
@@ -58,7 +54,20 @@ var actionFixups []fixupAddRef
 
 var classKinds map[string]string
 
+var weaviateUrlString string
+var fixtureFile string
+
 func main() {
+	flag.StringVar(&weaviateUrlString, "weaviate-url", "http://localhost:8080/weaviate/v1/", "The address where weaviate can be reached")
+	flag.StringVar(&fixtureFile, "fixture-file", "tools/dev/schema/demo_data.json", "The fixtures to import")
+	flag.StringVar(&APIKEY, "api-key", "657a48b9-e000-4d9a-b51d-69a0b621c1b9", "The key used to connect to weaviate")
+	flag.StringVar(&APITOKEN, "api-token", "57ac8392-1ecc-4e17-9350-c9c866ac832b", "The token used to authenticate the key")
+	flag.Parse()
+
+	initSchema()
+	initClient()
+	initDemoData()
+
 	idMap = map[string]string{}
 	thingFixups = []fixupAddRef{}
 	actionFixups = []fixupAddRef{}
@@ -122,11 +131,6 @@ func initSchema() {
 }
 
 func initClient() {
-	var weaviateUrlString string
-	flag.StringVar(&weaviateUrlString, "weaviate-url", "http://localhost:8080/weaviate/v1/", "The address where weaviate can be reached")
-	flag.StringVar(&APIKEY, "api-key", "657a48b9-e000-4d9a-b51d-69a0b621c1b9", "The key used to connect to weaviate")
-	flag.StringVar(&APITOKEN, "api-token", "57ac8392-1ecc-4e17-9350-c9c866ac832b", "The token used to authenticate the key")
-	flag.Parse()
 
 	weaviateUrl, err := url.Parse(weaviateUrlString)
 
@@ -148,7 +152,7 @@ func initClient() {
 }
 
 func initDemoData() {
-	dat, err := ioutil.ReadFile("tools/dev/schema/demo_data.json")
+	dat, err := ioutil.ReadFile(fixtureFile)
 	if err != nil {
 		panic("Could not read demo dataset")
 	}
@@ -157,10 +161,4 @@ func initDemoData() {
 	if err != nil {
 		panic("Could not load demo dataset")
 	}
-}
-
-func init() {
-	initSchema()
-	initClient()
-	initDemoData()
 }

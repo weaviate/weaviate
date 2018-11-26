@@ -43,11 +43,18 @@ func createThings() {
 				case "string", "date":
 					properties[key] = value
 				case "int":
-					v, err := strconv.ParseInt(value.(string), 10, 64)
-					if err != nil {
-						panic(err)
+					switch typedValue := value.(type) {
+					case string:
+						v, err := strconv.ParseInt(typedValue, 10, 64)
+						if err != nil {
+							panic(err)
+						}
+						properties[key] = v
+					case float64:
+						properties[key] = int(typedValue)
+					default:
+						panic("Unexpected type")
 					}
-					properties[key] = v
 				case "number":
 					properties[key] = value.(float64)
 				case "boolean":
@@ -166,10 +173,30 @@ func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
 	return resp.Payload
 }
 
+func assertUpdateThing(id string, update *models.ThingUpdate) *models.ThingGetResponse {
+	params := things.NewWeaviateThingsUpdateParams().WithBody(update).WithThingID(strfmt.UUID(id))
+
+	resp, err := client.Things.WeaviateThingsUpdate(params, auth)
+
+	if err != nil {
+		switch v := err.(type) {
+		case *things.WeaviateThingsUpdateNotFound:
+			panic(fmt.Sprintf("Can't patch thing with %s, because thing cannot be found", spew.Sdump(update)))
+		case *things.WeaviateThingsUpdateUnprocessableEntity:
+			panic(fmt.Sprintf("Can't patch thing, because %s (patch: %#v)", joinErrorMessages(v.Payload), *update))
+		default:
+			_ = v
+			panic(fmt.Sprintf("Can't patch thing with %#v, because %#v", update, spew.Sdump(err)))
+		}
+	}
+
+	return resp.Payload
+}
+
 func assertPatchThing(id string, p *models.PatchDocument) *models.ThingGetResponse {
 	params := things.NewWeaviateThingsPatchParams().WithBody([]*models.PatchDocument{p}).WithThingID(strfmt.UUID(id))
 
-	resp, err := client.Things.WeaviateThingsPatch(params, auth)
+	resp, _, err := client.Things.WeaviateThingsPatch(params, auth)
 
 	if err != nil {
 		switch v := err.(type) {
