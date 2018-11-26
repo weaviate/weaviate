@@ -7,6 +7,7 @@ import (
 	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/go-openapi/strfmt"
+	"runtime/debug"
 	"strings"
 )
 
@@ -30,7 +31,7 @@ func (j *Janusgraph) LocalGetClass(params *graphql_local_get.LocalGetClassParams
 		defer func() {
 			if r := recover(); r != nil {
 				// send error over the channel
-				ch <- resolveResult{err: fmt.Errorf("Janusgraph.LocalGetClass paniced: %#v", r)}
+				ch <- resolveResult{err: fmt.Errorf("Janusgraph.LocalGetClass paniced: %#v\n%s", r, string(debug.Stack()))}
 			}
 			close(ch)
 		}()
