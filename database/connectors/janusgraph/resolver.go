@@ -51,18 +51,25 @@ func (j *Janusgraph) LocalGetClass(params *graphql_local_get.LocalGetClassParams
 			)
 
 			err := j.getClass(params.Kind, uuid, &atClass, &atContext, &foundUUID, &creationTimeUnix, &lastUpdateTimeUnix, &properties, &key)
+
 			if err == nil {
+				propertiesMap := properties.(map[string]interface{})
+
 				result := map[string]interface{}{}
 
 				for _, selectProperty := range params.Properties {
+					if selectProperty.Name == "uuid" {
+						result["uuid"] = interface{}(foundUUID)
+						continue
+					}
+
 					// Primitive properties are trivial; just copy them.
 					if selectProperty.IsPrimitive {
-						if selectProperty.Name == "uuid" {
-							result["uuid"] = interface{}(foundUUID)
-						} else {
-							propertiesMap := properties.(map[string]interface{})
-							result[selectProperty.Name] = propertiesMap[selectProperty.Name]
+						_, isPresent := propertiesMap[selectProperty.Name]
+						if !isPresent {
+							continue
 						}
+						result[selectProperty.Name] = propertiesMap[selectProperty.Name]
 					} else {
 						// For relations we need to do a bit more work.
 						propertyName := schema.AssertValidPropertyName(strings.ToLower(selectProperty.Name[0:1]) + selectProperty.Name[1:len(selectProperty.Name)])
