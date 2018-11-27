@@ -66,7 +66,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        "WeaviateLocalGetWhereInpObj",
-						Fields:      common_filters.CommonFilters,
+						Fields:      common_filters.Build(),
 						Description: "Filter options for the Get search, to convert the data to the filter input",
 					},
 				),
