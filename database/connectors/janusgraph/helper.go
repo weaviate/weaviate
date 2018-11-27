@@ -47,7 +47,7 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 
 			janusPropertyName := string(j.state.getMappedPropertyName(className, sanitizedPropertyName))
 
-			err, propType := j.schema.FindPropertyDataType(property.AtDataType)
+			propType, err := j.schema.FindPropertyDataType(property.AtDataType)
 			if err != nil {
 				return err
 			}
@@ -66,6 +66,20 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 						q = q.Int64Property(janusPropertyName, int64(t))
 					case int64:
 						q = q.Int64Property(janusPropertyName, t)
+					case uint:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case uint8:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case uint16:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case uint32:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case uint64:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case float32:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case float64:
+						q = q.Int64Property(janusPropertyName, int64(t))
 					default:
 						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
 					}
@@ -195,7 +209,7 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *string, atContext *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema, key **models.SingleRef) error {
 	// Fetch the class, it's key, and it's relations.
 	q := gremlin.G.V().
-		StringProperty(PROP_KIND, k.Name()).
+		HasString(PROP_KIND, k.Name()).
 		HasString(PROP_UUID, string(searchUUID)).
 		As("class").
 		OutEWithLabel(KEY_VERTEX_LABEL).As("keyEdge").
@@ -228,9 +242,14 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		}
 	}
 
-	*key = newKeySingleRefFromKeyPath(keyPath)
+	if key != nil {
+		*key = newKeySingleRefFromKeyPath(keyPath)
+	}
 
-	*foundUUID = strfmt.UUID(vertex.AssertPropertyValue(PROP_UUID).AssertString())
+	if foundUUID != nil {
+		*foundUUID = strfmt.UUID(vertex.AssertPropertyValue(PROP_UUID).AssertString())
+	}
+
 	kind := kind.KindByName(vertex.AssertPropertyValue(PROP_KIND).AssertString())
 	mappedClassName := MappedClassName(vertex.AssertPropertyValue(PROP_CLASS_ID).AssertString())
 	className := j.state.getClassNameFromMapped(mappedClassName)
@@ -239,11 +258,21 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		panic(fmt.Sprintf("Could not get %s class '%s' from schema", kind.Name(), className))
 	}
 
-	*atClass = className.String()
-	*atContext = vertex.AssertPropertyValue(PROP_AT_CONTEXT).AssertString()
+	if atClass != nil {
+		*atClass = className.String()
+	}
 
-	*creationTimeUnix = vertex.AssertPropertyValue(PROP_CREATION_TIME_UNIX).AssertInt64()
-	*lastUpdateTimeUnix = vertex.AssertPropertyValue(PROP_LAST_UPDATE_TIME_UNIX).AssertInt64()
+	if atContext != nil {
+		*atContext = vertex.AssertPropertyValue(PROP_AT_CONTEXT).AssertString()
+	}
+
+	if creationTimeUnix != nil {
+		*creationTimeUnix = vertex.AssertPropertyValue(PROP_CREATION_TIME_UNIX).AssertInt64()
+	}
+
+	if lastUpdateTimeUnix != nil {
+		*lastUpdateTimeUnix = vertex.AssertPropertyValue(PROP_LAST_UPDATE_TIME_UNIX).AssertInt64()
+	}
 
 	classSchema := make(map[string]interface{})
 
@@ -258,7 +287,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 				panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
 			}
 
-			err, propType := j.schema.FindPropertyDataType(property.AtDataType)
+			propType, err := j.schema.FindPropertyDataType(property.AtDataType)
 			if err != nil {
 				panic(fmt.Sprintf("Could not decode property '%s'; %v", propertyName, err))
 			}
@@ -285,7 +314,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 			panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
 		}
 
-		err, propType := j.schema.FindPropertyDataType(property.AtDataType)
+		propType, err := j.schema.FindPropertyDataType(property.AtDataType)
 		if err != nil {
 			panic(fmt.Sprintf("Could not get property type of '%s' in class %s; %v", property.AtDataType, className, err))
 		}
@@ -316,7 +345,10 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		}
 	}
 
-	*properties = classSchema
+	if properties != nil {
+		*properties = classSchema
+	}
+
 	return nil
 }
 
@@ -353,7 +385,7 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 
 			janusPropertyName := string(j.state.getMappedPropertyName(className, sanitizedPropertyName))
 
-			err, propType := j.schema.FindPropertyDataType(property.AtDataType)
+			propType, err := j.schema.FindPropertyDataType(property.AtDataType)
 			if err != nil {
 				return err
 			}
@@ -381,6 +413,10 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 					case uint32:
 						q = q.Int64Property(janusPropertyName, int64(t))
 					case uint64:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case float32:
+						q = q.Int64Property(janusPropertyName, int64(t))
+					case float64:
 						q = q.Int64Property(janusPropertyName, int64(t))
 					default:
 						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
@@ -508,13 +544,20 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 	return err
 }
 
-func (j *Janusgraph) listClass(k kind.Kind, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, yield func(id strfmt.UUID)) error {
+func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, yield func(id strfmt.UUID)) error {
 	if len(wheres) > 0 {
 		return errors.New("Wheres are not supported in ListThings")
 	}
 
 	q := gremlin.G.V().
-		HasString(PROP_KIND, k.Name()).
+		HasString(PROP_KIND, k.Name())
+
+	if className != nil {
+		vertexLabel := j.state.getMappedClassName(*className)
+		q = q.HasString(PROP_CLASS_ID, string(vertexLabel))
+	}
+
+	q = q.
 		Range(offset, first).
 		Values([]string{PROP_UUID})
 

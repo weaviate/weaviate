@@ -9,7 +9,7 @@ func TestDetectPrimitiveTypes(t *testing.T) {
 	s := &Schema{}
 
 	for _, type_ := range PrimitiveDataTypes {
-		err, pdt := s.FindPropertyDataType([]string{string(type_)})
+		pdt, err := s.FindPropertyDataType([]string{string(type_)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -27,7 +27,7 @@ func TestDetectPrimitiveTypes(t *testing.T) {
 func TestNonExistingClassSingleRef(t *testing.T) {
 	s := Empty()
 
-	err, pdt := s.FindPropertyDataType([]string{"NonExistingClass"})
+	pdt, err := s.FindPropertyDataType([]string{"NonExistingClass"})
 
 	if err == nil {
 		t.Fatal("Should have error")
@@ -45,7 +45,7 @@ func TestExistingClassSingleRef(t *testing.T) {
 		Class: "ExistingClass",
 	})
 
-	err, pdt := s.FindPropertyDataType([]string{"ExistingClass"})
+	pdt, err := s.FindPropertyDataType([]string{"ExistingClass"})
 
 	if err != nil {
 		t.Fatal(err)

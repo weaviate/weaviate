@@ -29,7 +29,12 @@ script:
   - |
     # Load the test schema in weaviate.
     go run ./tools/schema_loader -action-schema test/schema/test-action-schema.json -thing-schema test/schema/test-thing-schema.json
+    # Load the fixtures for the GraphQL acceptance tests
+    go run ./tools/schema_loader -action-schema test/acceptance/graphql_resolvers_local/fixtures/actions_schema.json -thing-schema test/acceptance/graphql_resolvers_local/fixtures/things_schema.json
+    go run ./tools/fixture_importer/ -fixture-file test/acceptance/graphql_resolvers_local/fixtures/data.json
+    # Prepare test reporter
     ./cc-test-reporter before-build
+    # Run all tests
     for pkg in $(go list ./... | grep -v main); do
         if ! go test -race -v -coverprofile=$(echo $pkg | tr / -).cover $pkg; then
           echo "Test for $pkg failed" >&2

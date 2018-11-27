@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.9.4"
+    "version": "0.10.0"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -323,6 +323,12 @@ func init() {
             "required": true
           },
           {
+            "type": "boolean",
+            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+            "name": "async",
+            "in": "query"
+          },
+          {
             "description": "JSONPatch document as defined by RFC 6902.",
             "name": "body",
             "in": "body",
@@ -336,6 +342,12 @@ func init() {
           }
         ],
         "responses": {
+          "200": {
+            "description": "Successfully applied.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
           "202": {
             "description": "Successfully received.",
             "schema": {
@@ -1723,6 +1735,12 @@ func init() {
             "required": true
           },
           {
+            "type": "boolean",
+            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+            "name": "async",
+            "in": "query"
+          },
+          {
             "description": "JSONPatch document as defined by RFC 6902.",
             "name": "body",
             "in": "body",
@@ -1736,6 +1754,12 @@ func init() {
           }
         ],
         "responses": {
+          "200": {
+            "description": "Successfully applied.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
           "202": {
             "description": "Successfully received.",
             "schema": {
@@ -2777,7 +2801,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.9.4"
+    "version": "0.10.0"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -3060,6 +3084,12 @@ func init() {
             "required": true
           },
           {
+            "type": "boolean",
+            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+            "name": "async",
+            "in": "query"
+          },
+          {
             "description": "JSONPatch document as defined by RFC 6902.",
             "name": "body",
             "in": "body",
@@ -3073,6 +3103,12 @@ func init() {
           }
         ],
         "responses": {
+          "200": {
+            "description": "Successfully applied.",
+            "schema": {
+              "$ref": "#/definitions/ActionGetResponse"
+            }
+          },
           "202": {
             "description": "Successfully received.",
             "schema": {
@@ -4468,6 +4504,12 @@ func init() {
             "required": true
           },
           {
+            "type": "boolean",
+            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+            "name": "async",
+            "in": "query"
+          },
+          {
             "description": "JSONPatch document as defined by RFC 6902.",
             "name": "body",
             "in": "body",
@@ -4481,6 +4523,12 @@ func init() {
           }
         ],
         "responses": {
+          "200": {
+            "description": "Successfully applied.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetResponse"
+            }
+          },
           "202": {
             "description": "Successfully received.",
             "schema": {

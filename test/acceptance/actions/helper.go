@@ -2,6 +2,7 @@ package test
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
+	"github.com/creativesoftwarefdn/weaviate/client/things"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/go-openapi/strfmt"
@@ -32,7 +33,7 @@ func assertCreateAction(t *testing.T, className string, schema map[string]interf
 	return actionID
 }
 
-func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.ActionGetResponse {
+func assertGetAction(t *testing.T, uuid strfmt.UUID) *models.ActionGetResponse {
 	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(uuid), helper.RootAuth)
 
 	var action *models.ActionGetResponse
@@ -42,4 +43,26 @@ func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.ActionGetResponse {
 	})
 
 	return action
+}
+
+func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
+	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
+		Thing: &models.ThingCreate{
+			AtContext: "http://example.org",
+			AtClass:   className,
+			Schema:    schema,
+		},
+		Async: false,
+	})
+
+	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, helper.RootAuth)
+
+	var thingID strfmt.UUID
+
+	// Ensure that the response is OK
+	helper.AssertRequestOk(t, resp, err, func() {
+		thingID = resp.Payload.ThingID
+	})
+
+	return thingID
 }

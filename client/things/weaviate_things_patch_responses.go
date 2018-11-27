@@ -25,6 +25,13 @@ type WeaviateThingsPatchReader struct {
 func (o *WeaviateThingsPatchReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
 
+	case 200:
+		result := NewWeaviateThingsPatchOK()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return result, nil
+
 	case 202:
 		result := NewWeaviateThingsPatchAccepted()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -70,6 +77,35 @@ func (o *WeaviateThingsPatchReader) ReadResponse(response runtime.ClientResponse
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
+}
+
+// NewWeaviateThingsPatchOK creates a WeaviateThingsPatchOK with default headers values
+func NewWeaviateThingsPatchOK() *WeaviateThingsPatchOK {
+	return &WeaviateThingsPatchOK{}
+}
+
+/*WeaviateThingsPatchOK handles this case with default header values.
+
+Successfully applied.
+*/
+type WeaviateThingsPatchOK struct {
+	Payload *models.ThingGetResponse
+}
+
+func (o *WeaviateThingsPatchOK) Error() string {
+	return fmt.Sprintf("[PATCH /things/{thingId}][%d] weaviateThingsPatchOK  %+v", 200, o.Payload)
+}
+
+func (o *WeaviateThingsPatchOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ThingGetResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
 }
 
 // NewWeaviateThingsPatchAccepted creates a WeaviateThingsPatchAccepted with default headers values
