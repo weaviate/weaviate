@@ -5,6 +5,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
+	"github.com/creativesoftwarefdn/weaviate/lib/feature_flags"
 	"github.com/graphql-go/graphql"
 )
 
@@ -15,17 +16,21 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		return nil, err
 	}
 
-	getMetaField, err := local_get_meta.Build(dbSchema)
-	if err != nil {
-		return nil, err
+	localFields := graphql.Fields{
+		"Get": getField,
+	}
+
+	if feature_flags.EnableGetMeta {
+		getMetaField, err := local_get_meta.Build(dbSchema)
+		if err != nil {
+			return nil, err
+		}
+		localFields["GetMeta"] = getMetaField
 	}
 
 	localObject := graphql.NewObject(graphql.ObjectConfig{
-		Name: "WeaviateLocalObj",
-		Fields: graphql.Fields{
-			"Get":     getField,
-			"GetMeta": getMetaField,
-		},
+		Name:        "WeaviateLocalObj",
+		Fields:      localFields,
 		Description: "Type of query on the local Weaviate",
 	})
 
