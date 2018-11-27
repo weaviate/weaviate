@@ -6,6 +6,7 @@ import (
 	"github.com/graphql-go/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"sync"
 	"testing"
 )
 
@@ -17,6 +18,8 @@ type MockResolver struct {
 	RootObject    map[string]interface{}
 }
 
+var schemaBuildLock sync.Mutex
+
 func (mr *MockResolver) Resolve(query string) *graphql.Result {
 	fields := graphql.Fields{}
 	fields[mr.RootFieldName] = mr.RootField
@@ -26,9 +29,11 @@ func (mr *MockResolver) Resolve(query string) *graphql.Result {
 		Fields:      fields,
 	}
 
+	schemaBuildLock.Lock() // serialize creation of GraphQL schema.
 	schema, err := graphql.NewSchema(graphql.SchemaConfig{
 		Query: graphql.NewObject(schemaObject),
 	})
+	schemaBuildLock.Unlock()
 
 	if err != nil {
 		panic(err)
