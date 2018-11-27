@@ -61,6 +61,7 @@ import (
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
+	"github.com/creativesoftwarefdn/weaviate/lib/feature_flags"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/creativesoftwarefdn/weaviate/restapi/swagger_middleware"
 )
@@ -1550,8 +1551,11 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 func setupGlobalMiddleware(handler http.Handler) http.Handler {
 	handleCORS := cors.Default().Handler
 	handler = handleCORS(handler)
-	handler = graphiql.AddMiddleware(handler)
-	handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
+
+	if feature_flags.EnableDevUI {
+		handler = graphiql.AddMiddleware(handler)
+		handler = swagger_middleware.AddMiddleware([]byte(SwaggerJSON), handler)
+	}
 
 	return addLogging(handler)
 }
