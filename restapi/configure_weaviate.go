@@ -37,7 +37,6 @@ import (
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
-	gographql "github.com/graphql-go/graphql"
 	"github.com/rs/cors"
 	"google.golang.org/grpc/grpclog"
 
@@ -72,7 +71,7 @@ var connectorOptionGroup *swag.CommandLineOptionsGroup
 var contextionary libcontextionary.Contextionary
 var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
-var graphQL *graphqlapi.GraphQL
+var graphQL graphqlapi.GraphQL
 var messaging *messages.Messaging
 
 var db database.Database
@@ -398,28 +397,44 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
-		// Move the current properties to the history
-		delayedLock.IncSteps()
-		go func() {
-			defer delayedLock.Unlock()
-			dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
-		}()
+		if params.Async != nil && *params.Async == true {
+			// Move the current properties to the history
+			delayedLock.IncSteps()
+			go func() {
+				defer delayedLock.Unlock()
+				dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+			}()
 
-		// Update the database
-		delayedLock.IncSteps()
-		go func() {
-			defer delayedLock.Unlock()
+			// Update the database
+			delayedLock.IncSteps()
+			go func() {
+				defer delayedLock.Unlock()
+				err := dbConnector.UpdateAction(ctx, action, UUID)
+				if err != nil {
+					fmt.Printf("Update action failed, because %s", err)
+				}
+			}()
+
+			// Create return Object
+			actionGetResponse.Action = *action
+
+			// Returns accepted so a Go routine can process in the background
+			return actions.NewWeaviateActionsPatchAccepted().WithPayload(&actionGetResponse)
+		} else {
+			// Move the current properties to the history
+			dbConnector.MoveToHistoryAction(ctx, &oldAction.Action, params.ActionID, false)
+
 			err := dbConnector.UpdateAction(ctx, action, UUID)
 			if err != nil {
-				fmt.Printf("Update action failed, because %s", err)
+				return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 			}
-		}()
 
-		// Create return Object
-		actionGetResponse.Action = *action
+			// Create return Object
+			actionGetResponse.Action = *action
 
-		// Returns accepted so a Go routine can process in the background
-		return actions.NewWeaviateActionsPatchAccepted().WithPayload(&actionGetResponse)
+			// Returns accepted so a Go routine can process in the background
+			return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
+		}
 	})
 	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(params actions.WeaviateActionsPropertiesCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation actions.WeaviateActionsPropertiesCreate has not yet been implemented")
@@ -1148,6 +1163,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		updatedJSON, applyErr := patchObject.Apply(thingUpdateJSON)
 
 		if applyErr != nil {
+			fmt.Printf("patch attempt on %#v failed. Patch: %#v", thingUpdateJSON, patchObject)
+			panic("NOPE")
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(applyErr.Error()))
 		}
 
@@ -1165,25 +1182,43 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
-		// Move the current properties to the history
-		delayedLock.IncSteps()
-		go func() {
-			delayedLock.Unlock()
+		if params.Async != nil && *params.Async == true {
+			// Move the current properties to the history
+			delayedLock.IncSteps()
+			go func() {
+				delayedLock.Unlock()
+				dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+			}()
+
+			// Update the database
+			delayedLock.IncSteps()
+			go func() {
+				delayedLock.Unlock()
+				dbConnector.UpdateThing(ctx, thing, UUID)
+			}()
+
+			// Create return Object
+			thingGetResponse.Thing = *thing
+
+			// Returns accepted so a Go routine can process in the background
+			return things.NewWeaviateThingsPatchAccepted().WithPayload(&thingGetResponse)
+		} else {
+			// Move the current properties to the history
 			dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
-		}()
 
-		// Update the database
-		delayedLock.IncSteps()
-		go func() {
-			delayedLock.Unlock()
-			dbConnector.UpdateThing(ctx, thing, UUID)
-		}()
+			// Update the database
+			err := dbConnector.UpdateThing(ctx, thing, UUID)
 
-		// Create return Object
-		thingGetResponse.Thing = *thing
+			if err != nil {
+				return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+			}
 
-		// Returns accepted so a Go routine can process in the background
-		return things.NewWeaviateThingsPatchAccepted().WithPayload(&thingGetResponse)
+			// Create return Object
+			thingGetResponse.Thing = *thing
+
+			// Returns accepted so a Go routine can process in the background
+			return things.NewWeaviateThingsPatchOK().WithPayload(&thingGetResponse)
+		}
 	})
 	api.ThingsWeaviateThingsPropertiesCreateHandler = things.WeaviateThingsPropertiesCreateHandlerFunc(func(params things.WeaviateThingsPropertiesCreateParams, principal interface{}) middleware.Responder {
 		return middleware.NotImplemented("operation things.WeaviateThingsPropertiesCreate has not yet been implemented")
@@ -1382,14 +1417,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Add security principal to context that we pass on to the GraphQL resolver.
 		graphql_context := context.WithValue(params.HTTPRequest.Context(), "principal", (principal.(*models.KeyTokenGetResponse)))
 
-		// Do the request
-		result := gographql.Do(gographql.Params{
-			Schema:         *graphQL.Schema(),
-			RequestString:  query,
-			OperationName:  operationName,
-			VariableValues: variables,
-			Context:        graphql_context,
-		})
+		result := graphQL.Resolve(query, operationName, variables, graphql_context)
 
 		// Marshal the JSON
 		resultJSON, jsonErr := json.Marshal(result)
@@ -1478,15 +1506,15 @@ func configureServer(s *http.Server, scheme, addr string) {
 		// Note that this is thread safe; we're running in a single go-routine, because the event
 		// handlers are called when the SchemaLock is still held.
 
-		s := schema.HackFromDatabaseSchema(updatedSchema)
-		updatedGraphQL, err := graphqlapi.CreateSchema(nil, serverConfig, &s, messaging)
+		fmt.Printf("UPDATESCHEMA DB: %#v\n", db)
+		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, db)
 		if err != nil {
 			// TODO: turn on safe mode
 			graphQL = nil
 			messaging.ErrorMessage(fmt.Sprintf("Could not re-generate GraphQL schema, because:\n%#v\n", err))
 		} else {
 			messaging.InfoMessage("Updated GraphQL schema")
-			graphQL = &updatedGraphQL
+			graphQL = updatedGraphQL
 		}
 	})
 
@@ -1495,6 +1523,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	if err != nil {
 		messaging.ExitError(1, fmt.Sprintf("Could not initialize the database: %s", err.Error()))
 	}
+	manager.TriggerSchemaUpdateCallbacks()
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.

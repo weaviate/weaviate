@@ -87,7 +87,7 @@ func (j *Janusgraph) AddClass(kind kind.Kind, class *models.SemanticSchemaClass)
 		janusPropertyName := j.state.addMappedPropertyName(sanitizedClassName, sanitziedPropertyName)
 
 		// Determine the type of the property
-		err, propertyDataType := j.schema.FindPropertyDataType(prop.AtDataType)
+		propertyDataType, err := j.schema.FindPropertyDataType(prop.AtDataType)
 		if err != nil {
 			// This must already be validated.
 			panic(fmt.Sprintf("Data type fo property '%s' is invalid; %v", prop.Name, err))
@@ -156,7 +156,7 @@ func (j *Janusgraph) AddProperty(kind kind.Kind, className string, prop *models.
 	janusPropertyName := j.state.addMappedPropertyName(sanitizedClassName, sanitziedPropertyName)
 
 	// Determine the type of the property
-	err, propertyDataType := j.schema.FindPropertyDataType(prop.AtDataType)
+	propertyDataType, err := j.schema.FindPropertyDataType(prop.AtDataType)
 	if err != nil {
 		// This must already be validated.
 		panic(fmt.Sprintf("Data type fo property '%s' is invalid; %v", prop.Name, err))
@@ -205,7 +205,7 @@ func (j *Janusgraph) DropProperty(kind kind.Kind, className string, propName str
 		panic("could not get property")
 	}
 
-	err, propertyDataType := j.schema.FindPropertyDataType(prop.AtDataType)
+	propertyDataType, err := j.schema.FindPropertyDataType(prop.AtDataType)
 	if err != nil {
 		// This must already be validated.
 		panic(fmt.Sprintf("Data type fo property '%s' is invalid; %v", prop.Name, err))

@@ -52,6 +52,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
@@ -424,4 +425,8 @@ func (f *Foobar) SetState(state json.RawMessage) {
 // Link a connector to this state manager.
 // When the internal state of some connector is updated, this state connector will call SetState on the provided conn.
 func (f *Foobar) SetStateManager(manager connector_state.StateManager) {
+}
+
+func (f *Foobar) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (func() interface{}, error) {
+	return func() interface{} { return nil }, nil
 }
