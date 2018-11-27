@@ -104,7 +104,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	params := actions.NewWeaviateActionsPatchParams().
 		WithBody([]*models.PatchDocument{patch}).
 		WithActionID(actionID)
-	patchResp, err := helper.Client(t).Actions.WeaviateActionsPatch(params, helper.RootAuth)
+	patchResp, _, err := helper.Client(t).Actions.WeaviateActionsPatch(params, helper.RootAuth)
 	helper.AssertRequestOk(t, patchResp, err, nil)
 
 	// Great! Let's fetch the action, and see if the property is set properly.
