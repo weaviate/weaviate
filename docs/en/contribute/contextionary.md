@@ -9,8 +9,6 @@ subject: OSS
 The contextionary is a stand-alone library that can be used to understand words, in a certain context, and how they relate to each other.
 It is based on [Spotify's Annoy Library](https://github.com/spotify/annoy) and the models are trained using [GloVe](https://github.com/stanfordnlp/GloVe), but adds a wrapping layer to be more user friendly.
 
-## Download
-
 # Download
 
 All Weaviate containers automatically download and install the contextionary from: contextionary.creativesoftwarefdn.org.
@@ -19,7 +17,7 @@ All Weaviate containers automatically download and install the contextionary fro
 - Versioned urls are formatted as: `https://contextionary.creativesoftwarefdn.org/%version%/%language%`
 - Contextionary files include: `contextionary.vocab`, `contextionary.idx`, `contextionary.knn`.
 
-### Example of downloading latest vocabulary
+## Example of downloading latest vocabulary
 
 ```bash
 wget https://contextionary.creativesoftwarefdn.org/$(curl -sS https://contextionary.creativesoftwarefdn.org/contextionary.json | jq -r ".latestVersion")/en/contextionary.vocab
