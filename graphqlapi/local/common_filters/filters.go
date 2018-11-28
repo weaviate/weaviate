@@ -22,43 +22,43 @@ func Build() graphql.InputObjectConfigFieldMap {
 					"LessThan":         &graphql.EnumValueConfig{},
 					"LessThanEqual":    &graphql.EnumValueConfig{},
 				},
-				Description: "Enumeration object for the 'where' filter",
+				Description: descriptions.WhereOperatorEnumDesc,
 			}),
-			Description: "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
+			Description: descriptions.WhereOperatorDesc,
 		},
 		"path": &graphql.InputObjectFieldConfig{
 			Type:        graphql.NewList(graphql.String),
-			Description: "Path of from 'Things' or 'Actions' to the property name through the classes",
+			Description: descriptions.WherePathDesc,
 		},
 		"valueInt": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Int,
-			Description: "Integer value that the property at the provided path will be compared to by an operator",
+			Description: descriptions.WhereValueIntDesc,
 		},
 		"valueNumber": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Float,
-			Description: "Number value that the property at the provided path will be compared to by an operator",
+			Description: descriptions.WhereValueNumberDesc,
 		},
 		"valueBoolean": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Boolean,
-			Description: "Boolean value that the property at the provided path will be compared to by an operator",
+			Description: descriptions.WhereValueBooleanDesc,
 		},
 		"valueString": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
-			Description: "String value that the property at the provided path will be compared to by an operator",
+			Description: descriptions.WhereValueStringDesc,
 		},
 		"valueDate": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
-			Description: "String value that the property at the provided path will be compared to by an operator",
+			Description: descriptions.WhereValueStringDesc,
 		},
 	}
 
 	// Recurse into the same time.
 	commonFilters["operands"] = &graphql.InputObjectFieldConfig{
-		Description: "Operands in the 'where' filter field, is a list of objects",
+		Description: descriptions.WhereOperandsDesc,
 		Type: graphql.NewList(graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        "WhereOperandsInpObj",
-				Description: "Operands in the 'where' filter field, is a list of objects",
+				Description: descriptions.WhereOperandsInpObjDesc,
 				Fields: (graphql.InputObjectConfigFieldMapThunk)(func() graphql.InputObjectConfigFieldMap {
 					return commonFilters
 				}),

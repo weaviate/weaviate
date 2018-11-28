@@ -26,12 +26,12 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			"Get":     getField,
 			"GetMeta": getMetaField,
 		},
-		Description: "Type of query on the local Weaviate",
+		Description: descriptions.LocalObjDesc,
 	})
 
 	localField := graphql.Field{
 		Type:        localObject,
-		Description: "Query a local Weaviate instance",
+		Description: descriptions.WeaviateLocalDesc,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			fmt.Printf("- localGetAndMetaObjectResolver (pass on source; the resolver)\n")
 			// This step does nothing; all ways allow the resolver to continue
