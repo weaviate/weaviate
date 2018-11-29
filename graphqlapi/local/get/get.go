@@ -66,7 +66,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        "WeaviateLocalGetWhereInpObj",
-						Fields:      common_filters.Build(),
+						Fields:      common_filters.Get(),
 						Description: "Filter options for the Get search, to convert the data to the filter input",
 					},
 				),
@@ -136,6 +136,7 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 				Description: "UUID of the thing or action given by the local Weaviate instance",
 				Type:        graphql.String,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// TODO
 					fmt.Printf("WHOOPTYDOO uuid\n")
 					return "uuid", nil
 				},
