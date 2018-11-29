@@ -1,7 +1,7 @@
 {
   "description": "An example using GraphiQL",
   "scripts": {
-    "start": "node server.js",
+    "start": "node prototype-server.js",
     "test": "node test/test.js"
   },
   "dependencies": {
