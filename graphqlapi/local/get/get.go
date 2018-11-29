@@ -67,7 +67,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        "WeaviateLocalGetWhereInpObj",
-						Fields:      common_filters.Build(),
+						Fields:      common_filters.Get(),
 						Description: descriptions.LocalGetWhereInpObjDesc,
 					},
 				),
@@ -137,6 +137,7 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 				Description: descriptions.LocalGetClassUUIDDesc,
 				Type:        graphql.String,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					// TODO
 					fmt.Printf("WHOOPTYDOO uuid\n")
 					return "uuid", nil
 				},
