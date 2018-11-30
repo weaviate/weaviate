@@ -25,6 +25,11 @@ wget https://contextionary.creativesoftwarefdn.org/$(curl -sS https://contextion
 
 _Note: assumes `jq` and `curl` are installed_
 
+## About the generation of Contextionaries
+
+- Contextionaries are ocassionally updated.
+- The `contextionary.vocab` contains the vocabulary of the contextionary.
+
 ## API
 The API that the user of this library will use is the Contextionary interface.
 
