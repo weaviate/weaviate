@@ -14,8 +14,8 @@ It is based on [Spotify's Annoy Library](https://github.com/spotify/annoy) and t
 All Weaviate containers automatically download and install the contextionary from: contextionary.creativesoftwarefdn.org.
 
 - All metadata regarding contextionaries can be found [here](https://contextionary.creativesoftwarefdn.org/contextionary.json).
-- Versioned urls are formatted as: `https://contextionary.creativesoftwarefdn.org/%version%/%language%`
-- Contextionary files include: `contextionary.vocab`, `contextionary.idx`, `contextionary.knn`.
+- Versioned urls are formatted as: `https://contextionary.creativesoftwarefdn.org/%version%/%language%` (`base_url`).
+- Contextionary files include: `%base_url%/contextionary.vocab`, `%base_url%/contextionary.idx`, `%base_url%/contextionary.knn`.
 
 ## Example of downloading latest vocabulary
 
@@ -29,6 +29,10 @@ _Note: assumes `jq` and `curl` are installed_
 
 - Contextionaries are ocassionally updated.
 - The `contextionary.vocab` contains the vocabulary of the contextionary.
+
+## Available languages
+
+Only English (`en`).
 
 ## API
 The API that the user of this library will use is the Contextionary interface.
