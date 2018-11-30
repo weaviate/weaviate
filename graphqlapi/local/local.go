@@ -5,8 +5,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
-	"github.com/graphql-go/graphql"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	"github.com/graphql-go/graphql"
 )
 
 // Build the local queries from the database schema.
