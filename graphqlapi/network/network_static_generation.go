@@ -19,7 +19,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 )
 
 // temporary function that does nothing but display a Weaviate instance // TODO: delete this once p2p functionality is up
@@ -61,73 +60,11 @@ func insertDummyNetworkWeaviateField(weaviatesWithGetFields map[string]*graphql.
 	return graphql.NewObject(dummyWeaviateGetObject), graphql.NewObject(dummyWeaviateGetMetaObject)
 }
 
-// generate the static parts of the schema for network queries
-func genThingsAndActionsFieldsForWeaviateNetworkGetObj(networkGetActions *graphql.Object, networkGetThings *graphql.Object, weaviate string) *graphql.Object {
-	getThingsAndActionFields := graphql.Fields{
-
-		"Actions": &graphql.Field{
-			Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGet", weaviate, "Actions"),
-			Description: descriptions.NetworkGetActionsDesc,
-			Type:        networkGetActions,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
-		},
-
-		"Things": &graphql.Field{
-			Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGet", weaviate, "Things"),
-			Description: descriptions.NetworkGetThingsDesc,
-			Type:        networkGetThings,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
-		},
-	}
-
-	getNetworkThingsAndActionFieldsObject := graphql.ObjectConfig{
-		Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGet", weaviate, "Obj"),
-		Fields:      getThingsAndActionFields,
-		Description: fmt.Sprintf("%s%s", descriptions.NetworkGetWeaviateObjDesc, weaviate),
-	}
-	return graphql.NewObject(getNetworkThingsAndActionFieldsObject)
-}
-
-func genThingsAndActionsFieldsForWeaviateNetworkGetMetaObj(networkGetMetaActions *graphql.Object, networkGetMetaThings *graphql.Object, weaviate string) *graphql.Object {
-	getNetworkMetaThingsAndActionFields := graphql.Fields{
-
-		"Actions": &graphql.Field{
-			Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGetMeta", weaviate, "Actions"),
-			Description: descriptions.NetworkGetMetaActionsDesc,
-			Type:        networkGetMetaActions,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
-		},
-
-		"Things": &graphql.Field{
-			Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGetMeta", weaviate, "Things"),
-			Description: descriptions.NetworkGetMetaThingsDesc,
-			Type:        networkGetMetaThings,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
-		},
-	}
-
-	getNetworkMetaThingsAndActionFieldsObject := graphql.ObjectConfig{
-		Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGetMeta", weaviate, "Obj"),
-		Fields:      getNetworkMetaThingsAndActionFields,
-		Description: fmt.Sprintf("%s%s", descriptions.NetworkGetMetaWeaviateObjDesc, weaviate),
-	}
-
-	return graphql.NewObject(getNetworkMetaThingsAndActionFieldsObject)
-}
-
 func genFieldsObjForNetworkFetch(filterContainer *utils.FilterContainer) *graphql.Object {
 	networkFetchActionsFields := genNetworkFetchActionsFieldsObj()
 	networkFetchThingsFields := genNetworkFetchThingsFieldsObj()
 	networkFetchFuzzyFields := genNetworkFetchFuzzyFieldsObj()
-//	networkFetchWhereFilterFields := genNetworkFetchThingsActionsWhereFilterFields(filterContainer)
+	networkFetchWhereFilterFields := genNetworkFetchThingsActionsWhereFilterFields(filterContainer)
 
 	networkFetchFields := graphql.Fields{
 
@@ -136,16 +73,7 @@ func genFieldsObjForNetworkFetch(filterContainer *utils.FilterContainer) *graphq
 			Description: descriptions.NetworkFetchActionsDesc,
 			Type:        graphql.NewList(networkFetchActionsFields),
 			Args: graphql.FieldConfigArgument{
-				"where": &graphql.ArgumentConfig{
-					Description: descriptions.LocalGetWhereDesc,
-					Type: graphql.NewInputObject(
-						graphql.InputObjectConfig{
-							Name:        "WeaviateLocalGetWhereInpObj",
-							Fields:      common_filters.Build(),
-							Description: descriptions.LocalGetWhereInpObjDesc,
-						},
-					),
-				},//networkFetchWhereFilterFields,
+				"where": networkFetchWhereFilterFields,
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -157,16 +85,7 @@ func genFieldsObjForNetworkFetch(filterContainer *utils.FilterContainer) *graphq
 			Description: descriptions.NetworkFetchThingsDesc,
 			Type:        graphql.NewList(networkFetchThingsFields),
 			Args: graphql.FieldConfigArgument{
-				"where": &graphql.ArgumentConfig{
-					Description: descriptions.LocalGetWhereDesc,
-					Type: graphql.NewInputObject(
-						graphql.InputObjectConfig{
-							Name:        "WeaviateLocalGetWhereInpObj",
-							Fields:      common_filters.Build(),
-							Description: descriptions.LocalGetWhereInpObjDesc,
-						},
-					),
-				},//networkFetchWhereFilterFields,
+				"where": networkFetchWhereFilterFields,
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -531,7 +450,7 @@ func genNetworkIntrospectThingsActionsWhereFilterFields(filterContainer *utils.F
 }
 
 func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldContents, filterContainer *utils.FilterContainer) *graphql.Object {
-//	getGetMetaFilterFields := genNetworkFilterFields(filterContainer)
+	getGetMetaFilterFields := genNetworkFilterFields(filterContainer)
 	networkGetAndGetMetaFields := graphql.Fields{
 
 		"Get": &graphql.Field{
@@ -544,21 +463,11 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 					Type: graphql.NewInputObject(
 						graphql.InputObjectConfig{
 							Name:        "WeaviateNetworkGetWhereInpObj",
-							Fields:      common_filters.Build(),
-							Description: descriptions.LocalGetWhereInpObjDesc,
+							Fields:      getGetMetaFilterFields,
+							Description: descriptions.NetworkGetWhereInpObjDesc,
 						},
 					),
 				},
-//				"where": &graphql.ArgumentConfig{
-//					Description: descriptions.NetworkGetWhereDesc,
-//					Type: graphql.NewInputObject(
-//						graphql.InputObjectConfig{
-//							Name:        "WeaviateNetworkGetWhereInpObj",
-//							Fields:      getGetMetaFilterFields,
-//							Description: descriptions.NetworkGetWhereInpObjDesc,
-//						},
-//					),
-//				},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -571,25 +480,15 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 			Description: descriptions.NetworkGetMetaDesc,
 			Args: graphql.FieldConfigArgument{
 				"where": &graphql.ArgumentConfig{
-					Description: descriptions.NetworkGetWhereDesc,
+					Description: descriptions.NetworkGetMetaWhereDesc,
 					Type: graphql.NewInputObject(
 						graphql.InputObjectConfig{
 							Name:        "WeaviateNetworkGetMetaWhereInpObj",
-							Fields:      common_filters.Build(),
+							Fields:      getGetMetaFilterFields,
 							Description: descriptions.NetworkGetMetaWhereInpObjDesc,
 						},
 					),
 				},
-//				"where": &graphql.ArgumentConfig{
-//					Description: descriptions.NetworkGetMetaWhereDesc,
-//					Type: graphql.NewInputObject(
-//						graphql.InputObjectConfig{
-//							Name:        "WeaviateNetworkGetMetaWhereInpObj",
-//							Fields:      getGetMetaFilterFields,
-//							Description: descriptions.NetworkGetMetaWhereInpObjDesc,
-//						},
-//					),
-//				},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")

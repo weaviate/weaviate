@@ -16,7 +16,6 @@ package network
 
 import (
 	"fmt"
-
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
