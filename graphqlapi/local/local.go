@@ -6,6 +6,7 @@ import (
 	local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
 	"github.com/graphql-go/graphql"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 )
 
 // Build the local queries from the database schema.
@@ -26,12 +27,12 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			"Get":     getField,
 			"GetMeta": getMetaField,
 		},
-		Description: "Type of query on the local Weaviate",
+		Description: descriptions.LocalObjDesc,
 	})
 
 	localField := graphql.Field{
 		Type:        localObject,
-		Description: "Query a local Weaviate instance",
+		Description: descriptions.WeaviateLocalDesc,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			fmt.Printf("- localGetAndMetaObjectResolver (pass on source; the resolver)\n")
 			// This step does nothing; all ways allow the resolver to continue
