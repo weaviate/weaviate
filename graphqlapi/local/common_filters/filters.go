@@ -36,7 +36,7 @@ func BuildNew() graphql.InputObjectConfigFieldMap {
 				},
 				Description: descriptions.WhereOperatorEnumDesc,
 			}),
-			Description: "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
+			Description: descriptions.WhereOperatorDesc,
 		},
 		"path": &graphql.InputObjectFieldConfig{
 			Type:        graphql.NewList(graphql.String),
