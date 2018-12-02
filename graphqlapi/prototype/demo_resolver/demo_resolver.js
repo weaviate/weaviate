@@ -85,6 +85,36 @@ var solve_groupBy = function(filter, list) {
 }
 
 
+var solveAggregateRootClass = function(all_data, className, args) {
+	var list = []
+	for(var i=0; i < all_data.length; i++){
+		if(all_data[i].class == className){
+			list.push(all_data[i])
+		}
+	}
+
+	if (args.after) {
+		list = list.splice(args.after)
+	}
+	if (args.first) {
+		list = list.splice(0, args.first)
+	}
+	all_data = list
+	
+	nodes_in_class = []
+	for (var i in all_data) { // loop through single things or actions
+		if (all_data[i].class == className) {
+			nodes_in_class.push(all_data[i])
+		}
+	}
+
+	metadata = []
+	metadata["class"] = className
+
+	return metadata
+}
+
+
 var solveMetaRootClass = function(all_data, className, args) {
 	var list = []
 	    for(var i=0; i < all_data.length; i++){
@@ -510,6 +540,9 @@ module.exports = {
     },
     metaRootClassResolver: function(all_data, className, args) {
 		return solveMetaRootClass(all_data, className, args)
+	},
+	aggregateRootClassResolver: function(all_data, className, args) {
+		return solveAggregateRootClass(all_data, className, args)
 	},
 	resolveNetworkGet: function(filter) {
 		all_data = _.clone(data);
