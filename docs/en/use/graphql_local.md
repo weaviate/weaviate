@@ -33,6 +33,10 @@ Data for Weaviate is devided into Things and Actions, this distinction is also m
       Things
       Actions
     }
+    Aggregate{
+      Things
+      Actions
+    }
   }
 }
 ```

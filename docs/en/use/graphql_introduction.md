@@ -76,6 +76,7 @@ The following high level structure for GraphQL for querying Weaviate applies. At
   Local{
     Get
     GetMeta
+    Aggregate
   }
   Network{
     Get
