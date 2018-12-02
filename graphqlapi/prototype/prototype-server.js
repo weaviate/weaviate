@@ -234,128 +234,38 @@ var argsKeywords = new GraphQLInputObjectType({
   }
 })
 
-/**
- * create group by filter input object
- */
-
-var groupByFilter = new GraphQLInputObjectType({
-  name: "groupByFilterInpObj",
-  description: function() {
-    return getDesc("groupByFilterInpObj")},
-  fields: {
-    group: {
-      name: "groupByFilterGroup",
-      description: function() {
-        return getDesc("groupByFilterGroup")},
-      type: new GraphQLNonNull(GraphQLString),
-    },
-    sum: {
-      name: "groupByFilterSum",
-      description: function() {
-        return getDesc("groupByFilterSum")},
-      type: GraphQLString,
-    },
-    maximum: {
-      name: "groupByFilterMaximum",
-      description: function() {
-        return getDesc("groupByFilterMaximum")},
-      type: GraphQLString,
-    },
-    minimum: {
-      name: "groupByFilterMinimum",
-      description: function() {
-        return getDesc("groupByFilterMinimum")},
-      type: GraphQLString,
-    },
-    count: {
-      name: "groupByFilterCount",
-      description: function() {
-        return getDesc("groupByFilterCount")},
-      type: GraphQLString,
-    },
-    median: {
-      name: "groupByFilterMedian",
-      description: function() {
-        return getDesc("groupByFilterMedian")},
-      type: GraphQLString,
-    },
-    mean: {
-      name: "groupByFilterMean",
-      description: function() {
-        return getDesc("groupByFilterMean")},
-      type: GraphQLString,
-    },
-    mode: {
-      name: "groupByFilterMode",
-      description: function() {
-        return getDesc("groupByFilterMode")},
-      type: GraphQLString,
-    },
-    percentage: {
-      name: "groupByFilterPercentage",
-      description: function() {
-        return getDesc("groupByFilterPercentage")},
-      type: new GraphQLInputObjectType({
-        name: "groupByFilterPercentageInpObj", 
-        description: getDesc("groupByFilterPercentageInpObj"),
-        fields: {
-          from: {
-            name: "groupByFilterPercentageFrom",
-            description: getDesc("groupByFilterPercentageFrom"),
-            type: GraphQLFloat
-          },
-          to: {
-            name: "groupByFilterPercentageTo",
-            description: getDesc("groupByFilterPercentageTo"),
-            type: GraphQLFloat
-          },
-          property: {
-            name: "groupByFilterPercentageProperty",
-            description: getDesc("groupByFilterPercentageProperty"),
-            type: GraphQLString
-          }
-        }
-      }),
-    }
-  }
-})
-
 
 /**
  * create arguments for a search
  */
-var propsForArgs = {} //global
-function createArgs(item){
 
-  // check if argument name is defined, if not, create it
-  if(propsForArgs[item.class] == undefined){
+function createArgs(item, groupBy){
+  propsForArgs = {}
+  // empty argument
+  propsForArgs[item.class] = {}
 
-    // empty argument
-    propsForArgs[item.class] = {}
+  // always return first
+  propsForArgs[item.class]["first"] = {
+    name: "firstFilter",
+    type: GraphQLInt,
+    description: function() {
+      return getDesc("firstFilter")},
+  }
+  // always return after
+  propsForArgs[item.class]["after"] = {
+    name: "afterFilter",
+    type: GraphQLInt,
+    description: function() {
+      return getDesc("afterFilter")},
+  }
 
-    // always return first
-    propsForArgs[item.class]["first"] = {
-      name: "firstFilter",
-      type: GraphQLInt,
+  if(groupBy == true){
+    propsForArgs[item.class]["groupBy"] = {
+      name: "groupByFilter",
+      type: new GraphQLList(GraphQLString),
       description: function() {
-        return getDesc("firstFilter")},
+        return getDesc("groupByFilter")},
     }
-    // always return after
-    propsForArgs[item.class]["after"] = {
-      name: "afterFilter",
-      type: GraphQLInt,
-      description: function() {
-        return getDesc("afterFilter")},
-    }
-
-    // propsForArgs[item.class]["groupBy"] = {
-    //   name: "groupByFilter",
-    //   type: groupByFilter,
-    //   description: function() {
-    //     return getDesc("groupByFilter")},
-    // }
-
-    
   }
   
   return propsForArgs[item.class] // return the prop with the argument
@@ -617,22 +527,22 @@ function createAggregateSubClasses(ontologyThings, weaviate){
         returnFields["groupedBy"] = { // should actually be the property where there is grouped on
           name: "Aggregate" + singleClass.class + "GroupedBy",
           description: function() {
-            return getDesc("AggregateSubClassGrouped")},
+          return getDesc("AggregateSubClassGrouped")},
           type: new GraphQLObjectType({
             name: "Aggregate" + singleClass.class + "GroupedBy",
             description: function() {
               return getDesc("AggregateSubClassGroupedObj")},
             fields: {
               path: {
-                name: "AggregateGroupedByPath",
+                name: "AggregateSubClassGroupedPath",
                 description: function() {
-                  return getDesc("AggregateGroupedByPath")},
+                  return getDesc("AggregateSubClassGroupedPath")},
                 type: new GraphQLList(GraphQLString)
               }, 
               value: {
-                name: "AggregateGroupedByValue",
+                name: "AggregateSubClassGroupedValue",
                 description: function() {
-                  return getDesc("AggregateGroupedByValue")},
+                  return getDesc("AggregateSubClassGroupedValue")},
                 type: GraphQLString
               }
             }
@@ -662,11 +572,11 @@ function createAggregateRootClasses(ontologyThings, subClasses){
     // create root sub classes
     rootClassesFields[singleClass.class] = {
       name: singleClass.class,
-      type: subClasses[singleClass.class],
+      type: new GraphQLList(subClasses[singleClass.class]),
       description: singleClass.description,
-      args: createArgs(singleClass),
+      args: createArgs(singleClass, true),
       resolve(parentValue, args) {
-        return demoResolver.rootClassResolver(parentValue, singleClass.class, args)
+        return demoResolver.aggregateRootClassResolver(parentValue, singleClass.class, args)
       }
     }
 
