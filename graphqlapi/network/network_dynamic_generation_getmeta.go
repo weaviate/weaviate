@@ -15,6 +15,7 @@
 package network
 
 import (
+	"strings" 
 	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -116,8 +117,12 @@ func genSingleNetworkMetaClassPropertyFields(class *models.SemanticSchemaClass, 
 		if err != nil {
 			return nil, err
 		}
-
-		singleClassPropertyFields[property.Name] = convertedDataType
+		
+		if *propertyType == schema.DataTypeCRef{
+			singleClassPropertyFields[strings.Title(property.Name)] = convertedDataType
+		} else {
+			singleClassPropertyFields[property.Name] = convertedDataType
+		}
 	}
 
 	return singleClassPropertyFields, nil
