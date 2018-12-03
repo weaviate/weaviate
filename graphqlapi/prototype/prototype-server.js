@@ -649,7 +649,7 @@ function createMetaSubClasses(ontologyThings, location='') {
 
             // if class (start with capital, return Class)
             if(singleClassPropertyDatatype[0] === singleClassPropertyDatatype[0].toUpperCase()){
-              returnProps[singleClassProperty.name] = {
+              returnProps[singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1)] = {
                 name: location + "Meta" + singleClass.class + singleClassProperty.name,
                 description: "Meta information about the property \"" + singleClassProperty.name + "\"",
                 type: new GraphQLObjectType({
