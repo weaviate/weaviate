@@ -12,7 +12,7 @@ echo -e "title: Contextionary" >> $LICENSEFILE
 echo -e "subject: OSS" >> $LICENSEFILE
 echo -e "---\n" >> $LICENSEFILE
 echo -e "# Licenses of Dependencies\n" >> $LICENSEFILE
-echo -e "More information about this file can be found [here](https://github.com/creativesoftwarefdn/weaviate/tree/develop/docs/en/contribute).\n" >> $LICENSEFILE
+echo -e "More information about this file can be found [here](https://github.com/creativesoftwarefdn/weaviate/tree/develop/docs/en/contribute/licenses.md).\n" >> $LICENSEFILE
 
 ##
 # Install license software
