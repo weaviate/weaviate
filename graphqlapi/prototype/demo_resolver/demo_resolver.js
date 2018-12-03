@@ -151,8 +151,11 @@ var solveMetaRootClass = function(all_data, className, args) {
 			metadata[key]["count"] = 0
 			var type = typeof(nodes_in_class[0][key])
 			if (type == "object") {
-				metadata[key]["type"] = "cref"
-				metadata[key]["pointingTo"] = [nodes_in_class[0][key]["class"]]
+				newkey = key[0].toUpperCase() + key.substring(1)
+				metadata[newkey] = {}
+				metadata[newkey]["count"] = 0
+				metadata[newkey]["type"] = "cref"
+				metadata[newkey]["pointingTo"] = [nodes_in_class[0][key]["class"]]
 			}
 			else if (type == "boolean") {
 				metadata[key]["type"] = "boolean"
