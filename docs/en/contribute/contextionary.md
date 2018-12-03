@@ -17,6 +17,8 @@ All Weaviate containers automatically download and install the contextionary fro
 - Versioned urls are formatted as: `https://contextionary.creativesoftwarefdn.org/%version%/%language%` (`base_url`).
 - Contextionary files include: `%base_url%/contextionary.vocab`, `%base_url%/contextionary.idx`, `%base_url%/contextionary.knn`.
 
+_Note: Contextionaries are **not** backwards compatibility_
+
 ## Example of downloading latest vocabulary
 
 ```bash
