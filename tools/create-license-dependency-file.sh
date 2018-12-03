@@ -24,9 +24,11 @@ go get -u github.com/pmezard/licenses
 ##
 LICENSES=$(licenses -a -w github.com/creativesoftwarefdn/weaviate/cmd/weaviate-server)
 
-echo "| PACKAGE and LICENCE |" >> $LICENSEFILE
-echo "| ------------------- |" >> $LICENSEFILE
+echo "## PACKAGE and LICENCE" >> $LICENSEFILE
+
+echo "```markdown`" >> $LICENSEFILE
 while IFS= read -r LICENSE
 do
-    echo "| $LICENSE |" >> $LICENSEFILE
+    echo "$LICENSE" >> $LICENSEFILE
 done < <(printf '%s\n' "$LICENSES")
+echo "````" >> $LICENSEFILE
