@@ -151,7 +151,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		networkIntrospectObj,
 	}
 
-	networkGetAndGetMetaObject := genNetworkFields(&graphQLNetworkFieldContents, filterContainer)
+	networkGetAndGetMetaObject := genNetworkFields(&graphQLNetworkFieldContents/*, filterContainer*/)
 
 	networkField := &graphql.Field{
 		Type:        networkGetAndGetMetaObject,
