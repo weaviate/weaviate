@@ -8,8 +8,8 @@ subject: OSS
 
 More information about this file can be found [here](https://github.com/creativesoftwarefdn/weaviate/tree/develop/docs/en/contribute).
 
-## PACKAGE and LICENCE
-
+## PACKAGE and LICENCE\n
+```markdown
 github.com/PuerkitoBio/purell                                            BSD 3-clause "New" or "Revised" License
 github.com/PuerkitoBio/urlesc                                            BSD 3-clause "New" or "Revised" License (96%)
                                                                          +words: google, inc, owner
@@ -172,4 +172,4 @@ gopkg.in/mgo.v2/internal/json                                            BSD 3-c
                                                                          +words: google, inc, owner
                                                                          -words: all, rights, reserved, project, holder
 gopkg.in/yaml.v2                                                         Apache License 2.0
-
+```
