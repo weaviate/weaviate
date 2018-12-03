@@ -19,6 +19,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/network_filters"
 )
 
 // temporary function that does nothing but display a Weaviate instance // TODO: delete this once p2p functionality is up
@@ -449,8 +450,7 @@ func genNetworkIntrospectThingsActionsWhereFilterFields(filterContainer *utils.F
 	return whereFilterFields
 }
 
-func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldContents, filterContainer *utils.FilterContainer) *graphql.Object {
-	getGetMetaFilterFields := genNetworkFilterFields(filterContainer)
+func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldContents) *graphql.Object {
 	networkGetAndGetMetaFields := graphql.Fields{
 
 		"Get": &graphql.Field{
@@ -463,7 +463,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 					Type: graphql.NewInputObject(
 						graphql.InputObjectConfig{
 							Name:        "WeaviateNetworkGetWhereInpObj",
-							Fields:      getGetMetaFilterFields,
+							Fields:      network_filters.GetNetworkGetAndGetMetaWhereFilters(),
 							Description: descriptions.NetworkGetWhereInpObjDesc,
 						},
 					),
@@ -480,12 +480,12 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 			Description: descriptions.NetworkGetMetaDesc,
 			Args: graphql.FieldConfigArgument{
 				"where": &graphql.ArgumentConfig{
-					Description: descriptions.NetworkGetMetaWhereDesc,
+					Description: descriptions.NetworkGetWhereDesc,
 					Type: graphql.NewInputObject(
 						graphql.InputObjectConfig{
 							Name:        "WeaviateNetworkGetMetaWhereInpObj",
-							Fields:      getGetMetaFilterFields,
-							Description: descriptions.NetworkGetMetaWhereInpObjDesc,
+							Fields:      network_filters.GetNetworkGetAndGetMetaWhereFilters(),
+							Description: descriptions.NetworkGetWhereInpObjDesc,
 						},
 					),
 				},

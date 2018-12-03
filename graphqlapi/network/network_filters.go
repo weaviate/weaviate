@@ -19,30 +19,14 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
 	"fmt"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/network_filters"
 )
 
-func genNetworkFilterFields(filterContainer *utils.FilterContainer) graphql.InputObjectConfigFieldMap {
-	staticFilterElements := genNetworkStaticWhereFilterElements(filterContainer)
-
-	filterFields := graphql.InputObjectConfigFieldMap{
-		"operands": &graphql.InputObjectFieldConfig{
-			Type:        graphql.NewList(filterContainer.Operands),
-			Description: descriptions.WhereOperandsInpObjDesc,
-		},
-	}
-
-	for key, value := range staticFilterElements {
-		filterFields[key] = value
-	}
-
-	return filterFields
-}
-
 // generate these elements once
-func genNetworkStaticWhereFilterElements(filterContainer *utils.FilterContainer) graphql.InputObjectConfigFieldMap {
+func genNetworkStaticWhereFilterElements() graphql.InputObjectConfigFieldMap {
 	staticFilterElements := graphql.InputObjectConfigFieldMap{
 		"operator": &graphql.InputObjectFieldConfig{
-			Type:        filterContainer.WhereOperatorEnum,
+			Type:        network_filters.GetNetworkOperatorEnum(),
 			Description: descriptions.WhereOperatorDesc,
 		},
 		"path": &graphql.InputObjectFieldConfig{
@@ -68,17 +52,6 @@ func genNetworkStaticWhereFilterElements(filterContainer *utils.FilterContainer)
 	}
 
 	return staticFilterElements
-}
-
-func genNetworkOperandsObjectFields(filterContainer *utils.FilterContainer, staticFilterElements graphql.InputObjectConfigFieldMap) graphql.InputObjectConfigFieldMap {
-	outputFieldConfigMap := staticFilterElements
-
-	outputFieldConfigMap["operands"] = &graphql.InputObjectFieldConfig{
-		Type:        graphql.NewList(filterContainer.Operands),
-		Description: descriptions.WhereOperandsInpObjDesc,
-	}
-
-	return outputFieldConfigMap
 }
 
 // This is an exact translation of the Prototype from JS to Go. In the prototype some filter elements are declared as global variables, this is recreated here.
@@ -161,7 +134,7 @@ func genNetworkFetchThingsAndActionsFilterFields(filterContainer *utils.FilterCo
 }
 
 func genNetworkFetchWhereInpObjPropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
-	filterPropertiesElements := genNetworkStaticWhereFilterElements(filterContainer)
+	filterPropertiesElements := genNetworkStaticWhereFilterElements()
 	// delete "path" key/value set
 	delete(filterPropertiesElements, "path")
 
