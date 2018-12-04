@@ -43,9 +43,9 @@ func NewWeaviateActionsValidate(ctx *middleware.Context, handler WeaviateActions
 
 /*WeaviateActionsValidate swagger:route POST /actions/validate actions weaviateActionsValidate
 
-Validate an action based on a schema.
+Validate an Action based on a schema.
 
-Validate an action's schema and meta-data. It has to be based on a schema, which is related to the given action to be accepted by this validation.
+Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.
 
 */
 type WeaviateActionsValidate struct {

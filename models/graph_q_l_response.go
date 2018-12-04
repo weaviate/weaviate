@@ -26,14 +26,14 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// GraphQLResponse GraphQL based repsonse: http://facebook.github.io/graphql/
+// GraphQLResponse GraphQL based response: http://facebook.github.io/graphql/.
 // swagger:model GraphQLResponse
 type GraphQLResponse struct {
 
-	// GraphQL data object
+	// GraphQL data object.
 	Data map[string]JSONObject `json:"data,omitempty"`
 
-	// Array with errors
+	// Array with errors.
 	Errors []*GraphQLError `json:"errors"`
 }
 

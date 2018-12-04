@@ -29,13 +29,13 @@ import (
 type Action struct {
 	ActionCreate
 
-	// Timestamp of creation of this action in milliseconds since epoch UTC.
+	// Timestamp of creation of this Action in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
 	// key
 	Key *SingleRef `json:"key,omitempty"`
 
-	// Timestamp since epoch of last update made to the action.
+	// Timestamp of the last update made to the Action since epoch UTC.
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 }
 

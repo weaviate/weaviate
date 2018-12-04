@@ -27,7 +27,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// VectorBasedQuestion receive question based on array of classes, properties and values.
+// VectorBasedQuestion Receive question based on array of classes, properties and values.
 // swagger:model VectorBasedQuestion
 type VectorBasedQuestion []*VectorBasedQuestionItems0
 

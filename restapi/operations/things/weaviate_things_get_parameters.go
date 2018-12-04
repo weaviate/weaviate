@@ -43,7 +43,7 @@ type WeaviateThingsGetParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Unique ID of the thing.
+	/*Unique ID of the Thing.
 	  Required: true
 	  In: path
 	*/

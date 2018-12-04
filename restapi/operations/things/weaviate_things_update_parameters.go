@@ -52,7 +52,7 @@ type WeaviateThingsUpdateParams struct {
 	  In: body
 	*/
 	Body *models.ThingUpdate
-	/*Unique ID of the thing.
+	/*Unique ID of the Thing.
 	  Required: true
 	  In: path
 	*/

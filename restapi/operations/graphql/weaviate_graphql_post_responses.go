@@ -28,7 +28,7 @@ import (
 // WeaviateGraphqlPostOKCode is the HTTP code returned for type WeaviateGraphqlPostOK
 const WeaviateGraphqlPostOKCode int = 200
 
-/*WeaviateGraphqlPostOK Succesful query (with select).
+/*WeaviateGraphqlPostOK Successful query (with select).
 
 swagger:response weaviateGraphqlPostOK
 */
@@ -120,7 +120,7 @@ func (o *WeaviateGraphqlPostForbidden) WriteResponse(rw http.ResponseWriter, pro
 // WeaviateGraphqlPostUnprocessableEntityCode is the HTTP code returned for type WeaviateGraphqlPostUnprocessableEntity
 const WeaviateGraphqlPostUnprocessableEntityCode int = 422
 
-/*WeaviateGraphqlPostUnprocessableEntity Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*WeaviateGraphqlPostUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response weaviateGraphqlPostUnprocessableEntity
 */

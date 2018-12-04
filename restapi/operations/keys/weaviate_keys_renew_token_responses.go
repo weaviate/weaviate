@@ -144,7 +144,7 @@ func (o *WeaviateKeysRenewTokenNotFound) WriteResponse(rw http.ResponseWriter, p
 // WeaviateKeysRenewTokenUnprocessableEntityCode is the HTTP code returned for type WeaviateKeysRenewTokenUnprocessableEntity
 const WeaviateKeysRenewTokenUnprocessableEntityCode int = 422
 
-/*WeaviateKeysRenewTokenUnprocessableEntity Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*WeaviateKeysRenewTokenUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response weaviateKeysRenewTokenUnprocessableEntity
 */
