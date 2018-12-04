@@ -25,18 +25,18 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// PeerUpdate A single peer in the network
+// PeerUpdate A single peer in the network.
 // swagger:model PeerUpdate
 type PeerUpdate struct {
 
-	// The session ID of the peer
+	// The session ID of the peer.
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
 
-	// Human readable name
+	// Human readable name.
 	Name string `json:"name,omitempty"`
 
-	// The location where the peer is exposed to the internet
+	// The location where the peer is exposed to the internet.
 	// Format: uri
 	URI strfmt.URI `json:"uri,omitempty"`
 }

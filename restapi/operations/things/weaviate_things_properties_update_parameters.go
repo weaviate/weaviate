@@ -52,12 +52,12 @@ type WeaviateThingsPropertiesUpdateParams struct {
 	  In: body
 	*/
 	Body models.MultipleRef
-	/*Unique name of the property related to the thing.
+	/*Unique name of the property related to the Thing.
 	  Required: true
 	  In: path
 	*/
 	PropertyName string
-	/*Unique ID of the thing.
+	/*Unique ID of the Thing.
 	  Required: true
 	  In: path
 	*/

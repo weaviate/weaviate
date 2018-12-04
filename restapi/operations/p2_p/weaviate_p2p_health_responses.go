@@ -50,7 +50,7 @@ func (o *WeaviateP2pHealthOK) WriteResponse(rw http.ResponseWriter, producer run
 // WeaviateP2pHealthInternalServerErrorCode is the HTTP code returned for type WeaviateP2pHealthInternalServerError
 const WeaviateP2pHealthInternalServerErrorCode int = 500
 
-/*WeaviateP2pHealthInternalServerError Not healthy (yet)
+/*WeaviateP2pHealthInternalServerError Not healthy (yet).
 
 swagger:response weaviateP2pHealthInternalServerError
 */

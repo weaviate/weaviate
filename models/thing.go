@@ -29,13 +29,13 @@ import (
 type Thing struct {
 	ThingCreate
 
-	// Timestamp of creation of this thing in milliseconds since epoch UTC.
+	// Timestamp of creation of this Thing in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
 	// key
 	Key *SingleRef `json:"key,omitempty"`
 
-	// Timestamp of the last thing update in milliseconds since epoch UTC.
+	// Timestamp of the last Thing update in milliseconds since epoch UTC.
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 }
 

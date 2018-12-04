@@ -28,7 +28,7 @@ import (
 // WeaviateActionsPropertiesDeleteNoContentCode is the HTTP code returned for type WeaviateActionsPropertiesDeleteNoContent
 const WeaviateActionsPropertiesDeleteNoContentCode int = 204
 
-/*WeaviateActionsPropertiesDeleteNoContent Successful deleted.
+/*WeaviateActionsPropertiesDeleteNoContent Successfully deleted.
 
 swagger:response weaviateActionsPropertiesDeleteNoContent
 */

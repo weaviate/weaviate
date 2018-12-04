@@ -76,7 +76,7 @@ func (o *WeaviateSchemaThingsCreateUnauthorized) WriteResponse(rw http.ResponseW
 // WeaviateSchemaThingsCreateUnprocessableEntityCode is the HTTP code returned for type WeaviateSchemaThingsCreateUnprocessableEntity
 const WeaviateSchemaThingsCreateUnprocessableEntityCode int = 422
 
-/*WeaviateSchemaThingsCreateUnprocessableEntity Invalid Thing class
+/*WeaviateSchemaThingsCreateUnprocessableEntity Invalid Thing class.
 
 swagger:response weaviateSchemaThingsCreateUnprocessableEntity
 */

@@ -43,9 +43,9 @@ func NewWeaviateActionsPatch(ctx *middleware.Context, handler WeaviateActionsPat
 
 /*WeaviateActionsPatch swagger:route PATCH /actions/{actionId} actions weaviateActionsPatch
 
-Update an action based on its uuid (using patch semantics) related to this key.
+Update an Action based on its UUID (using patch semantics) related to this key.
 
-Updates an action. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 
 */
 type WeaviateActionsPatch struct {

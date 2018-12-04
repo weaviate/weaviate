@@ -43,7 +43,7 @@ func NewWeaviateSchemaActionsDelete(ctx *middleware.Context, handler WeaviateSch
 
 /*WeaviateSchemaActionsDelete swagger:route DELETE /schema/actions/{className} schema weaviateSchemaActionsDelete
 
-Remove a Action class (and all data in the instances) from the ontology
+Remove an Action class (and all data in the instances) from the ontology.
 
 */
 type WeaviateSchemaActionsDelete struct {
