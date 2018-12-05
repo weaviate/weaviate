@@ -18,6 +18,20 @@ const (
 	OperatorNot              Operator = 9
 )
 
+func (o Operator) OnValue() bool {
+	switch o {
+	case OperatorEqual,
+		OperatorNotEqual,
+		OperatorGreaterThan,
+		OperatorGreaterThanEqual,
+		OperatorLessThan,
+		OperatorLessThanEqual:
+		return true
+	default:
+		return false
+	}
+}
+
 func (o Operator) Name() string {
 	switch o {
 	case OperatorEqual:

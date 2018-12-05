@@ -2,11 +2,23 @@ package common_filters
 
 import (
 	"github.com/graphql-go/graphql"
+	"sync"
 )
 
-// The filters common to Local->Get and Local->GetMeta queries.
+var sharedCommonFilters graphql.InputObjectConfigFieldMap
+var initFilter sync.Once
 
-func Build() graphql.InputObjectConfigFieldMap {
+// The filters common to Local->Get and Local->GetMeta queries.
+func Get() graphql.InputObjectConfigFieldMap {
+	initFilter.Do(func() {
+		sharedCommonFilters = BuildNew()
+	})
+
+	return sharedCommonFilters
+}
+
+// Builds a new copy for tests.
+func BuildNew() graphql.InputObjectConfigFieldMap {
 	commonFilters := graphql.InputObjectConfigFieldMap{
 		"operator": &graphql.InputObjectFieldConfig{
 			Type: graphql.NewEnum(graphql.EnumConfig{
