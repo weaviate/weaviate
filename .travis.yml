@@ -28,7 +28,7 @@ before_script:
       if [ "$PREVIOUSSEMVER" -eq 0 ]; then
         echo "Semver isn't bumped. Bumping as a PATCH"
         # Bump the version and add to schema.json
-        NEWVERSIONJSON=$(jq -r '.info.version = $NEWVERSION' --arg NEWVERSION "$(semver bump patch $(git show --oneline HEAD:$WEAVIATESCHEMAFILE | jq -r ".info.version"))" $WEAVIATESCHEMAFILE)
+        NEWVERSIONJSON=$(jq -r '.info.version = $NEWVERSION' --arg NEWVERSION "$(./semver bump patch $(git show --oneline HEAD:$WEAVIATESCHEMAFILE | jq -r ".info.version"))" $WEAVIATESCHEMAFILE)
         echo $NEWVERSIONJSON > $WEAVIATESCHEMAFILE
         # build with new version
         ./tools/gen-code-from-swagger.sh
