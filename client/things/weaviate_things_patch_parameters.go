@@ -66,7 +66,7 @@ for the weaviate things patch operation typically these are written to a http.Re
 type WeaviateThingsPatchParams struct {
 
 	/*Async
-	  If `async` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the update is persisted. The value of `async` defaults to false.
+	  If `async` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the update is made persistent. The value of `async` defaults to false.
 
 	*/
 	Async *bool
@@ -76,7 +76,7 @@ type WeaviateThingsPatchParams struct {
 	*/
 	Body []*models.PatchDocument
 	/*ThingID
-	  Unique ID of the thing.
+	  Unique ID of the Thing.
 
 	*/
 	ThingID strfmt.UUID

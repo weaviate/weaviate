@@ -67,7 +67,7 @@ func NewWeaviateSchemaActionsUpdateOK() *WeaviateSchemaActionsUpdateOK {
 
 /*WeaviateSchemaActionsUpdateOK handles this case with default header values.
 
-Changes applied
+Changes applied.
 */
 type WeaviateSchemaActionsUpdateOK struct {
 }
@@ -109,7 +109,7 @@ func NewWeaviateSchemaActionsUpdateForbidden() *WeaviateSchemaActionsUpdateForbi
 
 /*WeaviateSchemaActionsUpdateForbidden handles this case with default header values.
 
-Could not find the Action class
+Could not find the Action class.
 */
 type WeaviateSchemaActionsUpdateForbidden struct {
 }
@@ -130,7 +130,7 @@ func NewWeaviateSchemaActionsUpdateUnprocessableEntity() *WeaviateSchemaActionsU
 
 /*WeaviateSchemaActionsUpdateUnprocessableEntity handles this case with default header values.
 
-Invalid update
+Invalid update.
 */
 type WeaviateSchemaActionsUpdateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -160,7 +160,7 @@ type WeaviateSchemaActionsUpdateBody struct {
 	// keywords
 	Keywords models.SemanticSchemaKeywords `json:"keywords"`
 
-	// The new name of the Action
+	// The new name of the Action.
 	NewName string `json:"newName,omitempty"`
 }
 

@@ -63,7 +63,7 @@ for the weaviate actions delete operation typically these are written to a http.
 type WeaviateActionsDeleteParams struct {
 
 	/*ActionID
-	  Unique ID of the thing.
+	  Unique ID of the Thing.
 
 	*/
 	ActionID strfmt.UUID

@@ -100,7 +100,7 @@ func NewWeaviateSchemaThingsCreateUnprocessableEntity() *WeaviateSchemaThingsCre
 
 /*WeaviateSchemaThingsCreateUnprocessableEntity handles this case with default header values.
 
-Invalid Thing class
+Invalid Thing class.
 */
 type WeaviateSchemaThingsCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse

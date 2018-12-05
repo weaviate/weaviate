@@ -67,12 +67,12 @@ type WeaviateThingsPropertiesDeleteParams struct {
 	/*Body*/
 	Body *models.SingleRef
 	/*PropertyName
-	  Unique name of the property related to the thing.
+	  Unique name of the property related to the Thing.
 
 	*/
 	PropertyName string
 	/*ThingID
-	  Unique ID of the thing.
+	  Unique ID of the Thing.
 
 	*/
 	ThingID strfmt.UUID

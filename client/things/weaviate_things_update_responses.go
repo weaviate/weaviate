@@ -164,7 +164,7 @@ func NewWeaviateThingsUpdateUnprocessableEntity() *WeaviateThingsUpdateUnprocess
 
 /*WeaviateThingsUpdateUnprocessableEntity handles this case with default header values.
 
-Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
 type WeaviateThingsUpdateUnprocessableEntity struct {
 	Payload *models.ErrorResponse

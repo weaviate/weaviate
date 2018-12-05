@@ -66,12 +66,12 @@ for the weaviate actions patch operation typically these are written to a http.R
 type WeaviateActionsPatchParams struct {
 
 	/*ActionID
-	  Unique ID of the action.
+	  Unique ID of the Action.
 
 	*/
 	ActionID strfmt.UUID
 	/*Async
-	  If `async` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the update is persisted. The value of `async` defaults to false.
+	  If `async` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the update is made persistent. The value of `async` defaults to false.
 
 	*/
 	Async *bool

@@ -97,7 +97,7 @@ func NewWeaviateSchemaActionsPropertiesDeleteForbidden() *WeaviateSchemaActionsP
 
 /*WeaviateSchemaActionsPropertiesDeleteForbidden handles this case with default header values.
 
-Could not find the Action class or property
+Could not find the Action class or property.
 */
 type WeaviateSchemaActionsPropertiesDeleteForbidden struct {
 }

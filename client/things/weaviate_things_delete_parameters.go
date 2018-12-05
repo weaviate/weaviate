@@ -63,7 +63,7 @@ for the weaviate things delete operation typically these are written to a http.R
 type WeaviateThingsDeleteParams struct {
 
 	/*ThingID
-	  Unique ID of the thing.
+	  Unique ID of the Thing.
 
 	*/
 	ThingID strfmt.UUID
