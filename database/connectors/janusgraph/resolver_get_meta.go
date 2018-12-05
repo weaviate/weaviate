@@ -5,6 +5,5 @@ import (
 )
 
 func (j *Janusgraph) LocalGetMeta(params *graphql_local_get_meta.LocalGetMetaParams) (func() interface{}, error) {
-  return nil, nil
+	return nil, nil
 }
-

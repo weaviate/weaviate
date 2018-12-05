@@ -1,7 +1,7 @@
 package database
 
 import (
-	graphql_local_get      "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
+	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	graphql_local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
 )
 
