@@ -25,9 +25,9 @@ type Client struct {
 }
 
 /*
-WeaviateThingHistoryGet gets a thing s history based on its uuid related to this key
+WeaviateThingHistoryGet gets a thing s history based on its UUID related to this key
 
-Returns a particular thing history.
+Returns a particular Thing's history.
 */
 func (a *Client) WeaviateThingHistoryGet(params *WeaviateThingHistoryGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingHistoryGetOK, error) {
 	// TODO: Validate the params before sending
@@ -58,7 +58,7 @@ func (a *Client) WeaviateThingHistoryGet(params *WeaviateThingHistoryGetParams, 
 /*
 WeaviateThingsCreate creates a new thing based on a thing template related to this key
 
-Registers a new thing. Given meta-data and schema values are validated.
+Registers a new Thing. Given meta-data and schema values are validated.
 */
 func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsCreateOK, *WeaviateThingsCreateAccepted, error) {
 	// TODO: Validate the params before sending
@@ -93,9 +93,9 @@ func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams, authIn
 }
 
 /*
-WeaviateThingsDelete deletes a thing based on its uuid related to this key
+WeaviateThingsDelete deletes a thing based on its UUID related to this key
 
-Deletes a thing from the system. All actions pointing to this thing, where the thing is the object of the action, are also being deleted.
+Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.
 */
 func (a *Client) WeaviateThingsDelete(params *WeaviateThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -124,9 +124,9 @@ func (a *Client) WeaviateThingsDelete(params *WeaviateThingsDeleteParams, authIn
 }
 
 /*
-WeaviateThingsGet gets a thing based on its uuid related to this key
+WeaviateThingsGet gets a thing based on its UUID related to this key
 
-Returns a particular thing data.
+Returns a particular Thing data.
 */
 func (a *Client) WeaviateThingsGet(params *WeaviateThingsGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -157,7 +157,7 @@ func (a *Client) WeaviateThingsGet(params *WeaviateThingsGetParams, authInfo run
 /*
 WeaviateThingsList gets a list of things related to this key
 
-Lists all things in reverse order of creation, owned by the user that belongs to the used token.
+Lists all Things in reverse order of creation, owned by the user that belongs to the used token.
 */
 func (a *Client) WeaviateThingsList(params *WeaviateThingsListParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsListOK, error) {
 	// TODO: Validate the params before sending
@@ -186,9 +186,9 @@ func (a *Client) WeaviateThingsList(params *WeaviateThingsListParams, authInfo r
 }
 
 /*
-WeaviateThingsPatch updates a thing based on its uuid using patch semantics related to this key
+WeaviateThingsPatch updates a thing based on its UUID using patch semantics related to this key
 
-Updates a thing data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) WeaviateThingsPatch(params *WeaviateThingsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsPatchOK, *WeaviateThingsPatchAccepted, error) {
 	// TODO: Validate the params before sending
@@ -316,9 +316,9 @@ func (a *Client) WeaviateThingsPropertiesUpdate(params *WeaviateThingsProperties
 }
 
 /*
-WeaviateThingsUpdate updates a thing based on its uuid related to this key
+WeaviateThingsUpdate updates a thing based on its UUID related to this key
 
-Updates a thing data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) WeaviateThingsUpdate(params *WeaviateThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsUpdateAccepted, error) {
 	// TODO: Validate the params before sending
@@ -349,7 +349,7 @@ func (a *Client) WeaviateThingsUpdate(params *WeaviateThingsUpdateParams, authIn
 /*
 WeaviateThingsValidate validates things schema
 
-Validate a thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.
+Validate a Thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.
 */
 func (a *Client) WeaviateThingsValidate(params *WeaviateThingsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateThingsValidateOK, error) {
 	// TODO: Validate the params before sending

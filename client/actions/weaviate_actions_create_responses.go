@@ -74,7 +74,7 @@ func NewWeaviateActionsCreateOK() *WeaviateActionsCreateOK {
 
 /*WeaviateActionsCreateOK handles this case with default header values.
 
-Action created
+Action created.
 */
 type WeaviateActionsCreateOK struct {
 	Payload *models.ActionGetResponse
@@ -103,7 +103,7 @@ func NewWeaviateActionsCreateAccepted() *WeaviateActionsCreateAccepted {
 
 /*WeaviateActionsCreateAccepted handles this case with default header values.
 
-Successfully received. No guarantees are made that the Action is persisted.
+Successfully received. No guarantees are made that the Action persists.
 */
 type WeaviateActionsCreateAccepted struct {
 	Payload *models.ActionGetResponse
@@ -174,7 +174,7 @@ func NewWeaviateActionsCreateUnprocessableEntity() *WeaviateActionsCreateUnproce
 
 /*WeaviateActionsCreateUnprocessableEntity handles this case with default header values.
 
-Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
 type WeaviateActionsCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -204,7 +204,7 @@ type WeaviateActionsCreateBody struct {
 	// action
 	Action *models.ActionCreate `json:"action,omitempty"`
 
-	// If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the value is persisted. The value of `async` defaults to false.
+	// If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the value is made persistent. The value of `async` defaults to false.
 	Async bool `json:"async,omitempty"`
 }
 

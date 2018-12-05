@@ -63,7 +63,7 @@ for the weaviate things get operation typically these are written to a http.Requ
 type WeaviateThingsGetParams struct {
 
 	/*ThingID
-	  Unique ID of the thing.
+	  Unique ID of the Thing.
 
 	*/
 	ThingID strfmt.UUID

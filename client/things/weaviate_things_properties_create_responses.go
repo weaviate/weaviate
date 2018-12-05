@@ -65,7 +65,7 @@ func NewWeaviateThingsPropertiesCreateOK() *WeaviateThingsPropertiesCreateOK {
 
 /*WeaviateThingsPropertiesCreateOK handles this case with default header values.
 
-Successfully added the refference.
+Successfully added the reference.
 */
 type WeaviateThingsPropertiesCreateOK struct {
 }
@@ -128,7 +128,7 @@ func NewWeaviateThingsPropertiesCreateUnprocessableEntity() *WeaviateThingsPrope
 
 /*WeaviateThingsPropertiesCreateUnprocessableEntity handles this case with default header values.
 
-Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 */
 type WeaviateThingsPropertiesCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
