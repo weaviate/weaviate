@@ -1,4 +1,15 @@
-package helper
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
+ */
 
 // This file contains the Client(t *testing.T) function, that can be used to construct a client that talks to
 // the Weaviate server that is configured using command line arguments (see init.go).
@@ -18,20 +29,20 @@ package helper
 //         helper.Client(t).SomeScope.SomeOperation(&someParams, helper.RootAuth)
 //     }
 
+package helper
+
 import (
 	"fmt"
 	"testing"
 
-	//operations_apiclient "github.com/creativesoftwarefdn/weaviate/client/operations"
-	apiclient "github.com/creativesoftwarefdn/weaviate/client"
-
+	operations_apiclient "github.com/creativesoftwarefdn/weaviate/client/operations"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 )
 
 // Create a client that logs with t.Logf, if a *testing.T is provided.
 // If there is no test case at hand, pass in nil to disable logging.
-func OperationsClient(t *testing.T) *apiclient.WeaviateDecentralisedKnowledgeGraph {
+func OperationsClient(t *testing.T) *operations_apiclient.Client {
 	transport := httptransport.New(fmt.Sprintf("%s:%s", ServerHost, ServerPort), "/weaviate/v1", []string{ServerScheme})
 
 	// If a test case is provided, and we want to dump HTTP trafic,
@@ -41,6 +52,6 @@ func OperationsClient(t *testing.T) *apiclient.WeaviateDecentralisedKnowledgeGra
 		transport.SetLogger(&testLogger{t: t})
 	}
 
-	client := /*operations_*/apiclient.New(transport, strfmt.Default)
+	client := operations_apiclient.New(transport, strfmt.Default)
 	return client
 }
