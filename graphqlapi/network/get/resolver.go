@@ -4,16 +4,12 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/graphql-go/graphql"
 )
 
-type NetworkGetInstanceParams struct {
-	SubQuery       []byte
-	TargetInstance string
-}
-
 type Resolver interface {
-	ProxyNetworkGetInstance(info *NetworkGetInstanceParams) (func() interface{}, error)
+	ProxyGetInstance(info network.ProxyGetInstanceParams) (func() interface{}, error)
 }
 
 func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
@@ -25,11 +21,11 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, fmt.Errorf("could not replace instance name in sub-query: %s", err)
 	}
 
-	params := &NetworkGetInstanceParams{
+	params := network.ProxyGetInstanceParams{
 		SubQuery:       subQueryWithoutInstance,
 		TargetInstance: p.Info.FieldName,
 	}
-	resolver.ProxyNetworkGetInstance(params)
+	resolver.ProxyGetInstance(params)
 
 	return nil, nil
 }
