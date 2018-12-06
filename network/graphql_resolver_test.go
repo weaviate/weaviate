@@ -1,7 +1,10 @@
+// +build unitTest
+
 package network
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,7 +32,7 @@ func TestProxyGetInstance(t *testing.T) {
 
 	act := func() {
 		_, err = subject.ProxyGetInstance(ProxyGetInstanceParams{
-			SubQuery:       []byte("foo"),
+			SubQuery:       SubQuery(`Get { Things { City { name } } }`),
 			TargetInstance: "best-instance",
 		})
 	}
@@ -80,6 +83,25 @@ func TestProxyGetInstance(t *testing.T) {
 			expectedPath := "/weaviate/v1/graphql"
 			if r.URL.Path != expectedPath {
 				t.Errorf("expected path to be %s, but was %s", expectedPath, r.URL.Path)
+			}
+		}
+		arrange(matcher)
+		act()
+		cleanUp()
+	})
+
+	t.Run("should form a local query from the subquery in the request body", func(t *testing.T) {
+		matcher := func(t *testing.T, r *http.Request) {
+			expectedBody := fmt.Sprintf("%s\n", `{"query":"Local { Get { Things { City { name } } } }"}`)
+			defer r.Body.Close()
+			bodyBytes, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("reading the request body returned an error: %s", err)
+			}
+
+			actualBody := string(bodyBytes)
+			if actualBody != expectedBody {
+				t.Errorf("expected body to be \n%#v\n, but was \n%#v\n", expectedBody, actualBody)
 			}
 		}
 		arrange(matcher)

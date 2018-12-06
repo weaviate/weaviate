@@ -22,7 +22,7 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 	}
 
 	params := network.ProxyGetInstanceParams{
-		SubQuery:       subQueryWithoutInstance,
+		SubQuery:       network.ParseSubQuery(subQueryWithoutInstance),
 		TargetInstance: p.Info.FieldName,
 	}
 	resolver.ProxyGetInstance(params)
