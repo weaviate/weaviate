@@ -1,6 +1,7 @@
 package network
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -20,6 +21,10 @@ const (
 	NETWORK_STATE_FAILED        = "network failed"
 	NETWORK_STATE_HEALTHY       = "network healthy"
 )
+
+// ErrPeerNotFound because it was either never registered
+// or was registered, but timed out in the meantime
+var ErrPeerNotFound = errors.New("Peer does not exist or has been removed after being inactive")
 
 // The real network implementation. Se also `fake_network.go`
 type network struct {
@@ -130,6 +135,16 @@ func (n *network) UpdatePeers(new_peers []Peer) error {
 	n.peers = new_peers
 
 	return nil
+}
+
+func (n *network) GetPeerByName(name string) (Peer, error) {
+	for _, peer := range n.peers {
+		if peer.Name == name {
+			return peer, nil
+		}
+	}
+
+	return Peer{}, ErrPeerNotFound
 }
 
 func (n *network) keep_pinging() {
