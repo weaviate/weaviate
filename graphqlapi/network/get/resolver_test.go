@@ -3,6 +3,7 @@ package network_get
 import (
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/graphql-go/graphql/language/source"
@@ -28,7 +29,7 @@ func TestRegularNetworkGetInstanceQuery(t *testing.T) {
 		t.Errorf("Expected no error, but got: %s", err)
 	}
 
-	if resolver.CalledWith == nil {
+	if resolver.Called != true {
 		t.Error("expected resolver.ProxyNetworkGetInstance to have been called, but it was never called")
 	}
 
@@ -64,10 +65,12 @@ func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 }
 
 type fakeNetworkResolver struct {
-	CalledWith *NetworkGetInstanceParams
+	Called     bool
+	CalledWith network.ProxyGetInstanceParams
 }
 
-func (r *fakeNetworkResolver) ProxyNetworkGetInstance(info *NetworkGetInstanceParams) (func() interface{}, error) {
+func (r *fakeNetworkResolver) ProxyGetInstance(info network.ProxyGetInstanceParams) (func() interface{}, error) {
+	r.Called = true
 	r.CalledWith = info
 	return (func() interface{} { return nil }), nil
 }
