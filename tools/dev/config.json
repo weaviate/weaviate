@@ -89,6 +89,39 @@
           }
         ]
       }
+    },
+    {
+      "name": "janusgraph_kubernetes",
+      "database": {
+        "name": "janusgraph",
+        "database_config": {
+          "url": "http://weaviate-janusgraph:8182",
+          "initialkey":   "657a48b9-e000-4d9a-b51d-69a0b621c1b9",
+          "initialtoken": "57ac8392-1ecc-4e17-9350-c9c866ac832b"
+        },
+        "local_schema": {
+          "state_dir": "."
+        }
+      },
+      "contextionary": {
+        "knn_file" : "/contextionary/example.knn",
+        "idx_file" : "/contextionary/example.idx"
+      },
+      "schemas": {
+        "Thing": "/schema/things_schema.json",
+        "Action": "/schema/actions_schema.json"
+      },
+      "limit": 100,
+      "debug": true,
+      "development": {
+        "external_instances": [{
+            "url": "http://localhost:8080"
+          },
+          {
+            "url": "http://127.0.0.1:8080"
+          }
+        ]
+      }
     }
   ]
 }
