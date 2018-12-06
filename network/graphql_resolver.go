@@ -1,8 +1,13 @@
 package network
 
 import (
+	"context"
 	"fmt"
-	"net/http"
+	"time"
+
+	"github.com/creativesoftwarefdn/weaviate/client"
+	"github.com/creativesoftwarefdn/weaviate/client/graphql"
+	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 type ProxyGetInstanceParams struct {
@@ -17,6 +22,25 @@ func (n *network) ProxyGetInstance(params ProxyGetInstanceParams) (interface{}, 
 		return nil, fmt.Errorf("could not connect to %s: %s", params.TargetInstance, err)
 	}
 
-	http.Post(fmt.Sprintf("%s/weaviate/v1/graphql", peer.URI), "", nil)
+	peerClient, err := peer.CreateClient()
+	if err != nil {
+		return nil, fmt.Errorf("could not build client for peer %s: %s", peer.Name, err)
+	}
+
+	_, err = postToPeer(peerClient, params.SubQuery)
+	if err != nil {
+		return nil, fmt.Errorf("could post to peer %s: %s", peer.Name, err)
+	}
+
 	return nil, nil
+}
+
+func postToPeer(client *client.WeaviateDecentralisedKnowledgeGraph, subQuery []byte) (interface{}, error) {
+	localContext := context.Background()
+	localContext, _ = context.WithTimeout(localContext, 1*time.Second)
+	requestParams := &graphql.WeaviateGraphqlPostParams{
+		Body:    &models.GraphQLQuery{Query: "foo"},
+		Context: localContext,
+	}
+	return client.Graphql.WeaviateGraphqlPost(requestParams, nil)
 }
