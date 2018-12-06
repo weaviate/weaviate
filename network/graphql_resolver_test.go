@@ -13,6 +13,7 @@ func TestProxyGetInstance(t *testing.T) {
 	var (
 		subject *network
 		remote  *httptest.Server
+		err     error
 	)
 
 	arrange := func(matchers ...requestMatcher) {
@@ -27,7 +28,7 @@ func TestProxyGetInstance(t *testing.T) {
 	}
 
 	act := func() {
-		subject.ProxyGetInstance(ProxyGetInstanceParams{
+		_, err = subject.ProxyGetInstance(ProxyGetInstanceParams{
 			SubQuery:       []byte("foo"),
 			TargetInstance: "best-instance",
 		})
@@ -36,6 +37,17 @@ func TestProxyGetInstance(t *testing.T) {
 	cleanUp := func() {
 		remote.Close()
 	}
+
+	t.Run("should not error", func(t *testing.T) {
+		arrange()
+		act()
+
+		if err != nil {
+			t.Errorf("should not error, but got %s", err)
+		}
+
+		cleanUp()
+	})
 
 	t.Run("handler should be called", func(t *testing.T) {
 		called := false
@@ -83,7 +95,8 @@ func fakeRemoteInstanceWithGraphQL(t *testing.T, matchers ...requestMatcher) *ht
 		for _, matcher := range matchers {
 			matcher(t, r)
 		}
-		fmt.Fprintln(w, "Hello, client")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, "%s", `{}`)
 	}))
 	return ts
 }
