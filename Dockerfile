@@ -46,6 +46,12 @@ COPY . .
 ENTRYPOINT ["./tools/dev/import_demo_data.sh"]
 
 ###############################################################################
+# This creates an image that can be used to fake a genesis for a local network setup
+FROM build_base AS genesis_fake
+COPY . .
+ENTRYPOINT ["./tools/dev/genesis_fake.sh"]
+
+###############################################################################
 # This is the base image for running waviates configurations; contains the executable & contextionary
 FROM alpine as weaviate_base
 COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate

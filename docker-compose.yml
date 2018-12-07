@@ -41,7 +41,7 @@ services:
       - janus
     restart: on-failure:0
     ports:
-     - "8080:8080"
+      - "8080:8080"
   weaviate_demo_importer:
     image: weaviate/demo_importer
     command: ["-weaviate-url", "http://weaviate:8080/weaviate/v1/"]
@@ -52,6 +52,14 @@ services:
     depends_on:
       - weaviate
     restart: on-failure:0
+  genesis_fake:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: genesis_fake
+    restart: on-failure:0
+    ports:
+      - "8090:8090"
   janus:
     image: creativesoftwarefdn/janusgraph-docker:0.2.0
     depends_on:
