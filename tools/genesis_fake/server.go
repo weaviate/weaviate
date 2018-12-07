@@ -1,17 +1,57 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 )
 
 var id = "d2a9b5be-4cfc-4929-963c-185c7f9c8697"
+var weaviateFakeID = "e90effd8-dac7-40af-9a15-6eb8f2f7bcab"
+
+func updatePeerWithList() {
+	payload := []map[string]string{{
+		"id":   weaviateFakeID,
+		"name": "weaviateB",
+		"uri":  "localhost:8100",
+	}}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("could not marshal payload to json: %s", err)
+		return
+	}
+
+	// TODO: don't rely on macOS specific docker-features
+	// has to be fixed before merging the branch
+	// most likely this will become irrelevant as
+	// the p2p feature will only run in docker-compose
+	req, err := http.NewRequest("PUT", "http://docker.for.mac.localhost:8080/weaviate/v1/p2p/genesis", bytes.NewReader(payloadBytes))
+	req.Header.Set("Content-Type", "application/json")
+	if err != nil {
+		log.Printf("could create put request: %s", err)
+		return
+	}
+
+	res, err := (&http.Client{}).Do(req)
+	if err != nil {
+		log.Printf("could send put request: %s", err)
+		return
+	}
+
+	if res.StatusCode != http.StatusOK {
+		log.Printf("could not send peer list: response status was %s", res.Status)
+		return
+	}
+
+	log.Print("successfully sent peer list to weaviate")
+}
 
 func main() {
 	http.HandleFunc("/peers/register", func(w http.ResponseWriter, req *http.Request) {
-
 		response := map[string]interface{}{
 			"peer": map[string]interface{}{
 				"id":              id,
@@ -37,6 +77,14 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		w.Write(responseBytes)
 	})
+
+	go func() {
+		for {
+			updatePeerWithList()
+			time.Sleep(10 * time.Second)
+		}
+
+	}()
 
 	http.HandleFunc("/peers/"+id+"/ping", func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusOK)
