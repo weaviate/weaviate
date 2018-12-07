@@ -1,20 +1,21 @@
-package network
+package p2p
 
 import (
 	"testing"
 
+	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/go-openapi/strfmt"
 )
 
 func TestGetExistingPeer(t *testing.T) {
-	peer := Peer{
+	peer := libnetwork.Peer{
 		Id:   strfmt.UUID("some-id"),
 		Name: "best-peer",
 		URI:  "http://best-peer.com",
 	}
 
 	subject := network{
-		peers: []Peer{peer},
+		peers: []libnetwork.Peer{peer},
 	}
 
 	actual, err := subject.GetPeerByName("best-peer")
@@ -42,14 +43,14 @@ func TestGetExistingPeer(t *testing.T) {
 }
 
 func TestGetWrongPeer(t *testing.T) {
-	peer := Peer{
+	peer := libnetwork.Peer{
 		Id:   strfmt.UUID("some-id"),
 		Name: "best-peer",
 		URI:  "http://best-peer.com",
 	}
 
 	subject := network{
-		peers: []Peer{peer},
+		peers: []libnetwork.Peer{peer},
 	}
 
 	_, err := subject.GetPeerByName("worst-peer")

@@ -1,4 +1,4 @@
-package network
+package p2p
 
 import (
 	"errors"
@@ -14,6 +14,8 @@ import (
 	genesis_client "github.com/creativesoftwarefdn/weaviate/genesis/client"
 	client_ops "github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
 	genesis_models "github.com/creativesoftwarefdn/weaviate/genesis/models"
+	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
+	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 )
 
 const (
@@ -39,10 +41,10 @@ type network struct {
 	genesis_url strfmt.URI
 	messaging   *messages.Messaging
 	client      genesis_client.WeaviateGenesisServer
-	peers       []Peer
+	peers       []libnetwork.Peer
 }
 
-func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI, public_url strfmt.URI, peer_name string) (*Network, error) {
+func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI, public_url strfmt.URI, peer_name string) (*libnetwork.Network, error) {
 	if genesis_url == "" {
 		return nil, fmt.Errorf("No genesis URL provided in network configuration")
 	}
@@ -80,13 +82,13 @@ func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI, public_url 
 		genesis_url: genesis_url,
 		messaging:   m,
 		client:      *client,
-		peers:       make([]Peer, 0),
+		peers:       make([]libnetwork.Peer, 0),
 	}
 
 	// Bootstrap the network in the background.
 	go n.bootstrap()
 
-	nw := Network(&n)
+	nw := libnetwork.Network(&n)
 	return &nw, nil
 }
 
@@ -122,11 +124,11 @@ func (n *network) GetStatus() string {
 	return n.state
 }
 
-func (n *network) ListPeers() ([]Peer, error) {
+func (n *network) ListPeers() ([]libnetwork.Peer, error) {
 	return nil, fmt.Errorf("Cannot list peers, because there is no network configured")
 }
 
-func (n *network) UpdatePeers(new_peers []Peer) error {
+func (n *network) UpdatePeers(new_peers []libnetwork.Peer) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -137,14 +139,14 @@ func (n *network) UpdatePeers(new_peers []Peer) error {
 	return nil
 }
 
-func (n *network) GetPeerByName(name string) (Peer, error) {
+func (n *network) GetPeerByName(name string) (libnetwork.Peer, error) {
 	for _, peer := range n.peers {
 		if peer.Name == name {
 			return peer, nil
 		}
 	}
 
-	return Peer{}, ErrPeerNotFound
+	return libnetwork.Peer{}, ErrPeerNotFound
 }
 
 func (n *network) keep_pinging() {
@@ -161,4 +163,13 @@ func (n *network) keep_pinging() {
 			n.messaging.InfoMessage(fmt.Sprintf("Could not ping Genesis server; %+v", err))
 		}
 	}
+}
+
+// GetNetworkResolver for now simply returns itself
+// because the network is not fully plugable yet.
+// Once we have made the network pluggable, then this would
+// be a method on the connector which returns the actual
+// plugged in Network
+func (n *network) GetNetworkResolver() graphqlnetwork.Resolver {
+	return n
 }

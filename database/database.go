@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -10,7 +11,7 @@ import (
 )
 
 type Database interface {
-	graphqlapi.ResolverProvider
+	graphqlapi.DatabaseResolverProvider
 
 	ConnectorLock() ConnectorLock
 	SchemaLock() SchemaLock

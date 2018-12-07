@@ -1,6 +1,4 @@
-// +build unitTest
-
-package network
+package p2p
 
 import (
 	"fmt"
@@ -9,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	graphqlnetworkGet "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
+	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -22,7 +22,7 @@ func TestProxyGetInstance(t *testing.T) {
 	arrange := func(matchers ...requestMatcher) {
 		remote = fakeRemoteInstanceWithGraphQL(t, matchers...)
 		subject = &network{
-			peers: []Peer{{
+			peers: []libnetwork.Peer{{
 				Name: "best-instance",
 				URI:  strfmt.URI(remote.URL),
 				Id:   strfmt.UUID("some-id"),
@@ -31,8 +31,8 @@ func TestProxyGetInstance(t *testing.T) {
 	}
 
 	act := func() {
-		_, err = subject.ProxyGetInstance(ProxyGetInstanceParams{
-			SubQuery:       SubQuery(`Get { Things { City { name } } }`),
+		_, err = subject.ProxyGetInstance(graphqlnetworkGet.ProxyGetInstanceParams{
+			SubQuery:       graphqlnetworkGet.SubQuery(`Get { Things { City { name } } }`),
 			TargetInstance: "best-instance",
 		})
 	}
