@@ -1527,7 +1527,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ThingsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsPatchForbidden()
 		}
 
@@ -1621,7 +1621,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ThingsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsPatchForbidden()
 		}
 
@@ -1726,7 +1726,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ThingsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
 			return things.NewWeaviateThingsPatchForbidden()
 		}
 
