@@ -180,7 +180,7 @@ var invalidThingTestCases = []struct {
 		},
 	},
 	{
-		/* TODO: don't count nr of elements in validation. Just validate keys, and _also_ generate an error on superfluous keys.
+		/* TODO gh-616: don't count nr of elements in validation. Just validate keys, and _also_ generate an error on superfluous keys.
 		   E.g.
 		   var cref *string
 		   var type_ *string

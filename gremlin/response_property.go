@@ -93,7 +93,6 @@ func extractVertexProperties(props map[string]interface{}) (map[string]Property,
 		}
 
 		if len(prop_val_maps) != 1 {
-			//TODO fix; read up on where/how this is possible.
 			panic(fmt.Sprintf("should be exactly 1, but got %#v", prop_val_maps))
 		}
 

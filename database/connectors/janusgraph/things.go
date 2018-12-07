@@ -42,7 +42,7 @@ func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingRespon
 }
 
 func (j *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, response *models.ThingsListResponse) error {
-	// TODO: Optimize query to perform just _one_ JanusGraph lookup.
+	// TODO gh-612: Optimize query to perform just _one_ JanusGraph lookup.
 
 	response.TotalResults = 0
 	response.Things = make([]*models.ThingGetResponse, 0)

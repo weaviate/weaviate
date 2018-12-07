@@ -64,7 +64,6 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 	})
 
 	api.GenesisPeersRegisterHandler = operations.GenesisPeersRegisterHandlerFunc(func(params operations.GenesisPeersRegisterParams) middleware.Responder {
-		//TODO: perform ping action on weaviate
 		var err error = nil
 
 		if err == nil {
