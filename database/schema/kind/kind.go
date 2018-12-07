@@ -2,6 +2,7 @@ package kind
 
 import (
 	"fmt"
+	"strings"
 )
 
 type Kind string
@@ -11,6 +12,10 @@ const ACTION_KIND Kind = "action"
 
 func (k *Kind) Name() string {
 	return string(*k)
+}
+
+func (k *Kind) TitleizedName() string {
+	return strings.Title(k.Name())
 }
 
 func KindByName(name string) Kind {

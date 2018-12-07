@@ -162,3 +162,17 @@ func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
 
 	return nil
 }
+
+func ValidateMultipleRef(ctx context.Context, serverConfig *config.WeaviateConfig, refs *models.MultipleRef, dbConnector dbconnector.DatabaseConnector, errorVal string, keyToken *models.KeyTokenGetResponse) error {
+	if refs == nil {
+		return nil
+	}
+
+	for _, ref := range *refs {
+		err := ValidateSingleRef(ctx, serverConfig, ref, dbConnector, errorVal, keyToken)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
