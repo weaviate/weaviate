@@ -99,7 +99,7 @@ func TestNestedKeys(t *testing.T) {
 			// These are re-used in sub tests.
 			var grandChildAPIToken strfmt.UUID
 			var grandChildAPIKey strfmt.UUID
-			// TODO in old tests known as newSubAPIToken
+			// in old tests known as newSubAPIToken
 
 			helper.AssertRequestOk(t, resp, err, func() {
 				keyResponse := resp.Payload
@@ -130,7 +130,7 @@ func TestNestedKeys(t *testing.T) {
 }
 
 // Make sure that we can't create a key that expires in the past.
-// TODO Convert this to a Unit test.
+// TODO: gh-615 Convert this to a Unit test.
 func TestKeyCantExpireInThePast(t *testing.T) {
 	t.Parallel() // run TestKeyExpiration in parallel with other top level tests.
 

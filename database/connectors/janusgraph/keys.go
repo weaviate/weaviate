@@ -26,7 +26,6 @@ import (
 	"strings"
 )
 
-//TODO fix keys cross weaviates.
 func (f *Janusgraph) AddKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
 	q := gremlin.G.AddV(KEY_VERTEX_LABEL).
 		StringProperty(PROP_UUID, string(UUID)).

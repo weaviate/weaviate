@@ -53,7 +53,7 @@ func (j *Janusgraph) ensureBasicSchema() error {
 			return fmt.Errorf("Could not initialize the basic Janus schema.")
 		}
 
-		// TODO: await answer from janus consultants; it's not avaible in our janus setup.
+		// TODO gh-613: await answer from janus consultants; it's not avaible in our janus setup.
 		//query = gremlin_schema_query.AwaitGraphIndicesAvailable([]string{INDEX_BY_UUID, INDEX_BY_KIND_AND_CLASS})
 		//_, err = j.client.Execute(query)
 
