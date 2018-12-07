@@ -45,7 +45,7 @@ func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 	instanceName string, resolver Resolver) graphql.ResolveParams {
 	return graphql.ResolveParams{
 		Source: map[string]interface{}{
-			"Resolver": resolver,
+			"NetworkResolver": resolver,
 		},
 		Info: graphql.ResolveInfo{
 			FieldName: instanceName,
