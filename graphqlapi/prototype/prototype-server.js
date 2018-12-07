@@ -2063,7 +2063,9 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
     const app = express();
     app.use(cors());
     app.use(express.static(__dirname));
-    app.use('/graphql', graphqlHTTP(() => ({ schema, graphiql: true })));
+    const graphQLHandler = graphqlHTTP(() => ({ schema, graphiql: true }))
+    app.use('/graphql', graphQLHandler);
+    app.use('/weaviate/v1/graphql', graphQLHandler)
     app.listen(8081, function() {
       const port = this.address().port;
       console.log(`Started on http://localhost:${port}/graphql`);
