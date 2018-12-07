@@ -60,6 +60,13 @@ services:
     restart: on-failure:0
     ports:
       - "8090:8090"
+  weaviate_b_fake:
+    build:
+      context: ./graphqlapi/prototype
+      dockerfile: Dockerfile
+    restart: on-failure:0
+    ports:
+      - "8081:8081"
   janus:
     image: creativesoftwarefdn/janusgraph-docker:0.2.0
     depends_on:
