@@ -42,7 +42,7 @@ type localSchemaManager struct {
 }
 
 // The state that will be serialized to/from disk.
-// TODO: refactor to database/schema_manager, so that it can be re-used for distributed version.
+// TODO, see gh-477: refactor to database/schema_manager, so that it can be re-used for distributed version.
 type localSchemaState struct {
 	ActionSchema *models.SemanticSchema `json:"action"`
 	ThingSchema  *models.SemanticSchema `json:"thing"`
@@ -219,8 +219,9 @@ func (l *localSchemaManager) connectorStatePath() string {
 // Triggers callbacks to all interested observers.
 func (l *localSchemaManager) saveToDisk() error {
 	log.Info("Updating local schema on disk")
-	// TODO not 100% robust against failures.
+	// This is not 100% robust against failures.
 	// we don't check IO errors yet
+	// good enough for local deployments.
 
 	stateBytes, err := json.Marshal(l.schemaState)
 	if err != nil {

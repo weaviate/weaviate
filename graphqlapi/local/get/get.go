@@ -135,11 +135,6 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 			classProperties["uuid"] = &graphql.Field{
 				Description: "UUID of the thing or action given by the local Weaviate instance",
 				Type:        graphql.String,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					// TODO
-					fmt.Printf("WHOOPTYDOO uuid\n")
-					return "uuid", nil
-				},
 			}
 
 			for _, property := range class.Properties {
@@ -158,46 +153,26 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 						propertyField = &graphql.Field{
 							Description: property.Description,
 							Type:        graphql.String,
-							Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-								fmt.Printf("GET PRIMITIVE PROP: string\n")
-								return "primitive string", nil
-							},
 						}
 					case schema.DataTypeInt:
 						propertyField = &graphql.Field{
 							Description: property.Description,
 							Type:        graphql.Int,
-							Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-								fmt.Printf("GET PRIMITIVE PROP: int\n")
-								return nil, nil
-							},
 						}
 					case schema.DataTypeNumber:
 						propertyField = &graphql.Field{
 							Description: property.Description,
 							Type:        graphql.Float,
-							Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-								fmt.Printf("GET PRIMITIVE PROP: float\n")
-								return 4.2, nil
-							},
 						}
 					case schema.DataTypeBoolean:
 						propertyField = &graphql.Field{
 							Description: property.Description,
 							Type:        graphql.Boolean,
-							Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-								fmt.Printf("GET PRIMITIVE PROP: bool\n")
-								return true, nil
-							},
 						}
 					case schema.DataTypeDate:
 						propertyField = &graphql.Field{
 							Description: property.Description,
 							Type:        graphql.String, // String since no graphql date datatype exists
-							Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-								fmt.Printf("GET PRIMITIVE PROP: date\n")
-								return "somedate", nil
-							},
 						}
 					default:
 						panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s.%s; %s", k.Name(), class.Class, property.Name, propertyType.AsPrimitive()))
@@ -238,11 +213,6 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 					classProperties[propertyName] = &graphql.Field{
 						Type:        classUnion,
 						Description: property.Description,
-						Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-							fmt.Printf("- Resolve action property field (ref?)\n")
-							fmt.Printf("WHOOPTYDOO2\n")
-							return true, nil
-						},
 					}
 				}
 			}
