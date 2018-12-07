@@ -17,6 +17,7 @@ package graphqlapi
 import (
 	"context"
 	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
 	"github.com/graphql-go/graphql"
@@ -53,11 +54,15 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 	}
 
 	resolver := g.resolverProvider.GetResolver()
+	networkResolver := g.resolverProvider.GetNetworkResolver()
 	defer resolver.Close()
 
 	return graphql.Do(graphql.Params{
-		Schema:         g.schema,
-		RootObject:     map[string]interface{}{"Resolver": resolver},
+		Schema: g.schema,
+		RootObject: map[string]interface{}{
+			"Resolver":        resolver,
+			"NetworkResolver": networkResolver,
+		},
 		RequestString:  query,
 		OperationName:  operationName,
 		VariableValues: variables,

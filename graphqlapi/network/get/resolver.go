@@ -1,6 +1,7 @@
 package network_get
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 
@@ -38,7 +39,11 @@ type Resolver interface {
 }
 
 func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
-	resolver := p.Source.(map[string]interface{})["Resolver"].(Resolver)
+	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(Resolver)
+	if !ok {
+		return nil, errors.New("no network resolver present")
+	}
+
 	astLoc := p.Info.FieldASTs[0].GetLoc()
 	rawSubQuery := astLoc.Source.Body[astLoc.Start:astLoc.End]
 	subQueryWithoutInstance, err := replaceInstanceName(p.Info.FieldName, rawSubQuery)
