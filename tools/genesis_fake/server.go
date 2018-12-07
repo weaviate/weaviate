@@ -7,10 +7,10 @@ import (
 	"net/http"
 )
 
+var id = "d2a9b5be-4cfc-4929-963c-185c7f9c8697"
+
 func main() {
 	http.HandleFunc("/peers/register", func(w http.ResponseWriter, req *http.Request) {
-
-		id := "d2a9b5be-4cfc-4929-963c-185c7f9c8697"
 
 		response := map[string]interface{}{
 			"peer": map[string]interface{}{
@@ -38,7 +38,7 @@ func main() {
 		w.Write(responseBytes)
 	})
 
-	http.HandleFunc("/peers/ping", func(w http.ResponseWriter, req *http.Request) {
+	http.HandleFunc("/peers/"+id+"/ping", func(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
