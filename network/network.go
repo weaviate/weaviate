@@ -5,6 +5,7 @@ import (
 	"net/url"
 
 	"github.com/creativesoftwarefdn/weaviate/client"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -39,6 +40,7 @@ type Network interface {
 	GetStatus() string
 
 	ListPeers() ([]Peer, error)
+	GetNetworkResolver() network.Resolver
 
 	// UpdatePeers is Invoked by the Genesis server via an HTTP endpoint.
 	UpdatePeers(newPeers []Peer) error

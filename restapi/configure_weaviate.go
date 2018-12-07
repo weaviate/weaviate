@@ -41,12 +41,12 @@ import (
 	"google.golang.org/grpc/grpclog"
 
 	"github.com/creativesoftwarefdn/weaviate/auth"
-	"github.com/creativesoftwarefdn/weaviate/broker"
+	weaviateBroker "github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/connectors/listing"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	db_local_schema_manager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/local"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
@@ -63,6 +63,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
 	"github.com/creativesoftwarefdn/weaviate/lib/feature_flags"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	libnetworkFake "github.com/creativesoftwarefdn/weaviate/network/fake"
+	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/network/p2p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/swagger_middleware"
 )
 
@@ -76,6 +78,11 @@ var graphQL graphqlapi.GraphQL
 var messaging *messages.Messaging
 
 var db database.Database
+
+type dbAndNetwork struct {
+	database.Database
+	libnetwork.Network
+}
 
 type keyTokenHeader struct {
 	Key   strfmt.UUID `json:"key"`
@@ -1508,7 +1515,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 		// handlers are called when the SchemaLock is still held.
 
 		fmt.Printf("UPDATESCHEMA DB: %#v\n", db)
-		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, db)
+		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, dbAndNetwork{Database: db, Network: network})
 		if err != nil {
 			// TODO: turn on safe mode
 			graphQL = nil
@@ -1619,14 +1626,14 @@ func loadContextionary() {
 func connectToNetwork() {
 	if serverConfig.Environment.Network == nil {
 		messaging.InfoMessage(fmt.Sprintf("No network configured, not joining one"))
-		network = libnetwork.FakeNetwork{}
+		network = libnetworkFake.FakeNetwork{}
 	} else {
 		genesis_url := strfmt.URI(serverConfig.Environment.Network.GenesisURL)
 		public_url := strfmt.URI(serverConfig.Environment.Network.PublicURL)
 		peer_name := serverConfig.Environment.Network.PeerName
 
 		messaging.InfoMessage(fmt.Sprintf("Network configured, connecting to Genesis '%v'", genesis_url))
-		new_net, err := libnetwork.BootstrapNetwork(messaging, genesis_url, public_url, peer_name)
+		new_net, err := libnetworkP2P.BootstrapNetwork(messaging, genesis_url, public_url, peer_name)
 		if err != nil {
 			messaging.ExitError(78, fmt.Sprintf("Could not connect to network! Reason: %+v", err))
 		} else {
