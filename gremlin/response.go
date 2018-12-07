@@ -54,13 +54,6 @@ func (r *Response) Vertices() ([]Vertex, error) {
 	return vertices, nil
 }
 
-// Asserts that the Datum's in the reponse in the range 'from' until 'to' are of Edges.
-// Return those edges.
-func (r *Response) AssertEdgeSlice(from, to int) []*Edge {
-	// TODO
-	return nil
-}
-
 func (r *Response) AssertStringSlice() []string {
 	var stringSlice []string
 

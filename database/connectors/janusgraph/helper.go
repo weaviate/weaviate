@@ -536,9 +536,6 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 			StringProperty(PROP_REF_EDGE_LOCATION, edge.Location)
 	}
 
-	// Don't update the key.
-	// TODO verify that indeed this is the desired behaviour.
-
 	_, err := j.client.Execute(q)
 
 	return err

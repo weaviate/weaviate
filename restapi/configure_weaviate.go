@@ -584,7 +584,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}()
 			return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
 		} else {
-			//TODO: handle errors
+			//TODO gh-617: handle errors
 			err := dbConnector.AddAction(ctx, action, UUID)
 			if err != nil {
 				panic(err)
@@ -1480,7 +1480,6 @@ func configureServer(s *http.Server, scheme, addr string) {
 	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
 
 	// Create the database connector usint the config
-	// TODO  make this configureable
 	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig)
 
 	// Could not find, or configure connector.
@@ -1489,7 +1488,6 @@ func configureServer(s *http.Server, scheme, addr string) {
 	}
 
 	// Construct a (distributed lock)
-	// TODO: make part of schema manager?
 	localMutex := sync.RWMutex{}
 	dbLock := database.RWLocker(&localMutex)
 
@@ -1510,7 +1508,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 		fmt.Printf("UPDATESCHEMA DB: %#v\n", db)
 		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, db)
 		if err != nil {
-			// TODO: turn on safe mode
+			// TODO: turn on safe mode gh-520
 			graphQL = nil
 			messaging.ErrorMessage(fmt.Sprintf("Could not re-generate GraphQL schema, because:\n%#v\n", err))
 		} else {
@@ -1589,7 +1587,7 @@ func loadContextionary() {
 
 	messaging.InfoMessage("Contextionary loaded from disk")
 
-	//TODO: update on schema change.
+	//TODO gh-618: update on schema change.
 	//// Now create the in-memory contextionary based on the classes / properties.
 	//databaseSchema :=
 	//in_memory_contextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(mmaped_contextionary)
