@@ -67,7 +67,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        "WeaviateLocalGetWhereInpObj",
-						Fields:      common_filters.BuildNew(),
+						Fields:      common_filters.GetGetAndGetMetaWhereFilters(),
 						Description: descriptions.LocalGetWhereInpObjDesc,
 					},
 				),
@@ -120,7 +120,7 @@ func buildGetClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *model
 	classes := graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("WeaviateLocalGet%ssObj", kindName),
 		Fields:      classFields,
-		Description: fmt.Sprintf(descriptions.LocalGetThingsActionsObjDesc, kindName, kindName),
+		Description: fmt.Sprintf(descriptions.LocalGetThingsActionsObjDesc, kindName),
 	})
 
 	return classes, nil

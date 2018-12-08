@@ -19,14 +19,14 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/network_filters"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 )
 
 // generate these elements once
 func genNetworkStaticWhereFilterElements() graphql.InputObjectConfigFieldMap {
 	staticFilterElements := graphql.InputObjectConfigFieldMap{
 		"operator": &graphql.InputObjectFieldConfig{
-			Type:        network_filters.GetNetworkOperatorEnum(),
+			Type:        common_filters.GetOperatorEnum(),
 			Description: descriptions.WhereOperatorDesc,
 		},
 		"path": &graphql.InputObjectFieldConfig{

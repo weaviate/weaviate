@@ -23,6 +23,9 @@ const LocalGetWhereInpObjDesc string = "An object containing filter options for 
 const LocalGetMetaWhereDesc string = "Filter options for a local GetMeta query, used to convert the result to the specified filters"
 const LocalGetMetaWhereInpObjDesc string = "An object containing filter options for a local GetMeta query, used to convert the result to the specified filters"
 
+const LocalAggregateWhereDesc string = "Filter options for a local Aggregate query, used to convert the result to the specified filters"
+const LocalAggregateWhereInpObjDesc string = "An object containing filter options for a local Aggregate query, used to convert the result to the specified filters"
+
 const NetworkGetWhereDesc string = "Filter options for a network Get query, used to convert the result to the specified filters"
 const NetworkGetWhereInpObjDesc string = "An object containing filter options for a network Get query, used to convert the result to the specified filters"
 

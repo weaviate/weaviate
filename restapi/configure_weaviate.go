@@ -1380,7 +1380,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// This is a read function, validate if allowed to read?
 		if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, keyObject.KeyID); !allowed {
-			return things.NewWeaviateThingsActionsListForbidden()
+			return actions.NewWeaviateActionsListForbidden()
 		}
 
 		// Initialize response
@@ -1394,7 +1394,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			messaging.ErrorMessage(err)
 		}
 
-		return things.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
+		return actions.NewWeaviateActionsListOK().WithPayload(&actionsResponse)
 	})
 	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal interface{}) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())

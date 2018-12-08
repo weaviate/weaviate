@@ -5,6 +5,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
+	local_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/graphql-go/graphql"
 )
@@ -20,12 +21,18 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	if err != nil {
 		return nil, err
 	}
+	
+	getAggregateField, err := local_aggregate.Build(dbSchema)
+	if err != nil {
+		return nil, err
+	}
 
 	localObject := graphql.NewObject(graphql.ObjectConfig{
 		Name: "WeaviateLocalObj",
 		Fields: graphql.Fields{
 			"Get":     getField,
 			"GetMeta": getMetaField,
+			"Aggregate": getAggregateField,
 		},
 		Description: descriptions.LocalObjDesc,
 	})
