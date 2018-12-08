@@ -19,7 +19,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/network_filters"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 )
 
 // temporary function that does nothing but display a Weaviate instance // TODO: delete this once p2p functionality is up
@@ -463,7 +463,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 					Type: graphql.NewInputObject(
 						graphql.InputObjectConfig{
 							Name:        "WeaviateNetworkGetWhereInpObj",
-							Fields:      network_filters.GetNetworkGetAndGetMetaWhereFilters(),
+							Fields:      common_filters.GetGetAndGetMetaWhereFilters(),
 							Description: descriptions.NetworkGetWhereInpObjDesc,
 						},
 					),
@@ -484,7 +484,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 					Type: graphql.NewInputObject(
 						graphql.InputObjectConfig{
 							Name:        "WeaviateNetworkGetMetaWhereInpObj",
-							Fields:      network_filters.GetNetworkGetAndGetMetaWhereFilters(),
+							Fields:      common_filters.GetGetAndGetMetaWhereFilters(),
 							Description: descriptions.NetworkGetWhereInpObjDesc,
 						},
 					),

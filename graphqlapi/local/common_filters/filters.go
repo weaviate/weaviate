@@ -1,3 +1,17 @@
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
+ */
+
+// Package common_filters provides the filters for the graphql endpoint for Weaviate
 package common_filters
 
 import (
@@ -6,36 +20,24 @@ import (
 	"sync"
 )
 
-var sharedCommonFilters graphql.InputObjectConfigFieldMap
+var sharedGetAndGetMetaWhereFilters graphql.InputObjectConfigFieldMap
+var sharedOperatorEnum *graphql.Enum
 var initFilter sync.Once
+var initEnum sync.Once
 
-// The filters common to Local->Get and Local->GetMeta queries.
-func Get() graphql.InputObjectConfigFieldMap {
+// The filters common to Network->Get and Network->GetMeta queries.
+func GetGetAndGetMetaWhereFilters() graphql.InputObjectConfigFieldMap {
 	initFilter.Do(func() {
-    sharedCommonFilters = BuildNew()
+    sharedGetAndGetMetaWhereFilters = BuildNewGetAndGetMetaFilters()
   })
 
-  return sharedCommonFilters
+  return sharedGetAndGetMetaWhereFilters
 }
 
-func BuildNew() graphql.InputObjectConfigFieldMap {
+func BuildNewGetAndGetMetaFilters() graphql.InputObjectConfigFieldMap {
     commonFilters := graphql.InputObjectConfigFieldMap{
 		"operator": &graphql.InputObjectFieldConfig{
-			Type: graphql.NewEnum(graphql.EnumConfig{
-				Name: "WhereOperatorEnum",
-				Values: graphql.EnumValueConfigMap{
-					"And":              &graphql.EnumValueConfig{},
-					"Or":               &graphql.EnumValueConfig{},
-					"Equal":            &graphql.EnumValueConfig{},
-					"Not":              &graphql.EnumValueConfig{},
-					"NotEqual":         &graphql.EnumValueConfig{},
-					"GreaterThan":      &graphql.EnumValueConfig{},
-					"GreaterThanEqual": &graphql.EnumValueConfig{},
-					"LessThan":         &graphql.EnumValueConfig{},
-					"LessThanEqual":    &graphql.EnumValueConfig{},
-				},
-				Description: descriptions.WhereOperatorEnumDesc,
-			}),
+			Type: GetOperatorEnum(),
 			Description: descriptions.WhereOperatorDesc,
 		},
 		"path": &graphql.InputObjectFieldConfig{
@@ -80,3 +82,32 @@ func BuildNew() graphql.InputObjectConfigFieldMap {
 
 	return commonFilters
 }
+
+// The common operator enum object.
+func GetOperatorEnum() *graphql.Enum {
+	initEnum.Do(func() {
+    sharedOperatorEnum = BuildNewOperatorEnum()
+  })
+
+  return sharedOperatorEnum
+}
+
+func BuildNewOperatorEnum() *graphql.Enum{
+	operatorEnum := graphql.NewEnum(graphql.EnumConfig{
+		Name: "WhereOperatorEnum",
+		Values: graphql.EnumValueConfigMap{
+			"And":              &graphql.EnumValueConfig{},
+			"Or":               &graphql.EnumValueConfig{},
+			"Equal":            &graphql.EnumValueConfig{},
+			"Not":              &graphql.EnumValueConfig{},
+			"NotEqual":         &graphql.EnumValueConfig{},
+			"GreaterThan":      &graphql.EnumValueConfig{},
+			"GreaterThanEqual": &graphql.EnumValueConfig{},
+			"LessThan":         &graphql.EnumValueConfig{},
+			"LessThanEqual":    &graphql.EnumValueConfig{},
+		},
+		Description: descriptions.WhereOperatorEnumDesc,
+	})
+		
+	return operatorEnum
+}		
