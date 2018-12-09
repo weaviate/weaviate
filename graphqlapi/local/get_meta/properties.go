@@ -77,6 +77,43 @@ func newMetaProperties() MetaProperties {
 						}))},
 				},
 			}),
+			
+			schema.DataTypeText: graphql.NewObject(graphql.ObjectConfig{
+				Name:        "MetaTextObject",
+				Description: "Meta information about a text",
+				Fields: graphql.Fields{
+					"count": countProp,
+					"type":  datatypeProp,
+					"topOccurrences": &graphql.Field{
+						Name: "MetaTextTopOccurrences",
+						Args: graphql.FieldConfigArgument{
+							"first": &graphql.ArgumentConfig{
+								Description: "Pagination option, show the first x results",
+								Type:        graphql.Int,
+							},
+							"after": &graphql.ArgumentConfig{
+								Description: "Pagination option, show the results after the first x results",
+								Type:        graphql.Int,
+							},
+						},
+
+						Type: graphql.NewList(graphql.NewObject(graphql.ObjectConfig{
+							Name: "MetaTextOccurrences",
+							Fields: graphql.Fields{
+								"value": &graphql.Field{
+									Name:        "MetaTextValue",
+									Description: "The most frequently occurring value of this property in the dataset",
+									Type:        graphql.String,
+								},
+								"occurs": &graphql.Field{
+									Name:        "MetaTextOccurs",
+									Description: "Number of occurrence of this property value",
+									Type:        graphql.Int,
+								},
+							},
+						}))},
+				},
+			}),
 
 			schema.DataTypeNumber: graphql.NewObject(graphql.ObjectConfig{
 				Name:        "MetaNumberObject",
@@ -90,17 +127,17 @@ func newMetaProperties() MetaProperties {
 						Type:        graphql.Float,
 					},
 					"highest": &graphql.Field{
-						Name:        "MetaNumberLowest",
+						Name:        "MetaNumberHighest",
 						Description: "Highest value found in the dataset for this property",
 						Type:        graphql.Float,
 					},
 					"average": &graphql.Field{
-						Name:        "MetaNumberLowest",
+						Name:        "MetaNumberAverage",
 						Description: "Highest value found in the dataset for this property",
 						Type:        graphql.Float,
 					},
 					"sum": &graphql.Field{
-						Name:        "MetaNumberLowest",
+						Name:        "MetaNumberSum",
 						Description: "Highest value found in the dataset for this property",
 						Type:        graphql.Float,
 					},
@@ -119,17 +156,17 @@ func newMetaProperties() MetaProperties {
 						Type:        graphql.Int,
 					},
 					"highest": &graphql.Field{
-						Name:        "MetaIntLowest",
+						Name:        "MetaIntHighest",
 						Description: "Highest value found in the dataset for this property",
 						Type:        graphql.Int,
 					},
 					"average": &graphql.Field{
-						Name:        "MetaIntLowest",
+						Name:        "MetaIntAverage",
 						Description: "Highest value found in the dataset for this property",
 						Type:        graphql.Float,
 					},
 					"sum": &graphql.Field{
-						Name:        "MetaIntLowest",
+						Name:        "MetaIntSum",
 						Description: "Highest value found in the dataset for this property",
 						Type:        graphql.Int,
 					},

@@ -40,6 +40,8 @@ const (
 	ErrorInvalidClassType string = "class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s' or '%s'"
 	// ErrorInvalidString message
 	ErrorInvalidString string = "class '%s' with property '%s' requires a string. The given value is '%v'"
+	// ErrorInvalidText message
+	ErrorInvalidText string = "class '%s' with property '%s' requires a text (string). The given value is '%v'"
 	// ErrorInvalidInteger message
 	ErrorInvalidInteger string = "class '%s' with property '%s' requires an integer. The given value is '%v'"
 	// ErrorInvalidIntegerConvertion message
@@ -235,6 +237,18 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 			if !ok {
 				return fmt.Errorf(
 					ErrorInvalidString,
+					class.Class,
+					pk,
+					pv,
+				)
+			}
+		} else if *dt == schema.DataTypeText {
+			// Return error when the input can not be casted to a string
+			var ok bool
+			data, ok = pv.(string)
+			if !ok {
+				return fmt.Errorf(
+					ErrorInvalidText,
 					class.Class,
 					pk,
 					pv,

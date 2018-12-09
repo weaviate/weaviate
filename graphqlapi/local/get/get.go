@@ -159,10 +159,6 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 						propertyField = &graphql.Field{
 							Description: property.Description,
 							Type:        graphql.String,
-							Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-								fmt.Printf("GET PRIMITIVE PROP: string\n")
-								return "primitive string", nil
-							},
 						}
 					case schema.DataTypeInt:
 						propertyField = &graphql.Field{

@@ -25,7 +25,7 @@ const (
 	DataTypeDate DataType = "date"
 )
 
-var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate}
+var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate}
 
 type PropertyKind int
 
