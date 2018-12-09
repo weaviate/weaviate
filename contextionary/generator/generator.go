@@ -79,7 +79,8 @@ func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) Word
 		}
 
 		if vector_length != len(parts)-1 {
-			log.Fatal("Data corruption; not all words have the same vector length")
+			log.Print("Line corruption found for the word [" + word + "]. Lenght expected " + strconv.Itoa(vector_length) + " but found " + strconv.Itoa(len(parts)) + ". Word will be skipped.")
+			continue
 		}
 
 		// pre-allocate a vector for speed.

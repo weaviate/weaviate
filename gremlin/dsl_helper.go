@@ -6,7 +6,7 @@ import (
 )
 
 // Escape a string so that it can be used without risk of SQL-injection like escapes.
-// TODO figure out other ways of doing string interpolation in Groovy and escape them.
+// TODO gh-614: figure out other ways of doing string interpolation in Groovy and escape them.
 func EscapeString(str string) string {
 	s := strings.Replace(str, `"`, `\"`, -1)
 	s = strings.Replace(s, `$`, `\$`, -1)

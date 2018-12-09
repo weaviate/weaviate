@@ -5,6 +5,10 @@ dist
 nightly
 dist
 
+# ignore update files
+semver
+cc-test-reporter
+
 # Ignore OLD files
 *.OLD
 *.OLD.go

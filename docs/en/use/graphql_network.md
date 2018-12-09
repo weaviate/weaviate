@@ -2,7 +2,14 @@
 publishedOnWebsite: false
 title: GraphQL Network
 subject: OSS
+author: Laura Ham
+date first published: 01Nov2018
+last updated: 05Dec2018
 ---
+
+## Audience: technical
+
+## Purpose: Show how to query a Weaviate Network
 
 ## Index
 
@@ -34,18 +41,18 @@ The overall query structure of the networked query is:
 
 ```graphql
 {
-  Network{
-    Get{
-      <weaviate_instance>{
+  Network {
+    Get {
+      <weaviate_instance> {
         Things
         Actions
       }
     }
-    Fetch{
+    Fetch {
       Things
       Actions
     }
-    Introspection{
+    Introspection {
       Things
       Actions
       Beacon
@@ -62,22 +69,22 @@ Via the P2P network, it will be possible to request ontologies of the Weaviate i
 
 ```graphql
 {
-  Network{
-    Get(where:{
+  Network {
+    Get(where: {
         path: ["weaviateB", "Things", "Airport", "place"],
         operator: Equal,
         valueString: "Amsterdam"
-      }){
-      weaviateB{
-      	Things{
+      }) {
+      weaviateB {
+      	Things {
           Airport {
             code
             place
           }
         }
       }
-      weaviateC{
-      	Things{
+      weaviateC {
+      	Things {
           Municipality {
             name
           }
@@ -99,8 +106,8 @@ With the `Fetch` function Things and Actions can be fetched using a `where` filt
 Example request:
 ```graphql
 {
-  Network{
-    Fetch{
+  Network {
+    Fetch {
       Things(where: {
         class: [{
           name: "Animal",
@@ -133,7 +140,7 @@ With this request, beacons that match the queried information are returned. In t
 
 
 ### Fuzzy Fetch
-Next to the above introduced Things and Actions search where at least the class name, property name and property value should be provided to fetch nodes, a Fuzzy fetch is provided which gives the option to to a search only based on a property value. A search could look like this:
+Next to the above introduced `Things` and `Actions` search where at least the class name, property name and property value should be provided to fetch nodes, a `Fuzzy` `Fetch` is provided which gives the option to to a search only based on a property value. A search could look like this:
 
 ```graphql
 {
@@ -159,8 +166,8 @@ If you want to introspect `Things` or `Actions` in the network, you need to spec
 
 ```graphql
 {
-  Network{
-    Introspect{
+  Network {
+    Introspect {
       Things(where: {
         class: [{
           name: "Animal",
@@ -178,7 +185,7 @@ If you want to introspect `Things` or `Actions` in the network, you need to spec
           }],
           certainty: 0.8
         }]
-      }){
+      }) {
         weaviate
         className
         certainty
@@ -211,11 +218,11 @@ The following example request returns a list of possible classes and properties.
 
 ```graphql
 {
-  Network{
-    Introspect{
-      Beacon(id:"weaviate://zoo/8569c0aa-3e8a-4de4-86a7-89d010152ad6"){
+  Network {
+    Introspect {
+      Beacon(id:"weaviate://zoo/8569c0aa-3e8a-4de4-86a7-89d010152ad6") {
         className
-        properties{
+        properties {
           propertyName
         }
       }
@@ -237,19 +244,19 @@ For nodes in the network, meta information can be queried just like for nodes in
 
 ``` graphql
 {
-  Network{
-    GetMeta(where:{
+  Network {
+    GetMeta(where: {
         path: ["weaviateB", "Things", "Airport", "place"],
         operator: Equal,
         valueString: "Amsterdam"
-      }){
-      weaviateB{
-      	Things{
+      }) {
+      weaviateB {
+      	Things {
           Airport {
-            meta{
+            meta {
               count
             }
-            place{
+            place {
               type
               count
               topOccurrences(first:2) {

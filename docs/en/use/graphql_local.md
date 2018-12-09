@@ -2,7 +2,14 @@
 publishedOnWebsite: false
 title: GraphQL Local
 subject: OSS
+author: Laura Ham
+date first published: 01Nov2018
+last updated: 05Dec2018
 ---
+
+## Audience: technical
+
+## Purpose: Show how to query a local Weaviate
 
 ## Index
 
@@ -10,6 +17,7 @@ subject: OSS
 - [Query structure](#query-structure)
 - [Get function](#get-function)
 - [GetMeta function](#getmeta-function)
+- [Aggregation function](#aggregation-function)
 - [Filters](#filters)
 
 
@@ -20,16 +28,20 @@ Querying a local Weaviate implies that the client is aware of the data schemas i
 
 ## Query structure
 
-Data for Weaviate is devided into Things and Actions, this distinction is also made in the query structure. 
+Data for Weaviate is devided into `Things` and `Actions`, this distinction is also made in the query structure. 
 
 ```graphql
 {
-  Local{
-    Get{
+  Local {
+    Get {
       Things
       Actions
     }
-    GetMeta{
+    GetMeta {
+      Things
+      Actions
+    }
+    Aggregate {
       Things
       Actions
     }
@@ -98,7 +110,7 @@ Generic meta data about classes and its properties can be queried. Property meta
 	- `percentageTrue`
   - `totalFalse`
   - `percentageFalse`
-- Reference:
+- `Reference`:
 	- `pointingTo`
 
 Additionally, the number of nodes in a (potentially filtered) class is avaiable. This can be queried by `meta { count }`, at the same level as the properties of the class.
@@ -151,6 +163,9 @@ The query below returns metadata of the nodes in the class `Animal`.
 }
 ```
 
+## Aggregation function
+To aggregate and group results, you can use the `Aggregation` function. More information of how to use the `Aggregation` function can be found [here](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/use/graphql_grouping.md).
+
 
 ## Filters
 
@@ -159,7 +174,7 @@ For both functions `Get` and `GetMeta` in the Local Query filtering is possible.
 ```graphql
 {
   Local {
-    Get(where:{
+    Get(where: {
       operator: And,
       operands: [{
         path: ["Things", "Animal", "age"],
@@ -187,7 +202,7 @@ For both functions `Get` and `GetMeta` in the Local Query filtering is possible.
 }
 ```
 
-More generally, the `where` filter is an algrebraic designed object, which takes the following arguments:
+More generally, the `where` filter is an algrebraic object, which takes the following arguments:
 - `Operator`: Takes one of the following values: 
   - `And`
   - `Or`
@@ -199,23 +214,23 @@ More generally, the `where` filter is an algrebraic designed object, which takes
   - `LessThan`
   - `LessThanEqual`
 - `Operands`: Is a list of filter objects of this same structure
-- `Path`: Is a list of Strings indicating the path from 'Things' or 'Actions' to the specific property name
-- `ValueInt`: The integer value where the Path's last property name should be compared to
-- `ValueBoolean`: The boolean value where the Path's last property name should be compared to
-- `ValueString`: The string value where the Path's last property name should be compared to
-- `ValueNumber`: The number (float) value where the Path's last property name should be compared to
-- `ValueDate`: The date (ISO 8601 timestamp) value where the path's last property name should be compared to
+- `Path`: Is a list of strings indicating the path from `Things` or `Actions` to the specific property name
+- `ValueInt`: The integer value where the `Path`'s last property name should be compared to
+- `ValueBoolean`: The boolean value that the `Path`'s last property name should be compared to
+- `ValueString`: The string value that the `Path`'s last property name should be compared to
+- `ValueNumber`: The number (float) value that the `Path`'s last property name should be compared to
+- `ValueDate`: The date (ISO 8601 timestamp) value that the `Path`'s last property name should be compared to
 
-The following 'rules' for using the 'where' filter apply:
+The following 'rules' for using the `where` filter apply:
 - If the operator is `And`, `Or` or `Not`, the `Operands` must be filled.
-- If one of the other operators is filled, the `Path` and a ValueType must be filled.
+- If one of the other operators is filled, the `Path` and a `value<Type>` must be filled.
 
 So, the `Not` operator only works on operands, while `NotEqual` only works on values.
 
 ```graphql
 {
-  Local{
-    Get(where:{
+  Local {
+    Get(where: {
       operator: <operator>,
       operands: [{
         path: [<path>],
@@ -231,8 +246,8 @@ Without operator 'And' or 'Or' at the highest level:
 
 ```graphql
 {
-  Local{
-    Get(where:{
+  Local {
+    Get(where: {
       path: [<path>],
       operator: <operator>
       value<Type>: <value>

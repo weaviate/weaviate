@@ -103,64 +103,131 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 
 		// Check whether the datatypes are correct
 		if *dt == schema.DataTypeCRef {
-			// Cast it to a usable variable
-			pvcr := pv.(map[string]interface{})
+			switch refValue := pv.(type) {
+			case map[string]interface{}:
+				pvcr := refValue
 
-			// Return different types of errors for cref input
-			if len(pvcr) != 3 {
-				// Give an error if the cref is not filled with correct number of properties
-				return fmt.Errorf(
-					ErrorInvalidSingleRef,
-					class.Class,
-					pk,
-				)
-			} else if _, ok := pvcr["$cref"]; !ok {
-				// Give an error if the cref is not filled with correct properties ($cref)
-				return fmt.Errorf(
-					ErrorMissingSingleRefCRef,
-					class.Class,
-					pk,
-				)
-			} else if _, ok := pvcr["locationUrl"]; !ok {
-				// Give an error if the cref is not filled with correct properties (locationUrl)
-				return fmt.Errorf(
-					ErrorMissingSingleRefLocationURL,
-					class.Class,
-					pk,
-				)
-			} else if _, ok := pvcr["type"]; !ok {
-				// Give an error if the cref is not filled with correct properties (type)
-				return fmt.Errorf(
-					ErrorMissingSingleRefType,
-					class.Class,
-					pk,
-				)
+				// Return different types of errors for cref input
+				if len(pvcr) != 3 {
+					// Give an error if the cref is not filled with correct number of properties
+					return fmt.Errorf(
+						ErrorInvalidSingleRef,
+						class.Class,
+						pk,
+					)
+				} else if _, ok := pvcr["$cref"]; !ok {
+					// Give an error if the cref is not filled with correct properties ($cref)
+					return fmt.Errorf(
+						ErrorMissingSingleRefCRef,
+						class.Class,
+						pk,
+					)
+				} else if _, ok := pvcr["locationUrl"]; !ok {
+					// Give an error if the cref is not filled with correct properties (locationUrl)
+					return fmt.Errorf(
+						ErrorMissingSingleRefLocationURL,
+						class.Class,
+						pk,
+					)
+				} else if _, ok := pvcr["type"]; !ok {
+					// Give an error if the cref is not filled with correct properties (type)
+					return fmt.Errorf(
+						ErrorMissingSingleRefType,
+						class.Class,
+						pk,
+					)
+				}
+
+				// Return error if type is not right, when it is not one of the 3 possible types
+				refType := pvcr["type"].(string)
+				if !validateRefType(connutils.RefType(refType)) {
+					return fmt.Errorf(
+						ErrorInvalidClassType,
+						class.Class, pk,
+						connutils.RefTypeAction,
+						connutils.RefTypeThing,
+						connutils.RefTypeKey,
+					)
+				}
+
+				// Validate whether reference exists based on given Type
+				cref := &models.SingleRef{}
+				cref.Type = refType
+				locationURL := pvcr["locationUrl"].(string)
+				cref.LocationURL = &locationURL
+				cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
+				err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
+				if err != nil {
+					return err
+				}
+
+				data = cref
+			case []interface{}:
+				crefs := models.MultipleRef{}
+				for _, ref := range refValue {
+					pvcr, ok := ref.(map[string]interface{})
+					if !ok {
+						return fmt.Errorf("Multipleref should be a list")
+					}
+
+					// Return different types of errors for cref input
+					if len(pvcr) != 3 {
+						// Give an error if the cref is not filled with correct number of properties
+						return fmt.Errorf(
+							ErrorInvalidSingleRef,
+							class.Class,
+							pk,
+						)
+					} else if _, ok := pvcr["$cref"]; !ok {
+						// Give an error if the cref is not filled with correct properties ($cref)
+						return fmt.Errorf(
+							ErrorMissingSingleRefCRef,
+							class.Class,
+							pk,
+						)
+					} else if _, ok := pvcr["locationUrl"]; !ok {
+						// Give an error if the cref is not filled with correct properties (locationUrl)
+						return fmt.Errorf(
+							ErrorMissingSingleRefLocationURL,
+							class.Class,
+							pk,
+						)
+					} else if _, ok := pvcr["type"]; !ok {
+						// Give an error if the cref is not filled with correct properties (type)
+						return fmt.Errorf(
+							ErrorMissingSingleRefType,
+							class.Class,
+							pk,
+						)
+					}
+
+					// Return error if type is not right, when it is not one of the 3 possible types
+					refType := pvcr["type"].(string)
+					if !validateRefType(connutils.RefType(refType)) {
+						return fmt.Errorf(
+							ErrorInvalidClassType,
+							class.Class, pk,
+							connutils.RefTypeAction,
+							connutils.RefTypeThing,
+							connutils.RefTypeKey,
+						)
+					}
+
+					// Validate whether reference exists based on given Type
+					cref := &models.SingleRef{}
+					cref.Type = refType
+					locationURL := pvcr["locationUrl"].(string)
+					cref.LocationURL = &locationURL
+					cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
+					err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
+					if err != nil {
+						return err
+					}
+					crefs = append(crefs, cref)
+				}
+
+				data = crefs
 			}
-
-			// Return error if type is not right, when it is not one of the 3 possible types
-			refType := pvcr["type"].(string)
-			if !validateRefType(connutils.RefType(refType)) {
-				return fmt.Errorf(
-					ErrorInvalidClassType,
-					class.Class, pk,
-					connutils.RefTypeAction,
-					connutils.RefTypeThing,
-					connutils.RefTypeKey,
-				)
-			}
-
-			// Validate whether reference exists based on given Type
-			cref := &models.SingleRef{}
-			cref.Type = refType
-			locationURL := pvcr["locationUrl"].(string)
-			cref.LocationURL = &locationURL
-			cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
-			err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
-			if err != nil {
-				return err
-			}
-
-			data = cref
 		} else if *dt == schema.DataTypeString {
 			// Return error when the input can not be casted to a string
 			var ok bool

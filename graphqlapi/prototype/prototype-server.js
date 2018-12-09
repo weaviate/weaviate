@@ -234,133 +234,358 @@ var argsKeywords = new GraphQLInputObjectType({
   }
 })
 
-/**
- * create group by filter input object
- */
-
-var groupByFilter = new GraphQLInputObjectType({
-  name: "groupByFilterInpObj",
-  description: function() {
-    return getDesc("groupByFilterInpObj")},
-  fields: {
-    group: {
-      name: "groupByFilterGroup",
-      description: function() {
-        return getDesc("groupByFilterGroup")},
-      type: new GraphQLNonNull(GraphQLString),
-    },
-    sum: {
-      name: "groupByFilterSum",
-      description: function() {
-        return getDesc("groupByFilterSum")},
-      type: GraphQLString,
-    },
-    maximum: {
-      name: "groupByFilterMaximum",
-      description: function() {
-        return getDesc("groupByFilterMaximum")},
-      type: GraphQLString,
-    },
-    minimum: {
-      name: "groupByFilterMinimum",
-      description: function() {
-        return getDesc("groupByFilterMinimum")},
-      type: GraphQLString,
-    },
-    count: {
-      name: "groupByFilterCount",
-      description: function() {
-        return getDesc("groupByFilterCount")},
-      type: GraphQLString,
-    },
-    median: {
-      name: "groupByFilterMedian",
-      description: function() {
-        return getDesc("groupByFilterMedian")},
-      type: GraphQLString,
-    },
-    mean: {
-      name: "groupByFilterMean",
-      description: function() {
-        return getDesc("groupByFilterMean")},
-      type: GraphQLString,
-    },
-    mode: {
-      name: "groupByFilterMode",
-      description: function() {
-        return getDesc("groupByFilterMode")},
-      type: GraphQLString,
-    },
-    percentage: {
-      name: "groupByFilterPercentage",
-      description: function() {
-        return getDesc("groupByFilterPercentage")},
-      type: new GraphQLInputObjectType({
-        name: "groupByFilterPercentageInpObj", 
-        description: getDesc("groupByFilterPercentageInpObj"),
-        fields: {
-          from: {
-            name: "groupByFilterPercentageFrom",
-            description: getDesc("groupByFilterPercentageFrom"),
-            type: GraphQLFloat
-          },
-          to: {
-            name: "groupByFilterPercentageTo",
-            description: getDesc("groupByFilterPercentageTo"),
-            type: GraphQLFloat
-          },
-          property: {
-            name: "groupByFilterPercentageProperty",
-            description: getDesc("groupByFilterPercentageProperty"),
-            type: GraphQLString
-          }
-        }
-      }),
-    }
-  }
-})
-
 
 /**
  * create arguments for a search
  */
-var propsForArgs = {} //global
-function createArgs(item){
 
-  // check if argument name is defined, if not, create it
-  if(propsForArgs[item.class] == undefined){
+function createArgs(item, groupBy){
+  propsForArgs = {}
+  // empty argument
+  propsForArgs[item.class] = {}
 
-    // empty argument
-    propsForArgs[item.class] = {}
+  // always return first
+  propsForArgs[item.class]["first"] = {
+    name: "firstFilter",
+    type: GraphQLInt,
+    description: function() {
+      return getDesc("firstFilter")},
+  }
+  // always return after
+  propsForArgs[item.class]["after"] = {
+    name: "afterFilter",
+    type: GraphQLInt,
+    description: function() {
+      return getDesc("afterFilter")},
+  }
 
-    // always return first
-    propsForArgs[item.class]["first"] = {
-      name: "firstFilter",
-      type: GraphQLInt,
-      description: function() {
-        return getDesc("firstFilter")},
-    }
-    // always return after
-    propsForArgs[item.class]["after"] = {
-      name: "afterFilter",
-      type: GraphQLInt,
-      description: function() {
-        return getDesc("afterFilter")},
-    }
-
+  if(groupBy == true){
     propsForArgs[item.class]["groupBy"] = {
       name: "groupByFilter",
-      type: groupByFilter,
+      type: new GraphQLList(GraphQLString),
       description: function() {
         return getDesc("groupByFilter")},
     }
-
-    
   }
   
   return propsForArgs[item.class] // return the prop with the argument
 
 }
+
+
+/**
+ * Create the subclasses of a Thing or Action in the Local function
+ */
+function createAggregateSubClasses(ontologyThings, weaviate){
+  var subClasses = {};
+  // loop through classes
+  ontologyThings.classes.forEach(singleClass => {
+
+    //console.log(singleClass.class)
+
+    // create recursive sub classes
+    subClasses[singleClass.class] = new GraphQLObjectType({
+      name: "Aggregate" + singleClass.class,
+      description: singleClass.description,
+      fields: function(){
+        // declare props that should be returned
+        var returnFields = {}
+
+        // add count as field
+        returnFields["count"] = {
+          name: "Aggregate" + singleClass.class + "Count",
+          description: function() {
+            return getDesc("AggregateSubClassCount")},
+          type: new GraphQLObjectType({
+            name: "Aggregate" + singleClass.class + "CountObj",
+            description: function() {
+              return getDesc("AggregateSubClassCountObj")},
+            fields: function(){
+              var returnProps = {}
+              // loop over properties
+              singleClass.properties.forEach(singleClassProperty => {
+                singleClassProperty["@dataType"].forEach(singleClassPropertyDatatype => {
+                  returnProps[singleClassProperty.name] = {
+                    name: "Aggregate" + singleClass.class + singleClassProperty.name,
+                    description: singleClassProperty.description,
+                    type: GraphQLInt
+                  }
+                })
+              });
+              return returnProps
+            }
+          })
+        }
+
+        // checkIfNumericProps
+        var numericProps = []
+        singleClass.properties.forEach(singleClassProperty => {
+          singleClassProperty["@dataType"].forEach(singleClassPropertyDatatype => {
+            if(singleClassPropertyDatatype === "int" || singleClassPropertyDatatype === "number") {
+              numericProps.push(singleClassProperty)
+            }
+          })
+        })
+
+        if (numericProps.length > 0) {
+          // add numeric aggregations as field
+          returnFields["minimum"] = {
+            name: "Aggregate" + singleClass.class + "Minimum",
+            description: function() {
+              return getDesc("AggregateSubClassMinimum")},
+            type: new GraphQLObjectType({
+              name: "Aggregate" + singleClass.class + "MinimumObj",
+              description: function() {
+                return getDesc("AggregateSubClassMinimumObj")},
+              fields: function(){
+                var returnProps = {}
+                // loop over properties
+                singleClass.properties.forEach(numericProps => {
+                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
+                    if(singleClassPropertyDatatype === "int") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLInt
+                      }
+                    } else if(singleClassPropertyDatatype === "number") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLFloat
+                      }
+                    }
+                  })
+                });
+                return returnProps
+              }
+            })
+          },
+          returnFields["maximum"] = {
+            name: "Aggregate" + singleClass.class + "Maximum",
+            description: function() {
+              return getDesc("AggregateSubClassMaximum")},
+            type: new GraphQLObjectType({
+              name: "Aggregate" + singleClass.class + "MaximumObj",
+              description: function() {
+                return getDesc("AggregateSubClassMaximumObj")},
+              fields: function(){
+                var returnProps = {}
+                // loop over properties
+                singleClass.properties.forEach(numericProps => {
+                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
+                    if(singleClassPropertyDatatype === "int") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLInt
+                      }
+                    } else if(singleClassPropertyDatatype === "number") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLFloat
+                      }
+                    }
+                  })
+                });
+                return returnProps
+              }
+            })
+          },
+          returnFields["mode"] = {
+            name: "Aggregate" + singleClass.class + "Mode",
+            description: function() {
+              return getDesc("AggregateSubClassMode")},
+            type: new GraphQLObjectType({
+              name: "Aggregate" + singleClass.class + "ModeObj",
+              description: function() {
+                return getDesc("AggregateSubClassModeObj")},
+              fields: function(){
+                var returnProps = {}
+                // loop over properties
+                singleClass.properties.forEach(numericProps => {
+                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
+                    if(singleClassPropertyDatatype === "int") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLInt
+                      }
+                    } else if(singleClassPropertyDatatype === "number") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLFloat
+                      }
+                    }
+                  })
+                });
+                return returnProps
+              }
+            })
+          },
+          returnFields["median"] = {
+            name: "Aggregate" + singleClass.class + "Median",
+            description: function() {
+              return getDesc("AggregateSubClassMedian")},
+            type: new GraphQLObjectType({
+              name: "Aggregate" + singleClass.class + "MedianObj",
+              description: function() {
+                return getDesc("AggregateSubClassMedianObj")},
+              fields: function(){
+                var returnProps = {}
+                // loop over properties
+                singleClass.properties.forEach(numericProps => {
+                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
+                    if(singleClassPropertyDatatype === "int") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLInt
+                      }
+                    } else if(singleClassPropertyDatatype === "number") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLFloat
+                      }
+                    }
+                  })
+                });
+                return returnProps
+              }
+            })
+          },
+          returnFields["sum"] = {
+            name: "Aggregate" + singleClass.class + "Sum",
+            description: function() {
+              return getDesc("AggregateSubClassSum")},
+            type: new GraphQLObjectType({
+              name: "Aggregate" + singleClass.class + "SumObj",
+              description: function() {
+                return getDesc("AggregateSubClassSumObj")},
+              fields: function(){
+                var returnProps = {}
+                // loop over properties
+                singleClass.properties.forEach(numericProps => {
+                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
+                    if(singleClassPropertyDatatype === "int") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLInt
+                      }
+                    } else if(singleClassPropertyDatatype === "number") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLFloat
+                      }
+                    }
+                  })
+                });
+                return returnProps
+              }
+            })
+          }, 
+          returnFields["mean"] = {
+            name: "Aggregate" + singleClass.class + "Mean",
+            description: function() {
+              return getDesc("AggregateSubClassMean")},
+            type: new GraphQLObjectType({
+              name: "Aggregate" + singleClass.class + "MeanObj",
+              description: function() {
+                return getDesc("AggregateSubClassMeanObj")},
+              fields: function(){
+                var returnProps = {}
+                // loop over properties
+                singleClass.properties.forEach(numericProps => {
+                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
+                    if(singleClassPropertyDatatype === "int") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLInt
+                      }
+                    } else if(singleClassPropertyDatatype === "number") {
+                      returnProps[numericProps.name] = {
+                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        description: numericProps.description,
+                        type: GraphQLFloat
+                      }
+                    }
+                  })
+                });
+                return returnProps
+              }
+            })
+          }
+        }
+
+        // add groupedBy as field
+        returnFields["groupedBy"] = { // should actually be the property where there is grouped on
+          name: "Aggregate" + singleClass.class + "GroupedBy",
+          description: function() {
+          return getDesc("AggregateSubClassGrouped")},
+          type: new GraphQLObjectType({
+            name: "Aggregate" + singleClass.class + "GroupedBy",
+            description: function() {
+              return getDesc("AggregateSubClassGroupedObj")},
+            fields: {
+              path: {
+                name: "AggregateSubClassGroupedPath",
+                description: function() {
+                  return getDesc("AggregateSubClassGroupedPath")},
+                type: new GraphQLList(GraphQLString)
+              }, 
+              value: {
+                name: "AggregateSubClassGroupedValue",
+                description: function() {
+                  return getDesc("AggregateSubClassGroupedValue")},
+                type: GraphQLString
+              }
+            }
+          })
+        }
+
+
+        return returnFields
+      }
+    });
+
+  });
+
+  return subClasses;
+}
+ 
+
+/**
+ * Create the rootclasses of a Thing or Action in the Local function
+ */
+function createAggregateRootClasses(ontologyThings, subClasses){
+
+  var rootClassesFields = {}
+
+  // loop through classes
+  ontologyThings.classes.forEach(singleClass => {
+    // create root sub classes
+    rootClassesFields[singleClass.class] = {
+      name: singleClass.class,
+      type: new GraphQLList(subClasses[singleClass.class]),
+      description: singleClass.description,
+      args: createArgs(singleClass, true),
+      resolve(parentValue, args) {
+        return demoResolver.aggregateRootClassResolver(parentValue, singleClass.class, args)
+      }
+    }
+
+  })
+
+  return rootClassesFields
+
+}
+
 
 
 /**
@@ -424,7 +649,7 @@ function createMetaSubClasses(ontologyThings, location='') {
 
             // if class (start with capital, return Class)
             if(singleClassPropertyDatatype[0] === singleClassPropertyDatatype[0].toUpperCase()){
-              returnProps[singleClassProperty.name] = {
+              returnProps[singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1)] = {
                 name: location + "Meta" + singleClass.class + singleClassProperty.name,
                 description: "Meta information about the property \"" + singleClassProperty.name + "\"",
                 type: new GraphQLObjectType({
@@ -803,224 +1028,11 @@ function mergeOntologies(a, b){
   return classes
 }
 
-var NetworkFetchWherePropertyFilterFields = {
-  name: {
-    name: "NetworkFetchWherePropertyWhereName",
-    description: function() {
-      return getDesc("NetworkFetchWherePropertyWhereName")},
-    type: GraphQLString,
-  }, 
-  keywords: {
-    name: "NetworkFetchWherePropertyWhereKeywords",
-    description: function() {
-      return getDesc("NetworkFetchWherePropertyWhereKeywords")},
-    type: new GraphQLList(new GraphQLInputObjectType({
-      name: "NetworkFetchWherePropertyWhereKeywordsInpObj",
-      description: function() {
-        return getDesc("NetworkFetchWherePropertyWhereKeywordsInpObj")},
-      fields: {
-        value: {
-          name: "NetworkFetchWherePropertyWhereKeywordsValue",
-          description: function() {
-            return getDesc("NetworkFetchWherePropertyWhereKeywordsValue")},
-          type: GraphQLString,
-        },
-        weight: {
-          name: "NetworkFetchWherePropertyWhereKeywordsWeight",
-          description: function() {
-            return getDesc("NetworkFetchWherePropertyWhereKeywordsWeight")},
-          type: GraphQLFloat,
-        }
-      }
-    }))
-  }, 
-  certainty: {
-    name: "NetworkFetchWherePropertyWhereCertainty",
-    description: function() {
-      return getDesc("NetworkFetchWherePropertyWhereCertainty")},
-    type: GraphQLFloat,
-  },
-  operator: {
-    name: "NetworkFetchWherePropertyWhereOperator",
-    description: function() {
-      return getDesc("NetworkFetchWherePropertyWhereOperator")},
-    type: WhereOperators
-  },
-  valueInt: { 
-    name: "NetworkFetchWherePropertyWhereValueInt",
-    description: function() {
-      return getDesc("WhereValueInt")},
-    type: GraphQLInt 
-  },
-  valueNumber: { 
-    name: "NetworkFetchWherePropertyWhereValueNumber",
-    description: function() {
-      return getDesc("WhereValueNumber")},
-    type: GraphQLFloat
-  },
-  valueBoolean: { 
-    name: "NetworkFetchWherePropertyWhereValueBoolean",
-    description: function() {
-      return getDesc("WhereValueBoolean")},
-    type: GraphQLBoolean
-  },
-  valueString: { 
-    name: "NetworkFetchWherePropertyWhereValueString",
-    description: function() {
-      return getDesc("WhereValueString")},
-    type: GraphQLString 
-  },
-  valueDate: { 
-    name: "NetworkFetchWherePropertyWhereValueDate",
-    description: function() {
-      return getDesc("WhereValueDate")},
-    type: GraphQLString 
-  },
-  valueText: { 
-    name: "NetworkFetchWherePropertyWhereValueText",
-    description: function() {
-      return getDesc("WhereValueText")},
-    type: GraphQLString 
-  }
-}
-
-/**
- * Create class and property filter options for network fetch 
- */
-var NetworkIntrospectWhereClassAndPropertyFilterFields = {
-  name: {
-    name: "WeaviateNetworkWhereName",
-    description: function() {
-      return getDesc("WeaviateNetworkWhereName")},
-    type: GraphQLString,
-  }, 
-  keywords: {
-    name: "WeaviateNetworkWhereNameKeywords",
-    description: function() {
-      return getDesc("WeaviateNetworkWhereNameKeywords")},
-    type: new GraphQLList(new GraphQLInputObjectType({
-      name: "WeaviateNetworkWhereNameKeywordsInpObj",
-      description: function() {
-        return getDesc("WeaviateNetworkWhereNameKeywordsInpObj")},
-      fields: {
-        value: {
-          name: "WeaviateNetworkWhereNameKeywordsValue",
-          description: function() {
-            return getDesc("WeaviateNetworkWhereNameKeywordsValue")},
-          type: GraphQLString,
-        },
-        weight: {
-          name: "WeaviateNetworkWhereNameKeywordsWeight",
-          description: function() {
-            return getDesc("WeaviateNetworkWhereNameKeywordsWeight")},
-          type: GraphQLFloat,
-        }
-      }
-    }))
-  }, 
-  certainty: {
-    name: "WeaviateNetworkWhereCertainty",
-    description: function() {
-      return getDesc("WeaviateNetworkWhereCertainty")},
-    type: GraphQLFloat,
-  }, 
-  first: {
-    name: "WeaviateNetworkWhereFirst",
-    description: function() {
-      return getDesc("WeaviateNetworkWhereFirst")},
-    type: GraphQLInt,
-  }
-}
-
-
-/**
- * Create filter options for network fetch 
- */
-var NetworkIntrospectWhereFilterFields = {
-  where: { 
-    name: "WeaviateNetworkIntrospectWhere",
-    description: function() {
-      return getDesc("WeaviateNetworkIntrospectWhere")},
-    type: new GraphQLNonNull( new GraphQLList(new GraphQLInputObjectType({
-      name: "WeaviateNetworkIntrospectWhereInpObj",
-      description: function() {
-        return getDesc("WeaviateNetworkIntrospectWhereInpObj")},
-      fields: {
-        class: {
-          name: "WeaviateNetworkIntrospectWhereClass",
-          description: function() {
-            return getDesc("WeaviateNetworkIntrospectWhereClass")},
-          type: new GraphQLList(new GraphQLInputObjectType({
-            name: "WeaviateNetworkIntrospectWhereClassObj",
-            description: function() {
-              return getDesc("WeaviateNetworkIntrospectWhereClassObj")},
-            fields: NetworkIntrospectWhereClassAndPropertyFilterFields
-          }))
-        },
-        properties: {
-          name: "WeaviateNetworkIntrospectWhereProperties",
-          description: function() {
-            return getDesc("WeaviateNetworkIntrospectWhereProperties")},
-          type: new GraphQLList(new GraphQLInputObjectType({
-            name: "WeaviateNetworkIntrospectWherePropertiesObj",
-            description: function() {
-              return getDesc("WeaviateNetworkIntrospectWherePropertiesObj")},
-            fields: NetworkIntrospectWhereClassAndPropertyFilterFields
-          }))
-        }
-      }
-    }))) //Needs to be in contextionary, weight = always 1.0
-  }
-}
-
-
-var NetworkFetchFilterFields = {
-  where: { 
-    name: "WeaviateNetworkFetchWhere",
-    description: function() {
-      return getDesc("NetworkFetchWhere")},
-    type: new GraphQLNonNull( new GraphQLInputObjectType({
-      name: "WeaviateNetworkFetchWhereInpObj",
-      description: function() {
-        return getDesc("NetworkFetchWhereInpObj")},
-      fields: {
-        class: {
-          name: "WeaviateNetworkFetchWhereInpObjClass",
-          description: function() {
-            return getDesc("NetworkFetchWhereInpObjClass")},
-          type: new GraphQLList(new GraphQLInputObjectType({
-            name: "WeaviateNetworkFetchWhereInpObjClassInpObj",
-            description: function() {
-              return getDesc("NetworkFetchWhereInpObjClassInpObj")},
-            fields: NetworkIntrospectWhereClassAndPropertyFilterFields
-          }))
-        },
-        properties: {
-          name: "WeaviateNetworkFetchWhereInpObjProperties",
-          description: function() {
-            return getDesc("NetworkFetchWhereInpObjProperties")},
-          type: new GraphQLList(new GraphQLInputObjectType({
-            name: "WeaviateNetworkFetchWhereInpObjProperties",
-            description: function() {
-              return getDesc("NetworkFetchWhereInpObjProperties")},
-            fields: NetworkFetchWherePropertyFilterFields
-          }))
-        },
-        first: {
-          name: "WeaviateNetworkFetchWhereInpObjFirst",
-          description: function() {
-            return getDesc("NetworkFetchWhereInpObjFirst")},
-          type: GraphQLInt,
-        }
-      }
-    })) //Needs to be in contextionary, weight = always 1.0
-  }
-}
-
 
 /**
  * END - ALL RELATED TO INTERNAL
  */
+
 
 /**
  * START - ALL RELATED TO NETWORK
@@ -1270,6 +1282,221 @@ var NetworkIntrospectBeaconFields = {
   }
 }
 
+var NetworkFetchWherePropertyFilterFields = {
+  name: {
+    name: "NetworkFetchWherePropertyWhereName",
+    description: function() {
+      return getDesc("NetworkFetchWherePropertyWhereName")},
+    type: GraphQLString,
+  }, 
+  keywords: {
+    name: "NetworkFetchWherePropertyWhereKeywords",
+    description: function() {
+      return getDesc("NetworkFetchWherePropertyWhereKeywords")},
+    type: new GraphQLList(new GraphQLInputObjectType({
+      name: "NetworkFetchWherePropertyWhereKeywordsInpObj",
+      description: function() {
+        return getDesc("NetworkFetchWherePropertyWhereKeywordsInpObj")},
+      fields: {
+        value: {
+          name: "NetworkFetchWherePropertyWhereKeywordsValue",
+          description: function() {
+            return getDesc("NetworkFetchWherePropertyWhereKeywordsValue")},
+          type: GraphQLString,
+        },
+        weight: {
+          name: "NetworkFetchWherePropertyWhereKeywordsWeight",
+          description: function() {
+            return getDesc("NetworkFetchWherePropertyWhereKeywordsWeight")},
+          type: GraphQLFloat,
+        }
+      }
+    }))
+  }, 
+  certainty: {
+    name: "NetworkFetchWherePropertyWhereCertainty",
+    description: function() {
+      return getDesc("NetworkFetchWherePropertyWhereCertainty")},
+    type: GraphQLFloat,
+  },
+  operator: {
+    name: "NetworkFetchWherePropertyWhereOperator",
+    description: function() {
+      return getDesc("NetworkFetchWherePropertyWhereOperator")},
+    type: WhereOperators
+  },
+  valueInt: { 
+    name: "NetworkFetchWherePropertyWhereValueInt",
+    description: function() {
+      return getDesc("WhereValueInt")},
+    type: GraphQLInt 
+  },
+  valueNumber: { 
+    name: "NetworkFetchWherePropertyWhereValueNumber",
+    description: function() {
+      return getDesc("WhereValueNumber")},
+    type: GraphQLFloat
+  },
+  valueBoolean: { 
+    name: "NetworkFetchWherePropertyWhereValueBoolean",
+    description: function() {
+      return getDesc("WhereValueBoolean")},
+    type: GraphQLBoolean
+  },
+  valueString: { 
+    name: "NetworkFetchWherePropertyWhereValueString",
+    description: function() {
+      return getDesc("WhereValueString")},
+    type: GraphQLString 
+  },
+  valueDate: { 
+    name: "NetworkFetchWherePropertyWhereValueDate",
+    description: function() {
+      return getDesc("WhereValueDate")},
+    type: GraphQLString 
+  },
+  valueText: { 
+    name: "NetworkFetchWherePropertyWhereValueText",
+    description: function() {
+      return getDesc("WhereValueText")},
+    type: GraphQLString 
+  }
+}
+
+/**
+ * Create class and property filter options for network fetch 
+ */
+var NetworkIntrospectWhereClassAndPropertyFilterFields = {
+  name: {
+    name: "WeaviateNetworkWhereName",
+    description: function() {
+      return getDesc("WeaviateNetworkWhereName")},
+    type: GraphQLString,
+  }, 
+  keywords: {
+    name: "WeaviateNetworkWhereNameKeywords",
+    description: function() {
+      return getDesc("WeaviateNetworkWhereNameKeywords")},
+    type: new GraphQLList(new GraphQLInputObjectType({
+      name: "WeaviateNetworkWhereNameKeywordsInpObj",
+      description: function() {
+        return getDesc("WeaviateNetworkWhereNameKeywordsInpObj")},
+      fields: {
+        value: {
+          name: "WeaviateNetworkWhereNameKeywordsValue",
+          description: function() {
+            return getDesc("WeaviateNetworkWhereNameKeywordsValue")},
+          type: GraphQLString,
+        },
+        weight: {
+          name: "WeaviateNetworkWhereNameKeywordsWeight",
+          description: function() {
+            return getDesc("WeaviateNetworkWhereNameKeywordsWeight")},
+          type: GraphQLFloat,
+        }
+      }
+    }))
+  }, 
+  certainty: {
+    name: "WeaviateNetworkWhereCertainty",
+    description: function() {
+      return getDesc("WeaviateNetworkWhereCertainty")},
+    type: GraphQLFloat,
+  }, 
+  first: {
+    name: "WeaviateNetworkWhereFirst",
+    description: function() {
+      return getDesc("WeaviateNetworkWhereFirst")},
+    type: GraphQLInt,
+  }
+}
+
+
+/**
+ * Create filter options for network fetch 
+ */
+var NetworkIntrospectWhereFilterFields = {
+  where: { 
+    name: "WeaviateNetworkIntrospectWhere",
+    description: function() {
+      return getDesc("WeaviateNetworkIntrospectWhere")},
+    type: new GraphQLNonNull( new GraphQLList(new GraphQLInputObjectType({
+      name: "WeaviateNetworkIntrospectWhereInpObj",
+      description: function() {
+        return getDesc("WeaviateNetworkIntrospectWhereInpObj")},
+      fields: {
+        class: {
+          name: "WeaviateNetworkIntrospectWhereClass",
+          description: function() {
+            return getDesc("WeaviateNetworkIntrospectWhereClass")},
+          type: new GraphQLList(new GraphQLInputObjectType({
+            name: "WeaviateNetworkIntrospectWhereClassObj",
+            description: function() {
+              return getDesc("WeaviateNetworkIntrospectWhereClassObj")},
+            fields: NetworkIntrospectWhereClassAndPropertyFilterFields
+          }))
+        },
+        properties: {
+          name: "WeaviateNetworkIntrospectWhereProperties",
+          description: function() {
+            return getDesc("WeaviateNetworkIntrospectWhereProperties")},
+          type: new GraphQLList(new GraphQLInputObjectType({
+            name: "WeaviateNetworkIntrospectWherePropertiesObj",
+            description: function() {
+              return getDesc("WeaviateNetworkIntrospectWherePropertiesObj")},
+            fields: NetworkIntrospectWhereClassAndPropertyFilterFields
+          }))
+        }
+      }
+    }))) //Needs to be in contextionary, weight = always 1.0
+  }
+}
+
+
+var NetworkFetchFilterFields = {
+  where: { 
+    name: "WeaviateNetworkFetchWhere",
+    description: function() {
+      return getDesc("NetworkFetchWhere")},
+    type: new GraphQLNonNull( new GraphQLInputObjectType({
+      name: "WeaviateNetworkFetchWhereInpObj",
+      description: function() {
+        return getDesc("NetworkFetchWhereInpObj")},
+      fields: {
+        class: {
+          name: "WeaviateNetworkFetchWhereInpObjClass",
+          description: function() {
+            return getDesc("NetworkFetchWhereInpObjClass")},
+          type: new GraphQLList(new GraphQLInputObjectType({
+            name: "WeaviateNetworkFetchWhereInpObjClassInpObj",
+            description: function() {
+              return getDesc("NetworkFetchWhereInpObjClassInpObj")},
+            fields: NetworkIntrospectWhereClassAndPropertyFilterFields
+          }))
+        },
+        properties: {
+          name: "WeaviateNetworkFetchWhereInpObjProperties",
+          description: function() {
+            return getDesc("NetworkFetchWhereInpObjProperties")},
+          type: new GraphQLList(new GraphQLInputObjectType({
+            name: "WeaviateNetworkFetchWhereInpObjProperties",
+            description: function() {
+              return getDesc("NetworkFetchWhereInpObjProperties")},
+            fields: NetworkFetchWherePropertyFilterFields
+          }))
+        },
+        first: {
+          name: "WeaviateNetworkFetchWhereInpObjFirst",
+          description: function() {
+            return getDesc("NetworkFetchWhereInpObjFirst")},
+          type: GraphQLInt,
+        }
+      }
+    })) //Needs to be in contextionary, weight = always 1.0
+  }
+}
+
+
 
 /**
  * END - ALL RELATED TO NETWORK
@@ -1311,6 +1538,10 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
     var metaSubClasses = createMetaSubClasses(classes)
     var metaRootClassesThingsFields = createMetaRootClasses(JSON.parse(ontologyThings), metaSubClasses);
     var metaRootClassesActionsFields = createMetaRootClasses(JSON.parse(ontologyActions), metaSubClasses);
+
+    var aggregateSubClasses = createAggregateSubClasses(classes)
+    var aggregateRootClassesThingsFields = createAggregateRootClasses(JSON.parse(ontologyThings), aggregateSubClasses);
+    var aggregateRootClassesActionsFields = createAggregateRootClasses(JSON.parse(ontologyActions), aggregateSubClasses);
 
     var WeaviateNetworkGetFields = createNetworkWeaviateGetFields()
     var WeaviateNetworkGetMetaFields = createNetworkWeaviateGetMetaFields()
@@ -1457,6 +1688,69 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 }),
                 resolve(parentValue, args) {
                   console.log("resolve WeaviateLocalGetMeta")
+                  result = demoResolver.resolveGet(args.where)
+                  if (result != 'error') {
+                    return result
+                  }
+                  else {throw new Error('Text values cannot be filtered because they are not indexed.')}
+                },
+              },
+              Aggregate: {
+                name: "WeaviateLocalAggregate",
+                description: function() {
+                  return getDesc("WeaviateLocalAggregate")},
+                args: {
+                  where: { 
+                    name: "WeaviateLocalAggreagetWhere",
+                    description: function() {
+                      return getDesc("WeaviateLocalAggreagetWhere")},
+                    type: new GraphQLInputObjectType({
+                      name: "WeaviateLocalAggreagetWhereInpObj",
+                      description: function() {
+                        return getDesc("WeaviateLocalAggreagetWhereInpObj")},
+                      fields: whereFields
+                    }) 
+                  }
+                },
+                type: new GraphQLObjectType({
+                  name: "WeaviateLocalAggregateObj",
+                  description: function() {
+                    return getDesc("WeaviateLocalAggregateObj")},
+                  fields: {
+                    Things: {
+                      name: "WeaviateLocalAggregateThings",
+                      description: function() {
+                        return getDesc("WeaviateLocalAggregateThings")},
+                      type: new GraphQLObjectType({
+                        name: "WeaviateLocalAggregateThingsObj",
+                        description: function() {
+                          return getDesc("WeaviateLocalAggregateThingsObj")},
+                        fields: aggregateRootClassesThingsFields
+                      }),
+                      resolve(parentValue) {
+                        console.log("resolve WeaviateLocalAggregateThings")
+                        return parentValue.Things // resolve with empty array
+                      },
+                    },
+                    Actions: {
+                      name: "WeaviateLocalAggregateActions",
+                      description: function() {
+                        return getDesc("WeaviateLocalAggregateActions")},
+                      type: new GraphQLObjectType({
+                        name: "WeaviateLocalAggregateActionsObj",
+                        description: function() {
+                          return getDesc("WeaviateLocalAggregateActionsObj")},
+                        fields: aggregateRootClassesActionsFields
+                      }),
+                      resolve(parentValue) {
+                        console.log("resolve WeaviateLocalAggregateActions")
+                        return parentValue.Actions // resolve with empty array
+                      }
+                    }
+                  }
+                }),
+                resolve(parentValue, args) {
+                  console.log("resolve WeaviateLocalAggregate")
                   result = demoResolver.resolveGet(args.where)
                   if (result != 'error') {
                     return result
