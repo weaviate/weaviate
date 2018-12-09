@@ -1,8 +1,6 @@
-# Weaviate
+# Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='100' align='right' />
 
 _Decentralised Knowledge Graph_
-
-![Weaviate logo](./docs/assets/logo/weaviate-logo.svg "Weaviate logo")
 
 | Branch   | Status        |
 | -------- |:-------------:|
