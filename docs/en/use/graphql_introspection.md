@@ -2,7 +2,14 @@
 publishedOnWebsite: false
 title: GraphQL introspection
 subject: OSS
+author: Laura Ham
+date first published: 01Nov2018
+last updated: 05Dec2018
 ---
+
+## Audience: technical
+
+## Purpose: Introduction to how to do an introspection on the GraphQL schema
 
 The GraphQL API can be queried on introspection, where the schema structure and definitions will be returned as a result. The following query results in a full introspection, returned in JSON format:
 

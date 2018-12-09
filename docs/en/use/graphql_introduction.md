@@ -2,7 +2,14 @@
 publishedOnWebsite: false
 title: GraphQL Introduction
 subject: OSS
+author: Laura Ham
+date first published: 01Nov2018
+last updated: 05Dec2018
 ---
+
+## Audience: technical
+
+## Purpose: Introduction to the use of GraphQL
 
 ## Index
 
@@ -33,10 +40,10 @@ $ curl -X POST -H "X-API-KEY: [[apiKey]]" -H "X-API-TOKEN: [[apiToken]]" -H "Con
 The body of the request should contain the GraphQL query. The body of the following example will return the name of all animals in your local Weaviate instance.
 ```graphql
 {
-  Local{
-    Get{
-      Things{
-        Animal{
+  Local {
+    Get {
+      Things {
+        Animal {
           name
         }
       }
@@ -69,15 +76,16 @@ The result will result in the following, which has the same shape as the query.
 
 ### Query structure and naming
 
-The following high level structure for GraphQL for querying Weaviate applies. At the highest level, the location where the request is sent is specified by 'Local' or 'Network'. The Local network is split up into a Get and GetMeta function. Similarly, the Network query has the queries Fetch and FetchMeta. Where 'Get' implies that you retrieve something you have the sole possession of, the Network's 'Fetch' means that an entity needs to go and get something which is remote. Additionally, the Network query has an 'Introspect' option, which can be used to discover what is (ontology wise) available in the Network.
+The following high level structure for GraphQL for querying Weaviate applies. At the highest level, the location where the request is sent is specified by `Local` or `Network`. The Local network is split up into a Get and GetMeta function. Similarly, the Network query has the queries Fetch and FetchMeta. Where `Get` implies that you retrieve something you have the sole possession of, the Network's `Fetch` means that an entity needs to go and get something which is remote. Additionally, the Network query has an `Introspect` option, which can be used to discover what is (ontology wise) available in the Network.
 
 ``` graphql
 {
-  Local{
+  Local {
     Get
     GetMeta
+    Aggregate
   }
-  Network{
+  Network {
     Get
     Fetch
     Introspect
@@ -89,19 +97,19 @@ The following high level structure for GraphQL for querying Weaviate applies. At
 If we look deeper, the following structure applies to the Local design.
 ``` graphql
 {
-  Local{
-    Get{
-      Things{
-        <Class>{
+  Local {
+    Get {
+      Things {
+        <Class> {
           <property>
           <property>
         }
-        <Class>{
+        <Class> {
           <property>
         }
       }
-      Actions{
-        <Class>{
+      Actions {
+        <Class> {
           <property>
         }
       }
@@ -113,12 +121,12 @@ Properties can be nested if a property contains a cross-reference. The following
 
 ``` graphql
 {
-  Local{
-    Get{
-      Things{
-        <Class>{
-          <propertyWithCref>{
-            ... on <Class>{
+  Local {
+    Get {
+      Things {
+        <Class> {
+          <propertyWithCref> {
+            ... on <Class> {
              <property>
              <property>
             }
@@ -130,7 +138,7 @@ Properties can be nested if a property contains a cross-reference. The following
 }
 ```
 
-Note that the second layer of the query is always a verb. The queries can be formed into natural language sentences if the structure is read. For example, 'From my `Local` Weaviate, I want to `Get` all the `name`s of the `Things` in the class `Animal`.
+Note that the second layer of the query is always a verb. The queries can be formed into natural language sentences if the structure is read. For example, "From my `Local` Weaviate, I want to `Get` all the `name`s of the `Things` in the class `Animal`".
 
 
 ### Arguments

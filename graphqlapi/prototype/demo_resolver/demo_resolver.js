@@ -85,6 +85,36 @@ var solve_groupBy = function(filter, list) {
 }
 
 
+var solveAggregateRootClass = function(all_data, className, args) {
+	var list = []
+	for(var i=0; i < all_data.length; i++){
+		if(all_data[i].class == className){
+			list.push(all_data[i])
+		}
+	}
+
+	if (args.after) {
+		list = list.splice(args.after)
+	}
+	if (args.first) {
+		list = list.splice(0, args.first)
+	}
+	all_data = list
+	
+	nodes_in_class = []
+	for (var i in all_data) { // loop through single things or actions
+		if (all_data[i].class == className) {
+			nodes_in_class.push(all_data[i])
+		}
+	}
+
+	metadata = []
+	metadata["class"] = className
+
+	return metadata
+}
+
+
 var solveMetaRootClass = function(all_data, className, args) {
 	var list = []
 	    for(var i=0; i < all_data.length; i++){
@@ -121,8 +151,11 @@ var solveMetaRootClass = function(all_data, className, args) {
 			metadata[key]["count"] = 0
 			var type = typeof(nodes_in_class[0][key])
 			if (type == "object") {
-				metadata[key]["type"] = "cref"
-				metadata[key]["pointingTo"] = [nodes_in_class[0][key]["class"]]
+				newkey = key[0].toUpperCase() + key.substring(1)
+				metadata[newkey] = {}
+				metadata[newkey]["count"] = 0
+				metadata[newkey]["type"] = "cref"
+				metadata[newkey]["pointingTo"] = [nodes_in_class[0][key]["class"]]
 			}
 			else if (type == "boolean") {
 				metadata[key]["type"] = "boolean"
@@ -510,6 +543,9 @@ module.exports = {
     },
     metaRootClassResolver: function(all_data, className, args) {
 		return solveMetaRootClass(all_data, className, args)
+	},
+	aggregateRootClassResolver: function(all_data, className, args) {
+		return solveAggregateRootClass(all_data, className, args)
 	},
 	resolveNetworkGet: function(filter) {
 		all_data = _.clone(data);
