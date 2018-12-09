@@ -1,10 +1,6 @@
----
-publishedOnWebsite: false
-title: Licenses
-subject: OSS
----
-
 # Licenses
+
+> SHORT DESCRIPTION OF THIS DOC
 
 - Weaviate's own license can be found [here](https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md).
 - The licenses of Weaviates dependency packages can be found [here](https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE-DEPENDENCIES.md).

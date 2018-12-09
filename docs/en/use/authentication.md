@@ -1,9 +1,5 @@
----
-publishedOnWebsite: true
-title: Authentication
-subject: OSS
----
-
 # Authentication
+
+> SHORT DESCRIPTION OF THIS DOC
 
 TBD

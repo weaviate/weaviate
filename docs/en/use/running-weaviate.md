@@ -1,10 +1,6 @@
----
-publishedOnWebsite: true
-title: Running Weaviate
-subject: OSS
----
-
 # Running Weaviate
+
+> SHORT DESCRIPTION OF THIS DOC
 
 Include;
 - Docker

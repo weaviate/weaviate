@@ -1,10 +1,6 @@
----
-publishedOnWebsite: true
-title: Authorisation
-subject: OSS
----
-
 # Authorisation
+
+> SHORT DESCRIPTION OF THIS DOC
 
 The following scheme is a simple authorisation tree scheme used for authorizing things and actions.
 

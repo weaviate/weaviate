@@ -1,13 +1,6 @@
----
-publishedOnWebsite: true
-title: GraphQL Query API
-subject: OSS
-author: Laura Ham
-date first published: 01Nov2018
-last updated: 05Dec2018
----
+# GraphQL - Query API
 
-## Audience: technical
+> SHORT DESCRIPTION OF THIS DOC
 
 ## Purpose: Show example GraphQL queries
 

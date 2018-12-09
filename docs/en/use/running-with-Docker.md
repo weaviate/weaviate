@@ -1,10 +1,6 @@
----
-publishedOnWebsite: true
-title: Running with Docker
-subject: OSS
----
-
 # Running with Docker Compose & Data storage
+
+> SHORT DESCRIPTION OF THIS DOC
 
 The easiest way to get Weaviate running is through Docker Compose. Below is a list of commands that can be used to get the service running. In case of issues, please report them [here](https://github.com/creativesoftwarefdn/weaviate/issues) in case of questions please ask them [here](https://stackoverflow.com/questions/tagged/weaviate).
 

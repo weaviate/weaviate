@@ -1,11 +1,6 @@
----
-publishedOnWebsite: false
-title: Current Technology Architecture
-subject: OSS
----
-
 # Current Architecture
 
+> SHORT DESCRIPTION OF THIS DOC
 > This document the _current_ technical architecture. 
 > To learn more about what Weaviate will be, read the [Technology Vision](./tech_vision.md).
 

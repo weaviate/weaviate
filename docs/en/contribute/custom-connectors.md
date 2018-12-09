@@ -1,10 +1,6 @@
----
-publishedOnWebsite: false
-title: Custom Connectors
-subject: OSS
----
-
 # Custom Connectors
+ 
+> SHORT DESCRIPTION OF THIS DOC
 
 Based on the technology & concept summary which you can find [here](https://www.semi.network/knowledge-base/learn/technology-summary/).
 

@@ -1,10 +1,6 @@
----
-publishedOnWebsite: true
-title: Nomenclature
-subject: OSS
----
-
 # Nomenclature
+
+> SHORT DESCRIPTION OF THIS DOC
 
 | Word | Definition | More Info |
 | ----- | -------- | ------- |

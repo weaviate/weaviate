@@ -1,13 +1,6 @@
----
-publishedOnWebsite: false
-title: GraphQL Network
-subject: OSS
-author: Laura Ham
-date first published: 01Nov2018
-last updated: 05Dec2018
----
+# GraphQL - Network Queries
 
-## Audience: technical
+> SHORT DESCRIPTION OF THIS DOC
 
 ## Purpose: Show how to query a Weaviate Network
 

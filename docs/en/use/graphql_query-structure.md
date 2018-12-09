@@ -1,11 +1,6 @@
----
-publishedOnWebsite: true
-title: GraphQL Query structure
-subject: OSS
-author: Laura Ham
-date first published: 01Nov2018
-last updated: 05Dec2018
----
+# GraphQL - Query Structure
+
+> SHORT DESCRIPTION OF THIS DOC
 
 ## Audience: technical
 

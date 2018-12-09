@@ -1,13 +1,6 @@
----
-publishedOnWebsite: false
-title: GraphQL Introduction
-subject: OSS
-author: Laura Ham
-date first published: 01Nov2018
-last updated: 05Dec2018
----
+# GraphQL - Introduction
 
-## Audience: technical
+> SHORT DESCRIPTION OF THIS DOC
 
 ## Purpose: Introduction to the use of GraphQL
 

@@ -1,10 +1,6 @@
----
-publishedOnWebsite: false
-title: Contributing
-subject: OSS
----
-
-# Development of Weaviate
+# Contributing
+ 
+> SHORT DESCRIPTION OF THIS DOC
 
 ## FAQ
 
