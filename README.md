@@ -17,22 +17,22 @@ _Decentralised Knowledge Graph_
 
 Weaviate's documentation is available in the `./docs` folder on Github and divided into two sections:
 
-1. documenation for users. And;
-2. documentation for contributors.
+1. [documenation for users](#usage-docs) and;
+2. [documentation for contributors](#contribution-docs).
 
-We highly recommend to start with the _Getting Started_ or the .
+We highly recommend to start with the _Getting Started_ or the [Weaviate Concept](./docs/en/use/weaviate-concept.md).
 
-#### Usage Docs
+### Usage Docs
 
 - [Getting Started](./docs/en/use/getting-started.md)
-- [All udocumentation for users](./docs/en/use)
+- [All documentation for users](./docs/en/use)
 
-#### Contribution Docs
+### Contribution Docs
 
 - [Getting Started](./docs/en/contribute/getting-started.md)
 - [All documentation for contributors](./docs/en/contribute)
 
-#### Miscelenious Docs
+### Miscelenious Docs
 
 - [Weaviate Concept](./docs/en/use/weaviate-concept.md)
 - [FAQ](./docs/en/use/FAQ.md)
