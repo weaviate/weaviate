@@ -2,11 +2,6 @@
 
 _Decentralised Knowledge Graph_
 
-| Branch   | Status        |
-| -------- |:-------------:|
-| Master   | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=master)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
-| Develop  | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=develop)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
-
 ## About
 
 ...
@@ -45,3 +40,10 @@ We highly recommend to start with the _Getting Started_ or the [Weaviate Concept
 ...
 
 - Commercial use: [hello@semi.network](mailto:hello@semi.network).
+
+## Build Status
+
+| Branch   | Status        |
+| -------- |:-------------:|
+| Master   | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=master)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
+| Develop  | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=develop)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
