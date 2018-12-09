@@ -77,7 +77,6 @@ func (c *Client) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
 		client_response := gremlin.Response{Data: data}
 		return &client_response, nil
 	case 500:
-		// TODO return status message
 		return nil, fmt.Errorf("Server error: %s", string(buf))
 	default:
 		return nil, fmt.Errorf("Unexpected status code %v", http_response.StatusCode)

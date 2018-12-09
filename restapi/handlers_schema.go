@@ -110,7 +110,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 			newName = &params.Body.NewName
 		}
 
-		// TODO: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
+		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}
@@ -141,7 +141,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 			newName = &params.Body.NewName
 		}
 
-		// TODO: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
+		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}
@@ -260,7 +260,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 			newName = &params.Body.NewName
 		}
 
-		// TODO: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
+		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}
@@ -291,7 +291,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 			newName = &params.Body.NewName
 		}
 
-		// TODO: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
+		// TODO gh-619: This implies that we can't undo setting keywords, because we can't detect if keywords is not present, or empty.
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}

@@ -41,9 +41,6 @@ func New(messaging *messages.Messaging, locker RWLocker, manager SchemaManager, 
 	connector.SetSchema(manager.GetSchema())
 	connector.SetMessaging(messaging)
 
-	// TODO: probably needs to go. We're not using address anymore.
-	//connector.SetServerAddress(serverConfig.GetHostAddress())
-
 	// Make the connector try to connect to a database
 	errConnect := connector.Connect()
 	if errConnect != nil {

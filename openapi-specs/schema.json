@@ -159,13 +159,13 @@
             "properties": {
               "message": {
                 "type": "string"
-              }    
-            },   
+              }
+            },
             "type": "object"
-          },   
+          },
           "type": "array"
-        }    
-      },   
+        }
+      },
       "type": "object"
     },
     "GraphQLError": {
@@ -744,7 +744,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.10.0"
+    "version": "0.10.5"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
@@ -1665,7 +1665,9 @@
       "get": {
         "summary": "Dump the current the database schema",
         "operationId": "weaviate.schema.dump",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "responses": {
           "200": {
             "description": "Successfully dumped the database schema.",
@@ -1691,7 +1693,9 @@
       "post": {
         "summary": "Create a new Action class in the ontology.",
         "operationId": "weaviate.schema.actions.create",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "actionClass",
@@ -1722,7 +1726,9 @@
       "delete": {
         "summary": "Remove a Action class (and all data in the instances) from the ontology",
         "operationId": "weaviate.schema.actions.delete",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
@@ -1749,14 +1755,17 @@
       "put": {
         "summary": "Rename, or replace the keywords of the Action",
         "operationId": "weaviate.schema.actions.update",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
             "in": "path",
             "required": true,
             "type": "string"
-          }, {
+          },
+          {
             "name": "body",
             "in": "body",
             "required": true,
@@ -1797,14 +1806,17 @@
       "post": {
         "summary": "Add a property to a Action class",
         "operationId": "weaviate.schema.actions.properties.add",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
             "in": "path",
             "required": true,
             "type": "string"
-          }, {
+          },
+          {
             "name": "body",
             "in": "body",
             "required": true,
@@ -1836,14 +1848,17 @@
       "delete": {
         "summary": "Remove a property from a Action class",
         "operationId": "weaviate.schema.actions.properties.delete",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
             "in": "path",
             "required": true,
             "type": "string"
-          }, {
+          },
+          {
             "name": "propertyName",
             "in": "path",
             "required": true,
@@ -1865,19 +1880,23 @@
       "put": {
         "summary": "Rename, or replace the keywords of the property",
         "operationId": "weaviate.schema.actions.properties.update",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
             "in": "path",
             "required": true,
             "type": "string"
-          }, {
+          },
+          {
             "name": "propertyName",
             "in": "path",
             "required": true,
             "type": "string"
-          }, {
+          },
+          {
             "name": "body",
             "in": "body",
             "required": true,
@@ -1918,7 +1937,9 @@
       "post": {
         "summary": "Create a new Thing class in the ontology.",
         "operationId": "weaviate.schema.things.create",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "thingClass",
@@ -1949,7 +1970,9 @@
       "delete": {
         "summary": "Remove a Thing class (and all data in the instances) from the ontology",
         "operationId": "weaviate.schema.things.delete",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
@@ -1976,14 +1999,17 @@
       "put": {
         "summary": "Rename, or replace the keywords of the Thing",
         "operationId": "weaviate.schema.things.update",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
             "in": "path",
             "required": true,
             "type": "string"
-          }, {
+          },
+          {
             "name": "body",
             "in": "body",
             "required": true,
@@ -2024,14 +2050,17 @@
       "post": {
         "summary": "Add a property to a Thing class",
         "operationId": "weaviate.schema.things.properties.add",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
             "in": "path",
             "required": true,
             "type": "string"
-          }, {
+          },
+          {
             "name": "body",
             "in": "body",
             "required": true,
@@ -2063,14 +2092,17 @@
       "delete": {
         "summary": "Remove a property from a Thing class",
         "operationId": "weaviate.schema.things.properties.delete",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
             "in": "path",
             "required": true,
             "type": "string"
-          }, {
+          },
+          {
             "name": "propertyName",
             "in": "path",
             "required": true,
@@ -2092,19 +2124,23 @@
       "put": {
         "summary": "Rename, or replace the keywords of the property",
         "operationId": "weaviate.schema.things.properties.update",
-        "tags": [ "schema" ],
+        "tags": [
+          "schema"
+        ],
         "parameters": [
           {
             "name": "className",
             "in": "path",
             "required": true,
             "type": "string"
-          }, {
+          },
+          {
             "name": "propertyName",
             "in": "path",
             "required": true,
             "type": "string"
-          }, {
+          },
+          {
             "name": "body",
             "in": "body",
             "required": true,
