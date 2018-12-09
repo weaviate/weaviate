@@ -44,6 +44,7 @@ const WhereValueIntDesc string = "Specify an Integer value that the target prope
 const WhereValueNumberDesc string = "Specify a Float value that the target property will be compared to"
 const WhereValueBooleanDesc string = "Specify a Boolean value that the target property will be compared to"
 const WhereValueStringDesc string = "Specify a String value that the target property will be compared to"
+const WhereValueTextDesc string = "Specify a Text value that the target property will be compared to"
 
 // Properties and Classes filter elements (used by Fetch and Introspect Where filters)
 const WherePropertiesDesc string = "Specify which properties to filter on"

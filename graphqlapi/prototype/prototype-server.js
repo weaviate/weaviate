@@ -1701,13 +1701,13 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                   return getDesc("WeaviateLocalAggregate")},
                 args: {
                   where: { 
-                    name: "WeaviateLocalAggreagetWhere",
+                    name: "WeaviateLocalAggregateWhere",
                     description: function() {
-                      return getDesc("WeaviateLocalAggreagetWhere")},
+                      return getDesc("WeaviateLocalAggregateWhere")},
                     type: new GraphQLInputObjectType({
-                      name: "WeaviateLocalAggreagetWhereInpObj",
+                      name: "WeaviateLocalAggregateWhereInpObj",
                       description: function() {
-                        return getDesc("WeaviateLocalAggreagetWhereInpObj")},
+                        return getDesc("WeaviateLocalAggregateWhereInpObj")},
                       fields: whereFields
                     }) 
                   }

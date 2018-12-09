@@ -60,6 +60,10 @@ func BuildNewGetAndGetMetaFilters() graphql.InputObjectConfigFieldMap {
 			Type:        graphql.String,
 			Description: descriptions.WhereValueStringDesc,
 		},
+		"valueText": &graphql.InputObjectFieldConfig{
+			Type:        graphql.String,
+			Description: descriptions.WhereValueTextDesc,
+		},
 		"valueDate": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
 			Description: descriptions.WhereValueStringDesc,
