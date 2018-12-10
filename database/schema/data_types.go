@@ -101,7 +101,7 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 		firstLetter := rune(someDataType[0])
 		if unicode.IsLower(firstLetter) {
 			switch someDataType {
-			case string(DataTypeString), string(DataTypeInt), string(DataTypeNumber), string(DataTypeBoolean), string(DataTypeDate):
+			case string(DataTypeString), string(DataTypeText), string(DataTypeInt), string(DataTypeNumber), string(DataTypeBoolean), string(DataTypeDate):
 				return &propertyDataType{
 					kind:          PropertyKindPrimitive,
 					primitiveType: DataType(someDataType),

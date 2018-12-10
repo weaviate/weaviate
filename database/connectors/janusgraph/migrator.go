@@ -275,6 +275,8 @@ func weaviatePrimitivePropTypeToJanusPropType(type_ schema.DataType) gremlin_sch
 	switch type_ {
 	case schema.DataTypeString:
 		return gremlin_schema_query.DATATYPE_STRING
+	case schema.DataTypeText:
+		return gremlin_schema_query.DATATYPE_STRING
 	case schema.DataTypeInt:
 		return gremlin_schema_query.DATATYPE_LONG
 	case schema.DataTypeNumber:
