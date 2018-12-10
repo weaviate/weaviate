@@ -67,7 +67,7 @@ func NewWeaviateSchemaThingsUpdateOK() *WeaviateSchemaThingsUpdateOK {
 
 /*WeaviateSchemaThingsUpdateOK handles this case with default header values.
 
-Changes applied
+Changes applied.
 */
 type WeaviateSchemaThingsUpdateOK struct {
 }
@@ -109,7 +109,7 @@ func NewWeaviateSchemaThingsUpdateForbidden() *WeaviateSchemaThingsUpdateForbidd
 
 /*WeaviateSchemaThingsUpdateForbidden handles this case with default header values.
 
-Could not find the Thing class
+Could not find the Thing class.
 */
 type WeaviateSchemaThingsUpdateForbidden struct {
 }
@@ -130,7 +130,7 @@ func NewWeaviateSchemaThingsUpdateUnprocessableEntity() *WeaviateSchemaThingsUpd
 
 /*WeaviateSchemaThingsUpdateUnprocessableEntity handles this case with default header values.
 
-Invalid update
+Invalid update.
 */
 type WeaviateSchemaThingsUpdateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -160,7 +160,7 @@ type WeaviateSchemaThingsUpdateBody struct {
 	// keywords
 	Keywords models.SemanticSchemaKeywords `json:"keywords"`
 
-	// The new name of the Thing
+	// The new name of the Thing.
 	NewName string `json:"newName,omitempty"`
 }
 

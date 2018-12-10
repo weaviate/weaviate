@@ -43,9 +43,9 @@ func NewWeaviateActionsDelete(ctx *middleware.Context, handler WeaviateActionsDe
 
 /*WeaviateActionsDelete swagger:route DELETE /actions/{actionId} actions weaviateActionsDelete
 
-Delete an action based on its uuid related to this key.
+Delete an Action based on its UUID related to this key.
 
-Deletes an action from the system.
+Deletes an Action from the system.
 
 */
 type WeaviateActionsDelete struct {

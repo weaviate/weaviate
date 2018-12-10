@@ -42,7 +42,7 @@ func (j *Janusgraph) GetAction(ctx context.Context, UUID strfmt.UUID, actionResp
 }
 
 func (j *Janusgraph) GetActions(ctx context.Context, UUIDs []strfmt.UUID, response *models.ActionsListResponse) error {
-	// TODO: Optimize query to perform just _one_ JanusGraph lookup.
+	// TODO gh-612: Optimize query to perform just _one_ JanusGraph lookup
 
 	response.TotalResults = 0
 	response.Actions = make([]*models.ActionGetResponse, 0)

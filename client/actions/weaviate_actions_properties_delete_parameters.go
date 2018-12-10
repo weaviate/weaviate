@@ -65,14 +65,14 @@ for the weaviate actions properties delete operation typically these are written
 type WeaviateActionsPropertiesDeleteParams struct {
 
 	/*ActionID
-	  Unique ID of the action.
+	  Unique ID of the Action.
 
 	*/
 	ActionID strfmt.UUID
 	/*Body*/
 	Body *models.SingleRef
 	/*PropertyName
-	  Unique name of the property related to the action.
+	  Unique name of the property related to the Action.
 
 	*/
 	PropertyName string

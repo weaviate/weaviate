@@ -31,7 +31,7 @@ type Meta struct {
 	// actions schema
 	ActionsSchema *SemanticSchema `json:"actionsSchema,omitempty"`
 
-	// The url of the host
+	// The url of the host.
 	Hostname string `json:"hostname,omitempty"`
 
 	// things schema

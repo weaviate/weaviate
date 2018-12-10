@@ -30,7 +30,7 @@ import (
 type ActionGetResponse struct {
 	Action
 
-	// ID of the action.
+	// ID of the Action.
 	// Format: uuid
 	ActionID strfmt.UUID `json:"actionId,omitempty"`
 }

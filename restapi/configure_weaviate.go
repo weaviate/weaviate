@@ -26,6 +26,7 @@ import (
 	"os"
 	"sync"
 	"time"
+	"strconv"
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
@@ -48,6 +49,7 @@ import (
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/connectors/listing"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	db_local_schema_manager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/local"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
@@ -57,6 +59,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/keys"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
+	rest_api_utils "github.com/creativesoftwarefdn/weaviate/restapi/rest_api_utils"
 	"github.com/creativesoftwarefdn/weaviate/validation"
 
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
@@ -69,6 +72,7 @@ import (
 )
 
 const pageOverride int = 1
+const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
 var contextionary libcontextionary.Contextionary
@@ -445,13 +449,277 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 	})
 	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(params actions.WeaviateActionsPropertiesCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation actions.WeaviateActionsPropertiesCreate has not yet been implemented")
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
+		ctx := params.HTTPRequest.Context()
+
+		UUID := strfmt.UUID(params.ActionID)
+
+		class := models.ActionGetResponse{}
+		err := dbConnector.GetAction(ctx, UUID, &class)
+
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject("Could not find action"))
+		}
+
+		dbSchema := dbLock.GetSchema()
+
+		// Find property and see if it has a max cardinality of >1
+		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		if propertyDataType.IsPrimitive() {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' is a primitive datatype", params.PropertyName)))
+		}
+		if prop.Cardinality == nil || *prop.Cardinality != "many" {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
+		}
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
+			return actions.NewWeaviateActionsPatchForbidden()
+		}
+
+		// Look up the single ref.
+		err = validation.ValidateSingleRef(ctx, serverConfig, params.Body, dbConnector, "reference not found", principal.(*models.KeyTokenGetResponse))
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(err.Error()))
+		}
+
+		if class.Action.Schema == nil {
+			class.Action.Schema = map[string]interface{}{}
+		}
+
+		schema := class.Action.Schema.(map[string]interface{})
+
+		_, schemaPropPresent := schema[params.PropertyName]
+		if !schemaPropPresent {
+			schema[params.PropertyName] = []interface{}{}
+		}
+
+		schemaProp := schema[params.PropertyName]
+		schemaPropList, ok := schemaProp.([]interface{})
+		if !ok {
+			panic("Internal error; this should be a liast")
+		}
+
+		// Add the reference
+		schemaPropList = append(schemaPropList, params.Body)
+
+		// Patch it back
+		schema[params.PropertyName] = schemaPropList
+		class.Action.Schema = schema
+
+		// And update the last modified time.
+		class.LastUpdateTimeUnix = connutils.NowUnix()
+
+		err = dbConnector.UpdateAction(ctx, &(class.Action), UUID)
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+		}
+
+		// Returns accepted so a Go routine can process in the background
+		return actions.NewWeaviateActionsPropertiesCreateOK()
 	})
 	api.ActionsWeaviateActionsPropertiesDeleteHandler = actions.WeaviateActionsPropertiesDeleteHandlerFunc(func(params actions.WeaviateActionsPropertiesDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation actions.WeaviateActionsPropertiesDelete has not yet been implemented")
+		if params.Body == nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a no valid reference", params.PropertyName)))
+		}
+
+		// Delete a specific SingleRef from the selected property.
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
+		ctx := params.HTTPRequest.Context()
+
+		UUID := strfmt.UUID(params.ActionID)
+
+		class := models.ActionGetResponse{}
+		err := dbConnector.GetAction(ctx, UUID, &class)
+
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject("Could not find action"))
+		}
+
+		dbSchema := dbLock.GetSchema()
+
+		// Find property and see if it has a max cardinality of >1
+		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		if propertyDataType.IsPrimitive() {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' is a primitive datatype", params.PropertyName)))
+		}
+		if prop.Cardinality == nil || *prop.Cardinality != "many" {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
+		}
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
+			return actions.NewWeaviateActionsPatchForbidden()
+		}
+
+		//NOTE: we are _not_ verifying the reference; otherwise we cannot delete broken references.
+
+		if class.Action.Schema == nil {
+			class.Action.Schema = map[string]interface{}{}
+		}
+
+		schema := class.Action.Schema.(map[string]interface{})
+
+		_, schemaPropPresent := schema[params.PropertyName]
+		if !schemaPropPresent {
+			schema[params.PropertyName] = []interface{}{}
+		}
+
+		schemaProp := schema[params.PropertyName]
+		schemaPropList, ok := schemaProp.([]interface{})
+		if !ok {
+			panic("Internal error; this should be a liast")
+		}
+
+		crefStr := string(params.Body.NrDollarCref)
+		locationUrl := string(*params.Body.LocationURL)
+		bodyType := string(params.Body.Type)
+
+		// Remove if this reference is found.
+		for idx, schemaPropItem := range schemaPropList {
+			schemaRef := schemaPropItem.(map[string]interface{})
+
+			if schemaRef["$cref"].(string) != crefStr {
+				continue
+			}
+
+			if schemaRef["locationUrl"].(string) != locationUrl {
+				continue
+			}
+
+			if schemaRef["type"].(string) != bodyType {
+				continue
+			}
+
+			// remove this one!
+			schemaPropList = append(schemaPropList[:idx], schemaPropList[idx+1:]...)
+			break // we can only remove one at the same time, so break the loop.
+		}
+
+		// Patch it back
+		schema[params.PropertyName] = schemaPropList
+		class.Action.Schema = schema
+
+		// And update the last modified time.
+		class.LastUpdateTimeUnix = connutils.NowUnix()
+
+		err = dbConnector.UpdateAction(ctx, &(class.Action), UUID)
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+		}
+
+		// Returns accepted so a Go routine can process in the background
+		return actions.NewWeaviateActionsPropertiesDeleteNoContent()
 	})
 	api.ActionsWeaviateActionsPropertiesUpdateHandler = actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(params actions.WeaviateActionsPropertiesUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation actions.WeaviateActionsPropertiesUpdate has not yet been implemented")
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
+		ctx := params.HTTPRequest.Context()
+
+		UUID := strfmt.UUID(params.ActionID)
+
+		class := models.ActionGetResponse{}
+		err := dbConnector.GetAction(ctx, UUID, &class)
+
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject("Could not find action"))
+		}
+
+		dbSchema := dbLock.GetSchema()
+
+		// Find property and see if it has a max cardinality of >1
+		err, prop := dbSchema.GetProperty(kind.ACTION_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		if propertyDataType.IsPrimitive() {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' is a primitive datatype", params.PropertyName)))
+		}
+		if prop.Cardinality == nil || *prop.Cardinality != "many" {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
+		}
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
+			return actions.NewWeaviateActionsPatchForbidden()
+		}
+
+		// Look up the single ref.
+		err = validation.ValidateMultipleRef(ctx, serverConfig, &params.Body, dbConnector, "reference not found", principal.(*models.KeyTokenGetResponse))
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(err.Error()))
+		}
+
+		if class.Action.Schema == nil {
+			class.Action.Schema = map[string]interface{}{}
+		}
+
+		schema := class.Action.Schema.(map[string]interface{})
+
+		// (Over)write with multiple ref
+		schema[params.PropertyName] = &params.Body
+		class.Action.Schema = schema
+
+		// And update the last modified time.
+		class.LastUpdateTimeUnix = connutils.NowUnix()
+
+		err = dbConnector.UpdateAction(ctx, &(class.Action), UUID)
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+		}
+
+		// Returns accepted so a Go routine can process in the background
+		return actions.NewWeaviateActionsPropertiesCreateOK()
 	})
 	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal interface{}) middleware.Responder {
 		dbLock := db.ConnectorLock()
@@ -591,7 +859,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}()
 			return actions.NewWeaviateActionsCreateAccepted().WithPayload(responseObject)
 		} else {
-			//TODO: handle errors
+			//TODO gh-617: handle errors
 			err := dbConnector.AddAction(ctx, action, UUID)
 			if err != nil {
 				panic(err)
@@ -1229,13 +1497,277 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 	})
 	api.ThingsWeaviateThingsPropertiesCreateHandler = things.WeaviateThingsPropertiesCreateHandlerFunc(func(params things.WeaviateThingsPropertiesCreateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation things.WeaviateThingsPropertiesCreate has not yet been implemented")
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
+		ctx := params.HTTPRequest.Context()
+
+		UUID := strfmt.UUID(params.ThingID)
+
+		class := models.ThingGetResponse{}
+		err := dbConnector.GetThing(ctx, UUID, &class)
+
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject("Could not find thing"))
+		}
+
+		dbSchema := dbLock.GetSchema()
+
+		// Find property and see if it has a max cardinality of >1
+		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		if propertyDataType.IsPrimitive() {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' is a primitive datatype", params.PropertyName)))
+		}
+		if prop.Cardinality == nil || *prop.Cardinality != "many" {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
+		}
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
+			return things.NewWeaviateThingsPatchForbidden()
+		}
+
+		// Look up the single ref.
+		err = validation.ValidateSingleRef(ctx, serverConfig, params.Body, dbConnector, "reference not found", principal.(*models.KeyTokenGetResponse))
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(err.Error()))
+		}
+
+		if class.Thing.Schema == nil {
+			class.Thing.Schema = map[string]interface{}{}
+		}
+
+		schema := class.Thing.Schema.(map[string]interface{})
+
+		_, schemaPropPresent := schema[params.PropertyName]
+		if !schemaPropPresent {
+			schema[params.PropertyName] = []interface{}{}
+		}
+
+		schemaProp := schema[params.PropertyName]
+		schemaPropList, ok := schemaProp.([]interface{})
+		if !ok {
+			panic("Internal error; this should be a liast")
+		}
+
+		// Add the reference
+		schemaPropList = append(schemaPropList, params.Body)
+
+		// Patch it back
+		schema[params.PropertyName] = schemaPropList
+		class.Thing.Schema = schema
+
+		// And update the last modified time.
+		class.LastUpdateTimeUnix = connutils.NowUnix()
+
+		err = dbConnector.UpdateThing(ctx, &(class.Thing), UUID)
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+		}
+
+		// Returns accepted so a Go routine can process in the background
+		return things.NewWeaviateThingsPropertiesCreateOK()
 	})
 	api.ThingsWeaviateThingsPropertiesDeleteHandler = things.WeaviateThingsPropertiesDeleteHandlerFunc(func(params things.WeaviateThingsPropertiesDeleteParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation things.WeaviateThingsPropertiesDelete has not yet been implemented")
+		if params.Body == nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a no valid reference", params.PropertyName)))
+		}
+
+		// Delete a specific SingleRef from the selected property.
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
+		ctx := params.HTTPRequest.Context()
+
+		UUID := strfmt.UUID(params.ThingID)
+
+		class := models.ThingGetResponse{}
+		err := dbConnector.GetThing(ctx, UUID, &class)
+
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject("Could not find thing"))
+		}
+
+		dbSchema := dbLock.GetSchema()
+
+		// Find property and see if it has a max cardinality of >1
+		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		if propertyDataType.IsPrimitive() {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' is a primitive datatype", params.PropertyName)))
+		}
+		if prop.Cardinality == nil || *prop.Cardinality != "many" {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
+		}
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
+			return things.NewWeaviateThingsPatchForbidden()
+		}
+
+		//NOTE: we are _not_ verifying the reference; otherwise we cannot delete broken references.
+
+		if class.Thing.Schema == nil {
+			class.Thing.Schema = map[string]interface{}{}
+		}
+
+		schema := class.Thing.Schema.(map[string]interface{})
+
+		_, schemaPropPresent := schema[params.PropertyName]
+		if !schemaPropPresent {
+			schema[params.PropertyName] = []interface{}{}
+		}
+
+		schemaProp := schema[params.PropertyName]
+		schemaPropList, ok := schemaProp.([]interface{})
+		if !ok {
+			panic("Internal error; this should be a liast")
+		}
+
+		crefStr := string(params.Body.NrDollarCref)
+		locationUrl := string(*params.Body.LocationURL)
+		bodyType := string(params.Body.Type)
+
+		// Remove if this reference is found.
+		for idx, schemaPropItem := range schemaPropList {
+			schemaRef := schemaPropItem.(map[string]interface{})
+
+			if schemaRef["$cref"].(string) != crefStr {
+				continue
+			}
+
+			if schemaRef["locationUrl"].(string) != locationUrl {
+				continue
+			}
+
+			if schemaRef["type"].(string) != bodyType {
+				continue
+			}
+
+			// remove this one!
+			schemaPropList = append(schemaPropList[:idx], schemaPropList[idx+1:]...)
+			break // we can only remove one at the same time, so break the loop.
+		}
+
+		// Patch it back
+		schema[params.PropertyName] = schemaPropList
+		class.Thing.Schema = schema
+
+		// And update the last modified time.
+		class.LastUpdateTimeUnix = connutils.NowUnix()
+
+		err = dbConnector.UpdateThing(ctx, &(class.Thing), UUID)
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+		}
+
+		// Returns accepted so a Go routine can process in the background
+		return things.NewWeaviateThingsPropertiesDeleteNoContent()
 	})
 	api.ThingsWeaviateThingsPropertiesUpdateHandler = things.WeaviateThingsPropertiesUpdateHandlerFunc(func(params things.WeaviateThingsPropertiesUpdateParams, principal interface{}) middleware.Responder {
-		return middleware.NotImplemented("operation things.WeaviateThingsPropertiesUpdate has not yet been implemented")
+		dbLock := db.ConnectorLock()
+		delayedLock := delayed_unlock.New(dbLock)
+		defer delayedLock.Unlock()
+
+		dbConnector := dbLock.Connector()
+
+		ctx := params.HTTPRequest.Context()
+
+		UUID := strfmt.UUID(params.ThingID)
+
+		class := models.ThingGetResponse{}
+		err := dbConnector.GetThing(ctx, UUID, &class)
+
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject("Could not find thing"))
+		}
+
+		dbSchema := dbLock.GetSchema()
+
+		// Find property and see if it has a max cardinality of >1
+		err, prop := dbSchema.GetProperty(kind.THING_KIND, schema.AssertValidClassName(class.AtClass), schema.AssertValidPropertyName(params.PropertyName))
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		propertyDataType, err := dbSchema.FindPropertyDataType(prop.AtDataType)
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Could not find datatype of property '%s'; %s", params.PropertyName, err.Error())))
+		}
+		if propertyDataType.IsPrimitive() {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' is a primitive datatype", params.PropertyName)))
+		}
+		if prop.Cardinality == nil || *prop.Cardinality != "many" {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
+		}
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
+			return things.NewWeaviateThingsPatchForbidden()
+		}
+
+		// Look up the single ref.
+		err = validation.ValidateMultipleRef(ctx, serverConfig, &params.Body, dbConnector, "reference not found", principal.(*models.KeyTokenGetResponse))
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(err.Error()))
+		}
+
+		if class.Thing.Schema == nil {
+			class.Thing.Schema = map[string]interface{}{}
+		}
+
+		schema := class.Thing.Schema.(map[string]interface{})
+
+		// (Over)write with multiple ref
+		schema[params.PropertyName] = &params.Body
+		class.Thing.Schema = schema
+
+		// And update the last modified time.
+		class.LastUpdateTimeUnix = connutils.NowUnix()
+
+		err = dbConnector.UpdateThing(ctx, &(class.Thing), UUID)
+		if err != nil {
+			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+		}
+
+		// Returns accepted so a Go routine can process in the background
+		return things.NewWeaviateThingsPropertiesCreateOK()
 	})
 	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
 		dbLock := db.ConnectorLock()
@@ -1385,7 +1917,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// This is a read function, validate if allowed to read?
 		if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, keyObject.KeyID); !allowed {
-			return things.NewWeaviateThingsActionsListForbidden()
+			return actions.NewWeaviateActionsListForbidden()
 		}
 
 		// Initialize response
@@ -1399,7 +1931,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			messaging.ErrorMessage(err)
 		}
 
-		return things.NewWeaviateThingsActionsListOK().WithPayload(&actionsResponse)
+		return actions.NewWeaviateActionsListOK().WithPayload(&actionsResponse)
 	})
 	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal interface{}) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
@@ -1448,9 +1980,404 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return graphql.NewWeaviateGraphqlPostOK().WithPayload(graphQLResponse)
 	})
 
+	/*
+	 * HANDLE BATCHING
+	 */
+
+	api.GraphqlWeaviateGraphqlBatchHandler = graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams, principal interface{}) middleware.Responder {
+		defer messaging.TimeTrack(time.Now())
+		messaging.DebugMessage("Starting GraphQL batch resolving")
+
+		// Add security principal to context that we pass on to the GraphQL resolver.
+		graphql_context := context.WithValue(params.HTTPRequest.Context(), "principal", (principal.(*models.KeyTokenGetResponse)))
+
+		amountOfBatchedRequests := len(params.Body)
+		errorResponse := &models.ErrorResponse{}
+
+		if amountOfBatchedRequests == 0 {
+			return graphql.NewWeaviateGraphqlBatchUnprocessableEntity().WithPayload(errorResponse)
+		}
+		requestResults := make(chan rest_api_utils.UnbatchedRequestResponse, amountOfBatchedRequests)
+
+		wg := new(sync.WaitGroup)
+
+		// Generate a goroutine for each separate request
+		for requestIndex, unbatchedRequest := range params.Body {
+			wg.Add(1)
+			go handleUnbatchedGraphQLRequest(wg, graphql_context, unbatchedRequest, requestIndex, &requestResults)
+		}
+
+		wg.Wait()
+
+		close(requestResults)
+
+		batchedRequestResponse := make([]*models.GraphQLResponse, amountOfBatchedRequests)
+
+		// Add the requests to the result array in the correct order
+		for unbatchedRequestResult := range requestResults {
+			batchedRequestResponse[unbatchedRequestResult.RequestIndex] = unbatchedRequestResult.Response
+		}
+
+		return graphql.NewWeaviateGraphqlBatchOK().WithPayload(batchedRequestResponse)
+	})
+
+	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(func(params operations.WeaviateBatchingActionsCreateParams, principal interface{}) middleware.Responder {
+		defer messaging.TimeTrack(time.Now())
+
+		dbLock := db.ConnectorLock()
+		requestLocks := rest_api_utils.RequestLocks{
+			DBLock:      dbLock,
+			DelayedLock: delayed_unlock.New(dbLock),
+			DBConnector: dbLock.Connector(),
+		}
+
+		defer requestLocks.DelayedLock.Unlock()
+
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, requestLocks.DBConnector, nil); !allowed {
+			return operations.NewWeaviateBatchingActionsCreateForbidden()
+		}
+
+		amountOfBatchedRequests := len(params.Body.Actions)
+		errorResponse := &models.ErrorResponse{}
+
+		if amountOfBatchedRequests == 0 {
+			return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().WithPayload(errorResponse)
+		}
+
+		requestResults := make(chan rest_api_utils.BatchedActionsCreateRequestResponse, amountOfBatchedRequests)
+
+		wg := new(sync.WaitGroup)
+
+		async := params.Body.Async
+
+		// Generate a goroutine for each separate request
+		for requestIndex, batchedRequest := range params.Body.Actions {
+			wg.Add(1)
+			go handleBatchedActionsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, principal, &requestLocks)
+		}
+
+		wg.Wait()
+
+		close(requestResults)
+
+		batchedRequestResponse := make([]*models.ActionsGetResponse, amountOfBatchedRequests)
+
+		// Add the requests to the result array in the correct order
+		for batchedRequestResult := range requestResults {
+			batchedRequestResponse[batchedRequestResult.RequestIndex] = batchedRequestResult.Response
+		}
+
+		return operations.NewWeaviateBatchingActionsCreateOK().WithPayload(batchedRequestResponse)
+
+	})
+
+	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(func(params operations.WeaviateBatchingThingsCreateParams, principal interface{}) middleware.Responder {
+		defer messaging.TimeTrack(time.Now())
+
+		dbLock := db.ConnectorLock()
+		requestLocks := rest_api_utils.RequestLocks{
+			DBLock:      dbLock,
+			DelayedLock: delayed_unlock.New(dbLock),
+			DBConnector: dbLock.Connector(),
+		}
+
+		defer requestLocks.DelayedLock.Unlock()
+
+		// Get context from request
+		ctx := params.HTTPRequest.Context()
+
+		// This is a write function, validate if allowed to write?
+		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, requestLocks.DBConnector, nil); !allowed {
+			return operations.NewWeaviateBatchingThingsCreateForbidden()
+		}
+
+		amountOfBatchedRequests := len(params.Body.Things)
+		errorResponse := &models.ErrorResponse{}
+
+		if amountOfBatchedRequests == 0 {
+			return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errorResponse)
+		}
+
+		requestResults := make(chan rest_api_utils.BatchedThingsCreateRequestResponse, amountOfBatchedRequests)
+
+		wg := new(sync.WaitGroup)
+
+		async := params.Body.Async
+
+		// Generate a goroutine for each separate request
+		for requestIndex, batchedRequest := range params.Body.Things {
+			wg.Add(1)
+			go handleBatchedThingsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, principal, &requestLocks)
+		}
+
+		wg.Wait()
+
+		close(requestResults)
+
+		batchedRequestResponse := make([]*models.ThingsGetResponse, amountOfBatchedRequests)
+
+		// Add the requests to the result array in the correct order
+		for batchedRequestResult := range requestResults {
+			batchedRequestResponse[batchedRequestResult.RequestIndex] = batchedRequestResult.Response
+		}
+
+		return operations.NewWeaviateBatchingThingsCreateOK().WithPayload(batchedRequestResponse)
+
+	})
+
+	/*
+	 * HANDLE SCHEMA: NOTE, CAN BE FOUND IN /DATABASE
+	 */
+
 	api.ServerShutdown = func() {}
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+}
+
+// Handle a single unbatched GraphQL request, return a tuple containing the index of the request in the batch and either the response or an error
+func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan rest_api_utils.UnbatchedRequestResponse) {
+	defer wg.Done()
+
+	// Get all input from the body of the request
+	query := unbatchedRequest.Query
+	operationName := unbatchedRequest.OperationName
+	graphQLResponse := &models.GraphQLResponse{}
+
+	// Return an unprocessable error if the query is empty
+	if query == "" {
+
+		// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
+		errorCode := strconv.Itoa(graphql.WeaviateGraphqlBatchUnprocessableEntityCode)
+		errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
+		errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
+		graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
+		*requestResults <- rest_api_utils.UnbatchedRequestResponse{
+			requestIndex,
+			&graphQLResponse,
+		}
+	} else {
+
+		// Extract any variables from the request
+		var variables map[string]interface{}
+		if unbatchedRequest.Variables != nil {
+			variables = unbatchedRequest.Variables.(map[string]interface{})
+		}
+
+		result := graphQL.Resolve(query, operationName, variables, ctx)
+
+		// Marshal the JSON
+		resultJSON, jsonErr := json.Marshal(result)
+
+		// Return an unprocessable error if marshalling the result to JSON failed
+		if jsonErr != nil {
+
+			// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
+			errorCode := strconv.Itoa(graphql.WeaviateGraphqlBatchUnprocessableEntityCode)
+			errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
+			errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
+			graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
+			*requestResults <- rest_api_utils.UnbatchedRequestResponse{
+				requestIndex,
+				&graphQLResponse,
+			}
+		} else {
+
+			// Put the result data in a response ready object
+			marshallErr := json.Unmarshal(resultJSON, graphQLResponse)
+
+			// Return an unprocessable error if unmarshalling the result to JSON failed
+			if marshallErr != nil {
+
+				// Regular error messages are returned as an error code in the request header, but that doesn't work for batched requests
+				errorCode := strconv.Itoa(graphql.WeaviateGraphqlBatchUnprocessableEntityCode)
+				errorMessage := fmt.Sprintf("%s: %s", errorCode, error422)
+				errors := []*models.GraphQLError{&models.GraphQLError{Message: errorMessage}}
+				graphQLResponse := models.GraphQLResponse{Data: nil, Errors: errors}
+				*requestResults <- rest_api_utils.UnbatchedRequestResponse{
+					requestIndex,
+					&graphQLResponse,
+				}
+			} else {
+
+				// Return the GraphQL response
+				*requestResults <- rest_api_utils.UnbatchedRequestResponse{
+					requestIndex,
+					graphQLResponse,
+				}
+			}
+		}
+	}
+
+}
+
+func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, batchedRequest *models.ActionCreate, requestIndex int, requestResults *chan rest_api_utils.BatchedActionsCreateRequestResponse, async bool, principal interface{}, requestLocks *rest_api_utils.RequestLocks) {
+	defer wg.Done()
+
+	// Generate UUID for the new object
+	UUID := connutils.GenerateUUID()
+
+	// Validate schema given in body with the weaviate schema
+	databaseSchema := schema.HackFromDatabaseSchema(requestLocks.DBLock.GetSchema())
+
+	// Create Key-ref object
+	url := serverConfig.GetHostAddress()
+	keyRef := &models.SingleRef{
+		LocationURL:  &url,
+		NrDollarCref: principal.(*models.KeyTokenGetResponse).KeyID,
+		Type:         string(connutils.RefTypeKey),
+	}
+
+	// Create Action object
+	action := &models.Action{}
+	action.AtClass = batchedRequest.AtClass
+	action.AtContext = batchedRequest.AtContext
+	action.Schema = batchedRequest.Schema
+	action.CreationTimeUnix = connutils.NowUnix()
+	action.LastUpdateTimeUnix = 0
+	action.Key = keyRef
+
+	// Create request result object
+	result := &models.ActionsGetResponseAO1Result{}
+	result.Errors = nil
+
+	// Create request response object
+	responseObject := &models.ActionsGetResponse{}
+	responseObject.Action = *action
+	responseObject.ActionID = UUID
+	responseObject.Result = result
+
+	resultStatus := models.ActionsGetResponseAO1ResultStatusSUCCESS
+
+	validatedErr := validation.ValidateActionBody(ctx, batchedRequest, databaseSchema, requestLocks.DBConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+
+	if validatedErr != nil {
+		// Edit request result status
+		responseObject.Result.Errors = createErrorResponseObject(validatedErr.Error())
+		resultStatus = models.ActionsGetResponseAO1ResultStatusFAILED
+		responseObject.Result.Status = &resultStatus
+	} else {
+		// Handle asynchronous requests
+		if async {
+			requestLocks.DelayedLock.IncSteps()
+			resultStatus = models.ActionsGetResponseAO1ResultStatusPENDING
+			responseObject.Result.Status = &resultStatus
+
+			go func() {
+				defer requestLocks.DelayedLock.Unlock()
+				err := requestLocks.DBConnector.AddAction(ctx, action, UUID)
+
+				if err != nil {
+					// Edit request result status
+					resultStatus = models.ActionsGetResponseAO1ResultStatusFAILED
+					responseObject.Result.Status = &resultStatus
+					responseObject.Result.Errors = createErrorResponseObject(err.Error())
+				}
+			}()
+		} else {
+			// Handle synchronous requests
+			err := requestLocks.DBConnector.AddAction(ctx, action, UUID)
+
+			if err != nil {
+				// Edit request result status
+				resultStatus = models.ActionsGetResponseAO1ResultStatusFAILED
+				responseObject.Result.Status = &resultStatus
+				responseObject.Result.Errors = createErrorResponseObject(err.Error())
+			}
+		}
+	}
+
+	// Send this batched request's response and its place in the batch request to the channel
+	*requestResults <- rest_api_utils.BatchedActionsCreateRequestResponse{
+		requestIndex,
+		responseObject,
+	}
+}
+
+func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, batchedRequest *models.ThingCreate, requestIndex int, requestResults *chan rest_api_utils.BatchedThingsCreateRequestResponse, async bool, principal interface{}, requestLocks *rest_api_utils.RequestLocks) {
+	defer wg.Done()
+
+	// Generate UUID for the new object
+	UUID := connutils.GenerateUUID()
+
+	// Validate schema given in body with the weaviate schema
+	databaseSchema := schema.HackFromDatabaseSchema(requestLocks.DBLock.GetSchema())
+
+	// Create Key-ref object
+	url := serverConfig.GetHostAddress()
+	keyRef := &models.SingleRef{
+		LocationURL:  &url,
+		NrDollarCref: principal.(*models.KeyTokenGetResponse).KeyID,
+		Type:         string(connutils.RefTypeKey),
+	}
+
+	// Create Thing object
+	thing := &models.Thing{}
+	thing.AtClass = batchedRequest.AtClass
+	thing.AtContext = batchedRequest.AtContext
+	thing.Schema = batchedRequest.Schema
+	thing.CreationTimeUnix = connutils.NowUnix()
+	thing.LastUpdateTimeUnix = 0
+	thing.Key = keyRef
+
+	// Create request result object
+	result := &models.ThingsGetResponseAO1Result{}
+	result.Errors = nil
+
+	// Create request response object
+	responseObject := &models.ThingsGetResponse{}
+	responseObject.Thing = *thing
+	responseObject.ThingID = UUID
+	responseObject.Result = result
+
+	resultStatus := models.ThingsGetResponseAO1ResultStatusSUCCESS
+
+	validatedErr := validation.ValidateThingBody(ctx, batchedRequest, databaseSchema, requestLocks.DBConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+
+	if validatedErr != nil {
+		// Edit request result status
+		responseObject.Result.Errors = createErrorResponseObject(validatedErr.Error())
+		resultStatus = models.ThingsGetResponseAO1ResultStatusFAILED
+		responseObject.Result.Status = &resultStatus
+	} else {
+		// Handle asynchronous requests
+		if async {
+			requestLocks.DelayedLock.IncSteps()
+			resultStatus = models.ThingsGetResponseAO1ResultStatusPENDING
+			responseObject.Result.Status = &resultStatus
+
+			go func() {
+				defer requestLocks.DelayedLock.Unlock()
+				err := requestLocks.DBConnector.AddThing(ctx, thing, UUID)
+
+				if err != nil {
+					// Edit request result status
+					resultStatus = models.ThingsGetResponseAO1ResultStatusFAILED
+					responseObject.Result.Status = &resultStatus
+					responseObject.Result.Errors = createErrorResponseObject(err.Error())
+				}
+			}()
+		} else {
+			// Handle synchronous requests
+			err := requestLocks.DBConnector.AddThing(ctx, thing, UUID)
+
+			if err != nil {
+				// Edit request result status
+				resultStatus = models.ThingsGetResponseAO1ResultStatusFAILED
+				responseObject.Result.Status = &resultStatus
+				responseObject.Result.Errors = createErrorResponseObject(err.Error())
+			}
+		}
+	}
+
+	// Send this batched request's response and its place in the batch request to the channel
+	*requestResults <- rest_api_utils.BatchedThingsCreateRequestResponse{
+		requestIndex,
+		responseObject,
+	}
 }
 
 // The TLS configuration before HTTPS server starts.
@@ -1487,7 +2414,6 @@ func configureServer(s *http.Server, scheme, addr string) {
 	weaviateBroker.ConnectToMqtt(serverConfig.Environment.Broker.Host, serverConfig.Environment.Broker.Port)
 
 	// Create the database connector usint the config
-	// TODO  make this configureable
 	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig)
 
 	// Could not find, or configure connector.
@@ -1496,7 +2422,6 @@ func configureServer(s *http.Server, scheme, addr string) {
 	}
 
 	// Construct a (distributed lock)
-	// TODO: make part of schema manager?
 	localMutex := sync.RWMutex{}
 	dbLock := database.RWLocker(&localMutex)
 
@@ -1517,7 +2442,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 		fmt.Printf("UPDATESCHEMA DB: %#v\n", db)
 		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, dbAndNetwork{Database: db, Network: network})
 		if err != nil {
-			// TODO: turn on safe mode
+			// TODO: turn on safe mode gh-520
 			graphQL = nil
 			messaging.ErrorMessage(fmt.Sprintf("Could not re-generate GraphQL schema, because:\n%#v\n", err))
 		} else {
@@ -1596,7 +2521,7 @@ func loadContextionary() {
 
 	messaging.InfoMessage("Contextionary loaded from disk")
 
-	//TODO: update on schema change.
+	//TODO gh-618: update on schema change.
 	//// Now create the in-memory contextionary based on the classes / properties.
 	//databaseSchema :=
 	//in_memory_contextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(mmaped_contextionary)

@@ -43,7 +43,7 @@ type WeaviateActionHistoryGetParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Unique ID of the action.
+	/*Unique ID of the Action.
 	  Required: true
 	  In: path
 	*/

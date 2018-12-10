@@ -43,7 +43,7 @@ func NewWeaviateSchemaActionsPropertiesAdd(ctx *middleware.Context, handler Weav
 
 /*WeaviateSchemaActionsPropertiesAdd swagger:route POST /schema/actions/{className}/properties schema weaviateSchemaActionsPropertiesAdd
 
-Add a property to a Action class
+Add a property to an Action class.
 
 */
 type WeaviateSchemaActionsPropertiesAdd struct {

@@ -63,7 +63,7 @@ for the weaviate action history get operation typically these are written to a h
 type WeaviateActionHistoryGetParams struct {
 
 	/*ActionID
-	  Unique ID of the action.
+	  Unique ID of the Action.
 
 	*/
 	ActionID strfmt.UUID

@@ -20,6 +20,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	"github.com/graphql-go/graphql"
 )
 
@@ -75,13 +76,18 @@ func buildGraphqlSchema(dbSchema *schema.Schema) (graphql.Schema, error) {
 	if err != nil {
 		return graphql.Schema{}, err
 	}
+	
+	networkSchema, err := network.Build(dbSchema)
+	if err != nil {
+		return graphql.Schema{}, err
+	}
 
 	schemaObject := graphql.ObjectConfig{
 		Name:        "WeaviateObj",
 		Description: "Location of the root query",
 		Fields: graphql.Fields{
 			"Local":   localSchema,
-			"Network": nil,
+			"Network": networkSchema,
 		},
 	}
 

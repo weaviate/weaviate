@@ -28,7 +28,7 @@ import (
 // WeaviateThingsPropertiesUpdateOKCode is the HTTP code returned for type WeaviateThingsPropertiesUpdateOK
 const WeaviateThingsPropertiesUpdateOKCode int = 200
 
-/*WeaviateThingsPropertiesUpdateOK Successfully replaced all the refferences (success is based on the behavior of the datastore).
+/*WeaviateThingsPropertiesUpdateOK Successfully replaced all the references (success is based on the behavior of the datastore).
 
 swagger:response weaviateThingsPropertiesUpdateOK
 */
@@ -100,7 +100,7 @@ func (o *WeaviateThingsPropertiesUpdateForbidden) WriteResponse(rw http.Response
 // WeaviateThingsPropertiesUpdateUnprocessableEntityCode is the HTTP code returned for type WeaviateThingsPropertiesUpdateUnprocessableEntity
 const WeaviateThingsPropertiesUpdateUnprocessableEntityCode int = 422
 
-/*WeaviateThingsPropertiesUpdateUnprocessableEntity Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+/*WeaviateThingsPropertiesUpdateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 
 swagger:response weaviateThingsPropertiesUpdateUnprocessableEntity
 */

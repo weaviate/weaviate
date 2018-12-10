@@ -65,7 +65,7 @@ func NewWeaviateThingsPropertiesUpdateOK() *WeaviateThingsPropertiesUpdateOK {
 
 /*WeaviateThingsPropertiesUpdateOK handles this case with default header values.
 
-Successfully replaced all the refferences (success is based on the behavior of the datastore).
+Successfully replaced all the references (success is based on the behavior of the datastore).
 */
 type WeaviateThingsPropertiesUpdateOK struct {
 }
@@ -128,7 +128,7 @@ func NewWeaviateThingsPropertiesUpdateUnprocessableEntity() *WeaviateThingsPrope
 
 /*WeaviateThingsPropertiesUpdateUnprocessableEntity handles this case with default header values.
 
-Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 */
 type WeaviateThingsPropertiesUpdateUnprocessableEntity struct {
 	Payload *models.ErrorResponse

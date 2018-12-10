@@ -63,7 +63,7 @@ for the weaviate thing history get operation typically these are written to a ht
 type WeaviateThingHistoryGetParams struct {
 
 	/*ThingID
-	  Unique ID of the thing.
+	  Unique ID of the Thing.
 
 	*/
 	ThingID strfmt.UUID

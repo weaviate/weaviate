@@ -65,7 +65,7 @@ for the weaviate action update operation typically these are written to a http.R
 type WeaviateActionUpdateParams struct {
 
 	/*ActionID
-	  Unique ID of the action.
+	  Unique ID of the Action.
 
 	*/
 	ActionID strfmt.UUID

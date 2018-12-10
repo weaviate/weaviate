@@ -54,7 +54,7 @@ func (a *Client) WeaviateSchemaActionsCreate(params *WeaviateSchemaActionsCreate
 }
 
 /*
-WeaviateSchemaActionsDelete removes a action class and all data in the instances from the ontology
+WeaviateSchemaActionsDelete removes an action class and all data in the instances from the ontology
 */
 func (a *Client) WeaviateSchemaActionsDelete(params *WeaviateSchemaActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -83,7 +83,7 @@ func (a *Client) WeaviateSchemaActionsDelete(params *WeaviateSchemaActionsDelete
 }
 
 /*
-WeaviateSchemaActionsPropertiesAdd adds a property to a action class
+WeaviateSchemaActionsPropertiesAdd adds a property to an action class
 */
 func (a *Client) WeaviateSchemaActionsPropertiesAdd(params *WeaviateSchemaActionsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
@@ -112,7 +112,7 @@ func (a *Client) WeaviateSchemaActionsPropertiesAdd(params *WeaviateSchemaAction
 }
 
 /*
-WeaviateSchemaActionsPropertiesDelete removes a property from a action class
+WeaviateSchemaActionsPropertiesDelete removes a property from an action class
 */
 func (a *Client) WeaviateSchemaActionsPropertiesDelete(params *WeaviateSchemaActionsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsPropertiesDeleteOK, error) {
 	// TODO: Validate the params before sending

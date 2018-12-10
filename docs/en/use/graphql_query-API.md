@@ -2,30 +2,37 @@
 publishedOnWebsite: true
 title: GraphQL Query API
 subject: OSS
+author: Laura Ham
+date first published: 01Nov2018
+last updated: 05Dec2018
 ---
 
-In this section, some example queries will be clarified. A full schema definition can be found HERE or at the GraphiQL IDE when you are running the prototype at `http://localhost:8081/graphql`.
+## Audience: technical
+
+## Purpose: Show example GraphQL queries
+
+In this section, some example queries will be clarified.
 
 ##### Get local Things
 Fetch information about all Things from a specified class.
-In this case all airports will be returned, with information about properties references to cities and countries nested in these Things. Note that when the property refers to a class (like `InCity` and `InCountry`), these fields start with a capital (although this is not the case in the original schema where all property names start with small letters). These fields are filled with an object mentioning the Class as an object like `...on <Class> {<property>}`.
+In this case all airports will be returned, with information about properties references to cities and countries nested in these `Things`. Note that when the property refers to a class (like `InCity` and `InCountry`), these fields start with a capital (although this is not the case in the original schema where all property names start with small letters). These fields are filled with an object mentioning the Class as an object like `... on <Class> {<property>}`.
 
 ``` graphql
 {
-  Local{
-    Get{
-      Things{
-        Airport{
+  Local {
+    Get {
+      Things {
+        Airport {
           code
           name
-          InCity{
-            ...on City{
+          InCity {
+            ... on City {
               name
               population
               coordinates
               isCapital
-              InCountry{
-                ...on Country{
+              InCountry {
+                ... on Country {
                   name
                   population
                 }
@@ -44,8 +51,8 @@ The query below returns information about all airports which lie in a city with 
 
 ``` graphql
 {
-  Local{
-    Get(where:{
+  Local {
+    Get(where: {
       operator: And,
       operands: [{
         path: ["Things", "Airport", "inCity", "City", "inCountry", "Country", "name"],
@@ -57,19 +64,19 @@ The query below returns information about all airports which lie in a city with 
         operator: GreaterThan
         valueInt: 1000000
       }]
-    }){
-      Things{
-        Airport{
+    }) {
+      Things {
+        Airport {
           code
           name
-          InCity{
-            ...on City{
+          InCity {
+            ... on City {
               name
               population
               coordinates
               isCapital
-              InCountry{
-                ...on Country{
+              InCountry {
+                ... on Country {
                   name
                   population
                 }
@@ -91,14 +98,14 @@ The query below returns all cities where either (at least one of the following c
 
 ``` graphql
 {
-  Local{
-    Get(where:{
+  Local {
+    Get(where: {
       operator: Or,
       operands: [{
         operator: And,
         operands: [{
           path: ["Things", "Airport", "inCity", "City", "population"],
-          operator:LessThan,
+          operator: LessThan,
           valueInt: 10000000
         },
         {
@@ -106,13 +113,13 @@ The query below returns all cities where either (at least one of the following c
           operator: GreaterThanEqual
           valueInt: 1000000
         }],
-      },{
+      }, {
         path: ["Things", "City", "isCapital"],
-        valueBoolean:true
+        valueBoolean: true
     }]
-    }){
-      Things{
-        City{
+    }) {
+      Things {
+        City {
         name
         population
         coordinates
@@ -132,18 +139,18 @@ The query below returns metadata of the nodes in the class `City`.
 ``` graphql
 {
   Local {
-    GetMeta{
+    GetMeta {
       Things {
         City {
-          meta{
+          meta {
             count
           }
-          inCountry{
+          inCountry {
             type
             count
             pointingTo
           }
-          isCapital{
+          isCapital {
             type
             count
             totalTrue
@@ -159,10 +166,10 @@ The query below returns metadata of the nodes in the class `City`.
             average
             sum
           }
-          name{
+          name {
             type
             count
-            topOccurrences(first:2){
+            topOccurrences(first:2) {
               value
               occurs
             }
@@ -180,22 +187,22 @@ The same filters as the converted fetch can be used to filter the data. The foll
 ``` graphql
 {
   Local {
-    GetMeta(where:{
+    GetMeta(where: {
       path: ["Things", "City", "inCountry", "name"],
       operator: Equal
       valueString: "Netherlands"
     }) {
       Things {
         City {
-          meta{
+          meta {
             count
           }
-          inCountry{
+          inCountry {
             type
             count
             pointingTo
           }
-          isCapital{
+          isCapital {
             type
             count
             totalTrue
@@ -211,10 +218,10 @@ The same filters as the converted fetch can be used to filter the data. The foll
             average
             sum
           }
-          name{
+          name {
             type
             count
-            topOccurrences(first:2){
+            topOccurrences(first:2) {
               value
               occurs
             }
@@ -227,16 +234,16 @@ The same filters as the converted fetch can be used to filter the data. The foll
 ```
 
 ##### Pagination
-Pagination allows to request a certain amount of Things or Actions at one query. The arguments `first` and `after` can be combined in the query for classes of Things and Actions, where
+Pagination allows to request a certain amount of `Things` or `Actions` at one query. The arguments `first` and `after` can be combined in the query for classes of `Things` and `Actions`, where
 - `first` is an integer with the maximum amount of returned nodes.
 - `after` is an integer representing how many nodes should be skipped in the returned data.
 
 ``` graphql
 {
-  Local{
-    Get{
-      Things{
-        City(first:10, after:2){
+  Local {
+    Get {
+      Things {
+        City(first:10, after:2) {
           name
           population
           coordinates

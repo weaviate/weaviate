@@ -35,7 +35,6 @@ func (l *localSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSche
 	if err != nil {
 		return err
 	} else {
-		// TODO keep it sorted.
 		semanticSchema := l.schemaState.SchemaFor(kind)
 		semanticSchema.Classes = append(semanticSchema.Classes, class)
 		err := l.saveToDisk()
@@ -48,7 +47,6 @@ func (l *localSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSche
 }
 
 func (l *localSchemaManager) DropClass(kind kind.Kind, className string) error {
-	// TODO keep it sorted.
 	semanticSchema := l.schemaState.SchemaFor(kind)
 
 	var classIdx int = -1
@@ -72,7 +70,6 @@ func (l *localSchemaManager) DropClass(kind kind.Kind, className string) error {
 		return err
 	}
 
-	// TODO log
 	return l.connectorMigrator.DropClass(kind, className)
 }
 

@@ -62,7 +62,7 @@ func NewWeaviateKeysDeleteNoContent() *WeaviateKeysDeleteNoContent {
 
 /*WeaviateKeysDeleteNoContent handles this case with default header values.
 
-Successful deleted.
+Successfully deleted.
 */
 type WeaviateKeysDeleteNoContent struct {
 }

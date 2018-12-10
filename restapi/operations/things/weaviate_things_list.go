@@ -43,9 +43,9 @@ func NewWeaviateThingsList(ctx *middleware.Context, handler WeaviateThingsListHa
 
 /*WeaviateThingsList swagger:route GET /things things weaviateThingsList
 
-Get a list of things related to this key.
+Get a list of Things related to this key.
 
-Lists all things in reverse order of creation, owned by the user that belongs to the used token.
+Lists all Things in reverse order of creation, owned by the user that belongs to the used token.
 
 */
 type WeaviateThingsList struct {

@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// PeerUpdateList Lisf of known peers
+// PeerUpdateList List of known peers.
 // swagger:model PeerUpdateList
 type PeerUpdateList []*PeerUpdate
 

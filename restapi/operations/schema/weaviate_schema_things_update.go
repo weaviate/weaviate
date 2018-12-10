@@ -48,7 +48,7 @@ func NewWeaviateSchemaThingsUpdate(ctx *middleware.Context, handler WeaviateSche
 
 /*WeaviateSchemaThingsUpdate swagger:route PUT /schema/things/{className} schema weaviateSchemaThingsUpdate
 
-Rename, or replace the keywords of the Thing
+Rename, or replace the keywords of the Thing.
 
 */
 type WeaviateSchemaThingsUpdate struct {
@@ -94,7 +94,7 @@ type WeaviateSchemaThingsUpdateBody struct {
 	// keywords
 	Keywords models.SemanticSchemaKeywords `json:"keywords"`
 
-	// The new name of the Thing
+	// The new name of the Thing.
 	NewName string `json:"newName,omitempty"`
 }
 

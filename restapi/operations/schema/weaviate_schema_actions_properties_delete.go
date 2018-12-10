@@ -43,7 +43,7 @@ func NewWeaviateSchemaActionsPropertiesDelete(ctx *middleware.Context, handler W
 
 /*WeaviateSchemaActionsPropertiesDelete swagger:route DELETE /schema/actions/{className}/properties/{propertyName} schema weaviateSchemaActionsPropertiesDelete
 
-Remove a property from a Action class
+Remove a property from an Action class.
 
 */
 type WeaviateSchemaActionsPropertiesDelete struct {

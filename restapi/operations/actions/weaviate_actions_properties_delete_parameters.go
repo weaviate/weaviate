@@ -47,7 +47,7 @@ type WeaviateActionsPropertiesDeleteParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Unique ID of the action.
+	/*Unique ID of the Action.
 	  Required: true
 	  In: path
 	*/
@@ -57,7 +57,7 @@ type WeaviateActionsPropertiesDeleteParams struct {
 	  In: body
 	*/
 	Body *models.SingleRef
-	/*Unique name of the property related to the action.
+	/*Unique name of the property related to the Action.
 	  Required: true
 	  In: path
 	*/

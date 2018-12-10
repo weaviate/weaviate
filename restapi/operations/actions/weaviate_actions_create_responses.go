@@ -28,7 +28,7 @@ import (
 // WeaviateActionsCreateOKCode is the HTTP code returned for type WeaviateActionsCreateOK
 const WeaviateActionsCreateOKCode int = 200
 
-/*WeaviateActionsCreateOK Action created
+/*WeaviateActionsCreateOK Action created.
 
 swagger:response weaviateActionsCreateOK
 */
@@ -72,7 +72,7 @@ func (o *WeaviateActionsCreateOK) WriteResponse(rw http.ResponseWriter, producer
 // WeaviateActionsCreateAcceptedCode is the HTTP code returned for type WeaviateActionsCreateAccepted
 const WeaviateActionsCreateAcceptedCode int = 202
 
-/*WeaviateActionsCreateAccepted Successfully received. No guarantees are made that the Action is persisted.
+/*WeaviateActionsCreateAccepted Successfully received. No guarantees are made that the Action persists.
 
 swagger:response weaviateActionsCreateAccepted
 */
@@ -164,7 +164,7 @@ func (o *WeaviateActionsCreateForbidden) WriteResponse(rw http.ResponseWriter, p
 // WeaviateActionsCreateUnprocessableEntityCode is the HTTP code returned for type WeaviateActionsCreateUnprocessableEntity
 const WeaviateActionsCreateUnprocessableEntityCode int = 422
 
-/*WeaviateActionsCreateUnprocessableEntity Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*WeaviateActionsCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response weaviateActionsCreateUnprocessableEntity
 */

@@ -25,9 +25,9 @@ type Client struct {
 }
 
 /*
-WeaviateActionHistoryGet gets a action s history based on its uuid related to this key
+WeaviateActionHistoryGet gets an action s history based on its UUID related to this key
 
-Returns a particular action history.
+Returns a particular Action history.
 */
 func (a *Client) WeaviateActionHistoryGet(params *WeaviateActionHistoryGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionHistoryGetOK, error) {
 	// TODO: Validate the params before sending
@@ -56,9 +56,9 @@ func (a *Client) WeaviateActionHistoryGet(params *WeaviateActionHistoryGetParams
 }
 
 /*
-WeaviateActionUpdate updates an action based on its uuid related to this key
+WeaviateActionUpdate updates an action based on its UUID related to this key
 
-Updates an action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionUpdateAccepted, error) {
 	// TODO: Validate the params before sending
@@ -89,7 +89,7 @@ func (a *Client) WeaviateActionUpdate(params *WeaviateActionUpdateParams, authIn
 /*
 WeaviateActionsCreate creates actions between two things object and subject
 
-Registers a new action. Given meta-data and schema values are validated.
+Registers a new Action. Provided meta-data and schema values are validated.
 */
 func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsCreateOK, *WeaviateActionsCreateAccepted, error) {
 	// TODO: Validate the params before sending
@@ -124,9 +124,9 @@ func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams, auth
 }
 
 /*
-WeaviateActionsDelete deletes an action based on its uuid related to this key
+WeaviateActionsDelete deletes an action based on its UUID related to this key
 
-Deletes an action from the system.
+Deletes an Action from the system.
 */
 func (a *Client) WeaviateActionsDelete(params *WeaviateActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsDeleteNoContent, error) {
 	// TODO: Validate the params before sending
@@ -155,9 +155,9 @@ func (a *Client) WeaviateActionsDelete(params *WeaviateActionsDeleteParams, auth
 }
 
 /*
-WeaviateActionsGet gets a specific action based on its uuid and a thing uuid related to this key also available as websocket bus
+WeaviateActionsGet gets a specific action based on its UUID and a thing UUID related to this key also available as websocket bus
 
-Lists actions.
+Lists Actions.
 */
 func (a *Client) WeaviateActionsGet(params *WeaviateActionsGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsGetOK, error) {
 	// TODO: Validate the params before sending
@@ -186,9 +186,9 @@ func (a *Client) WeaviateActionsGet(params *WeaviateActionsGetParams, authInfo r
 }
 
 /*
-WeaviateActionsList gets a list of actionsrelated to this key
+WeaviateActionsList gets a list of actions related to this key
 
-Lists all actions in reverse order of creation, owned by the user that belongs to the used token.
+Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.
 */
 func (a *Client) WeaviateActionsList(params *WeaviateActionsListParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsListOK, error) {
 	// TODO: Validate the params before sending
@@ -217,9 +217,9 @@ func (a *Client) WeaviateActionsList(params *WeaviateActionsListParams, authInfo
 }
 
 /*
-WeaviateActionsPatch updates an action based on its uuid using patch semantics related to this key
+WeaviateActionsPatch updates an action based on its UUID using patch semantics related to this key
 
-Updates an action. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
 func (a *Client) WeaviateActionsPatch(params *WeaviateActionsPatchParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsPatchOK, *WeaviateActionsPatchAccepted, error) {
 	// TODO: Validate the params before sending
@@ -349,7 +349,7 @@ func (a *Client) WeaviateActionsPropertiesUpdate(params *WeaviateActionsProperti
 /*
 WeaviateActionsValidate validates an action based on a schema
 
-Validate an action's schema and meta-data. It has to be based on a schema, which is related to the given action to be accepted by this validation.
+Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.
 */
 func (a *Client) WeaviateActionsValidate(params *WeaviateActionsValidateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateActionsValidateOK, error) {
 	// TODO: Validate the params before sending

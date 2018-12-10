@@ -1,216 +1,171 @@
 {
-    "@context": "",
-    "version": "0.0.1",
+    "@context": "http://example.org",
     "type": "thing",
-    "name": "weaviate demo things schema",
-    "maintainer": "yourfriends@weaviate.com",
+    "version": "1.0.0",
+    "name": "example.org - Thing Test",
+    "maintainer": "hello@creativesoftwarefdn.org",
     "classes": [
         {
-            "class": "Municipality",
-            "description": "a city or town that has corporate status and local government",
+            "class": "TestThing",
+            "description": "This is a Test",
             "properties": [
                 {
-                    "name": "name",
+                    "name": "testString",
+                    "keywords": [
+                      { "keyword": "test", "weight": 2.0 },
+                      { "keyword": "word", "weight": 1.0 },
+                      { "keyword": "list", "weight": 1.5 }
+                    ],
                     "@dataType": [
                         "string"
                     ],
-                    "description": "Official name of the municipality.",
-                    "keywords": [
-                        {
-                            "keyword": "name",
-                            "weight": 1.0
-                        },
-                        {
-                            "keyword": "official",
-                            "weight": 0.25
-                        },
-                        {
-                            "keyword": "name",
-                            "weight": 0.25
-                        },
-                        {
-                            "keyword": "municipality",
-                            "weight": 0.25
-                        }
-                    ]
+                    "description": "Value of testString."
                 },
                 {
-                    "name": "coordinates",
+                   "name": "testText",
                     "@dataType": [
-                        "string"
+                        "text"
                     ],
-                    "description": "The city's longitude and latitude",
-                    "keywords": [
-                        {
-                            "keyword": "coordinates",
-                            "weight": 1.0
-                        },
-                        {
-                            "keyword": "city",
-                            "weight": 0.25
-                        },
-                        {
-                            "keyword": "longitude",
-                            "weight": 0.25
-                        },
-                        {
-                            "keyword": "latitude",
-                            "weight": 0.25
-                        }
-                    ]
+                    "description": "Value of testText."
                 },
                 {
-                    "name": "inhabitants",
+                    "name": "testInt",
+                    "keywords": [
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "number", "weight": 1.0 }
+                    ],
                     "@dataType": [
                         "int"
                     ],
-                    "description": "Number of inhabitants of the municipality",
-                    "keywords": [
-                        {
-                            "keyword": "population",
-                            "weight": 1.0
-                        },
-                        {
-                            "keyword": "number",
-                            "weight": 0.25
-                        },
-                        {
-                            "keyword": "inhabitants",
-                            "weight": 0.25
-                        },
-                        {
-                            "keyword": "municipality",
-                            "weight": 0.25
-                        }
-                    ]
+                    "description": "Value of testInt."
                 },
                 {
-                    "name": "isCapital",
+                    "name": "testBoolean",
+                    "keywords": [
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "truth", "weight": 1.0 },
+                      { "keyword": "value", "weight": 1.0 }
+                    ],
                     "@dataType": [
                         "boolean"
                     ],
-                    "description": "True if the city is a capital",
+                    "description": "Value of testBoolean."
+                },
+                {
+                    "name": "testNumber",
+                    "@dataType": [
+                        "number"
+                    ],
+                    "description": "Value of testNumber."
+                },
+                {
+                    "name": "testDateTime",
+                    "@dataType": [
+                        "date"
+                    ],
+                    "description": "Value of testDateTime."
+                },
+                {
+                    "name": "testCref",
                     "keywords": [
-                        {
-                            "keyword": "is",
-                            "weight": 1.0
-                        },
-                        {
-                            "keyword": "capital",
-                            "weight": 1.0
-                        },
-                        {
-                            "keyword": "city",
-                            "weight": 0.25
-                        },
-                        {
-                            "keyword": "capital",
-                            "weight": 0.25
-                        }
-                    ]
-                }
-            ],
-            "keywords": [
-                {
-                    "keyword": "municipality",
-                    "weight": 1.0
-                },
-                {
-                    "keyword": "city",
-                    "weight": 0.25
-                },
-                {
-                    "keyword": "town",
-                    "weight": 0.25
-                },
-                {
-                    "keyword": "government",
-                    "weight": 0.25
-                },
-                {
-                    "keyword": "local",
-                    "weight": 0.25
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "reference", "weight": 1.0 }
+                    ],
+                    "@dataType": [
+                        "TestThingTwo"
+                    ],
+                    "description": "Value of testCref."
+                }, {
+                    "name": "testRandomType",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Same name, different datatypes."
                 }
             ]
         },
         {
-            "class": "Human",
-            "description": "Human being",
+            "class": "TestThingTwo",
+            "keywords": [
+              { "keyword": "test", "weight": 1.0 },
+              { "keyword": "thing", "weight": 0.9 }
+            ],
+            "description": "This is a Test",
             "properties": [
                 {
-                    "name": "lives",
-                    "@dataType": [
-                        "Municipality"
-                    ],
-                    "description": "The municipality where the human lives in.",
+                    "name": "testString",
                     "keywords": [
-                        {
-                            "keyword": "lives",
-                            "weight": 1.0
-                        },
-                        {
-                            "keyword": "municipality",
-                            "weight": 0.5
-                        },
-                        {
-                            "keyword": "municipality",
-                            "weight": 0.25
-                        },
-                        {
-                            "keyword": "human",
-                            "weight": 0.25
-                        }
-                    ]
-                },
-                {
-                    "name": "birthday",
-                    "@dataType": [
-                        "date"
+                      { "keyword": "test", "weight": 2.0 },
+                      { "keyword": "word", "weight": 1.0 },
+                      { "keyword": "list", "weight": 1.5 }
                     ],
-                    "description": "Birthday of the person",
-                    "keywords": [
-                        {
-                            "keyword": "birthday",
-                            "weight": 1.0
-                        },
-                        {
-                            "keyword": "birthday",
-                            "weight": 0.25
-                        },
-                        {
-                            "keyword": "person",
-                            "weight": 0.25
-                        }
-                    ]
-                },
-                {
-                    "name": "name",
                     "@dataType": [
                         "string"
                     ],
-                    "description": "Name of the person",
-                    "keywords": [
-                        {
-                            "keyword": "name",
-                            "weight": 1.0
-                        },
-                        {
-                            "keyword": "person",
-                            "weight": 0.25
-                        }
-                    ]
-                }
-            ],
-            "keywords": [
-                {
-                    "keyword": "human",
-                    "weight": 1.0
+                    "description": "Value of testString."
                 },
                 {
-                    "keyword": "human",
-                    "weight": 0.25
+                   "name": "testText",
+                    "@dataType": [
+                        "text"
+                    ],
+                    "description": "Value of testText."
+                },
+                {
+                    "name": "testInt",
+                    "keywords": [
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "number", "weight": 1.0 }
+                    ],
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Value of testInt."
+                },
+                {
+                    "name": "testBoolean",
+                    "keywords": [
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "truth", "weight": 1.0 },
+                      { "keyword": "value", "weight": 1.0 }
+                    ],
+                    "@dataType": [
+                        "boolean"
+                    ],
+                    "description": "Value of testBoolean."
+                },
+                {
+                    "name": "testNumber",
+                    "@dataType": [
+                        "number"
+                    ],
+                    "description": "Value of testNumber."
+                },
+                {
+                    "name": "testDateTime",
+                    "@dataType": [
+                        "date"
+                    ],
+                    "description": "Value of testDateTime."
+                },
+                {
+                    "name": "testCref",
+                    "keywords": [
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "reference", "weight": 1.0 }
+                    ],
+                    "@dataType": [
+                        "TestThing"
+                    ],
+                    "description": "Value of testCref."
+                }, {
+                    "name": "testRandomType",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Same name, different datatypes."
                 }
             ]
-        }
+        }   
     ]
 }
