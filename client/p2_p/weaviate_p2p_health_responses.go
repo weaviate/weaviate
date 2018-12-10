@@ -69,7 +69,7 @@ func NewWeaviateP2pHealthInternalServerError() *WeaviateP2pHealthInternalServerE
 
 /*WeaviateP2pHealthInternalServerError handles this case with default header values.
 
-Not healthy (yet)
+Not healthy (yet).
 */
 type WeaviateP2pHealthInternalServerError struct {
 }

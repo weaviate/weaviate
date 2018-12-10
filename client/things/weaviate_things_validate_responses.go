@@ -65,7 +65,7 @@ func NewWeaviateThingsValidateOK() *WeaviateThingsValidateOK {
 
 /*WeaviateThingsValidateOK handles this case with default header values.
 
-Successful validated.
+Successfully validated.
 */
 type WeaviateThingsValidateOK struct {
 }
@@ -128,7 +128,7 @@ func NewWeaviateThingsValidateUnprocessableEntity() *WeaviateThingsValidateUnpro
 
 /*WeaviateThingsValidateUnprocessableEntity handles this case with default header values.
 
-Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
 type WeaviateThingsValidateUnprocessableEntity struct {
 	Payload *models.ErrorResponse

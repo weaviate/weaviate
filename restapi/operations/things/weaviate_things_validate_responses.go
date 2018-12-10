@@ -28,7 +28,7 @@ import (
 // WeaviateThingsValidateOKCode is the HTTP code returned for type WeaviateThingsValidateOK
 const WeaviateThingsValidateOKCode int = 200
 
-/*WeaviateThingsValidateOK Successful validated.
+/*WeaviateThingsValidateOK Successfully validated.
 
 swagger:response weaviateThingsValidateOK
 */
@@ -100,7 +100,7 @@ func (o *WeaviateThingsValidateForbidden) WriteResponse(rw http.ResponseWriter, 
 // WeaviateThingsValidateUnprocessableEntityCode is the HTTP code returned for type WeaviateThingsValidateUnprocessableEntity
 const WeaviateThingsValidateUnprocessableEntityCode int = 422
 
-/*WeaviateThingsValidateUnprocessableEntity Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*WeaviateThingsValidateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response weaviateThingsValidateUnprocessableEntity
 */

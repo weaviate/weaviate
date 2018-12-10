@@ -5,6 +5,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	common "github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
@@ -16,7 +17,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	getKinds := graphql.Fields{}
 
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
-		return nil, fmt.Errorf("There are not any Actions or Things classes defined yet.")
+		return nil, fmt.Errorf("There are no Actions or Things classes defined yet.")
 	}
 
 	knownClasses := map[string]*graphql.Object{}
@@ -29,7 +30,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 		getKinds["Actions"] = &graphql.Field{
 			Name:        "WeaviateLocalGetActions",
-			Description: "Get Actions on the Local Weaviate",
+			Description: descriptions.LocalGetActionsDesc,
 			Type:        localGetActions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				fmt.Printf("- LocalGetActions (pass on Source)\n")
@@ -47,7 +48,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 		getKinds["Things"] = &graphql.Field{
 			Name:        "WeaviateLocalGetThings",
-			Description: "Get Things on the Local Weaviate",
+			Description: descriptions.LocalGetThingsDesc,
 			Type:        localGetThings,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				fmt.Printf("- LocalGetThings (pass on Source)\n")
@@ -59,15 +60,15 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 	field := graphql.Field{
 		Name:        "WeaviateLocalGet",
-		Description: "Get Things or Actions on the local weaviate",
+		Description: descriptions.LocalGetDesc,
 		Args: graphql.FieldConfigArgument{
 			"where": &graphql.ArgumentConfig{
-				Description: "Filter options for the Get search, to convert the data to the filter input",
+				Description: descriptions.LocalGetWhereDesc,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        "WeaviateLocalGetWhereInpObj",
-						Fields:      common_filters.Get(),
-						Description: "Filter options for the Get search, to convert the data to the filter input",
+						Fields:      common_filters.GetGetAndGetMetaWhereFilters(),
+						Description: descriptions.LocalGetWhereInpObjDesc,
 					},
 				),
 			},
@@ -75,7 +76,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name:        "WeaviateLocalGetObj",
 			Fields:      getKinds,
-			Description: "Type of Get function to get Things or Actions on the Local Weaviate",
+			Description: descriptions.LocalGetObjDesc,
 		}),
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			fmt.Printf("- LocalGet (extract resolver from source, parse filters )\n")
@@ -119,7 +120,7 @@ func buildGetClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *model
 	classes := graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("WeaviateLocalGet%ssObj", kindName),
 		Fields:      classFields,
-		Description: fmt.Sprintf("Type of %ss i.e. %ss classes to Get on the Local Weaviate", kindName, kindName),
+		Description: fmt.Sprintf(descriptions.LocalGetThingsActionsObjDesc, kindName),
 	})
 
 	return classes, nil
@@ -133,13 +134,8 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 			classProperties := graphql.Fields{}
 
 			classProperties["uuid"] = &graphql.Field{
-				Description: "UUID of the thing or action given by the local Weaviate instance",
+				Description: descriptions.LocalGetClassUUIDDesc,
 				Type:        graphql.String,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					// TODO
-					fmt.Printf("WHOOPTYDOO uuid\n")
-					return "uuid", nil
-				},
 			}
 
 			for _, property := range class.Properties {
@@ -158,46 +154,31 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 						propertyField = &graphql.Field{
 							Description: property.Description,
 							Type:        graphql.String,
-							Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-								fmt.Printf("GET PRIMITIVE PROP: string\n")
-								return "primitive string", nil
-							},
+						}
+					case schema.DataTypeText:
+						propertyField = &graphql.Field{
+							Description: property.Description,
+							Type:        graphql.String,
 						}
 					case schema.DataTypeInt:
 						propertyField = &graphql.Field{
 							Description: property.Description,
 							Type:        graphql.Int,
-							Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-								fmt.Printf("GET PRIMITIVE PROP: int\n")
-								return nil, nil
-							},
 						}
 					case schema.DataTypeNumber:
 						propertyField = &graphql.Field{
 							Description: property.Description,
 							Type:        graphql.Float,
-							Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-								fmt.Printf("GET PRIMITIVE PROP: float\n")
-								return 4.2, nil
-							},
 						}
 					case schema.DataTypeBoolean:
 						propertyField = &graphql.Field{
 							Description: property.Description,
 							Type:        graphql.Boolean,
-							Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-								fmt.Printf("GET PRIMITIVE PROP: bool\n")
-								return true, nil
-							},
 						}
 					case schema.DataTypeDate:
 						propertyField = &graphql.Field{
 							Description: property.Description,
 							Type:        graphql.String, // String since no graphql date datatype exists
-							Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-								fmt.Printf("GET PRIMITIVE PROP: date\n")
-								return "somedate", nil
-							},
 						}
 					default:
 						panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s.%s; %s", k.Name(), class.Class, property.Name, propertyType.AsPrimitive()))
@@ -238,11 +219,6 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 					classProperties[propertyName] = &graphql.Field{
 						Type:        classUnion,
 						Description: property.Description,
-						Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-							fmt.Printf("- Resolve action property field (ref?)\n")
-							fmt.Printf("WHOOPTYDOO2\n")
-							return true, nil
-						},
 					}
 				}
 			}
@@ -259,11 +235,11 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
-				Description: "Pagination option, show the first x results",
+				Description: descriptions.FirstDesc,
 				Type:        graphql.Int,
 			},
 			"after": &graphql.ArgumentConfig{
-				Description: "Pagination option, show the results after the first x results",
+				Description: descriptions.AfterDesc,
 				Type:        graphql.Int,
 			},
 		},

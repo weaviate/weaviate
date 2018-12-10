@@ -69,7 +69,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        "WeaviateLocalGetMetaWhereInpObj",
-						Fields:      common_filters.Get(),
+						Fields:      common_filters.GetGetAndGetMetaWhereFilters(),
 						Description: "Filter options for the GetMeta search, to convert the data to the filter input",
 					},
 				),

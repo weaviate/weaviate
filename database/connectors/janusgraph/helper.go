@@ -156,15 +156,8 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 					}
 				case schema.CardinalityMany:
 					switch t := value.(type) {
-					case *models.MultipleRef:
-						for _, ref := range *t {
-							err, refClassName := schema.ValidateClassName(ref.Type)
-							if err != nil {
-								return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
-							}
-							if !propType.ContainsClass(refClassName) {
-								return fmt.Errorf("Illegal value for property %s; cannot point to %s", sanitizedPropertyName, ref.Type)
-							}
+					case models.MultipleRef:
+						for _, ref := range t {
 							edgesToAdd = append(edgesToAdd, edgeToAdd{
 								PropertyName: janusPropertyName,
 								Reference:    ref.NrDollarCref.String(),
@@ -372,6 +365,7 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 	}
 
 	var expectedEdges []expectedEdge
+	var dropTheseEdgeTypes []string
 
 	properties, schema_ok := rawProperties.(map[string]interface{})
 
@@ -493,15 +487,22 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
 					}
 				case schema.CardinalityMany:
+					dropTheseEdgeTypes = append(dropTheseEdgeTypes, janusPropertyName)
 					switch t := value.(type) {
 					case *models.MultipleRef:
 						for _, ref := range *t {
-							err, refClassName := schema.ValidateClassName(ref.Type)
-							if err != nil {
+							expectedEdges = append(expectedEdges, expectedEdge{
+								PropertyName: janusPropertyName,
+								Reference:    ref.NrDollarCref.String(),
+								Type:         ref.Type,
+								Location:     *ref.LocationURL,
+							})
+						}
+					case []interface{}:
+						for _, ref_ := range t {
+							ref, ok := ref_.(*models.SingleRef)
+							if !ok {
 								return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
-							}
-							if !propType.ContainsClass(refClassName) {
-								return fmt.Errorf("Illegal value for property %s; cannot point to %s", sanitizedPropertyName, ref.Type)
 							}
 							expectedEdges = append(expectedEdges, expectedEdge{
 								PropertyName: janusPropertyName,
@@ -521,8 +522,8 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 	}
 
 	// Now drop all edges of the type we are touching
-	for _, edge := range expectedEdges {
-		q = q.Optional(gremlin.Current().OutEWithLabel(edge.PropertyName).HasString(PROP_REF_ID, edge.PropertyName).Drop())
+	for _, edgeLabel := range dropTheseEdgeTypes {
+		q = q.Optional(gremlin.Current().OutEWithLabel(edgeLabel).HasString(PROP_REF_ID, edgeLabel).Drop())
 	}
 
 	// Add edges to all referened things.
@@ -535,9 +536,6 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 			StringProperty(PROP_REF_EDGE_TYPE, edge.Type).
 			StringProperty(PROP_REF_EDGE_LOCATION, edge.Location)
 	}
-
-	// Don't update the key.
-	// TODO verify that indeed this is the desired behaviour.
 
 	_, err := j.client.Execute(q)
 

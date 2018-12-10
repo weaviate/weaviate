@@ -28,11 +28,11 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// SemanticSchema Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas)
+// SemanticSchema Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).
 // swagger:model SemanticSchema
 type SemanticSchema struct {
 
-	// URL of the context
+	// URL of the context.
 	// Format: uri
 	AtContext strfmt.URI `json:"@context,omitempty"`
 
@@ -43,7 +43,7 @@ type SemanticSchema struct {
 	// Format: email
 	Maintainer strfmt.Email `json:"maintainer,omitempty"`
 
-	// Name of the schema
+	// Name of the schema.
 	Name string `json:"name,omitempty"`
 
 	// Type of schema, should be "thing" or "action".

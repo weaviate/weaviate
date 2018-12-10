@@ -28,7 +28,7 @@ import (
 // WeaviateSchemaThingsUpdateOKCode is the HTTP code returned for type WeaviateSchemaThingsUpdateOK
 const WeaviateSchemaThingsUpdateOKCode int = 200
 
-/*WeaviateSchemaThingsUpdateOK Changes applied
+/*WeaviateSchemaThingsUpdateOK Changes applied.
 
 swagger:response weaviateSchemaThingsUpdateOK
 */
@@ -76,7 +76,7 @@ func (o *WeaviateSchemaThingsUpdateUnauthorized) WriteResponse(rw http.ResponseW
 // WeaviateSchemaThingsUpdateForbiddenCode is the HTTP code returned for type WeaviateSchemaThingsUpdateForbidden
 const WeaviateSchemaThingsUpdateForbiddenCode int = 403
 
-/*WeaviateSchemaThingsUpdateForbidden Could not find the Thing class
+/*WeaviateSchemaThingsUpdateForbidden Could not find the Thing class.
 
 swagger:response weaviateSchemaThingsUpdateForbidden
 */
@@ -100,7 +100,7 @@ func (o *WeaviateSchemaThingsUpdateForbidden) WriteResponse(rw http.ResponseWrit
 // WeaviateSchemaThingsUpdateUnprocessableEntityCode is the HTTP code returned for type WeaviateSchemaThingsUpdateUnprocessableEntity
 const WeaviateSchemaThingsUpdateUnprocessableEntityCode int = 422
 
-/*WeaviateSchemaThingsUpdateUnprocessableEntity Invalid update
+/*WeaviateSchemaThingsUpdateUnprocessableEntity Invalid update.
 
 swagger:response weaviateSchemaThingsUpdateUnprocessableEntity
 */

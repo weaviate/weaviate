@@ -22,8 +22,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const enableNetworkQueryComparison bool = false
-
 func init() {
 	skipGraphqlTest = (os.Getenv("GRAPHQL_TESTS") == "skip")
 }
@@ -83,10 +81,15 @@ func traverseNestedSchemaLayer(t *testing.T, expectedLayerKey string, expectedLa
 
 		for key, expectedValue := range expectedLayerValue {
 			schemaPath := fmt.Sprintf("%s_%s", updatedExpectedLayerKey, key)
-			if actualValue, ok := actualLayerValue[key]; ok {
-				compareExpectedElementToActualElement(t, schemaPath, expectedValue, actualValue)
-			} else {
-				t.Errorf(fmt.Sprintf("Element %s not found in map at path %s", key, schemaPath))
+			
+			// Don't compare description texts
+			if !strings.Contains(schemaPath, "description") {
+					
+				if actualValue, ok := actualLayerValue[key]; ok {
+					compareExpectedElementToActualElement(t, schemaPath, expectedValue, actualValue)
+				} else {
+					t.Errorf(fmt.Sprintf("Element %s not found in map at path %s", key, schemaPath))
+				}
 			}
 		}
 	}
@@ -102,15 +105,8 @@ func compareExpectedElementToActualElement(t *testing.T, schemaPath string, expe
 		if reflect.TypeOf(expectedValue) == reflect.TypeOf(actualValue) {
 			// check if both lists have the same length
 			parsedActualValue := actualValue.([]interface{})
-
-			// Allow for the exclusion of NetworkFetch elements from the comparison (as these weren't implemented at the time of writing)
-			if enableNetworkQueryComparison {
-				assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s", schemaPath))
-			} else {
-				if schemaPath != "__schema_types" && schemaPath != "__schema_types_WeaviateObj_fields" {
-					assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s", schemaPath))
-				}
-			}
+			assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s", schemaPath))
+			
 			if len(parsedExpectedValue) > 0 {
 				handleListComparisons(t, schemaPath, parsedExpectedValue, parsedActualValue)
 			}
@@ -171,14 +167,7 @@ func fetchExpectedMapElementFromActualList(t *testing.T, schemaPath string, expe
 			traverseNestedSchemaLayer(t, schemaPath, parsedExpectedElement, parsedActualElement)
 		}
 	}
-	// Allow for the exclusion of NetworkFetch elements from the comparison (as these weren't implemented at the time of writing)
-	if enableNetworkQueryComparison {
-		assert.Equal(t, true, expectedElementFoundInActualList, fmt.Sprintf("Expected element %s not found in path %s", expectedName, schemaPath))
-	} else {
-		if !strings.Contains(expectedName.(string), "etwork") {
-			assert.Equal(t, true, expectedElementFoundInActualList, fmt.Sprintf("Expected element %s not found in path %s", expectedName, schemaPath))
-		}
-	}
+	assert.Equal(t, true, expectedElementFoundInActualList, fmt.Sprintf("Expected element %s not found in path %s", expectedName, schemaPath))
 }
 
 func fetchExpectedScalarElementFromActualList(t *testing.T, schemaPath string, expectedElement interface{}, actualList []interface{}) {
@@ -188,14 +177,7 @@ func fetchExpectedScalarElementFromActualList(t *testing.T, schemaPath string, e
 			expectedElementFoundInActualList = true
 		}
 	}
-	// Allow for the exclusion of NetworkFetch elements from the comparison (as these weren't implemented at the time of writing)
-	if enableNetworkQueryComparison {
-		assert.Equal(t, true, expectedElementFoundInActualList, fmt.Sprintf("Expected element %s not found in path %s", expectedElement, schemaPath))
-	} else {
-		if !strings.Contains(expectedElement.(string), "etwork") {
-			assert.Equal(t, true, expectedElementFoundInActualList, fmt.Sprintf("Expected element %s not found in path %s", expectedElement, schemaPath))
-		}
-	}
+	assert.Equal(t, true, expectedElementFoundInActualList, fmt.Sprintf("Expected element %s not found in path %s", expectedElement, schemaPath))
 }
 
 func genQuery() string {

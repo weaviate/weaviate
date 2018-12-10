@@ -27,28 +27,28 @@ import (
 // swagger:model KeyCreate
 type KeyCreate struct {
 
-	// Is user allowed to delete.
+	// Is user allowed to delete?
 	Delete bool `json:"delete,omitempty"`
 
 	// Email associated with this account.
 	Email string `json:"email,omitempty"`
 
-	// Is user allowed to execute.
+	// Is user allowed to execute?
 	Execute bool `json:"execute,omitempty"`
 
 	// Origin of the IP using CIDR notation.
 	IPOrigin []string `json:"ipOrigin"`
 
-	// Shows if key is root key
+	// Shows if key is root key.
 	IsRoot *bool `json:"isRoot,omitempty"`
 
 	// Time as Unix timestamp that the key expires. Set to 0 for never.
 	KeyExpiresUnix int64 `json:"keyExpiresUnix,omitempty"`
 
-	// Is user allowed to read.
+	// Is user allowed to read?
 	Read bool `json:"read,omitempty"`
 
-	// Is user allowed to write.
+	// Is user allowed to write?
 	Write bool `json:"write,omitempty"`
 }
 

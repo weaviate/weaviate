@@ -31,7 +31,6 @@ type SelectProperty struct {
 	Refs []SelectClass
 }
 
-// TODO move from ClassName and Properties to SelectClass in LocalGetClassParams.
 type SelectClass struct {
 	ClassName     string
 	RefProperties []SelectProperty

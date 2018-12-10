@@ -45,7 +45,7 @@ func NewWeaviateP2pHealth(ctx *middleware.Context, handler WeaviateP2pHealthHand
 
 Check if a peer is alive.
 
-Check if a peer is alive and healthy
+Check if a peer is alive and healthy.
 
 */
 type WeaviateP2pHealth struct {

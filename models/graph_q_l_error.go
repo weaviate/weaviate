@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// GraphQLError Error messages responded only if error exists.
+// GraphQLError An error response caused by a GraphQL query.
 // swagger:model GraphQLError
 type GraphQLError struct {
 

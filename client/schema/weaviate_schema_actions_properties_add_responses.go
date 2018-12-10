@@ -65,7 +65,7 @@ func NewWeaviateSchemaActionsPropertiesAddOK() *WeaviateSchemaActionsPropertiesA
 
 /*WeaviateSchemaActionsPropertiesAddOK handles this case with default header values.
 
-Added the property
+Added the property.
 */
 type WeaviateSchemaActionsPropertiesAddOK struct {
 }
@@ -107,7 +107,7 @@ func NewWeaviateSchemaActionsPropertiesAddForbidden() *WeaviateSchemaActionsProp
 
 /*WeaviateSchemaActionsPropertiesAddForbidden handles this case with default header values.
 
-Could not find the Action class
+Could not find the Action class.
 */
 type WeaviateSchemaActionsPropertiesAddForbidden struct {
 }
@@ -128,7 +128,7 @@ func NewWeaviateSchemaActionsPropertiesAddUnprocessableEntity() *WeaviateSchemaA
 
 /*WeaviateSchemaActionsPropertiesAddUnprocessableEntity handles this case with default header values.
 
-Invalid property
+Invalid property.
 */
 type WeaviateSchemaActionsPropertiesAddUnprocessableEntity struct {
 	Payload *models.ErrorResponse
