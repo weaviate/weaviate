@@ -75,9 +75,7 @@ func genSingleNetworkActionClassField(class *models.SemanticSchemaClass, network
 				Type:        graphql.Int,
 			},
 		},
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
-		},
+		Resolve: network_get.ResolveAction,
 	}
 	return singleNetworkActionClassPropertyFieldsField, singleNetworkActionClassPropertyFieldsObj
 }

@@ -36,7 +36,7 @@ func TestResolveThingProperInput(t *testing.T) {
 
 	t.Run("should not error", func(t *testing.T) {
 		if err != nil {
-			t.Errorf("should not have errored, but got %s", err)
+			t.Errorf("should not have errored, but got '%s'", err)
 			return
 		}
 	})
