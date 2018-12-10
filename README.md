@@ -1,4 +1,4 @@
-# Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='200' align='right' />
+# Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='180' align='right' />
 
 _Decentralised Knowledge Graph & Decentralised Knowledge P2P Network_
 
@@ -42,7 +42,7 @@ Weaviate's documentation is available in the `./docs` folder on Github and divid
 1. [documenation for users](#usage-docs) and;
 2. [documentation for contributors](#contribution-docs).
 
-We highly recommend to start with the _Getting Started_ (for [users](./docs/en/use/getting-started.md) or for [contributors](./docs/en/contribute/getting-started.md)) or the [Weaviate Concept](./docs/en/use/weaviate-concept.md).
+We highly recommend to start with the _Getting Started_ (for [users](./docs/en/use/getting-started.md) or for [contributors](./docs/en/contribute/getting-started.md)).
 
 ### Usage Docs
 
@@ -56,7 +56,6 @@ We highly recommend to start with the _Getting Started_ (for [users](./docs/en/u
 
 ### Miscellaneous Docs
 
-- [Weaviate Concept](./docs/en/use/weaviate-concept.md)
 - [FAQ](./docs/en/use/FAQ.md)
 
 ## Questions
