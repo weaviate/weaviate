@@ -208,6 +208,23 @@ func matchesClause(result interface{}, clause *graphql_local_common_filters.Clau
 			case graphql_local_common_filters.OperatorLessThanEqual:
 				return found <= expected
 			}
+		case schema.DataTypeText:
+			found := rawFound.(string)
+			expected := clause.Value.Value.(string)
+			switch clause.Operator {
+			case graphql_local_common_filters.OperatorEqual:
+				return found == expected
+			case graphql_local_common_filters.OperatorNotEqual:
+				return found != expected
+			case graphql_local_common_filters.OperatorGreaterThan:
+				return found > expected
+			case graphql_local_common_filters.OperatorGreaterThanEqual:
+				return found >= expected
+			case graphql_local_common_filters.OperatorLessThan:
+				return found < expected
+			case graphql_local_common_filters.OperatorLessThanEqual:
+				return found <= expected
+			}
 		case schema.DataTypeInt:
 			found := rawFound.(int)
 			expected := clause.Value.Value.(int)

@@ -90,6 +90,13 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 					default:
 						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
 					}
+				case schema.DataTypeText:
+					switch t := value.(type) {
+					case string:
+						q = q.StringProperty(janusPropertyName, t)
+					default:
+						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+					}					
 				case schema.DataTypeBoolean:
 					switch t := value.(type) {
 					case bool:
@@ -422,6 +429,13 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 					default:
 						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
 					}
+				case schema.DataTypeText:
+					switch t := value.(type) {
+					case string:
+						q = q.StringProperty(janusPropertyName, t)
+					default:
+						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+					}
 				case schema.DataTypeBoolean:
 					switch t := value.(type) {
 					case bool:
@@ -593,6 +607,8 @@ func decodeJanusPrimitiveType(dataType schema.DataType, value gremlin.PropertyVa
 		return value.AssertFloat()
 	case schema.DataTypeString:
 		return value.AssertString()
+	case schema.DataTypeText:
+		return value.AssertString()		
 	case schema.DataTypeBoolean:
 		return value.AssertBool()
 	case schema.DataTypeDate:
