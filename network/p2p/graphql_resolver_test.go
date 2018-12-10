@@ -8,19 +8,27 @@ import (
 	"testing"
 
 	graphqlnetworkGet "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/go-openapi/strfmt"
 )
 
 func TestProxyGetInstance(t *testing.T) {
 	var (
-		subject *network
-		remote  *httptest.Server
-		err     error
+		subject   *network
+		remote    *httptest.Server
+		principal *models.KeyTokenGetResponse
+		err       error
 	)
 
 	arrange := func(matchers ...requestMatcher) {
 		remote = fakeRemoteInstanceWithGraphQL(t, matchers...)
+		principal = &models.KeyTokenGetResponse{
+			Token: strfmt.UUID("stand-in-for-token-uuid"),
+			KeyGetResponse: models.KeyGetResponse{
+				KeyID: strfmt.UUID("stand-in-for-key-id-uuid"),
+			},
+		}
 		subject = &network{
 			peers: []libnetwork.Peer{{
 				Name: "best-instance",
@@ -34,6 +42,7 @@ func TestProxyGetInstance(t *testing.T) {
 		_, err = subject.ProxyGetInstance(graphqlnetworkGet.ProxyGetInstanceParams{
 			SubQuery:       graphqlnetworkGet.SubQuery(`Get { Things { City { name } } }`),
 			TargetInstance: "best-instance",
+			Principal:      principal,
 		})
 	}
 
@@ -102,6 +111,26 @@ func TestProxyGetInstance(t *testing.T) {
 			actualBody := string(bodyBytes)
 			if actualBody != expectedBody {
 				t.Errorf("expected body to be \n%#v\n, but was \n%#v\n", expectedBody, actualBody)
+			}
+		}
+		arrange(matcher)
+		act()
+		cleanUp()
+	})
+
+	t.Run("should proxy along the key and token headers", func(t *testing.T) {
+		matcher := func(t *testing.T, r *http.Request) {
+			key := r.Header.Get("X-API-KEY")
+			token := r.Header.Get("X-API-TOKEN")
+
+			expectedKey := "stand-in-for-key-id-uuid"
+			if key != expectedKey {
+				t.Errorf("expected key to be \n%#v\n, but was \n%#v\n", expectedKey, key)
+			}
+
+			expectedToken := "stand-in-for-token-uuid"
+			if token != expectedToken {
+				t.Errorf("expected token to be \n%#v\n, but was \n%#v\n", expectedToken, token)
 			}
 		}
 		arrange(matcher)
