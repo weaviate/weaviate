@@ -24,9 +24,9 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"time"
-	"strconv"
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
@@ -2440,7 +2440,15 @@ func configureServer(s *http.Server, scheme, addr string) {
 		// handlers are called when the SchemaLock is still held.
 
 		fmt.Printf("UPDATESCHEMA DB: %#v\n", db)
-		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, dbAndNetwork{Database: db, Network: network})
+		peers, err := network.ListPeers()
+		if err != nil {
+			// TODO: turn on safe mode gh-520
+			graphQL = nil
+			messaging.ErrorMessage(fmt.Sprintf("could not list network peers to regenerate schema:\n%#v\n", err))
+			return
+		}
+
+		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, dbAndNetwork{Database: db, Network: network})
 		if err != nil {
 			// TODO: turn on safe mode gh-520
 			graphQL = nil

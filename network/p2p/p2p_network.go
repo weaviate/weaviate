@@ -42,6 +42,7 @@ type network struct {
 	messaging   *messages.Messaging
 	client      genesis_client.WeaviateGenesisServer
 	peers       []libnetwork.Peer
+	callbacks   []libnetwork.PeerUpdateCallback
 }
 
 func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI, public_url strfmt.URI, peer_name string) (*libnetwork.Network, error) {
@@ -126,17 +127,6 @@ func (n *network) GetStatus() string {
 
 func (n *network) ListPeers() ([]libnetwork.Peer, error) {
 	return n.peers, nil
-}
-
-func (n *network) UpdatePeers(new_peers []libnetwork.Peer) error {
-	n.Lock()
-	defer n.Unlock()
-
-	n.messaging.InfoMessage(fmt.Sprintf("Received updated peer list with %v peers", len(new_peers)))
-
-	n.peers = new_peers
-
-	return nil
 }
 
 func (n *network) GetPeerByName(name string) (libnetwork.Peer, error) {
