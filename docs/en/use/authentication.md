@@ -1,5 +1,5 @@
 # Authentication
 
-> SHORT DESCRIPTION OF THIS DOC
+> About authenticating in Weaviate
 
 TBD

@@ -1,6 +1,6 @@
 # GraphQL - Grouping
 
-> SHORT DESCRIPTION OF THIS DOC
+> About Grouping in GraphQL.
 
 ## Purpose: Show how grouping can be done using GraphQL queries
 

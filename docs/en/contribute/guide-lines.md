@@ -1,6 +1,6 @@
-# Contributing
- 
-> SHORT DESCRIPTION OF THIS DOC
+# Contribution Guide Lines
+
+> An overview of general contribution guide lines.
 
 ## FAQ
 

@@ -1,6 +1,6 @@
 # Roadmap
 
-> SHORT DESCRIPTION OF THIS DOC
+> Roadmap with planning and historic implementation.
 
 Based on the technology & concept summary which you can find [here](https://www.semi.network/knowledge-base/learn/technology-summary/).
 

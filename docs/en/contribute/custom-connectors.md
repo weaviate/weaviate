@@ -1,6 +1,6 @@
-# Custom Connectors
+# Custom Database Connectors
  
-> SHORT DESCRIPTION OF THIS DOC
+> Documentation on how to build now database connectors.
 
 Based on the technology & concept summary which you can find [here](https://www.semi.network/knowledge-base/learn/technology-summary/).
 

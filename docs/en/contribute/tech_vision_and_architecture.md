@@ -1,8 +1,6 @@
-# Technology Vision
+# Technology Vision & Architecture
 
-> SHORT DESCRIPTION OF THIS DOC
-> This document describes the technical vision of what Weaviate will be.
-> To have an overview of what is implemented currently, look in the [Current Architecture](./tech_current_architecture.md) file.
+> Description of the technical vision of Weaviate and the current and (planned) architecture.
 
 ## Introduction
 

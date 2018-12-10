@@ -1,6 +1,6 @@
 # GraphQL - Local Queries
 
-> SHORT DESCRIPTION OF THIS DOC
+> About GraphQL's Local{} queries.
 
 ## Purpose: Show how to query a local Weaviate
 

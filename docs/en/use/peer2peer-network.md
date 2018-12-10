@@ -1,6 +1,6 @@
 # Peer to Peer (P2P) Network
 
-> SHORT DESCRIPTION OF THIS DOC
+> An overview of Weaviate's peer to peer network an how to access it.
 
 Weaviate can run as a stand-alone service or as a node on a peer to peer (P2P) network.
 

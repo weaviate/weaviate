@@ -1,6 +1,6 @@
 # Contextionary
 
-> SHORT DESCRIPTION OF THIS DOC
+> Documentation about what Weaviates contextionary is and how it functions.
 
 The contextionary is a stand-alone library that can be used to understand words, in a certain context, and how they relate to each other.
 It is based on [Spotify's Annoy Library](https://github.com/spotify/annoy) and the models are trained using [GloVe](https://github.com/stanfordnlp/GloVe), but adds a wrapping layer to be more user friendly.

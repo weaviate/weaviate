@@ -1,6 +1,6 @@
 # GraphQL - Network Queries
 
-> SHORT DESCRIPTION OF THIS DOC
+> About GraphQL's Network{} queries.
 
 ## Purpose: Show how to query a Weaviate Network
 

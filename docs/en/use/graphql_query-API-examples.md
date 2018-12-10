@@ -1,6 +1,6 @@
-# GraphQL - Query API
+# GraphQL - Query API examples
 
-> SHORT DESCRIPTION OF THIS DOC
+> An overview of Weaviate GraphQL examples.
 
 ## Purpose: Show example GraphQL queries
 

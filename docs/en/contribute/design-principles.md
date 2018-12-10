@@ -1,6 +1,6 @@
 # Design principles
 
-> SHORT DESCRIPTION OF THIS DOC
+> An overview of key design principles that underly Weaviate.
 
 ## Principles
 

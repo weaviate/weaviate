@@ -8,10 +8,7 @@ ROOT_PATH = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 
 # These glob patterns relative to the ROOT_PATH will be searched for files
 PATTERNS = [
-        "{}/restapi/*.go",
-        "{}/restapi/**/*.go",
-        "{}/models/*.go",
-        "{}/cmd/**/*.go"
+    "{}/**/*.go"
 ]
 
 FILES_TO_ADD_HEADERS_TO = []

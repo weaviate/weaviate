@@ -1,6 +1,6 @@
-# Ontology Schema
+# Weaviate Ontologies
 
-> SHORT DESCRIPTION OF THIS DOC
+> Documentation about designing and creating Weaviate ontologies.
 
 Every Weaviate instance has an ontology which is used to describe what type of data you are adding and relies heavily on the contextionary. The ontology also helps other Weaviates in the P2P network to understand in which context your data is being held.
 

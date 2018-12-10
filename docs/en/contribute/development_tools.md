@@ -1,6 +1,6 @@
 # Development Tools
 
-> SHORT DESCRIPTION OF THIS DOC
+> An overview of development tools used by Weaviate.
 
 ## `add_header.sh`
 Adds the header on top of every Go file.

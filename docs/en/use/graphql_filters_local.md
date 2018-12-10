@@ -1,6 +1,6 @@
-## Audience: technical
+# GraphQL - Local Filters
 
-> SHORT DESCRIPTION OF THIS DOC
+> About GraphQL's Local{} filters.
 
 ## Purpose: Show how filters can be used in local queries
 

@@ -1,6 +1,6 @@
 # Authorisation
 
-> SHORT DESCRIPTION OF THIS DOC
+> About authorisation in Weaviate.
 
 The following scheme is a simple authorisation tree scheme used for authorizing things and actions.
 

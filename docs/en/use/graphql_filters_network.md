@@ -1,6 +1,6 @@
 # GraphQL - Network Filters
 
-> SHORT DESCRIPTION OF THIS DOC
+> About GraphQL's Network{} filters.
 
 ## Audience: technical
 

@@ -1,6 +1,6 @@
 # FAQ
 
-> SHORT DESCRIPTION OF THIS DOC
+> Frequently Asked Questions.
 
 #### Q: Why would I use a knowledge graph?<br>
 A: Knowledge Graphs are great to relate and give context to data. Most databases don't do this making it hard to create multiple use cases on a single dataset.

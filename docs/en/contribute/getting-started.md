@@ -1,3 +1,3 @@
 # Getting Started
 
-> SHORT DESCRIPTION OF THIS DOC
+> An introduction to Weaviate and how to contribute.

@@ -1,6 +1,6 @@
 # GraphQL - Introspection
 
-> SHORT DESCRIPTION OF THIS DOC
+> About GraphQL's introspection in Weaviate.
 
 ## Purpose: Introduction to how to do an introspection on the GraphQL schema
 
