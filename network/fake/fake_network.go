@@ -6,7 +6,7 @@ import (
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	graphqlnetworkGet "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/network"
+	network "github.com/creativesoftwarefdn/weaviate/network"
 )
 
 type FakeNetwork struct {
@@ -31,6 +31,10 @@ func (fn FakeNetwork) UpdatePeers(new_peers []network.Peer) error {
 
 func (fn FakeNetwork) ProxyGetInstance(graphqlnetworkGet.ProxyGetInstanceParams) (*models.GraphQLResponse, error) {
 	return nil, fmt.Errorf("Cannot proxy get instance, because there is no network configured")
+}
+
+func (n *FakeNetwork) RegisterUpdatePeerCallback(callbackFn network.PeerUpdateCallback) {
+	return
 }
 
 // GetNetworkResolver for now simply returns itself

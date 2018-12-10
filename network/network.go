@@ -34,6 +34,9 @@ func (p Peer) CreateClient() (*client.WeaviateDecentralisedKnowledgeGraph, error
 	return peerClient, nil
 }
 
+// PeerUpdateCallback should be called by UpdatePeers after a successful peer update
+type PeerUpdateCallback func(peers []Peer)
+
 // Network is a Minimal abstraction over the network. This is the only API exposed to the rest of Weaviate.
 type Network interface {
 	IsReady() bool
@@ -44,6 +47,9 @@ type Network interface {
 
 	// UpdatePeers is Invoked by the Genesis server via an HTTP endpoint.
 	UpdatePeers(newPeers []Peer) error
+
+	// RegisterUpdatePeerCallback to be called after successful peer updates
+	RegisterUpdatePeerCallback(callbackFn PeerUpdateCallback)
 
 	// TODO: We'll add functions like
 	// - QueryNetwork(q NetworkQuery, timeout int) (chan NetworkResponse, error)

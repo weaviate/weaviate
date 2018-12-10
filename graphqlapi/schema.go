@@ -36,7 +36,7 @@ type graphQL struct {
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
-func Build(dbSchema *schema.Schema, resolverProvider ResolverProvider) (GraphQL, error) {
+func Build(dbSchema *schema.Schema, peers []network.Peer, resolverProvider ResolverProvider) (GraphQL, error) {
 	graphqlSchema, err := buildGraphqlSchema(dbSchema)
 
 	if err != nil {
@@ -76,7 +76,7 @@ func buildGraphqlSchema(dbSchema *schema.Schema) (graphql.Schema, error) {
 	if err != nil {
 		return graphql.Schema{}, err
 	}
-	
+
 	networkSchema, err := network.Build(dbSchema)
 	if err != nil {
 		return graphql.Schema{}, err
