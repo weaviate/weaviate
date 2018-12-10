@@ -21,6 +21,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
+	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/graphql-go/graphql"
 )
 
@@ -36,8 +37,8 @@ type graphQL struct {
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
-func Build(dbSchema *schema.Schema, peers []network.Peer, resolverProvider ResolverProvider) (GraphQL, error) {
-	graphqlSchema, err := buildGraphqlSchema(dbSchema)
+func Build(dbSchema *schema.Schema, peers []libnetwork.Peer, resolverProvider ResolverProvider) (GraphQL, error) {
+	graphqlSchema, err := buildGraphqlSchema(dbSchema, peers)
 
 	if err != nil {
 		return nil, err
@@ -71,13 +72,13 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 	})
 }
 
-func buildGraphqlSchema(dbSchema *schema.Schema) (graphql.Schema, error) {
+func buildGraphqlSchema(dbSchema *schema.Schema, peers []libnetwork.Peer) (graphql.Schema, error) {
 	localSchema, err := local.Build(dbSchema)
 	if err != nil {
 		return graphql.Schema{}, err
 	}
 
-	networkSchema, err := network.Build(dbSchema)
+	networkSchema, err := network.Build(dbSchema, peers)
 	if err != nil {
 		return graphql.Schema{}, err
 	}

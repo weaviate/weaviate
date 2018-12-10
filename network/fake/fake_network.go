@@ -33,7 +33,7 @@ func (fn FakeNetwork) ProxyGetInstance(graphqlnetworkGet.ProxyGetInstanceParams)
 	return nil, fmt.Errorf("Cannot proxy get instance, because there is no network configured")
 }
 
-func (n *FakeNetwork) RegisterUpdatePeerCallback(callbackFn network.PeerUpdateCallback) {
+func (fn FakeNetwork) RegisterUpdatePeerCallback(callbackFn network.PeerUpdateCallback) {
 	return
 }
 
