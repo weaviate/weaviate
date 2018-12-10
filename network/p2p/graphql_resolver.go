@@ -14,10 +14,11 @@ import (
 // ProxyGetInstance proxies a single SubQuery to a single
 // Target Instance. It is inteded to be called multiple
 // times if you need to Network.Get from multiple instances.
-func (n *network) ProxyGetInstance(params networkGet.ProxyGetInstanceParams) (interface{}, error) {
+func (n *network) ProxyGetInstance(params networkGet.ProxyGetInstanceParams) (*models.GraphQLResponse, error) {
 	peer, err := n.GetPeerByName(params.TargetInstance)
 	if err != nil {
-		return nil, fmt.Errorf("could not connect to %s: %s", params.TargetInstance, err)
+		knownPeers, _ := n.ListPeers()
+		return nil, fmt.Errorf("could not connect to %s: %s, known peers are %#v", params.TargetInstance, err, knownPeers)
 	}
 
 	peerClient, err := peer.CreateClient()
@@ -25,15 +26,15 @@ func (n *network) ProxyGetInstance(params networkGet.ProxyGetInstanceParams) (in
 		return nil, fmt.Errorf("could not build client for peer %s: %s", peer.Name, err)
 	}
 
-	_, err = postToPeer(peerClient, params.SubQuery)
+	result, err := postToPeer(peerClient, params.SubQuery)
 	if err != nil {
 		return nil, fmt.Errorf("could post to peer %s: %s", peer.Name, err)
 	}
 
-	return nil, nil
+	return result.Payload, nil
 }
 
-func postToPeer(client *client.WeaviateDecentralisedKnowledgeGraph, subQuery networkGet.SubQuery) (interface{}, error) {
+func postToPeer(client *client.WeaviateDecentralisedKnowledgeGraph, subQuery networkGet.SubQuery) (*graphql.WeaviateGraphqlPostOK, error) {
 	localContext := context.Background()
 	localContext, _ = context.WithTimeout(localContext, 1*time.Second)
 	requestParams := &graphql.WeaviateGraphqlPostParams{

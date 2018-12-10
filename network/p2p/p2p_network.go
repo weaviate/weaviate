@@ -125,7 +125,7 @@ func (n *network) GetStatus() string {
 }
 
 func (n *network) ListPeers() ([]libnetwork.Peer, error) {
-	return nil, fmt.Errorf("Cannot list peers, because there is no network configured")
+	return n.peers, nil
 }
 
 func (n *network) UpdatePeers(new_peers []libnetwork.Peer) error {

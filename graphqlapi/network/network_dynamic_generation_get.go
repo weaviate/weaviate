@@ -18,9 +18,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	network_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
 
@@ -193,9 +194,7 @@ func genSingleNetworkThingClassField(class *models.SemanticSchemaClass, getActio
 				Type:        graphql.Int,
 			},
 		},
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
-		},
+		Resolve: network_get.ResolveThing,
 	}
 	return thingClassPropertyFieldsField, thingClassPropertyFieldsObject
 }
@@ -241,7 +240,7 @@ func genSingleNetworkThingClassPropertyFields(class *models.SemanticSchemaClass,
 				Type:        multipleClassDataTypesUnion,
 				Description: property.Description,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					return nil, fmt.Errorf("not supported")
+					return nil, fmt.Errorf("resolving single network thing class property field not supported")
 				},
 			}
 		} else {
@@ -267,63 +266,46 @@ func genSingleNetworkThingClassPropertyFields(class *models.SemanticSchemaClass,
 }
 
 func handleNetworkGetNonObjectDataTypes(dataType schema.DataType, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
+
 	switch dataType {
 
 	case schema.DataTypeString:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeText:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeInt:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeNumber:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeBoolean:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.Boolean,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeDate:
 		return &graphql.Field{
 			Description: property.Description,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	default:
-		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype)
+		return nil, fmt.Errorf("%s", schema.ErrorNoSuchDatatype)
 	}
 }
