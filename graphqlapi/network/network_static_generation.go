@@ -16,10 +16,12 @@ package network
 
 import (
 	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	network_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 )
 
 // temporary function that does nothing but display a Weaviate instance // TODO: delete this once p2p functionality is up
@@ -33,9 +35,7 @@ func insertDummyNetworkWeaviateField(weaviatesWithGetFields map[string]*graphql.
 			Name:        weaviate,
 			Description: fmt.Sprintf("%s%s", descriptions.NetworkWeaviateDesc, weaviate),
 			Type:        weaviateFields,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     network_get.NetworkGetInstanceResolve,
 		}
 		metaGetWeaviates[weaviate] = &graphql.Field{
 			Name:        fmt.Sprintf("%s%s", "Meta", weaviate),
@@ -470,7 +470,8 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 				},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				// return no error, so we bubble up to the next resolver
+				return p.Source, nil
 			},
 		},
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
 
@@ -24,7 +25,7 @@ func ParseSubQuery(subQuery []byte) SubQuery {
 // Local-Query, i.e. it should start with `Get{ ... }`
 // TODO: At the moment ignores filter params
 func (s SubQuery) WrapInLocalQuery() string {
-	return fmt.Sprintf("Local { %s }", s)
+	return fmt.Sprintf("{ Local { %s } }", s)
 }
 
 // ProxyGetInstanceParams ties a SubQuery and a single instance
@@ -35,7 +36,7 @@ type ProxyGetInstanceParams struct {
 }
 
 type Resolver interface {
-	ProxyGetInstance(info ProxyGetInstanceParams) (interface{}, error)
+	ProxyGetInstance(info ProxyGetInstanceParams) (*models.GraphQLResponse, error)
 }
 
 func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
@@ -55,9 +56,19 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 		SubQuery:       ParseSubQuery(subQueryWithoutInstance),
 		TargetInstance: p.Info.FieldName,
 	}
-	resolver.ProxyGetInstance(params)
 
-	return nil, nil
+	graphQLResponse, err := resolver.ProxyGetInstance(params)
+	if err != nil {
+		return nil, fmt.Errorf("could not proxy to remote instance: %s", err)
+	}
+
+	local, ok := graphQLResponse.Data["Local"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected response.data.Local to be map[string]interface{}, but response was %#v",
+			graphQLResponse.Data["Local"])
+	}
+
+	return local["Get"], nil
 }
 
 func replaceInstanceName(instanceName string, query []byte) ([]byte, error) {

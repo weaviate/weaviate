@@ -3,6 +3,7 @@ package network_get
 import (
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/graphql-go/graphql/language/source"
@@ -18,11 +19,12 @@ func TestRegularNetworkGetInstanceQuery(t *testing.T) {
 
 	expectedSubQuery := `Get { Things { City { name } } }`
 	expectedTarget := "weaviateA"
+	expectedResultString := "placeholder for result from Local.Get"
 
 	// in a real life scenario graphql will set the start and end
 	// correctly. We just need to manually specify them in the test
 	params := paramsFromQueryWithStartAndEnd(query, 18, 56, "weaviateA", resolver)
-	_, err := NetworkGetInstanceResolve(params)
+	result, err := NetworkGetInstanceResolve(params)
 
 	if err != nil {
 		t.Errorf("Expected no error, but got: %s", err)
@@ -38,6 +40,14 @@ func TestRegularNetworkGetInstanceQuery(t *testing.T) {
 
 	if actual := resolver.CalledWith.TargetInstance; string(actual) != expectedTarget {
 		t.Errorf("expected targetInstance to be %#v, but got %#v", expectedTarget, actual)
+	}
+
+	if _, ok := result.(string); !ok {
+		t.Errorf("expected result to be a string, but was %t", result)
+	}
+
+	if resultString, ok := result.(string); !ok || resultString != expectedResultString {
+		t.Errorf("expected result to be %s, but was %s", expectedResultString, resultString)
 	}
 }
 
@@ -68,8 +78,13 @@ type fakeNetworkResolver struct {
 	CalledWith ProxyGetInstanceParams
 }
 
-func (r *fakeNetworkResolver) ProxyGetInstance(info ProxyGetInstanceParams) (interface{}, error) {
+func (r *fakeNetworkResolver) ProxyGetInstance(info ProxyGetInstanceParams) (*models.GraphQLResponse, error) {
 	r.Called = true
 	r.CalledWith = info
-	return nil, nil
+	return &models.GraphQLResponse{
+		Data: map[string]models.JSONObject{
+			"Local": map[string]interface{}{
+				"Get": "placeholder for result from Local.Get"},
+		},
+	}, nil
 }

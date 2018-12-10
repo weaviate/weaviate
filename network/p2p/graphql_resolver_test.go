@@ -92,7 +92,7 @@ func TestProxyGetInstance(t *testing.T) {
 
 	t.Run("should form a local query from the subquery in the request body", func(t *testing.T) {
 		matcher := func(t *testing.T, r *http.Request) {
-			expectedBody := fmt.Sprintf("%s\n", `{"query":"Local { Get { Things { City { name } } } }"}`)
+			expectedBody := fmt.Sprintf("%s\n", `{"query":"{ Local { Get { Things { City { name } } } } }"}`)
 			defer r.Body.Close()
 			bodyBytes, err := ioutil.ReadAll(r.Body)
 			if err != nil {

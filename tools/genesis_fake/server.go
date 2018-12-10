@@ -15,8 +15,8 @@ var weaviateFakeID = "e90effd8-dac7-40af-9a15-6eb8f2f7bcab"
 func updatePeerWithList() {
 	payload := []map[string]string{{
 		"id":   weaviateFakeID,
-		"name": "weaviateB",
-		"uri":  "localhost:8100",
+		"name": "WeaviateB",
+		"uri":  "http://localhost:8081",
 	}}
 
 	payloadBytes, err := json.Marshal(payload)

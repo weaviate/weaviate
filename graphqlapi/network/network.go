@@ -16,19 +16,20 @@ package network
 
 import (
 	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/graphql-go/graphql"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
+	"github.com/graphql-go/graphql"
 )
 
 // Build the network queries from the database schema.
 func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
-	
+
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
 		return nil, fmt.Errorf("There are no Actions or Things classes defined yet.")
 	}
-	
+
 	filterContainer := &utils.FilterContainer{}
 
 	// TODO: placeholder loop, remove this once p2p functionality is up
@@ -45,7 +46,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 		// This map is used to store all the Thing and Action Objects, so that we can use them in references.
 		getNetworkActionsAndThings := make(map[string]*graphql.Object)
-		
+
 		getKinds := graphql.Fields{}
 		getMetaKinds := graphql.Fields{}
 
@@ -54,7 +55,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			if networkGetErr != nil {
 				return nil, fmt.Errorf("failed to generate action fields from schema for network Get because: %v", networkGetErr)
 			}
-			
+
 			getKinds["Actions"] = &graphql.Field{
 				Name:        "WeaviateNetworkGetActions",
 				Description: descriptions.NetworkGetActionsDesc,
@@ -65,13 +66,13 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 					return p.Source, nil
 				},
 			}
-			
+
 			classParentTypeIsAction := true
 			networkGetMetaActions, networkGetMetaErr := genNetworkMetaClassFieldsFromSchema(dbSchema.Actions.Classes, classParentTypeIsAction, weaviate)
 			if networkGetMetaErr != nil {
 				return nil, fmt.Errorf("failed to generate action fields from schema for network MetaGet because: %v", networkGetMetaErr)
 			}
-			
+
 			getMetaKinds["Actions"] = &graphql.Field{
 				Name:        "WeaviateNetworkGetMetaActions",
 				Description: descriptions.NetworkGetMetaActionsDesc,
@@ -83,13 +84,13 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 				},
 			}
 		}
-		
+
 		if len(dbSchema.Things.Classes) > 0 {
 			networkGetThings, networkGetErr := genNetworkThingClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, weaviate)
 			if networkGetErr != nil {
 				return nil, fmt.Errorf("failed to generate thing fields from schema for network Get because: %v", networkGetErr)
 			}
-			
+
 			getKinds["Things"] = &graphql.Field{
 				Name:        "WeaviateNetworkGetThings",
 				Description: descriptions.NetworkGetThingsDesc,
@@ -100,13 +101,13 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 					return p.Source, nil
 				},
 			}
-			
+
 			classParentTypeIsAction := false
 			networkGetMetaThings, networkGetMetaErr := genNetworkMetaClassFieldsFromSchema(dbSchema.Things.Classes, classParentTypeIsAction, weaviate)
 			if networkGetMetaErr != nil {
 				return nil, fmt.Errorf("failed to generate thing fields from schema for network MetaGet because: %v", networkGetMetaErr)
 			}
-			
+
 			getMetaKinds["Things"] = &graphql.Field{
 				Name:        "WeaviateNetworkGetMetaThings",
 				Description: descriptions.NetworkGetMetaThingsDesc,
@@ -118,19 +119,19 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 				},
 			}
 		}
-		
+
 		networkGetObject := graphql.NewObject(graphql.ObjectConfig{
 			Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGet", weaviate, "Obj"),
 			Fields:      getKinds,
 			Description: fmt.Sprintf("%s%s", descriptions.NetworkGetWeaviateObjDesc, weaviate),
 		})
-			
+
 		networkGetMetaObject := graphql.NewObject(graphql.ObjectConfig{
 			Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGetMeta", weaviate, "Obj"),
 			Fields:      getMetaKinds,
 			Description: fmt.Sprintf("%s%s", descriptions.NetworkGetMetaWeaviateObjDesc, weaviate),
 		})
-		
+
 		weaviateNetworkGetResults[weaviate] = networkGetObject
 		weaviateNetworkGetMetaResults[weaviate] = networkGetMetaObject
 
@@ -151,7 +152,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		networkIntrospectObj,
 	}
 
-	networkGetAndGetMetaObject := genNetworkFields(&graphQLNetworkFieldContents/*, filterContainer*/)
+	networkGetAndGetMetaObject := genNetworkFields(&graphQLNetworkFieldContents /*, filterContainer*/)
 
 	networkField := &graphql.Field{
 		Type:        networkGetAndGetMetaObject,
@@ -163,7 +164,8 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
+			// return no error, so we bubble up to the next resolver
+			return p.Source, nil
 		},
 	}
 
