@@ -7,7 +7,6 @@ import (
 	local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
 	local_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/lib/feature_flags"
 	"github.com/graphql-go/graphql"
 )
 
