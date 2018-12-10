@@ -20,11 +20,12 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
+	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/graphql-go/graphql"
 )
 
 // Build the network queries from the database schema.
-func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
+func Build(dbSchema *schema.Schema, peers []libnetwork.Peer) (*graphql.Field, error) {
 
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
 		return nil, fmt.Errorf("There are no Actions or Things classes defined yet.")
@@ -32,8 +33,6 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 	filterContainer := &utils.FilterContainer{}
 
-	// TODO: placeholder loop, remove this once p2p functionality is up
-	weaviateInstances := []string{"WeaviateB", "WeaviateC"}
 	weaviateNetworkGetResults := make(map[string]*graphql.Object)
 	weaviateNetworkGetMetaResults := make(map[string]*graphql.Object)
 
@@ -42,8 +41,14 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 	// TODO implement function that capitalizes all Weaviate names
 
-	for _, weaviate := range weaviateInstances {
+	if len(peers) == 0 {
+		// Don't error, but also don't register the Network  field if we don't
+		// have any peers. This build function will be called again if the
+		// peers change, so next time it might advance past here.
+		return nil, nil
+	}
 
+	for _, peer := range peers {
 		// This map is used to store all the Thing and Action Objects, so that we can use them in references.
 		getNetworkActionsAndThings := make(map[string]*graphql.Object)
 
@@ -51,7 +56,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		getMetaKinds := graphql.Fields{}
 
 		if len(dbSchema.Actions.Classes) > 0 {
-			networkGetActions, networkGetErr := genNetworkActionClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, weaviate)
+			networkGetActions, networkGetErr := genNetworkActionClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, peer.Name)
 			if networkGetErr != nil {
 				return nil, fmt.Errorf("failed to generate action fields from schema for network Get because: %v", networkGetErr)
 			}
@@ -68,7 +73,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			}
 
 			classParentTypeIsAction := true
-			networkGetMetaActions, networkGetMetaErr := genNetworkMetaClassFieldsFromSchema(dbSchema.Actions.Classes, classParentTypeIsAction, weaviate)
+			networkGetMetaActions, networkGetMetaErr := genNetworkMetaClassFieldsFromSchema(dbSchema.Actions.Classes, classParentTypeIsAction, peer.Name)
 			if networkGetMetaErr != nil {
 				return nil, fmt.Errorf("failed to generate action fields from schema for network MetaGet because: %v", networkGetMetaErr)
 			}
@@ -86,7 +91,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		}
 
 		if len(dbSchema.Things.Classes) > 0 {
-			networkGetThings, networkGetErr := genNetworkThingClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, weaviate)
+			networkGetThings, networkGetErr := genNetworkThingClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, peer.Name)
 			if networkGetErr != nil {
 				return nil, fmt.Errorf("failed to generate thing fields from schema for network Get because: %v", networkGetErr)
 			}
@@ -103,7 +108,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			}
 
 			classParentTypeIsAction := false
-			networkGetMetaThings, networkGetMetaErr := genNetworkMetaClassFieldsFromSchema(dbSchema.Things.Classes, classParentTypeIsAction, weaviate)
+			networkGetMetaThings, networkGetMetaErr := genNetworkMetaClassFieldsFromSchema(dbSchema.Things.Classes, classParentTypeIsAction, peer.Name)
 			if networkGetMetaErr != nil {
 				return nil, fmt.Errorf("failed to generate thing fields from schema for network MetaGet because: %v", networkGetMetaErr)
 			}
@@ -121,19 +126,19 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		}
 
 		networkGetObject := graphql.NewObject(graphql.ObjectConfig{
-			Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGet", weaviate, "Obj"),
+			Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGet", peer.Name, "Obj"),
 			Fields:      getKinds,
-			Description: fmt.Sprintf("%s%s", descriptions.NetworkGetWeaviateObjDesc, weaviate),
+			Description: fmt.Sprintf("%s%s", descriptions.NetworkGetWeaviateObjDesc, peer.Name),
 		})
 
 		networkGetMetaObject := graphql.NewObject(graphql.ObjectConfig{
-			Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGetMeta", weaviate, "Obj"),
+			Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGetMeta", peer.Name, "Obj"),
 			Fields:      getMetaKinds,
-			Description: fmt.Sprintf("%s%s", descriptions.NetworkGetMetaWeaviateObjDesc, weaviate),
+			Description: fmt.Sprintf("%s%s", descriptions.NetworkGetMetaWeaviateObjDesc, peer.Name),
 		})
 
-		weaviateNetworkGetResults[weaviate] = networkGetObject
-		weaviateNetworkGetMetaResults[weaviate] = networkGetMetaObject
+		weaviateNetworkGetResults[peer.Name] = networkGetObject
+		weaviateNetworkGetMetaResults[peer.Name] = networkGetMetaObject
 
 	}
 	// TODO this is a temp function, inserts a temp weaviate obj in between Get and Things/Actions

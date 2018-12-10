@@ -52,6 +52,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	db_local_schema_manager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/local"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
+	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -86,6 +87,10 @@ var db database.Database
 type dbAndNetwork struct {
 	database.Database
 	libnetwork.Network
+}
+
+func (d dbAndNetwork) GetNetworkResolver() graphqlnetwork.Resolver {
+	return d.Network
 }
 
 type keyTokenHeader struct {
@@ -2465,6 +2470,10 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(1, fmt.Sprintf("Could not initialize the database: %s", err.Error()))
 	}
 	manager.TriggerSchemaUpdateCallbacks()
+
+	network.RegisterUpdatePeerCallback(func(peers []libnetwork.Peer) {
+		manager.TriggerSchemaUpdateCallbacks()
+	})
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.

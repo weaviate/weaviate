@@ -14,7 +14,6 @@ import (
 	genesis_client "github.com/creativesoftwarefdn/weaviate/genesis/client"
 	client_ops "github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
 	genesis_models "github.com/creativesoftwarefdn/weaviate/genesis/models"
-	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 )
 
@@ -160,6 +159,6 @@ func (n *network) keep_pinging() {
 // Once we have made the network pluggable, then this would
 // be a method on the connector which returns the actual
 // plugged in Network
-func (n *network) GetNetworkResolver() graphqlnetwork.Resolver {
+func (n *network) GetNetworkResolver() libnetwork.Network {
 	return n
 }
