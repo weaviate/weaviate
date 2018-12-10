@@ -33,6 +33,7 @@ func (s SubQuery) WrapInLocalQuery() string {
 type ProxyGetInstanceParams struct {
 	SubQuery       SubQuery
 	TargetInstance string
+	Principal      *models.KeyTokenGetResponse
 }
 
 type Resolver interface {
@@ -52,9 +53,16 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, fmt.Errorf("could not replace instance name in sub-query: %s", err)
 	}
 
+	principal, ok := p.Context.Value("principal").(*models.KeyTokenGetResponse)
+	if !ok {
+		return nil, fmt.Errorf("expected Context.Principal to be a KeyTokenGetResponse, but was %#v",
+			p.Context.Value("principal"))
+	}
+
 	params := ProxyGetInstanceParams{
 		SubQuery:       ParseSubQuery(subQueryWithoutInstance),
 		TargetInstance: p.Info.FieldName,
+		Principal:      principal,
 	}
 
 	graphQLResponse, err := resolver.ProxyGetInstance(params)
