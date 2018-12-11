@@ -25,7 +25,7 @@ func TestSingleInstanceWithSingleFilter(t *testing.T) {
 			"operator": "And",
 			"operands": []interface{}{
 				map[string]interface{}{
-					"path":     []string{"weaviateB", "Things", "City", "population"},
+					"path":     []interface{}{"weaviateB", "Things", "City", "population"},
 					"operator": "GreaterThan",
 					"valueInt": 1000000,
 				},
@@ -62,12 +62,12 @@ func TestTwoInstancesWithSingleFilterEach(t *testing.T) {
 			"operator": "And",
 			"operands": []interface{}{
 				map[string]interface{}{
-					"path":     []string{"weaviateB", "Things", "City", "population"},
+					"path":     []interface{}{"weaviateB", "Things", "City", "population"},
 					"operator": "GreaterThan",
 					"valueInt": 1000000,
 				},
 				map[string]interface{}{
-					"path":     []string{"weaviateC", "Things", "Airports", "capacity"},
+					"path":     []interface{}{"weaviateC", "Things", "Airports", "capacity"},
 					"operator": "LessThan",
 					"valueInt": 60000,
 				},
@@ -114,12 +114,12 @@ func TestOneInstanceWithTwoFilters(t *testing.T) {
 			"operator": "And",
 			"operands": []interface{}{
 				map[string]interface{}{
-					"path":     []string{"weaviateB", "Things", "City", "population"},
+					"path":     []interface{}{"weaviateB", "Things", "City", "population"},
 					"operator": "GreaterThan",
 					"valueInt": 1000000,
 				},
 				map[string]interface{}{
-					"path":        []string{"weaviateB", "Things", "City", "name"},
+					"path":        []interface{}{"weaviateB", "Things", "City", "name"},
 					"operator":    "NotEqual",
 					"valueString": "Berlin",
 				},
