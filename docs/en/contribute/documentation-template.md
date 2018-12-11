@@ -8,9 +8,11 @@ You can use the following template to create new Documentation
 
 ```markdown
 
-# TITLE
+# Title of Document
 
-> PURPOSE: Brief description of what this doc is for if not clear in title
+Clear and Short with Initial Capitals for the Main Words
+
+> Purpose: Brief description of what this doc is for if not clear in title
 
 ## Introduction
 
@@ -19,7 +21,7 @@ Brief intro on the background if not obvious from purpose.
 ## [BODY]
 
 _main text_ usually you do not use the actual word "Body".
-Use H2 titles (## [WORD])
+Use H2 titles (## [WORD]) with only the initial word with a capital
 
 ## Conclusion
 
