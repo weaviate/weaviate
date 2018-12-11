@@ -51,13 +51,13 @@ We highly recommend starting with the _Getting Started_ (for [users](./docs/en/u
 
 ### Usage docs
 
-- [Getting Started](./docs/en/use/getting-started.md)
 - [Index of all documentation for users](./docs/en/use/index.md)
+- [Getting Started](./docs/en/use/getting-started.md)
 
 ### Contribution docs
 
-- [Getting Started](./docs/en/contribute/getting-started.md)
 - [Index of documentation for contributors](./docs/en/contribute/index.md)
+- [Getting Started](./docs/en/contribute/getting-started.md)
 
 ### Miscellaneous docs
 
@@ -74,7 +74,7 @@ Weaviate is released under a [BSD-3](https://github.com/creativesoftwarefdn/weav
 
 More information:
 
-- Products & Services overview: [www.semi.networ](https://www.semi.network/products/).
+- Products & Services overview: [www.semi.network](https://www.semi.network/products/).
 - Contact: [hello@semi.network](mailto:hello@semi.network).
 
 ## Build Status
