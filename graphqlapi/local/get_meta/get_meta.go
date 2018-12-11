@@ -19,7 +19,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 	knownClasses := map[string]*graphql.Object{}
 
-	metaProperties := newMetaProperties()
+	metaProperties := newMetaProperties("", "") // TODO fix this!
 
 	if len(dbSchema.Actions.Classes) > 0 {
 		localGetActions, err := buildGetMetaClasses(dbSchema, kind.ACTION_KIND, dbSchema.Actions, metaProperties, &knownClasses)
@@ -116,7 +116,7 @@ func buildGetMetaClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *m
 // Build a single class in Local -> Get -> (k kind.Kind) -> (models.SemanticSchemaClass)
 func buildGetMetaClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass, metaProperties MetaProperties, knownClasses *map[string]*graphql.Object) (*graphql.Field, error) {
 	classObject := graphql.NewObject(graphql.ObjectConfig{
-		Name: fmt.Sprintf("%sMeta", class.Class),
+		Name: fmt.Sprintf("Meta%s", class.Class),
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			classProperties := graphql.Fields{}
 
@@ -172,7 +172,7 @@ func buildGetMetaClass(dbSchema *schema.Schema, k kind.Kind, class *models.Seman
 	(*knownClasses)[class.Class] = classObject
 
 	classField := graphql.Field{
-		Type:        graphql.NewList(classObject),
+		Type:        classObject,
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{

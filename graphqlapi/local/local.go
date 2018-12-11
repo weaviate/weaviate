@@ -7,7 +7,10 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	local_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
 	local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
-	local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
+
+	//	local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	local_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
 	"github.com/graphql-go/graphql"
 )
 
@@ -17,18 +20,18 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	if err != nil {
 		return nil, err
 	}
-	getMetaField, err := local_get_meta.Build(dbSchema)
-	if err != nil {
-		return nil, err
-	}
+	//	getMetaField, err := local_get_meta.Build(dbSchema)
+	//		if err != nil {
+	//			return nil, err
+	//		}
 	getAggregateField, err := local_aggregate.Build(dbSchema)
 	if err != nil {
 		return nil, err
 	}
 
 	localFields := graphql.Fields{
-		"Get":       getField,
-		"GetMeta":   getMetaField,
+		"Get": getField,
+		//"GetMeta": getMetaField,
 		"Aggregate": getAggregateField,
 	}
 
