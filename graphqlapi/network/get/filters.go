@@ -2,6 +2,7 @@ package network_get
 
 import "fmt"
 
+// FiltersPerInstance holds individual "where" filters per instance name
 type FiltersPerInstance map[string]interface{}
 
 // FiltersForNetworkInstances takes the global filters from a network filter
@@ -26,19 +27,24 @@ func FiltersForNetworkInstances(args map[string]interface{}) (FiltersPerInstance
 		return resultSet, err
 	}
 
-	operand := operands[0]
+	for _, operand := range operands {
+		parsedPath, err := parsePathAndExtractInstance(operand)
+		if err != nil {
+			return resultSet, err
+		}
 
-	parsedPath, err := parsePathAndExtractInstance(operand)
-	if err != nil {
-		return resultSet, err
-	}
-
-	operand["path"] = parsedPath.path
-	resultSet[parsedPath.instance] = map[string]interface{}{
-		"where": map[string]interface{}{
-			"operator": whereMap["operator"],
-			"operands": []map[string]interface{}{operand},
-		},
+		operand["path"] = parsedPath.path
+		instance, ok := resultSet[parsedPath.instance]
+		if ok {
+			resultSet[parsedPath.instance] = mergeInstanceWithNewOperand(instance, operand)
+		} else {
+			resultSet[parsedPath.instance] = map[string]interface{}{
+				"where": map[string]interface{}{
+					"operator": whereMap["operator"],
+					"operands": []map[string]interface{}{operand},
+				},
+			}
+		}
 	}
 
 	return resultSet, nil
@@ -85,4 +91,14 @@ func parsePathAndExtractInstance(operand map[string]interface{}) (pathAndInstanc
 	result.instance = pathFragments[0]
 	result.path = pathFragments[1:]
 	return result, nil
+}
+
+func mergeInstanceWithNewOperand(instance interface{}, newOperand map[string]interface{}) map[string]interface{} {
+	// all type assertions are considered safe, because
+	// we only use constructs we've created ourselves
+	where := instance.(map[string]interface{})["where"]
+	operands := where.(map[string]interface{})["operands"].([]map[string]interface{})
+	newOperands := append(operands, newOperand)
+	instance.(map[string]interface{})["where"].(map[string]interface{})["operands"] = newOperands
+	return instance.(map[string]interface{})
 }
