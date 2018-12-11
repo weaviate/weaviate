@@ -2,6 +2,7 @@ package network_get
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -11,7 +12,7 @@ import (
 	"github.com/graphql-go/graphql/language/source"
 )
 
-func TestRegularNetworkGetInstanceQuery(t *testing.T) {
+func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 	t.Parallel()
 	resolver := &fakeNetworkResolver{}
 
@@ -31,7 +32,7 @@ func TestRegularNetworkGetInstanceQuery(t *testing.T) {
 
 	// in a real life scenario graphql will set the start and end
 	// correctly. We just need to manually specify them in the test
-	params := paramsFromQueryWithStartAndEnd(query, 18, 56, "weaviateA", resolver, principal)
+	params := paramsFromQueryWithStartAndEnd(query, 18, 56, "weaviateA", resolver, principal, nil)
 	result, err := NetworkGetInstanceResolve(params)
 
 	if err != nil {
@@ -64,11 +65,81 @@ func TestRegularNetworkGetInstanceQuery(t *testing.T) {
 
 }
 
+func TestNetworkGetInstanceQueryWithFilters(t *testing.T) {
+	t.Parallel()
+	resolver := &fakeNetworkResolver{}
+
+	query := []byte(
+		`{ Network { Get { weaviateA { Things { City { name } } } } } } `,
+	)
+
+	principal := &models.KeyTokenGetResponse{
+		Token: strfmt.UUID("stand-in-for-token-uuid"),
+		KeyGetResponse: models.KeyGetResponse{
+			KeyID: strfmt.UUID("stand-in-for-key-id-uuid"),
+		},
+	}
+	filters := FiltersPerInstance{
+		"weaviateA": map[string]interface{}{
+			"where": map[string]interface{}{
+				"foo":      "bar",
+				"operator": "And",
+			},
+		},
+		"weaviateB": map[string]interface{}{
+			"where": map[string]interface{}{
+				"should-not": "matter",
+			},
+		},
+	}
+	// Note that foo, but the key for foo (bar) is,
+	// on neither key nor value are quoted!
+	expectedWhere := `{foo:"bar",operator:And}`
+	expectedSubQuery := fmt.Sprintf(`Get(where: %s) { Things { City { name } } }`, expectedWhere)
+	expectedTarget := "weaviateA"
+	expectedResultString := "placeholder for result from Local.Get"
+
+	// in a real life scenario graphql will set the start and end
+	// correctly. We just need to manually specify them in the test
+	params := paramsFromQueryWithStartAndEnd(query, 18, 56, "weaviateA", resolver, principal, filters)
+	result, err := NetworkGetInstanceResolve(params)
+
+	if err != nil {
+		t.Errorf("Expected no error, but got: %s", err)
+	}
+
+	if resolver.Called != true {
+		t.Error("expected resolver.ProxyNetworkGetInstance to have been called, but it was never called")
+	}
+
+	if actual := resolver.CalledWith.SubQuery; string(actual) != expectedSubQuery {
+		t.Errorf("expected subquery to be \n%s\n, but got \n%s\n", expectedSubQuery, actual)
+	}
+
+	if actual := resolver.CalledWith.TargetInstance; string(actual) != expectedTarget {
+		t.Errorf("expected targetInstance to be %#v, but got %#v", expectedTarget, actual)
+	}
+
+	if actual := resolver.CalledWith.Principal; actual != principal {
+		t.Errorf("expected principal to be %#v, but got %#v", principal, actual)
+	}
+
+	if _, ok := result.(string); !ok {
+		t.Errorf("expected result to be a string, but was %t", result)
+	}
+
+	if resultString, ok := result.(string); !ok || resultString != expectedResultString {
+		t.Errorf("expected result to be %s, but was %s", expectedResultString, resultString)
+	}
+}
+
 func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
-	instanceName string, resolver Resolver, principal *models.KeyTokenGetResponse) graphql.ResolveParams {
+	instanceName string, resolver Resolver, principal *models.KeyTokenGetResponse,
+	filters FiltersPerInstance) graphql.ResolveParams {
 	return graphql.ResolveParams{
-		Source: map[string]interface{}{
-			"NetworkResolver": resolver,
+		Source: FiltersAndResolver{
+			Resolver: resolver,
+			Filters:  filters,
 		},
 		Info: graphql.ResolveInfo{
 			FieldName: instanceName,

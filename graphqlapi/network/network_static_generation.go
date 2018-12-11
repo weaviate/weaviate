@@ -470,8 +470,20 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 				},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				// return no error, so we bubble up to the next resolver
-				return p.Source, nil
+				filters, err := network_get.FiltersForNetworkInstances(p.Args)
+				if err != nil {
+					return nil, err
+				}
+
+				resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_get.Resolver)
+				if !ok {
+					return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+				}
+
+				return network_get.FiltersAndResolver{
+					Filters:  filters,
+					Resolver: resolver,
+				}, nil
 			},
 		},
 
