@@ -41,9 +41,8 @@ There are two types of error that can occur when Weaviate receives and/or proces
 #### 1.2.1 Batch request error
 The batch request itself resulted in an error. Its contents are not processed and an error code is included in the header response.
 #### 1.2.2 Batched request error(s)
-The batch request itself is successful (status code 200), but one or more of its batched requests result in an error. The error(s) in a batch result will use one of two formats:
+The batch request itself is successful (status code 200), but one or more of its batched requests result in an error. The error(s) in a batch result will use this format for the `GraphQL` endpoint:
 
-either
 ```
 [
     {
@@ -58,17 +57,21 @@ either
     <result for query n>
 ]
 ```
-or 
+or this format for `non-GraphQL` endpoints: 
 ```
 [
     {
-        "code": "<error code>",
-        "message": "<error message>"
-    },
+        "result": {
+            "errors": {
+                "error": [
+                    "message": "error message"
+                ]    
+            }
+        }    
+    }
     <result for query 1>
     ...
     <result for query n>
-]
 ```
 
 ## 2. Batched request endpoints

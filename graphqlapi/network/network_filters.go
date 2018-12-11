@@ -146,6 +146,10 @@ func genNetworkFetchWhereInpObjPropertiesObj(filterContainer *utils.FilterContai
 		Type:        graphql.String,
 		Description: descriptions.WhereValueDateDesc,
 	}
+	filterPropertiesElements["valueText"] = &graphql.InputObjectFieldConfig{
+		Type:        graphql.String,
+		Description: descriptions.WhereValueTextDesc,
+	}
 	filterPropertiesElements["name"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.String,
 		Description: descriptions.WhereNameDesc,
