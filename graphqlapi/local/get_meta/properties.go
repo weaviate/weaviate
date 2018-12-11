@@ -214,7 +214,6 @@ func newMetaProperties(className string, propertyName string) MetaProperties {
 						}))},
 				},
 			}),
-
 			// End of types
 		},
 	}
