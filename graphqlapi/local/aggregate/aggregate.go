@@ -251,7 +251,7 @@ func generateNumericPropertyFields(dbSchema *schema.Schema, class *models.Semant
 		if propertyType.IsPrimitive() {
 			primitivePropertyType := propertyType.AsPrimitive()
 			
-			if primitivePropertyType == schema.DataTypeInt || primitivePropertyType == schema.DataTypeNumber {
+			if primitivePropertyType == schema.DataTypeInt {
 				propertyField = &graphql.Field{
 					Description: property.Description,
 					Type:        graphql.Int,
@@ -262,6 +262,18 @@ func generateNumericPropertyFields(dbSchema *schema.Schema, class *models.Semant
 				
 				propertyField.Name = property.Name
 				classProperties[property.Name] = propertyField
+			}
+			if primitivePropertyType == schema.DataTypeNumber {
+			propertyField = &graphql.Field{
+				Description: property.Description,
+				Type:        graphql.Float,
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					return nil, fmt.Errorf("not supported")
+				},
+			}
+			
+			propertyField.Name = property.Name
+			classProperties[property.Name] = propertyField
 			}
 		}
 	}

@@ -529,7 +529,7 @@ function createAggregateSubClasses(ontologyThings, weaviate){
           description: function() {
           return getDesc("AggregateSubClassGrouped")},
           type: new GraphQLObjectType({
-            name: "Aggregate" + singleClass.class + "GroupedBy",
+            name: "Aggregate" + singleClass.class + "GroupedByObj",
             description: function() {
               return getDesc("AggregateSubClassGroupedObj")},
             fields: {
