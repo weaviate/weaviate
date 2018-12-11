@@ -28,7 +28,7 @@ Key features of Weaviate include:
   </tr>
   <tr>
     <td><b>Easy to use</b></td>
-    <td>We relay heavily on vanilla GraphQL and RESTful interfaces. We believe in a superior developer user experience and try to make it as easy as possible to use Weaviate</td> 
+    <td>We rely heavily on vanilla GraphQL and RESTful interfaces. We believe in a superior developer user experience and try to make it as easy as possible to use Weaviate</td> 
   </tr>
   <tr>
     <td><b>Decentralized knowledge graphs (P2P-network)</b></td>
