@@ -19,7 +19,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 	knownClasses := map[string]*graphql.Object{}
 
-	metaProperties := newMetaProperties()
+	metaProperties := newMetaProperties("", "") // TODO fix this!
 
 	if len(dbSchema.Actions.Classes) > 0 {
 		localGetActions, err := buildGetMetaClasses(dbSchema, kind.ACTION_KIND, dbSchema.Actions, metaProperties, &knownClasses)
