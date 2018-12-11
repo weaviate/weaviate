@@ -1,8 +1,8 @@
 package local
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
+	local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
+	local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
 )
 
 // Resolving local GraphQL queries
