@@ -86,9 +86,19 @@ func parsePathAndExtractInstance(operand map[string]interface{}) (pathAndInstanc
 		return result, fmt.Errorf("expected operand to have a field path")
 	}
 
-	pathFragments, ok := path.([]string)
+	pathFragmentsUntyped, ok := path.([]interface{})
 	if !ok {
-		return result, fmt.Errorf("expected where.operands[].path to be a []string, but was %#v", path)
+		return result, fmt.Errorf("expected where.operands[].path to be a slice, but was %#v", path)
+	}
+
+	pathFragments := make([]string, len(pathFragmentsUntyped), len(pathFragmentsUntyped))
+	for i, fragment := range pathFragmentsUntyped {
+		fragmentString, ok := fragment.(string)
+		if !ok {
+			return result, fmt.Errorf("expected where.operands[].path[] to be a string, but was %#v", path)
+		}
+
+		pathFragments[i] = fragmentString
 	}
 
 	if len(pathFragments) < 4 {
