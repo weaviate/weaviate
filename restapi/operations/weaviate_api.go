@@ -34,6 +34,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/keys"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/knowledge_tools"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/schema"
@@ -195,6 +196,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ThingsWeaviateThingsValidateHandler: things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
 			return middleware.NotImplemented("operation ThingsWeaviateThingsValidate has not yet been implemented")
 		}),
+		KnowledgeToolsWeaviateToolsMapHandler: knowledge_tools.WeaviateToolsMapHandlerFunc(func(params knowledge_tools.WeaviateToolsMapParams, principal interface{}) middleware.Responder {
+			return middleware.NotImplemented("operation KnowledgeToolsWeaviateToolsMap has not yet been implemented")
+		}),
 
 		// Applies when the "X-API-KEY" header is set
 		APIKeyAuth: func(token string) (interface{}, error) {
@@ -341,6 +345,8 @@ type WeaviateAPI struct {
 	ThingsWeaviateThingsUpdateHandler things.WeaviateThingsUpdateHandler
 	// ThingsWeaviateThingsValidateHandler sets the operation handler for the weaviate things validate operation
 	ThingsWeaviateThingsValidateHandler things.WeaviateThingsValidateHandler
+	// KnowledgeToolsWeaviateToolsMapHandler sets the operation handler for the weaviate tools map operation
+	KnowledgeToolsWeaviateToolsMapHandler knowledge_tools.WeaviateToolsMapHandler
 
 	// ServeError is called when an error is received, there is a default handler
 	// but you can set your own with this
@@ -594,6 +600,10 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.ThingsWeaviateThingsValidateHandler == nil {
 		unregistered = append(unregistered, "things.WeaviateThingsValidateHandler")
+	}
+
+	if o.KnowledgeToolsWeaviateToolsMapHandler == nil {
+		unregistered = append(unregistered, "knowledge_tools.WeaviateToolsMapHandler")
 	}
 
 	if len(unregistered) > 0 {
@@ -937,6 +947,11 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/things/validate"] = things.NewWeaviateThingsValidate(o.context, o.ThingsWeaviateThingsValidateHandler)
+
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/tools/map"] = knowledge_tools.NewWeaviateToolsMap(o.context, o.KnowledgeToolsWeaviateToolsMapHandler)
 
 }
 
