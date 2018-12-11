@@ -23,11 +23,13 @@ func TestSingleInstanceWithSingleFilter(t *testing.T) {
 	args := map[string]interface{}{
 		"where": map[string]interface{}{
 			"operator": "And",
-			"operands": []map[string]interface{}{{
-				"path":     []string{"weaviateB", "Things", "City", "population"},
-				"operator": "GreaterThan",
-				"valueInt": 1000000,
-			}},
+			"operands": []interface{}{
+				map[string]interface{}{
+					"path":     []string{"weaviateB", "Things", "City", "population"},
+					"operator": "GreaterThan",
+					"valueInt": 1000000,
+				},
+			},
 		},
 	}
 	expectedResult := FiltersPerInstance{
@@ -58,15 +60,18 @@ func TestTwoInstancesWithSingleFilterEach(t *testing.T) {
 	args := map[string]interface{}{
 		"where": map[string]interface{}{
 			"operator": "And",
-			"operands": []map[string]interface{}{{
-				"path":     []string{"weaviateB", "Things", "City", "population"},
-				"operator": "GreaterThan",
-				"valueInt": 1000000,
-			}, {
-				"path":     []string{"weaviateC", "Things", "Airports", "capacity"},
-				"operator": "LessThan",
-				"valueInt": 60000,
-			}},
+			"operands": []interface{}{
+				map[string]interface{}{
+					"path":     []string{"weaviateB", "Things", "City", "population"},
+					"operator": "GreaterThan",
+					"valueInt": 1000000,
+				},
+				map[string]interface{}{
+					"path":     []string{"weaviateC", "Things", "Airports", "capacity"},
+					"operator": "LessThan",
+					"valueInt": 60000,
+				},
+			},
 		},
 	}
 	expectedResult := FiltersPerInstance{
@@ -107,15 +112,18 @@ func TestOneInstanceWithTwoFilters(t *testing.T) {
 	args := map[string]interface{}{
 		"where": map[string]interface{}{
 			"operator": "And",
-			"operands": []map[string]interface{}{{
-				"path":     []string{"weaviateB", "Things", "City", "population"},
-				"operator": "GreaterThan",
-				"valueInt": 1000000,
-			}, {
-				"path":        []string{"weaviateB", "Things", "City", "name"},
-				"operator":    "NotEqual",
-				"valueString": "Berlin",
-			}},
+			"operands": []interface{}{
+				map[string]interface{}{
+					"path":     []string{"weaviateB", "Things", "City", "population"},
+					"operator": "GreaterThan",
+					"valueInt": 1000000,
+				},
+				map[string]interface{}{
+					"path":        []string{"weaviateB", "Things", "City", "name"},
+					"operator":    "NotEqual",
+					"valueString": "Berlin",
+				},
+			},
 		},
 	}
 	expectedResult := FiltersPerInstance{

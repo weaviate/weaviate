@@ -56,9 +56,19 @@ func operandsFromWhere(where map[string]interface{}) ([]map[string]interface{}, 
 		return nil, fmt.Errorf("expected where to have field operands")
 	}
 
-	operandsMapSlice, ok := operands.([]map[string]interface{})
+	operandsSlice, ok := operands.([]interface{})
 	if !ok {
-		return nil, fmt.Errorf("expected where.operands to be a []map, but was %#v", operands)
+		return nil, fmt.Errorf("expected where.operands to be a slice, but was %#v", operands)
+	}
+
+	operandsMapSlice := make([]map[string]interface{}, len(operandsSlice), len(operandsSlice))
+	for i, operand := range operandsSlice {
+		operandMap, ok := operand.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected where.operands[] to be a map, but was %#v", operands)
+		}
+
+		operandsMapSlice[i] = operandMap
 	}
 
 	return operandsMapSlice, nil
