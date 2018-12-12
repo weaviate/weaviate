@@ -81,10 +81,10 @@ func traverseNestedSchemaLayer(t *testing.T, expectedLayerKey string, expectedLa
 
 		for key, expectedValue := range expectedLayerValue {
 			schemaPath := fmt.Sprintf("%s_%s", updatedExpectedLayerKey, key)
-			
+
 			// Don't compare description texts
 			if !strings.Contains(schemaPath, "description") {
-					
+
 				if actualValue, ok := actualLayerValue[key]; ok {
 					compareExpectedElementToActualElement(t, schemaPath, expectedValue, actualValue)
 				} else {
@@ -106,7 +106,7 @@ func compareExpectedElementToActualElement(t *testing.T, schemaPath string, expe
 			// check if both lists have the same length
 			parsedActualValue := actualValue.([]interface{})
 			assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s", schemaPath))
-			
+
 			if len(parsedExpectedValue) > 0 {
 				handleListComparisons(t, schemaPath, parsedExpectedValue, parsedActualValue)
 			}

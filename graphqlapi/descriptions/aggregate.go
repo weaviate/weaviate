@@ -43,4 +43,3 @@ const LocalAggregateGroupedByObjDesc string = "An object containing the path and
 
 const LocalAggregateGroupedByGroupedByPathDesc string = "The path of the grouped property"
 const LocalAggregateGroupedByGroupedByValueDesc string = "The value of the grouped property"
-
