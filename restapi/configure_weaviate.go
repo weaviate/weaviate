@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
+	"github.com/creativesoftwarefdn/weaviate/restapi/operations/knowledge_tools"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
 
@@ -2125,6 +2126,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	/*
 	 * HANDLE SCHEMA: NOTE, CAN BE FOUND IN /DATABASE
 	 */
+
+  /*
+	 * HANDLE KNOWLEDGE TOOLS
+	 */
+	api.KnowledgeToolsWeaviateToolsMapHandler = knowledge_tools.WeaviateToolsMapHandlerFunc(func(params knowledge_tools.WeaviateToolsMapParams, principal interface{}) middleware.Responder {
+		return middleware.NotImplemented("operation knowledge_tools.WeaviateToolsMap has not yet been implemented")
+	})
 
 	api.ServerShutdown = func() {}
 

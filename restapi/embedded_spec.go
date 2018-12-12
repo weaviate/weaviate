@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.10.0"
+    "version": "0.10.6"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -2197,6 +2197,48 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
+    },
+    "/tools/map": {
+      "post": {
+        "description": "Tool to render a map of concepts, based on ontologies available over the network.",
+        "tags": [
+          "knowledge tools"
+        ],
+        "summary": "Tool to render a map of concepts, based on ontologies available over the network.",
+        "operationId": "weaviate.tools.map",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ToolsMapRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ToolsMapRequestResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
     }
   },
   "definitions": {
@@ -2971,6 +3013,84 @@ func init() {
         }
       }
     },
+    "ToolsMapRequest": {
+      "type": "object",
+      "properties": {
+        "conceptCenter": {
+          "description": "Concept that should function as center. Should be one concept (e.g., car) or CamelCased (e.g, MovedTo)",
+          "type": "string"
+        },
+        "networkCenter": {
+          "description": "Only needs to be set when type is centerOfNetwork and should contain the name of the Weaviate that is taken as center.",
+          "type": "string"
+        },
+        "type": {
+          "description": "What type of map should be generated?",
+          "type": "string",
+          "enum": [
+            "zeroPointPosition",
+            "centerOfSelf",
+            "centerOfNetwork",
+            "centerOfConcept"
+          ]
+        }
+      }
+    },
+    "ToolsMapRequestResponse": {
+      "description": "Map of concepts.",
+      "type": "object",
+      "properties": {
+        "results": {
+          "description": "Results of the map request",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "concept": {
+                "$ref": "#/definitions/SemanticSchemaClass"
+              },
+              "distance": {
+                "description": "Distance to original vector concept",
+                "type": "number",
+                "format": "float"
+              },
+              "location": {
+                "description": "On which Weaviate is this concept located?",
+                "type": "string"
+              },
+              "type": {
+                "description": "Thing or Action",
+                "type": "string",
+                "enum": [
+                  "thing",
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        "startVector": {
+          "description": "Startpoint in the Contextionary expressed as 300-dimensional space",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float",
+            "maximum": 300,
+            "minimum": 300
+          }
+        },
+        "type": {
+          "description": "What type of map should be generated?",
+          "type": "string",
+          "enum": [
+            "zeroPointPosition",
+            "centerOfSelf",
+            "centerOfNetwork",
+            "centerOfConcept"
+          ]
+        }
+      }
+    },
     "VectorBasedQuestion": {
       "description": "Receive question based on array of classes, properties and values.",
       "type": "array",
@@ -3069,6 +3189,9 @@ func init() {
     },
     {
       "name": "things"
+    },
+    {
+      "name": "knowledge tools"
     },
     {
       "description": "These operations enable manipulation of the schema in Weaviate schema.",
@@ -3098,7 +3221,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.10.0"
+    "version": "0.10.6"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -5263,6 +5386,48 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
+    },
+    "/tools/map": {
+      "post": {
+        "description": "Tool to render a map of concepts, based on ontologies available over the network.",
+        "tags": [
+          "knowledge tools"
+        ],
+        "summary": "Tool to render a map of concepts, based on ontologies available over the network.",
+        "operationId": "weaviate.tools.map",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ToolsMapRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ToolsMapRequestResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
     }
   },
   "definitions": {
@@ -6037,6 +6202,84 @@ func init() {
         }
       }
     },
+    "ToolsMapRequest": {
+      "type": "object",
+      "properties": {
+        "conceptCenter": {
+          "description": "Concept that should function as center. Should be one concept (e.g., car) or CamelCased (e.g, MovedTo)",
+          "type": "string"
+        },
+        "networkCenter": {
+          "description": "Only needs to be set when type is centerOfNetwork and should contain the name of the Weaviate that is taken as center.",
+          "type": "string"
+        },
+        "type": {
+          "description": "What type of map should be generated?",
+          "type": "string",
+          "enum": [
+            "zeroPointPosition",
+            "centerOfSelf",
+            "centerOfNetwork",
+            "centerOfConcept"
+          ]
+        }
+      }
+    },
+    "ToolsMapRequestResponse": {
+      "description": "Map of concepts.",
+      "type": "object",
+      "properties": {
+        "results": {
+          "description": "Results of the map request",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "concept": {
+                "$ref": "#/definitions/SemanticSchemaClass"
+              },
+              "distance": {
+                "description": "Distance to original vector concept",
+                "type": "number",
+                "format": "float"
+              },
+              "location": {
+                "description": "On which Weaviate is this concept located?",
+                "type": "string"
+              },
+              "type": {
+                "description": "Thing or Action",
+                "type": "string",
+                "enum": [
+                  "thing",
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        "startVector": {
+          "description": "Startpoint in the Contextionary expressed as 300-dimensional space",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float",
+            "maximum": 300,
+            "minimum": 300
+          }
+        },
+        "type": {
+          "description": "What type of map should be generated?",
+          "type": "string",
+          "enum": [
+            "zeroPointPosition",
+            "centerOfSelf",
+            "centerOfNetwork",
+            "centerOfConcept"
+          ]
+        }
+      }
+    },
     "VectorBasedQuestion": {
       "description": "Receive question based on array of classes, properties and values.",
       "type": "array",
@@ -6135,6 +6378,9 @@ func init() {
     },
     {
       "name": "things"
+    },
+    {
+      "name": "knowledge tools"
     },
     {
       "description": "These operations enable manipulation of the schema in Weaviate schema.",
