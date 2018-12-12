@@ -22,16 +22,30 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
+func genNetworkWhereOperatorEnum() *graphql.Enum {
+	graphql.EnumConfig{
+		Name: "NetworkWhereOperatorEnum",
+		Values: graphql.EnumValueConfigMap{
+			"And":              &graphql.EnumValueConfig{},
+			"Or":               &graphql.EnumValueConfig{},
+			"Equal":            &graphql.EnumValueConfig{},
+			"Not":              &graphql.EnumValueConfig{},
+			"NotEqual":         &graphql.EnumValueConfig{},
+			"GreaterThan":      &graphql.EnumValueConfig{},
+			"GreaterThanEqual": &graphql.EnumValueConfig{},
+			"LessThan":         &graphql.EnumValueConfig{},
+			"LessThanEqual":    &graphql.EnumValueConfig{},
+		},
+		Description: descriptions.WhereOperatorEnumDesc,
+	}
+}
+
 // generate these elements once
 func genNetworkStaticWhereFilterElements() graphql.InputObjectConfigFieldMap {
 	staticFilterElements := graphql.InputObjectConfigFieldMap{
 		"operator": &graphql.InputObjectFieldConfig{
-			Type:        graphql.String, //common_filters.GetOperatorEnum(), // TODO
+			Type:        genNetworkWhereOperatorEnum(),
 			Description: descriptions.WhereOperatorDesc,
-		},
-		"path": &graphql.InputObjectFieldConfig{
-			Type:        graphql.NewList(graphql.String),
-			Description: descriptions.WherePathDesc,
 		},
 		"valueInt": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Int,
@@ -134,13 +148,15 @@ func genNetworkFetchThingsAndActionsFilterFields(filterContainer *utils.FilterCo
 }
 
 func genNetworkFetchWhereInpObjPropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
-	filterPropertiesElements := common_filters.GetGetAndGetMetaWhereFilters()
-	// delete "path" key/value set
-	delete(filterPropertiesElements, "path")
+	filterPropertiesElements := genNetworkStaticWhereFilterElements()
 
 	filterPropertiesElements["certainty"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.Float,
 		Description: descriptions.WhereCertaintyDesc,
+	}
+	filterPropertiesElements["valueDate"] = &graphql.InputObjectFieldConfig{
+		Type:        graphql.String,
+		Description: descriptions.WhereValueDateDesc,
 	}
 	filterPropertiesElements["valueText"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.String,

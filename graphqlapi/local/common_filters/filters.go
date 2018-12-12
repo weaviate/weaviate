@@ -50,7 +50,7 @@ func BuildNewGetAndGetMetaFilters() graphql.InputObjectConfigFieldMap {
 					"LessThan":         &graphql.EnumValueConfig{},
 					"LessThanEqual":    &graphql.EnumValueConfig{},
 				},
-				Description: "Enumeration object for the 'where' filter",
+				Description: descriptions.WhereOperatorEnumDesc,
 			}),
 			Description: descriptions.WhereOperatorDesc,
 		},
