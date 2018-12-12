@@ -22,32 +22,21 @@ func FiltersForNetworkInstances(args map[string]interface{}) (FiltersPerInstance
 		return nil, fmt.Errorf("expected where to be a map, but was %#v", where)
 	}
 
-	operands, err := operandsFromWhere(whereMap)
-	if err != nil {
-		return resultSet, err
+	operands, operandsErr := operandsFromWhere(whereMap)
+	if operandsErr == nil {
+		// return results on success,
+		// continue on error, try whether an operator is set
+		return buildFiltersFromOperands(operands, whereMap)
 	}
 
-	for _, operand := range operands {
-		parsedPath, err := parsePathAndExtractInstance(operand)
-		if err != nil {
-			return resultSet, err
-		}
-
-		operand["path"] = parsedPath.path
-		instance, ok := resultSet[parsedPath.instance]
-		if ok {
-			resultSet[parsedPath.instance] = mergeInstanceWithNewOperand(instance, operand)
-		} else {
-			resultSet[parsedPath.instance] = map[string]interface{}{
-				"where": map[string]interface{}{
-					"operator": whereMap["operator"],
-					"operands": []map[string]interface{}{operand},
-				},
-			}
-		}
+	operator, operatorErr := operatorFromWhere(whereMap)
+	if operatorErr == nil {
+		// return results on success
+		return buildFiltersFromOperator(operator, whereMap)
 	}
 
-	return resultSet, nil
+	return resultSet, fmt.Errorf("expected either operands or operator to be set in where clause, "+
+		"found neither. Errors were \n%s\nand\n%s", operandsErr, operatorErr)
 }
 
 func operandsFromWhere(where map[string]interface{}) ([]map[string]interface{}, error) {
@@ -72,6 +61,20 @@ func operandsFromWhere(where map[string]interface{}) ([]map[string]interface{}, 
 	}
 
 	return operandsMapSlice, nil
+}
+
+func operatorFromWhere(where map[string]interface{}) (string, error) {
+	operator, ok := where["operator"]
+	if !ok {
+		return "", fmt.Errorf("expected where to have field operator")
+	}
+
+	operatorString, ok := operator.(string)
+	if !ok {
+		return "", fmt.Errorf("expected where.operator to be a string")
+	}
+
+	return operatorString, nil
 }
 
 type pathAndInstance struct {
@@ -113,6 +116,32 @@ func parsePathAndExtractInstance(operand map[string]interface{}) (pathAndInstanc
 	return result, nil
 }
 
+func buildFiltersFromOperands(operands []map[string]interface{}, whereMap map[string]interface{},
+) (FiltersPerInstance, error) {
+	resultSet := FiltersPerInstance{}
+	for _, operand := range operands {
+		parsedPath, err := parsePathAndExtractInstance(operand)
+		if err != nil {
+			return resultSet, err
+		}
+
+		operand["path"] = parsedPath.path
+		instance, ok := resultSet[parsedPath.instance]
+		if ok {
+			resultSet[parsedPath.instance] = mergeInstanceWithNewOperand(instance, operand)
+		} else {
+			resultSet[parsedPath.instance] = map[string]interface{}{
+				"where": map[string]interface{}{
+					"operator": whereMap["operator"],
+					"operands": []map[string]interface{}{operand},
+				},
+			}
+		}
+	}
+
+	return resultSet, nil
+}
+
 func mergeInstanceWithNewOperand(instance interface{}, newOperand map[string]interface{}) map[string]interface{} {
 	// all type assertions are considered safe, because
 	// we only use constructs we've created ourselves
@@ -121,4 +150,20 @@ func mergeInstanceWithNewOperand(instance interface{}, newOperand map[string]int
 	newOperands := append(operands, newOperand)
 	instance.(map[string]interface{})["where"].(map[string]interface{})["operands"] = newOperands
 	return instance.(map[string]interface{})
+}
+
+func buildFiltersFromOperator(operator string, whereMap map[string]interface{},
+) (FiltersPerInstance, error) {
+	resultSet := FiltersPerInstance{}
+	parsedPath, err := parsePathAndExtractInstance(whereMap)
+	if err != nil {
+		return resultSet, err
+	}
+
+	whereMap["path"] = parsedPath.path
+	resultSet[parsedPath.instance] = map[string]interface{}{
+		"where": whereMap,
+	}
+
+	return resultSet, nil
 }

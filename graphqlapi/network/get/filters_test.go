@@ -19,7 +19,7 @@ func TestNoFilters(t *testing.T) {
 	}
 }
 
-func TestSingleInstanceWithSingleFilter(t *testing.T) {
+func TestSingleInstanceWithSingleFilterAsOperands(t *testing.T) {
 	args := map[string]interface{}{
 		"where": map[string]interface{}{
 			"operator": "And",
@@ -41,6 +41,35 @@ func TestSingleInstanceWithSingleFilter(t *testing.T) {
 					"operator": "GreaterThan",
 					"valueInt": 1000000,
 				}},
+			},
+		},
+	}
+
+	result, err := FiltersForNetworkInstances(args)
+
+	if !reflect.DeepEqual(expectedResult, result) {
+		t.Errorf("expected result to be \n\n%#v\n\n, but got \n\n%#v\n\n", expectedResult, result)
+	}
+
+	if err != nil {
+		t.Errorf("expected FiltersForNetworkInstances not to error, but got %s", err)
+	}
+}
+
+func TestSingleInstanceWithSingleAsOperator(t *testing.T) {
+	args := map[string]interface{}{
+		"where": map[string]interface{}{
+			"operator":    "NotEqual",
+			"valueString": "Berlin",
+			"path":        []interface{}{"weaviateB", "Things", "City", "name"},
+		},
+	}
+	expectedResult := FiltersPerInstance{
+		"weaviateB": map[string]interface{}{
+			"where": map[string]interface{}{
+				"operator":    "NotEqual",
+				"valueString": "Berlin",
+				"path":        []string{"Things", "City", "name"},
 			},
 		},
 	}
