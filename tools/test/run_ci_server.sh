@@ -5,7 +5,7 @@ set -euo pipefail
 
 docker pull golang:1.11-alpine
 docker-compose -f docker-compose-test.yml build weaviate janus index db
-docker-compose -f ddocker-compose-test.yml up --force-recreate -d weaviate janus index db
+docker-compose -f docker-compose-test.yml up --force-recreate -d weaviate janus index db
 
 MAX_WAIT_SECONDS=60
 ALREADY_WAITING=0
