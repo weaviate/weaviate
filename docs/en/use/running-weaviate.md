@@ -2,42 +2,78 @@
 
 > Documentation on how to run Weaviate with Docker or stand-alone.
 
-Include;
-- Docker
-- Safe Mode
-- Link to next step which is to ontology
-- Link to enterprise version
-- https://github.com/creativesoftwarefdn/weaviate/issues/520#issuecomment-430208844
+_This document describes how to run Weaviate for users. If you want to run a development version of Weaviate for contributors, click [here](../contribute/running-weaviate.md)_
 
-The easiest way to get Weaviate running is through Docker Compose. Below is a list of commands that can be used to get the service running. In case of issues, please report them [here](https://github.com/creativesoftwarefdn/weaviate/issues) in case of questions please ask them [here](https://stackoverflow.com/questions/tagged/weaviate).
+## Run full stack with Docker-compose
 
-### simple-http-service
+A complete Weaviate stack based on Janusgraph (with; Elasticsearch and Cassandra) can be directly run with the Docker compose files available in this repo.
 
-- Build Weaviate: `docker-compose -f docker-compose.yml build weaviate`
-- Run Weaviate: `docker-compose up -d`
-- Directly builds and runs Weaviate, JanusGraph, Cassandra and Elastic with the [standard contextionary](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/use/FAQ.md#q-what-does-the-standard-contextionary-consists-of). The docker compose files are available [here](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docker-compose.yml)
-- Weaviate will become available on: http://localhost:8080/
+#### Running the latest stable version
 
-### simple-https-service
+```sh
+$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/feature/docs/docker-compose/runtime-stable/docker-compose.yml
+$ docker-compose up
+```
 
-- `TBD`
-- Runs like the `simple-http-service` but with certificates.
-- Weaviate will become available on: http://test
+- Releases can be found [here](https://github.com/creativesoftwarefdn/weaviate/releases).
+- Based on `tree/master` on Github
+- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
 
-### custom-contextionary
+#### Running the latest unstable version
 
-- `TBD`
+```sh
+$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/feature/docs/docker-compose/runtime-unstable/docker-compose.yml
+$ docker-compose up
+```
 
-### unstable-image
+- Based on `tree/develop` on Github
+- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
 
-- `TBD`
-- The Weaviate setup runs standard based on the stable branch. In case you want to run the unstable (develop) branch. Click [here](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/contribute/contributing.md#docker-images) for more information regarding the Docker image structure.
-- Same as `simple-http-service`
+#### Running a specific version
 
-### Custom Port or Custom host
+```sh
+$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/feature/docs/docker-compose/runtime-stable/docker-compose.yml
+```
 
-- `TBD`
-- Weaviate exposes the service by default on port 8080 and host 127.0.0.1
+Open docker-compose.yml and replace `unstable` in the image (`image: creativesoftwarefdn/weaviate:unstable`) with the prefered version number.
 
+```sh
+$ docker-compose up
+```
 
+- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
 
+## Run Weaviate stand alone with Docker
+
+Weaviate can also be run stand-alone.
+
+#### Stable
+
+```sh
+$ docker run creativesoftwarefdn/weaviate:stable
+```
+
+- Based on `tree/master` on Github
+- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
+
+#### Specific Stable version
+
+```sh
+$ docker run creativesoftwarefdn/weaviate:$VERSION
+```
+
+- Releases can be found [here](https://github.com/creativesoftwarefdn/weaviate/releases).
+- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
+
+#### Unstable
+
+```sh
+$ docker run creativesoftwarefdn/weaviate:unstable
+```
+
+- Based on `tree/davelop` on Github
+- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
+
+## Running with Custom Contextionary
+
+More information about running Weaviate with a custom Contextionary can be found in the [`docs/en/contribute/running-weaviate.md`](docs/en/contribute/running-weaviate.md) docs.
