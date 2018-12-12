@@ -17,13 +17,12 @@ package network
 import (
 	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
 )
 
 func genNetworkWhereOperatorEnum() *graphql.Enum {
-	graphql.EnumConfig{
+	enumConf := graphql.EnumConfig{
 		Name: "NetworkWhereOperatorEnum",
 		Values: graphql.EnumValueConfigMap{
 			"And":              &graphql.EnumValueConfig{},
@@ -38,6 +37,8 @@ func genNetworkWhereOperatorEnum() *graphql.Enum {
 		},
 		Description: descriptions.WhereOperatorEnumDesc,
 	}
+
+	return graphql.NewEnum(enumConf)
 }
 
 // generate these elements once
