@@ -48,17 +48,17 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.10.5"
+    "version": "0.10.0"
   },
   "basePath": "/weaviate/v1",
   "paths": {
     "/actions": {
       "get": {
-        "description": "Lists all actions in reverse order of creation, owned by the user that belongs to the used token.",
+        "description": "Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "actions"
         ],
-        "summary": "Get a list of actionsrelated to this key.",
+        "summary": "Get a list of Actions related to this key.",
         "operationId": "weaviate.actions.list",
         "parameters": [
           {
@@ -89,11 +89,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Registers a new action. Given meta-data and schema values are validated.",
+        "description": "Registers a new Action. Provided meta-data and schema values are validated.",
         "tags": [
           "actions"
         ],
-        "summary": "Create actions between two things (object and subject).",
+        "summary": "Create Actions between two Things (object and subject).",
         "operationId": "weaviate.actions.create",
         "parameters": [
           {
@@ -107,7 +107,7 @@ func init() {
                   "$ref": "#/definitions/ActionCreate"
                 },
                 "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
                   "type": "boolean"
                 }
               }
@@ -116,13 +116,13 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Action created",
+            "description": "Action created.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
           },
           "202": {
-            "description": "Successfully received. No guarantees are made that the Action is persisted.",
+            "description": "Successfully received. No guarantees are made that the Action persists.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -134,7 +134,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -146,11 +146,11 @@ func init() {
     },
     "/actions/validate": {
       "post": {
-        "description": "Validate an action's schema and meta-data. It has to be based on a schema, which is related to the given action to be accepted by this validation.",
+        "description": "Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.",
         "tags": [
           "actions"
         ],
-        "summary": "Validate an action based on a schema.",
+        "summary": "Validate an Action based on a schema.",
         "operationId": "weaviate.actions.validate",
         "parameters": [
           {
@@ -164,7 +164,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful validated."
+            "description": "Successfully validated."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -173,7 +173,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -185,17 +185,17 @@ func init() {
     },
     "/actions/{actionId}": {
       "get": {
-        "description": "Lists actions.",
+        "description": "Lists Actions.",
         "tags": [
           "actions"
         ],
-        "summary": "Get a specific action based on its uuid and a thing uuid related to this key. Also available as Websocket bus.",
+        "summary": "Get a specific Action based on its UUID and a Thing UUID related to this key. Also available as Websocket bus.",
         "operationId": "weaviate.actions.get",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
@@ -222,17 +222,17 @@ func init() {
         "x-available-in-websocket": false
       },
       "put": {
-        "description": "Updates an action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "actions"
         ],
-        "summary": "Update an action based on its uuid related to this key.",
+        "summary": "Update an Action based on its UUID related to this key.",
         "operationId": "weaviate.action.update",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
@@ -263,7 +263,7 @@ func init() {
             "description": "Successful query result but no resource was found."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -273,17 +273,17 @@ func init() {
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Deletes an action from the system.",
+        "description": "Deletes an Action from the system.",
         "tags": [
           "actions"
         ],
-        "summary": "Delete an action based on its uuid related to this key.",
+        "summary": "Delete an Action based on its UUID related to this key.",
         "operationId": "weaviate.actions.delete",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "actionId",
             "in": "path",
             "required": true
@@ -291,7 +291,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successfully deleted."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -307,24 +307,24 @@ func init() {
         "x-available-in-websocket": true
       },
       "patch": {
-        "description": "Updates an action. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "actions"
         ],
-        "summary": "Update an action based on its uuid (using patch semantics) related to this key.",
+        "summary": "Update an Action based on its UUID (using patch semantics) related to this key.",
         "operationId": "weaviate.actions.patch",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
           },
           {
             "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
             "name": "async",
             "in": "query"
           },
@@ -379,17 +379,17 @@ func init() {
     },
     "/actions/{actionId}/history": {
       "get": {
-        "description": "Returns a particular action history.",
+        "description": "Returns a particular Action history.",
         "tags": [
           "actions"
         ],
-        "summary": "Get a action's history based on its uuid related to this key.",
+        "summary": "Get an Action's history based on its UUID related to this key.",
         "operationId": "weaviate.action.history.get",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
@@ -431,14 +431,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the action.",
+            "description": "Unique name of the property related to the Action.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -454,7 +454,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully replaced all the refferences."
+            "description": "Successfully replaced all the references."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -463,7 +463,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -483,14 +483,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the action.",
+            "description": "Unique name of the property related to the Action.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -506,7 +506,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully added the refference."
+            "description": "Successfully added the reference."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -515,7 +515,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -535,14 +535,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the action.",
+            "description": "Unique name of the property related to the Action.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -558,7 +558,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successfully deleted."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -568,6 +568,172 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/batching/actions": {
+      "post": {
+        "description": "Register new Actions in bulk. Given meta-data and schema values are validated.",
+        "tags": [
+          "batching",
+          "actions"
+        ],
+        "summary": "Creates new Actions based on an Action template related to this key as a batch.",
+        "operationId": "weaviate.batching.actions.create",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "actions": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/ActionCreate"
+                  }
+                },
+                "async": {
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "type": "boolean"
+                },
+                "fields": {
+                  "description": "Define which fields need to be returned. Default value is ALL",
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "default": "ALL",
+                    "enum": [
+                      "ALL",
+                      "@class",
+                      "schema",
+                      "key",
+                      "actionId",
+                      "creationTimeUnix"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Actions created.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ActionsGetResponse"
+              }
+            }
+          },
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ActionsGetResponse"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/batching/things": {
+      "post": {
+        "description": "Register new Things in bulk. Provided meta-data and schema values are validated.",
+        "tags": [
+          "batching",
+          "things"
+        ],
+        "summary": "Creates new Things based on a Thing template related to this key as a batch.",
+        "operationId": "weaviate.batching.things.create",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "async": {
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "type": "boolean"
+                },
+                "fields": {
+                  "description": "Define which fields need to be returned. Default value is ALL",
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "default": "ALL",
+                    "enum": [
+                      "ALL",
+                      "@class",
+                      "schema",
+                      "key",
+                      "thingId",
+                      "creationTimeUnix"
+                    ]
+                  }
+                },
+                "things": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/ThingCreate"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Things created.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ThingsGetResponse"
+              }
+            }
+          },
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ThingsGetResponse"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -598,7 +764,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Succesful query (with select).",
+            "description": "Successful query (with select).",
             "schema": {
               "$ref": "#/definitions/GraphQLResponse"
             }
@@ -610,7 +776,50 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/graphql/batch": {
+      "post": {
+        "description": "Perform a batched GraphQL query",
+        "tags": [
+          "graphql"
+        ],
+        "summary": "Get a response based on GraphQL.",
+        "operationId": "weaviate.graphql.batch",
+        "parameters": [
+          {
+            "description": "The GraphQL queries.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GraphQLQueries"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful query (with select).",
+            "schema": {
+              "$ref": "#/definitions/GraphQLResponses"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -649,7 +858,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -717,7 +926,7 @@ func init() {
         "tags": [
           "keys"
         ],
-        "summary": "Get a key based on its uuid related to this key.",
+        "summary": "Get a key based on its UUID related to this key.",
         "operationId": "weaviate.keys.get",
         "parameters": [
           {
@@ -754,7 +963,7 @@ func init() {
         "tags": [
           "keys"
         ],
-        "summary": "Delete a key based on its uuid related to this key.",
+        "summary": "Delete a key based on its UUID related to this key.",
         "operationId": "weaviate.keys.delete",
         "parameters": [
           {
@@ -768,7 +977,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successfully deleted."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -858,7 +1067,7 @@ func init() {
             "description": "Successful query result but no resource was found."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -917,10 +1126,10 @@ func init() {
             "description": "Alive and kicking!"
           },
           "401": {
-            "description": "Unauthorized update"
+            "description": "Unauthorized update."
           },
           "500": {
-            "description": "Internal error"
+            "description": "Internal error."
           }
         },
         "x-available-in-mqtt": false,
@@ -930,7 +1139,7 @@ func init() {
     "/p2p/health": {
       "get": {
         "security": [],
-        "description": "Check if a peer is alive and healthy",
+        "description": "Check if a peer is alive and healthy.",
         "tags": [
           "P2P"
         ],
@@ -941,7 +1150,7 @@ func init() {
             "description": "Alive and kicking!"
           },
           "500": {
-            "description": "Not healthy (yet)"
+            "description": "Not healthy (yet)."
           }
         },
         "x-available-in-mqtt": false,
@@ -953,7 +1162,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Dump the current the database schema",
+        "summary": "Dump the current the database schema.",
         "operationId": "weaviate.schema.dump",
         "responses": {
           "200": {
@@ -1014,7 +1223,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Rename, or replace the keywords of the Action",
+        "summary": "Rename, or replace the keywords of the Action.",
         "operationId": "weaviate.schema.actions.update",
         "parameters": [
           {
@@ -1034,7 +1243,7 @@ func init() {
                   "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
-                  "description": "The new name of the Action",
+                  "description": "The new name of the Action.",
                   "type": "string"
                 }
               }
@@ -1043,16 +1252,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Changes applied"
+            "description": "Changes applied."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class"
+            "description": "Could not find the Action class."
           },
           "422": {
-            "description": "Invalid update",
+            "description": "Invalid update.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1063,7 +1272,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a Action class (and all data in the instances) from the ontology",
+        "summary": "Remove an Action class (and all data in the instances) from the ontology.",
         "operationId": "weaviate.schema.actions.delete",
         "parameters": [
           {
@@ -1078,7 +1287,7 @@ func init() {
             "description": "Removed the Action class from the ontology."
           },
           "400": {
-            "description": "Could not delete the Action class",
+            "description": "Could not delete the Action class.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1094,7 +1303,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Add a property to a Action class",
+        "summary": "Add a property to an Action class.",
         "operationId": "weaviate.schema.actions.properties.add",
         "parameters": [
           {
@@ -1114,16 +1323,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property"
+            "description": "Added the property."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class"
+            "description": "Could not find the Action class."
           },
           "422": {
-            "description": "Invalid property",
+            "description": "Invalid property.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1136,7 +1345,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Rename, or replace the keywords of the property",
+        "summary": "Rename, or replace the keywords of the property.",
         "operationId": "weaviate.schema.actions.properties.update",
         "parameters": [
           {
@@ -1162,7 +1371,7 @@ func init() {
                   "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
-                  "description": "The new name of the property",
+                  "description": "The new name of the property.",
                   "type": "string"
                 }
               }
@@ -1171,16 +1380,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Changes applied"
+            "description": "Changes applied."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class or property"
+            "description": "Could not find the Action class or property."
           },
           "422": {
-            "description": "Invalid update",
+            "description": "Invalid update.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1191,7 +1400,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a property from a Action class",
+        "summary": "Remove a property from an Action class.",
         "operationId": "weaviate.schema.actions.properties.delete",
         "parameters": [
           {
@@ -1215,7 +1424,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class or property"
+            "description": "Could not find the Action class or property."
           }
         }
       }
@@ -1245,7 +1454,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "422": {
-            "description": "Invalid Thing class",
+            "description": "Invalid Thing class.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1258,7 +1467,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Rename, or replace the keywords of the Thing",
+        "summary": "Rename, or replace the keywords of the Thing.",
         "operationId": "weaviate.schema.things.update",
         "parameters": [
           {
@@ -1278,7 +1487,7 @@ func init() {
                   "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
-                  "description": "The new name of the Thing",
+                  "description": "The new name of the Thing.",
                   "type": "string"
                 }
               }
@@ -1287,16 +1496,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Changes applied"
+            "description": "Changes applied."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class"
+            "description": "Could not find the Thing class."
           },
           "422": {
-            "description": "Invalid update",
+            "description": "Invalid update.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1307,7 +1516,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a Thing class (and all data in the instances) from the ontology",
+        "summary": "Remove a Thing class (and all data in the instances) from the ontology.",
         "operationId": "weaviate.schema.things.delete",
         "parameters": [
           {
@@ -1322,7 +1531,7 @@ func init() {
             "description": "Removed the Thing class from the ontology."
           },
           "400": {
-            "description": "Could not delete the Thing class",
+            "description": "Could not delete the Thing class.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1338,7 +1547,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Add a property to a Thing class",
+        "summary": "Add a property to a Thing class.",
         "operationId": "weaviate.schema.things.properties.add",
         "parameters": [
           {
@@ -1358,16 +1567,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property"
+            "description": "Added the property."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class"
+            "description": "Could not find the Thing class."
           },
           "422": {
-            "description": "Invalid property",
+            "description": "Invalid property.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1380,7 +1589,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Rename, or replace the keywords of the property",
+        "summary": "Rename, or replace the keywords of the property.",
         "operationId": "weaviate.schema.things.properties.update",
         "parameters": [
           {
@@ -1406,7 +1615,7 @@ func init() {
                   "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
-                  "description": "The new name of the property",
+                  "description": "The new name of the property.",
                   "type": "string"
                 }
               }
@@ -1415,16 +1624,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Changes applied"
+            "description": "Changes applied."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class or property"
+            "description": "Could not find the Thing class or property."
           },
           "422": {
-            "description": "Invalid update",
+            "description": "Invalid update.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1435,7 +1644,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a property from a Thing class",
+        "summary": "Remove a property from a Thing class.",
         "operationId": "weaviate.schema.things.properties.delete",
         "parameters": [
           {
@@ -1459,18 +1668,18 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class or property"
+            "description": "Could not find the Thing class or property."
           }
         }
       }
     },
     "/things": {
       "get": {
-        "description": "Lists all things in reverse order of creation, owned by the user that belongs to the used token.",
+        "description": "Lists all Things in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "things"
         ],
-        "summary": "Get a list of things related to this key.",
+        "summary": "Get a list of Things related to this key.",
         "operationId": "weaviate.things.list",
         "parameters": [
           {
@@ -1501,11 +1710,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Registers a new thing. Given meta-data and schema values are validated.",
+        "description": "Registers a new Thing. Given meta-data and schema values are validated.",
         "tags": [
           "things"
         ],
-        "summary": "Create a new thing based on a thing template related to this key.",
+        "summary": "Create a new Thing based on a Thing template related to this key.",
         "operationId": "weaviate.things.create",
         "parameters": [
           {
@@ -1516,7 +1725,7 @@ func init() {
               "type": "object",
               "properties": {
                 "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
                   "type": "boolean"
                 },
                 "thing": {
@@ -1546,7 +1755,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1558,7 +1767,7 @@ func init() {
     },
     "/things/validate": {
       "post": {
-        "description": "Validate a thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
+        "description": "Validate a Thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
         "tags": [
           "things"
         ],
@@ -1576,7 +1785,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful validated."
+            "description": "Successfully validated."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1585,7 +1794,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1597,17 +1806,17 @@ func init() {
     },
     "/things/{thingId}": {
       "get": {
-        "description": "Returns a particular thing data.",
+        "description": "Returns a particular Thing data.",
         "tags": [
           "things"
         ],
-        "summary": "Get a thing based on its uuid related to this key.",
+        "summary": "Get a Thing based on its UUID related to this key.",
         "operationId": "weaviate.things.get",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
@@ -1634,17 +1843,17 @@ func init() {
         "x-available-in-websocket": false
       },
       "put": {
-        "description": "Updates a thing data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "things"
         ],
-        "summary": "Update a thing based on its uuid related to this key.",
+        "summary": "Update a Thing based on its UUID related to this key.",
         "operationId": "weaviate.things.update",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
@@ -1675,7 +1884,7 @@ func init() {
             "description": "Successful query result but no resource was found."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1685,17 +1894,17 @@ func init() {
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Deletes a thing from the system. All actions pointing to this thing, where the thing is the object of the action, are also being deleted.",
+        "description": "Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.",
         "tags": [
           "things"
         ],
-        "summary": "Delete a thing based on its uuid related to this key.",
+        "summary": "Delete a Thing based on its UUID related to this key.",
         "operationId": "weaviate.things.delete",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
@@ -1703,7 +1912,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successfully deleted."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1719,24 +1928,24 @@ func init() {
         "x-available-in-websocket": true
       },
       "patch": {
-        "description": "Updates a thing data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "things"
         ],
-        "summary": "Update a thing based on its uuid (using patch semantics) related to this key.",
+        "summary": "Update a Thing based on its UUID (using patch semantics) related to this key.",
         "operationId": "weaviate.things.patch",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
           },
           {
             "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
             "name": "async",
             "in": "query"
           },
@@ -1791,17 +2000,17 @@ func init() {
     },
     "/things/{thingId}/history": {
       "get": {
-        "description": "Returns a particular thing history.",
+        "description": "Returns a particular Thing's history.",
         "tags": [
           "things"
         ],
-        "summary": "Get a thing's history based on its uuid related to this key.",
+        "summary": "Get a Thing's history based on its UUID related to this key.",
         "operationId": "weaviate.thing.history.get",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
@@ -1843,14 +2052,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the thing.",
+            "description": "Unique name of the property related to the Thing.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -1866,7 +2075,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully replaced all the refferences (success is based on the behavior of the datastore)."
+            "description": "Successfully replaced all the references (success is based on the behavior of the datastore)."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1875,7 +2084,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1895,14 +2104,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the thing.",
+            "description": "Unique name of the property related to the Thing.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -1918,7 +2127,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully added the refference."
+            "description": "Successfully added the reference."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -1927,7 +2136,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1947,14 +2156,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the thing.",
+            "description": "Unique name of the property related to the Thing.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -1970,7 +2179,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successfully deleted."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2001,7 +2210,7 @@ func init() {
           "type": "object",
           "properties": {
             "creationTimeUnix": {
-              "description": "Timestamp of creation of this action in milliseconds since epoch UTC.",
+              "description": "Timestamp of creation of this Action in milliseconds since epoch UTC.",
               "type": "integer",
               "format": "int64"
             },
@@ -2009,7 +2218,7 @@ func init() {
               "$ref": "#/definitions/SingleRef"
             },
             "lastUpdateTimeUnix": {
-              "description": "Timestamp since epoch of last update made to the action.",
+              "description": "Timestamp of the last update made to the Action since epoch UTC.",
               "type": "integer",
               "format": "int64"
             }
@@ -2058,7 +2267,7 @@ func init() {
         {
           "properties": {
             "actionId": {
-              "description": "ID of the action.",
+              "description": "ID of the Action.",
               "type": "string",
               "format": "uuid"
             }
@@ -2070,14 +2279,14 @@ func init() {
       "type": "object",
       "properties": {
         "deleted": {
-          "description": "Indication whether the action is deleted",
+          "description": "Indication of whether the Action is deleted.",
           "type": "boolean"
         },
         "key": {
           "$ref": "#/definitions/SingleRef"
         },
         "propertyHistory": {
-          "description": "An array with the history of the action.",
+          "description": "An array with the history of the Action.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/ActionHistoryObject"
@@ -2094,7 +2303,7 @@ func init() {
           "type": "object",
           "properties": {
             "creationTimeUnix": {
-              "description": "Timestamp of creation of this action history in milliseconds since epoch UTC.",
+              "description": "Timestamp of creation of this Action history in milliseconds since epoch UTC.",
               "type": "integer",
               "format": "int64"
             }
@@ -2120,19 +2329,54 @@ func init() {
         }
       ]
     },
+    "ActionsGetResponse": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Action"
+        },
+        {
+          "properties": {
+            "actionId": {
+              "description": "ID of the Action.",
+              "type": "string",
+              "format": "uuid"
+            },
+            "result": {
+              "description": "Results for this specific Action.",
+              "format": "object",
+              "properties": {
+                "errors": {
+                  "$ref": "#/definitions/ErrorResponse"
+                },
+                "status": {
+                  "type": "string",
+                  "default": "SUCCESS",
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
     "ActionsListResponse": {
-      "description": "List of actions.",
+      "description": "List of Actions.",
       "type": "object",
       "properties": {
         "actions": {
-          "description": "The actual list of actions.",
+          "description": "The actual list of Actions.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/ActionGetResponse"
           }
         },
         "totalResults": {
-          "description": "The total number of actions for the query. The number of items in a response may be smaller due to paging.",
+          "description": "The total number of Actions for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
         }
@@ -2156,7 +2400,7 @@ func init() {
       }
     },
     "GraphQLError": {
-      "description": "Error messages responded only if error exists.",
+      "description": "An error response caused by a GraphQL query.",
       "properties": {
         "locations": {
           "type": "array",
@@ -2185,16 +2429,23 @@ func init() {
         }
       }
     },
+    "GraphQLQueries": {
+      "description": "A list of GraphQL queries.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GraphQLQuery"
+      }
+    },
     "GraphQLQuery": {
-      "description": "GraphQL query based on: http://facebook.github.io/graphql/",
+      "description": "GraphQL query based on: http://facebook.github.io/graphql/.",
       "type": "object",
       "properties": {
         "operationName": {
-          "description": "Name of the operation if multiple exist in query.",
+          "description": "The name of the operation if multiple exist in the query.",
           "type": "string"
         },
         "query": {
-          "description": "Query based on GraphQL syntax",
+          "description": "Query based on GraphQL syntax.",
           "type": "string"
         },
         "variables": {
@@ -2204,22 +2455,29 @@ func init() {
       }
     },
     "GraphQLResponse": {
-      "description": "GraphQL based repsonse: http://facebook.github.io/graphql/",
+      "description": "GraphQL based response: http://facebook.github.io/graphql/.",
       "properties": {
         "data": {
-          "description": "GraphQL data object",
+          "description": "GraphQL data object.",
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/JsonObject"
           }
         },
         "errors": {
-          "description": "Array with errors",
+          "description": "Array with errors.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/GraphQLError"
           }
         }
+      }
+    },
+    "GraphQLResponses": {
+      "description": "A list of GraphQL responses.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GraphQLResponse"
       }
     },
     "JsonObject": {
@@ -2250,7 +2508,7 @@ func init() {
     "KeyCreate": {
       "properties": {
         "delete": {
-          "description": "Is user allowed to delete.",
+          "description": "Is user allowed to delete?",
           "type": "boolean"
         },
         "email": {
@@ -2258,7 +2516,7 @@ func init() {
           "type": "string"
         },
         "execute": {
-          "description": "Is user allowed to execute.",
+          "description": "Is user allowed to execute?",
           "type": "boolean"
         },
         "ipOrigin": {
@@ -2269,7 +2527,7 @@ func init() {
           }
         },
         "isRoot": {
-          "description": "Shows if key is root key",
+          "description": "Shows if key is root key.",
           "type": "boolean",
           "default": false
         },
@@ -2279,11 +2537,11 @@ func init() {
           "format": "int64"
         },
         "read": {
-          "description": "Is user allowed to read.",
+          "description": "Is user allowed to read?",
           "type": "boolean"
         },
         "write": {
-          "description": "Is user allowed to write.",
+          "description": "Is user allowed to write?",
           "type": "boolean"
         }
       }
@@ -2312,7 +2570,7 @@ func init() {
         {
           "properties": {
             "token": {
-              "description": "Key for user to use.",
+              "description": "Key for the user to use.",
               "type": "string",
               "format": "uuid"
             }
@@ -2328,7 +2586,7 @@ func init() {
           "$ref": "#/definitions/SemanticSchema"
         },
         "hostname": {
-          "description": "The url of the host",
+          "description": "The url of the host.",
           "type": "string",
           "format": "url"
         },
@@ -2378,45 +2636,45 @@ func init() {
       }
     },
     "PeerUpdate": {
-      "description": "A single peer in the network",
+      "description": "A single peer in the network.",
       "properties": {
         "id": {
-          "description": "The session ID of the peer",
+          "description": "The session ID of the peer.",
           "type": "string",
           "format": "uuid"
         },
         "name": {
-          "description": "Human readable name",
+          "description": "Human readable name.",
           "type": "string"
         },
         "uri": {
-          "description": "The location where the peer is exposed to the internet",
+          "description": "The location where the peer is exposed to the internet.",
           "type": "string",
           "format": "uri"
         }
       }
     },
     "PeerUpdateList": {
-      "description": "Lisf of known peers",
+      "description": "List of known peers.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/PeerUpdate"
       }
     },
     "Schema": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
     "SchemaHistory": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
     "SemanticSchema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas)",
+      "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
         "@context": {
-          "description": "URL of the context",
+          "description": "URL of the context.",
           "type": "string",
           "format": "uri"
         },
@@ -2433,7 +2691,7 @@ func init() {
           "format": "email"
         },
         "name": {
-          "description": "Name of the schema",
+          "description": "Name of the schema.",
           "type": "string"
         },
         "type": {
@@ -2454,7 +2712,7 @@ func init() {
           "type": "string"
         },
         "description": {
-          "description": "Description of the class",
+          "description": "Description of the class.",
           "type": "string"
         },
         "keywords": {
@@ -2473,7 +2731,7 @@ func init() {
       "type": "object",
       "properties": {
         "@dataType": {
-          "description": "Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise \"string\" or \"int\".",
+          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "type": "array",
           "items": {
             "type": "string"
@@ -2489,7 +2747,7 @@ func init() {
           ]
         },
         "description": {
-          "description": "Description of the property",
+          "description": "Description of the property.",
           "type": "string"
         },
         "keywords": {
@@ -2502,7 +2760,7 @@ func init() {
       }
     },
     "SemanticSchemaKeywords": {
-      "description": "Describes a class or property using multiple weighted other words",
+      "description": "Describes a class or property using multiple weighted words.",
       "type": "array",
       "items": {
         "type": "object",
@@ -2525,13 +2783,13 @@ func init() {
           "format": "uuid"
         },
         "locationUrl": {
-          "description": "url of location. http://localhost means this database. This option can be used to refer to other databases.",
+          "description": "Url of location. Http://localhost means this database. This option can be used to refer to other databases.",
           "type": "string",
           "format": "url",
           "default": "http://localhost/"
         },
         "type": {
-          "description": "Type should be Thing, Action or Key",
+          "description": "Type should be Thing, Action or Key.",
           "type": "string",
           "enum": [
             "Thing",
@@ -2550,7 +2808,7 @@ func init() {
           "type": "object",
           "properties": {
             "creationTimeUnix": {
-              "description": "Timestamp of creation of this thing in milliseconds since epoch UTC.",
+              "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
               "type": "integer",
               "format": "int64"
             },
@@ -2558,7 +2816,7 @@ func init() {
               "$ref": "#/definitions/SingleRef"
             },
             "lastUpdateTimeUnix": {
-              "description": "Timestamp of the last thing update in milliseconds since epoch UTC.",
+              "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
               "type": "integer",
               "format": "int64"
             }
@@ -2618,14 +2876,14 @@ func init() {
       "type": "object",
       "properties": {
         "deleted": {
-          "description": "Indication whether the action is deleted",
+          "description": "Indication whether the Action is deleted.",
           "type": "boolean"
         },
         "key": {
           "$ref": "#/definitions/SingleRef"
         },
         "propertyHistory": {
-          "description": "An array with the history of the things.",
+          "description": "An array with the history of the Things.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/ThingHistoryObject"
@@ -2642,7 +2900,7 @@ func init() {
           "type": "object",
           "properties": {
             "creationTimeUnix": {
-              "description": "Timestamp of creation of this thing history in milliseconds since epoch UTC.",
+              "description": "Timestamp of creation of this Thing history in milliseconds since epoch UTC.",
               "type": "integer",
               "format": "int64"
             }
@@ -2660,26 +2918,61 @@ func init() {
         }
       ]
     },
+    "ThingsGetResponse": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Thing"
+        },
+        {
+          "properties": {
+            "result": {
+              "description": "Results for this specific Thing.",
+              "format": "object",
+              "properties": {
+                "errors": {
+                  "$ref": "#/definitions/ErrorResponse"
+                },
+                "status": {
+                  "type": "string",
+                  "default": "SUCCESS",
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
+                }
+              }
+            },
+            "thingId": {
+              "description": "ID of the Thing.",
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      ]
+    },
     "ThingsListResponse": {
-      "description": "List of things.",
+      "description": "List of Things.",
       "type": "object",
       "properties": {
         "things": {
-          "description": "The actual list of things.",
+          "description": "The actual list of Things.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/ThingGetResponse"
           }
         },
         "totalResults": {
-          "description": "The total number of things for the query. The number of items in a response may be smaller due to paging.",
+          "description": "The total number of Things for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
         }
       }
     },
     "VectorBasedQuestion": {
-      "description": "receive question based on array of classes, properties and values.",
+      "description": "Receive question based on array of classes, properties and values.",
       "type": "array",
       "items": {
         "type": "object",
@@ -2757,6 +3050,10 @@ func init() {
   "tags": [
     {
       "name": "actions"
+    },
+    {
+      "description": "These operations allow to execute batch requests for Things and Actions. Mostly used for importing large datasets.",
+      "name": "batching"
     },
     {
       "name": "graphql"
@@ -2801,17 +3098,17 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.10.5"
+    "version": "0.10.0"
   },
   "basePath": "/weaviate/v1",
   "paths": {
     "/actions": {
       "get": {
-        "description": "Lists all actions in reverse order of creation, owned by the user that belongs to the used token.",
+        "description": "Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "actions"
         ],
-        "summary": "Get a list of actionsrelated to this key.",
+        "summary": "Get a list of Actions related to this key.",
         "operationId": "weaviate.actions.list",
         "parameters": [
           {
@@ -2850,11 +3147,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Registers a new action. Given meta-data and schema values are validated.",
+        "description": "Registers a new Action. Provided meta-data and schema values are validated.",
         "tags": [
           "actions"
         ],
-        "summary": "Create actions between two things (object and subject).",
+        "summary": "Create Actions between two Things (object and subject).",
         "operationId": "weaviate.actions.create",
         "parameters": [
           {
@@ -2868,7 +3165,7 @@ func init() {
                   "$ref": "#/definitions/ActionCreate"
                 },
                 "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
                   "type": "boolean"
                 }
               }
@@ -2877,13 +3174,13 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Action created",
+            "description": "Action created.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
           },
           "202": {
-            "description": "Successfully received. No guarantees are made that the Action is persisted.",
+            "description": "Successfully received. No guarantees are made that the Action persists.",
             "schema": {
               "$ref": "#/definitions/ActionGetResponse"
             }
@@ -2895,7 +3192,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2907,11 +3204,11 @@ func init() {
     },
     "/actions/validate": {
       "post": {
-        "description": "Validate an action's schema and meta-data. It has to be based on a schema, which is related to the given action to be accepted by this validation.",
+        "description": "Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.",
         "tags": [
           "actions"
         ],
-        "summary": "Validate an action based on a schema.",
+        "summary": "Validate an Action based on a schema.",
         "operationId": "weaviate.actions.validate",
         "parameters": [
           {
@@ -2925,7 +3222,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful validated."
+            "description": "Successfully validated."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -2934,7 +3231,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2946,17 +3243,17 @@ func init() {
     },
     "/actions/{actionId}": {
       "get": {
-        "description": "Lists actions.",
+        "description": "Lists Actions.",
         "tags": [
           "actions"
         ],
-        "summary": "Get a specific action based on its uuid and a thing uuid related to this key. Also available as Websocket bus.",
+        "summary": "Get a specific Action based on its UUID and a Thing UUID related to this key. Also available as Websocket bus.",
         "operationId": "weaviate.actions.get",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
@@ -2983,17 +3280,17 @@ func init() {
         "x-available-in-websocket": false
       },
       "put": {
-        "description": "Updates an action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "actions"
         ],
-        "summary": "Update an action based on its uuid related to this key.",
+        "summary": "Update an Action based on its UUID related to this key.",
         "operationId": "weaviate.action.update",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
@@ -3024,7 +3321,7 @@ func init() {
             "description": "Successful query result but no resource was found."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3034,17 +3331,17 @@ func init() {
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Deletes an action from the system.",
+        "description": "Deletes an Action from the system.",
         "tags": [
           "actions"
         ],
-        "summary": "Delete an action based on its uuid related to this key.",
+        "summary": "Delete an Action based on its UUID related to this key.",
         "operationId": "weaviate.actions.delete",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "actionId",
             "in": "path",
             "required": true
@@ -3052,7 +3349,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successfully deleted."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3068,24 +3365,24 @@ func init() {
         "x-available-in-websocket": true
       },
       "patch": {
-        "description": "Updates an action. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "actions"
         ],
-        "summary": "Update an action based on its uuid (using patch semantics) related to this key.",
+        "summary": "Update an Action based on its UUID (using patch semantics) related to this key.",
         "operationId": "weaviate.actions.patch",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
           },
           {
             "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
             "name": "async",
             "in": "query"
           },
@@ -3140,17 +3437,17 @@ func init() {
     },
     "/actions/{actionId}/history": {
       "get": {
-        "description": "Returns a particular action history.",
+        "description": "Returns a particular Action history.",
         "tags": [
           "actions"
         ],
-        "summary": "Get a action's history based on its uuid related to this key.",
+        "summary": "Get an Action's history based on its UUID related to this key.",
         "operationId": "weaviate.action.history.get",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
@@ -3192,14 +3489,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the action.",
+            "description": "Unique name of the property related to the Action.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -3215,7 +3512,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully replaced all the refferences."
+            "description": "Successfully replaced all the references."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3224,7 +3521,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3244,14 +3541,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the action.",
+            "description": "Unique name of the property related to the Action.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -3267,7 +3564,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully added the refference."
+            "description": "Successfully added the reference."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3276,7 +3573,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3296,14 +3593,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the action.",
+            "description": "Unique ID of the Action.",
             "name": "actionId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the action.",
+            "description": "Unique name of the property related to the Action.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -3319,7 +3616,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successfully deleted."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3329,6 +3626,172 @@ func init() {
           },
           "404": {
             "description": "Successful query result but no resource was found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/batching/actions": {
+      "post": {
+        "description": "Register new Actions in bulk. Given meta-data and schema values are validated.",
+        "tags": [
+          "batching",
+          "actions"
+        ],
+        "summary": "Creates new Actions based on an Action template related to this key as a batch.",
+        "operationId": "weaviate.batching.actions.create",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "actions": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/ActionCreate"
+                  }
+                },
+                "async": {
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Action. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "type": "boolean"
+                },
+                "fields": {
+                  "description": "Define which fields need to be returned. Default value is ALL",
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "default": "ALL",
+                    "enum": [
+                      "ALL",
+                      "@class",
+                      "schema",
+                      "key",
+                      "actionId",
+                      "creationTimeUnix"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Actions created.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ActionsGetResponse"
+              }
+            }
+          },
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ActionsGetResponse"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/batching/things": {
+      "post": {
+        "description": "Register new Things in bulk. Provided meta-data and schema values are validated.",
+        "tags": [
+          "batching",
+          "things"
+        ],
+        "summary": "Creates new Things based on a Thing template related to this key as a batch.",
+        "operationId": "weaviate.batching.things.create",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "async": {
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the persistence of the data is confirmed. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the persistence of the data is confirmed. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "type": "boolean"
+                },
+                "fields": {
+                  "description": "Define which fields need to be returned. Default value is ALL",
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "default": "ALL",
+                    "enum": [
+                      "ALL",
+                      "@class",
+                      "schema",
+                      "key",
+                      "thingId",
+                      "creationTimeUnix"
+                    ]
+                  }
+                },
+                "things": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/ThingCreate"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Things created.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ThingsGetResponse"
+              }
+            }
+          },
+          "202": {
+            "description": "Successfully received.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ThingsGetResponse"
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3359,7 +3822,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Succesful query (with select).",
+            "description": "Successful query (with select).",
             "schema": {
               "$ref": "#/definitions/GraphQLResponse"
             }
@@ -3371,7 +3834,50 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/graphql/batch": {
+      "post": {
+        "description": "Perform a batched GraphQL query",
+        "tags": [
+          "graphql"
+        ],
+        "summary": "Get a response based on GraphQL.",
+        "operationId": "weaviate.graphql.batch",
+        "parameters": [
+          {
+            "description": "The GraphQL queries.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/GraphQLQueries"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful query (with select).",
+            "schema": {
+              "$ref": "#/definitions/GraphQLResponses"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3410,7 +3916,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3478,7 +3984,7 @@ func init() {
         "tags": [
           "keys"
         ],
-        "summary": "Get a key based on its uuid related to this key.",
+        "summary": "Get a key based on its UUID related to this key.",
         "operationId": "weaviate.keys.get",
         "parameters": [
           {
@@ -3515,7 +4021,7 @@ func init() {
         "tags": [
           "keys"
         ],
-        "summary": "Delete a key based on its uuid related to this key.",
+        "summary": "Delete a key based on its UUID related to this key.",
         "operationId": "weaviate.keys.delete",
         "parameters": [
           {
@@ -3529,7 +4035,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successfully deleted."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3619,7 +4125,7 @@ func init() {
             "description": "Successful query result but no resource was found."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3678,10 +4184,10 @@ func init() {
             "description": "Alive and kicking!"
           },
           "401": {
-            "description": "Unauthorized update"
+            "description": "Unauthorized update."
           },
           "500": {
-            "description": "Internal error"
+            "description": "Internal error."
           }
         },
         "x-available-in-mqtt": false,
@@ -3691,7 +4197,7 @@ func init() {
     "/p2p/health": {
       "get": {
         "security": [],
-        "description": "Check if a peer is alive and healthy",
+        "description": "Check if a peer is alive and healthy.",
         "tags": [
           "P2P"
         ],
@@ -3702,7 +4208,7 @@ func init() {
             "description": "Alive and kicking!"
           },
           "500": {
-            "description": "Not healthy (yet)"
+            "description": "Not healthy (yet)."
           }
         },
         "x-available-in-mqtt": false,
@@ -3714,7 +4220,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Dump the current the database schema",
+        "summary": "Dump the current the database schema.",
         "operationId": "weaviate.schema.dump",
         "responses": {
           "200": {
@@ -3775,7 +4281,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Rename, or replace the keywords of the Action",
+        "summary": "Rename, or replace the keywords of the Action.",
         "operationId": "weaviate.schema.actions.update",
         "parameters": [
           {
@@ -3795,7 +4301,7 @@ func init() {
                   "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
-                  "description": "The new name of the Action",
+                  "description": "The new name of the Action.",
                   "type": "string"
                 }
               }
@@ -3804,16 +4310,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Changes applied"
+            "description": "Changes applied."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class"
+            "description": "Could not find the Action class."
           },
           "422": {
-            "description": "Invalid update",
+            "description": "Invalid update.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3824,7 +4330,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a Action class (and all data in the instances) from the ontology",
+        "summary": "Remove an Action class (and all data in the instances) from the ontology.",
         "operationId": "weaviate.schema.actions.delete",
         "parameters": [
           {
@@ -3839,7 +4345,7 @@ func init() {
             "description": "Removed the Action class from the ontology."
           },
           "400": {
-            "description": "Could not delete the Action class",
+            "description": "Could not delete the Action class.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3855,7 +4361,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Add a property to a Action class",
+        "summary": "Add a property to an Action class.",
         "operationId": "weaviate.schema.actions.properties.add",
         "parameters": [
           {
@@ -3875,16 +4381,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property"
+            "description": "Added the property."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class"
+            "description": "Could not find the Action class."
           },
           "422": {
-            "description": "Invalid property",
+            "description": "Invalid property.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3897,7 +4403,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Rename, or replace the keywords of the property",
+        "summary": "Rename, or replace the keywords of the property.",
         "operationId": "weaviate.schema.actions.properties.update",
         "parameters": [
           {
@@ -3923,7 +4429,7 @@ func init() {
                   "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
-                  "description": "The new name of the property",
+                  "description": "The new name of the property.",
                   "type": "string"
                 }
               }
@@ -3932,16 +4438,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Changes applied"
+            "description": "Changes applied."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class or property"
+            "description": "Could not find the Action class or property."
           },
           "422": {
-            "description": "Invalid update",
+            "description": "Invalid update.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3952,7 +4458,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a property from a Action class",
+        "summary": "Remove a property from an Action class.",
         "operationId": "weaviate.schema.actions.properties.delete",
         "parameters": [
           {
@@ -3976,7 +4482,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Action class or property"
+            "description": "Could not find the Action class or property."
           }
         }
       }
@@ -4006,7 +4512,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "422": {
-            "description": "Invalid Thing class",
+            "description": "Invalid Thing class.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4019,7 +4525,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Rename, or replace the keywords of the Thing",
+        "summary": "Rename, or replace the keywords of the Thing.",
         "operationId": "weaviate.schema.things.update",
         "parameters": [
           {
@@ -4039,7 +4545,7 @@ func init() {
                   "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
-                  "description": "The new name of the Thing",
+                  "description": "The new name of the Thing.",
                   "type": "string"
                 }
               }
@@ -4048,16 +4554,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Changes applied"
+            "description": "Changes applied."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class"
+            "description": "Could not find the Thing class."
           },
           "422": {
-            "description": "Invalid update",
+            "description": "Invalid update.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4068,7 +4574,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a Thing class (and all data in the instances) from the ontology",
+        "summary": "Remove a Thing class (and all data in the instances) from the ontology.",
         "operationId": "weaviate.schema.things.delete",
         "parameters": [
           {
@@ -4083,7 +4589,7 @@ func init() {
             "description": "Removed the Thing class from the ontology."
           },
           "400": {
-            "description": "Could not delete the Thing class",
+            "description": "Could not delete the Thing class.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4099,7 +4605,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Add a property to a Thing class",
+        "summary": "Add a property to a Thing class.",
         "operationId": "weaviate.schema.things.properties.add",
         "parameters": [
           {
@@ -4119,16 +4625,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added the property"
+            "description": "Added the property."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class"
+            "description": "Could not find the Thing class."
           },
           "422": {
-            "description": "Invalid property",
+            "description": "Invalid property.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4141,7 +4647,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Rename, or replace the keywords of the property",
+        "summary": "Rename, or replace the keywords of the property.",
         "operationId": "weaviate.schema.things.properties.update",
         "parameters": [
           {
@@ -4167,7 +4673,7 @@ func init() {
                   "$ref": "#/definitions/SemanticSchemaKeywords"
                 },
                 "newName": {
-                  "description": "The new name of the property",
+                  "description": "The new name of the property.",
                   "type": "string"
                 }
               }
@@ -4176,16 +4682,16 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Changes applied"
+            "description": "Changes applied."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class or property"
+            "description": "Could not find the Thing class or property."
           },
           "422": {
-            "description": "Invalid update",
+            "description": "Invalid update.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4196,7 +4702,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Remove a property from a Thing class",
+        "summary": "Remove a property from a Thing class.",
         "operationId": "weaviate.schema.things.properties.delete",
         "parameters": [
           {
@@ -4220,18 +4726,18 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Could not find the Thing class or property"
+            "description": "Could not find the Thing class or property."
           }
         }
       }
     },
     "/things": {
       "get": {
-        "description": "Lists all things in reverse order of creation, owned by the user that belongs to the used token.",
+        "description": "Lists all Things in reverse order of creation, owned by the user that belongs to the used token.",
         "tags": [
           "things"
         ],
-        "summary": "Get a list of things related to this key.",
+        "summary": "Get a list of Things related to this key.",
         "operationId": "weaviate.things.list",
         "parameters": [
           {
@@ -4270,11 +4776,11 @@ func init() {
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Registers a new thing. Given meta-data and schema values are validated.",
+        "description": "Registers a new Thing. Given meta-data and schema values are validated.",
         "tags": [
           "things"
         ],
-        "summary": "Create a new thing based on a thing template related to this key.",
+        "summary": "Create a new Thing based on a Thing template related to this key.",
         "operationId": "weaviate.things.create",
         "parameters": [
           {
@@ -4285,7 +4791,7 @@ func init() {
               "type": "object",
               "properties": {
                 "async": {
-                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+                  "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the value is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
                   "type": "boolean"
                 },
                 "thing": {
@@ -4315,7 +4821,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4327,7 +4833,7 @@ func init() {
     },
     "/things/validate": {
       "post": {
-        "description": "Validate a thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
+        "description": "Validate a Thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
         "tags": [
           "things"
         ],
@@ -4345,7 +4851,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successful validated."
+            "description": "Successfully validated."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4354,7 +4860,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4366,17 +4872,17 @@ func init() {
     },
     "/things/{thingId}": {
       "get": {
-        "description": "Returns a particular thing data.",
+        "description": "Returns a particular Thing data.",
         "tags": [
           "things"
         ],
-        "summary": "Get a thing based on its uuid related to this key.",
+        "summary": "Get a Thing based on its UUID related to this key.",
         "operationId": "weaviate.things.get",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
@@ -4403,17 +4909,17 @@ func init() {
         "x-available-in-websocket": false
       },
       "put": {
-        "description": "Updates a thing data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "things"
         ],
-        "summary": "Update a thing based on its uuid related to this key.",
+        "summary": "Update a Thing based on its UUID related to this key.",
         "operationId": "weaviate.things.update",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
@@ -4444,7 +4950,7 @@ func init() {
             "description": "Successful query result but no resource was found."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4454,17 +4960,17 @@ func init() {
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Deletes a thing from the system. All actions pointing to this thing, where the thing is the object of the action, are also being deleted.",
+        "description": "Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.",
         "tags": [
           "things"
         ],
-        "summary": "Delete a thing based on its uuid related to this key.",
+        "summary": "Delete a Thing based on its UUID related to this key.",
         "operationId": "weaviate.things.delete",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
@@ -4472,7 +4978,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successfully deleted."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4488,24 +4994,24 @@ func init() {
         "x-available-in-websocket": true
       },
       "patch": {
-        "description": "Updates a thing data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
         "tags": [
           "things"
         ],
-        "summary": "Update a thing based on its uuid (using patch semantics) related to this key.",
+        "summary": "Update a Thing based on its UUID (using patch semantics) related to this key.",
         "operationId": "weaviate.things.patch",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
           },
           {
             "type": "boolean",
-            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is persisted. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is persisted. The value of ` + "`" + `async` + "`" + ` defaults to false.",
+            "description": "If ` + "`" + `async` + "`" + ` is true, return a 202 if the patch is accepted. You will receive this response before the data is made persistent. If ` + "`" + `async` + "`" + ` is false, you will receive confirmation after the update is made persistent. The value of ` + "`" + `async` + "`" + ` defaults to false.",
             "name": "async",
             "in": "query"
           },
@@ -4560,17 +5066,17 @@ func init() {
     },
     "/things/{thingId}/history": {
       "get": {
-        "description": "Returns a particular thing history.",
+        "description": "Returns a particular Thing's history.",
         "tags": [
           "things"
         ],
-        "summary": "Get a thing's history based on its uuid related to this key.",
+        "summary": "Get a Thing's history based on its UUID related to this key.",
         "operationId": "weaviate.thing.history.get",
         "parameters": [
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
@@ -4612,14 +5118,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the thing.",
+            "description": "Unique name of the property related to the Thing.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -4635,7 +5141,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully replaced all the refferences (success is based on the behavior of the datastore)."
+            "description": "Successfully replaced all the references (success is based on the behavior of the datastore)."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4644,7 +5150,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4664,14 +5170,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the thing.",
+            "description": "Unique name of the property related to the Thing.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -4687,7 +5193,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Successfully added the refference."
+            "description": "Successfully added the reference."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4696,7 +5202,7 @@ func init() {
             "description": "The used API-key has insufficient permissions."
           },
           "422": {
-            "description": "Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4716,14 +5222,14 @@ func init() {
           {
             "type": "string",
             "format": "uuid",
-            "description": "Unique ID of the thing.",
+            "description": "Unique ID of the Thing.",
             "name": "thingId",
             "in": "path",
             "required": true
           },
           {
             "type": "string",
-            "description": "Unique name of the property related to the thing.",
+            "description": "Unique name of the property related to the Thing.",
             "name": "propertyName",
             "in": "path",
             "required": true
@@ -4739,7 +5245,7 @@ func init() {
         ],
         "responses": {
           "204": {
-            "description": "Successful deleted."
+            "description": "Successfully deleted."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -4770,7 +5276,7 @@ func init() {
           "type": "object",
           "properties": {
             "creationTimeUnix": {
-              "description": "Timestamp of creation of this action in milliseconds since epoch UTC.",
+              "description": "Timestamp of creation of this Action in milliseconds since epoch UTC.",
               "type": "integer",
               "format": "int64"
             },
@@ -4778,7 +5284,7 @@ func init() {
               "$ref": "#/definitions/SingleRef"
             },
             "lastUpdateTimeUnix": {
-              "description": "Timestamp since epoch of last update made to the action.",
+              "description": "Timestamp of the last update made to the Action since epoch UTC.",
               "type": "integer",
               "format": "int64"
             }
@@ -4827,7 +5333,7 @@ func init() {
         {
           "properties": {
             "actionId": {
-              "description": "ID of the action.",
+              "description": "ID of the Action.",
               "type": "string",
               "format": "uuid"
             }
@@ -4839,14 +5345,14 @@ func init() {
       "type": "object",
       "properties": {
         "deleted": {
-          "description": "Indication whether the action is deleted",
+          "description": "Indication of whether the Action is deleted.",
           "type": "boolean"
         },
         "key": {
           "$ref": "#/definitions/SingleRef"
         },
         "propertyHistory": {
-          "description": "An array with the history of the action.",
+          "description": "An array with the history of the Action.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/ActionHistoryObject"
@@ -4863,7 +5369,7 @@ func init() {
           "type": "object",
           "properties": {
             "creationTimeUnix": {
-              "description": "Timestamp of creation of this action history in milliseconds since epoch UTC.",
+              "description": "Timestamp of creation of this Action history in milliseconds since epoch UTC.",
               "type": "integer",
               "format": "int64"
             }
@@ -4889,19 +5395,54 @@ func init() {
         }
       ]
     },
+    "ActionsGetResponse": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Action"
+        },
+        {
+          "properties": {
+            "actionId": {
+              "description": "ID of the Action.",
+              "type": "string",
+              "format": "uuid"
+            },
+            "result": {
+              "description": "Results for this specific Action.",
+              "format": "object",
+              "properties": {
+                "errors": {
+                  "$ref": "#/definitions/ErrorResponse"
+                },
+                "status": {
+                  "type": "string",
+                  "default": "SUCCESS",
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
     "ActionsListResponse": {
-      "description": "List of actions.",
+      "description": "List of Actions.",
       "type": "object",
       "properties": {
         "actions": {
-          "description": "The actual list of actions.",
+          "description": "The actual list of Actions.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/ActionGetResponse"
           }
         },
         "totalResults": {
-          "description": "The total number of actions for the query. The number of items in a response may be smaller due to paging.",
+          "description": "The total number of Actions for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
         }
@@ -4925,7 +5466,7 @@ func init() {
       }
     },
     "GraphQLError": {
-      "description": "Error messages responded only if error exists.",
+      "description": "An error response caused by a GraphQL query.",
       "properties": {
         "locations": {
           "type": "array",
@@ -4954,16 +5495,23 @@ func init() {
         }
       }
     },
+    "GraphQLQueries": {
+      "description": "A list of GraphQL queries.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GraphQLQuery"
+      }
+    },
     "GraphQLQuery": {
-      "description": "GraphQL query based on: http://facebook.github.io/graphql/",
+      "description": "GraphQL query based on: http://facebook.github.io/graphql/.",
       "type": "object",
       "properties": {
         "operationName": {
-          "description": "Name of the operation if multiple exist in query.",
+          "description": "The name of the operation if multiple exist in the query.",
           "type": "string"
         },
         "query": {
-          "description": "Query based on GraphQL syntax",
+          "description": "Query based on GraphQL syntax.",
           "type": "string"
         },
         "variables": {
@@ -4973,22 +5521,29 @@ func init() {
       }
     },
     "GraphQLResponse": {
-      "description": "GraphQL based repsonse: http://facebook.github.io/graphql/",
+      "description": "GraphQL based response: http://facebook.github.io/graphql/.",
       "properties": {
         "data": {
-          "description": "GraphQL data object",
+          "description": "GraphQL data object.",
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/JsonObject"
           }
         },
         "errors": {
-          "description": "Array with errors",
+          "description": "Array with errors.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/GraphQLError"
           }
         }
+      }
+    },
+    "GraphQLResponses": {
+      "description": "A list of GraphQL responses.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GraphQLResponse"
       }
     },
     "JsonObject": {
@@ -5019,7 +5574,7 @@ func init() {
     "KeyCreate": {
       "properties": {
         "delete": {
-          "description": "Is user allowed to delete.",
+          "description": "Is user allowed to delete?",
           "type": "boolean"
         },
         "email": {
@@ -5027,7 +5582,7 @@ func init() {
           "type": "string"
         },
         "execute": {
-          "description": "Is user allowed to execute.",
+          "description": "Is user allowed to execute?",
           "type": "boolean"
         },
         "ipOrigin": {
@@ -5038,7 +5593,7 @@ func init() {
           }
         },
         "isRoot": {
-          "description": "Shows if key is root key",
+          "description": "Shows if key is root key.",
           "type": "boolean",
           "default": false
         },
@@ -5048,11 +5603,11 @@ func init() {
           "format": "int64"
         },
         "read": {
-          "description": "Is user allowed to read.",
+          "description": "Is user allowed to read?",
           "type": "boolean"
         },
         "write": {
-          "description": "Is user allowed to write.",
+          "description": "Is user allowed to write?",
           "type": "boolean"
         }
       }
@@ -5081,7 +5636,7 @@ func init() {
         {
           "properties": {
             "token": {
-              "description": "Key for user to use.",
+              "description": "Key for the user to use.",
               "type": "string",
               "format": "uuid"
             }
@@ -5097,7 +5652,7 @@ func init() {
           "$ref": "#/definitions/SemanticSchema"
         },
         "hostname": {
-          "description": "The url of the host",
+          "description": "The url of the host.",
           "type": "string",
           "format": "url"
         },
@@ -5147,45 +5702,45 @@ func init() {
       }
     },
     "PeerUpdate": {
-      "description": "A single peer in the network",
+      "description": "A single peer in the network.",
       "properties": {
         "id": {
-          "description": "The session ID of the peer",
+          "description": "The session ID of the peer.",
           "type": "string",
           "format": "uuid"
         },
         "name": {
-          "description": "Human readable name",
+          "description": "Human readable name.",
           "type": "string"
         },
         "uri": {
-          "description": "The location where the peer is exposed to the internet",
+          "description": "The location where the peer is exposed to the internet.",
           "type": "string",
           "format": "uri"
         }
       }
     },
     "PeerUpdateList": {
-      "description": "Lisf of known peers",
+      "description": "List of known peers.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/PeerUpdate"
       }
     },
     "Schema": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
     "SchemaHistory": {
-      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition",
+      "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
     "SemanticSchema": {
-      "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas)",
+      "description": "Definitions of semantic schemas (also see: https://github.com/creativesoftwarefdn/weaviate-semantic-schemas).",
       "type": "object",
       "properties": {
         "@context": {
-          "description": "URL of the context",
+          "description": "URL of the context.",
           "type": "string",
           "format": "uri"
         },
@@ -5202,7 +5757,7 @@ func init() {
           "format": "email"
         },
         "name": {
-          "description": "Name of the schema",
+          "description": "Name of the schema.",
           "type": "string"
         },
         "type": {
@@ -5223,7 +5778,7 @@ func init() {
           "type": "string"
         },
         "description": {
-          "description": "Description of the class",
+          "description": "Description of the class.",
           "type": "string"
         },
         "keywords": {
@@ -5242,7 +5797,7 @@ func init() {
       "type": "object",
       "properties": {
         "@dataType": {
-          "description": "Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise \"string\" or \"int\".",
+          "description": "Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise \"string\" or \"int\".",
           "type": "array",
           "items": {
             "type": "string"
@@ -5258,7 +5813,7 @@ func init() {
           ]
         },
         "description": {
-          "description": "Description of the property",
+          "description": "Description of the property.",
           "type": "string"
         },
         "keywords": {
@@ -5271,7 +5826,7 @@ func init() {
       }
     },
     "SemanticSchemaKeywords": {
-      "description": "Describes a class or property using multiple weighted other words",
+      "description": "Describes a class or property using multiple weighted words.",
       "type": "array",
       "items": {
         "type": "object",
@@ -5294,13 +5849,13 @@ func init() {
           "format": "uuid"
         },
         "locationUrl": {
-          "description": "url of location. http://localhost means this database. This option can be used to refer to other databases.",
+          "description": "Url of location. Http://localhost means this database. This option can be used to refer to other databases.",
           "type": "string",
           "format": "url",
           "default": "http://localhost/"
         },
         "type": {
-          "description": "Type should be Thing, Action or Key",
+          "description": "Type should be Thing, Action or Key.",
           "type": "string",
           "enum": [
             "Thing",
@@ -5319,7 +5874,7 @@ func init() {
           "type": "object",
           "properties": {
             "creationTimeUnix": {
-              "description": "Timestamp of creation of this thing in milliseconds since epoch UTC.",
+              "description": "Timestamp of creation of this Thing in milliseconds since epoch UTC.",
               "type": "integer",
               "format": "int64"
             },
@@ -5327,7 +5882,7 @@ func init() {
               "$ref": "#/definitions/SingleRef"
             },
             "lastUpdateTimeUnix": {
-              "description": "Timestamp of the last thing update in milliseconds since epoch UTC.",
+              "description": "Timestamp of the last Thing update in milliseconds since epoch UTC.",
               "type": "integer",
               "format": "int64"
             }
@@ -5387,14 +5942,14 @@ func init() {
       "type": "object",
       "properties": {
         "deleted": {
-          "description": "Indication whether the action is deleted",
+          "description": "Indication whether the Action is deleted.",
           "type": "boolean"
         },
         "key": {
           "$ref": "#/definitions/SingleRef"
         },
         "propertyHistory": {
-          "description": "An array with the history of the things.",
+          "description": "An array with the history of the Things.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/ThingHistoryObject"
@@ -5411,7 +5966,7 @@ func init() {
           "type": "object",
           "properties": {
             "creationTimeUnix": {
-              "description": "Timestamp of creation of this thing history in milliseconds since epoch UTC.",
+              "description": "Timestamp of creation of this Thing history in milliseconds since epoch UTC.",
               "type": "integer",
               "format": "int64"
             }
@@ -5429,26 +5984,61 @@ func init() {
         }
       ]
     },
+    "ThingsGetResponse": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Thing"
+        },
+        {
+          "properties": {
+            "result": {
+              "description": "Results for this specific Thing.",
+              "format": "object",
+              "properties": {
+                "errors": {
+                  "$ref": "#/definitions/ErrorResponse"
+                },
+                "status": {
+                  "type": "string",
+                  "default": "SUCCESS",
+                  "enum": [
+                    "SUCCESS",
+                    "PENDING",
+                    "FAILED"
+                  ]
+                }
+              }
+            },
+            "thingId": {
+              "description": "ID of the Thing.",
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      ]
+    },
     "ThingsListResponse": {
-      "description": "List of things.",
+      "description": "List of Things.",
       "type": "object",
       "properties": {
         "things": {
-          "description": "The actual list of things.",
+          "description": "The actual list of Things.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/ThingGetResponse"
           }
         },
         "totalResults": {
-          "description": "The total number of things for the query. The number of items in a response may be smaller due to paging.",
+          "description": "The total number of Things for the query. The number of items in a response may be smaller due to paging.",
           "type": "integer",
           "format": "int64"
         }
       }
     },
     "VectorBasedQuestion": {
-      "description": "receive question based on array of classes, properties and values.",
+      "description": "Receive question based on array of classes, properties and values.",
       "type": "array",
       "items": {
         "type": "object",
@@ -5526,6 +6116,10 @@ func init() {
   "tags": [
     {
       "name": "actions"
+    },
+    {
+      "description": "These operations allow to execute batch requests for Things and Actions. Mostly used for importing large datasets.",
+      "name": "batching"
     },
     {
       "name": "graphql"

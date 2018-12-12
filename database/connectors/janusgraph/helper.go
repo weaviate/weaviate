@@ -96,7 +96,7 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 						q = q.StringProperty(janusPropertyName, t)
 					default:
 						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
-					}					
+					}
 				case schema.DataTypeBoolean:
 					switch t := value.(type) {
 					case bool:
@@ -608,7 +608,7 @@ func decodeJanusPrimitiveType(dataType schema.DataType, value gremlin.PropertyVa
 	case schema.DataTypeString:
 		return value.AssertString()
 	case schema.DataTypeText:
-		return value.AssertString()		
+		return value.AssertString()
 	case schema.DataTypeBoolean:
 		return value.AssertBool()
 	case schema.DataTypeDate:

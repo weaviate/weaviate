@@ -14,7 +14,7 @@ const (
 	// DataTypeString The data type is a value of type string
 	DataTypeString DataType = "string"
 	// DataTypeText The data type is a value of type string
-	DataTypeText DataType = "text"	
+	DataTypeText DataType = "text"
 	// DataTypeInt The data type is a value of type int
 	DataTypeInt DataType = "int"
 	// DataTypeNumber The data type is a value of type number/float
