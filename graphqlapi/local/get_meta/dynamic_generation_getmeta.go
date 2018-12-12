@@ -15,12 +15,12 @@
 package get_meta
 
 import (
-	"strings" 
 	"fmt"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/graphql-go/graphql"
+	"strings"
 )
 
 // Build the dynamically generated GetMeta Things part of the schema
@@ -117,8 +117,8 @@ func genSingleLocalMetaClassPropertyFields(class *models.SemanticSchemaClass) (g
 		if err != nil {
 			return nil, err
 		}
-		
-		if *propertyType == schema.DataTypeCRef{
+
+		if *propertyType == schema.DataTypeCRef {
 			singleClassPropertyFields[strings.Title(property.Name)] = convertedDataType
 		} else {
 			singleClassPropertyFields[property.Name] = convertedDataType
@@ -290,7 +290,7 @@ func genLocalMetaClassStringPropertyTopOccurrencesFields(class *models.SemanticS
 	return graphql.NewObject(getMetaPointing)
 }
 
-func genLocalMetaClassTextPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty  ) *graphql.Object {
+func genLocalMetaClassTextPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	topOccurrencesFields := genLocalMetaClassTextPropertyTopOccurrencesFields(class, property)
 
 	getMetaPointingFields := graphql.Fields{
@@ -342,7 +342,7 @@ func genLocalMetaClassTextPropertyFields(class *models.SemanticSchemaClass, prop
 	return graphql.NewObject(getMetaTextProperty)
 }
 
-func genLocalMetaClassTextPropertyTopOccurrencesFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty  ) *graphql.Object {
+func genLocalMetaClassTextPropertyTopOccurrencesFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	getMetaPointingFields := graphql.Fields{
 
 		"value": &graphql.Field{
@@ -440,7 +440,7 @@ func genLocalMetaClassIntPropertyFields(class *models.SemanticSchemaClass, prope
 	return graphql.NewObject(getMetaIntProperty)
 }
 
-func genLocalMetaClassNumberPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty  ) *graphql.Object {
+func genLocalMetaClassNumberPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	getMetaNumberFields := graphql.Fields{
 
 		"sum": &graphql.Field{
@@ -507,7 +507,7 @@ func genLocalMetaClassNumberPropertyFields(class *models.SemanticSchemaClass, pr
 	return graphql.NewObject(getMetaNumberProperty)
 }
 
-func genLocalMetaClassBooleanPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty  ) *graphql.Object {
+func genLocalMetaClassBooleanPropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	getMetaBooleanFields := graphql.Fields{
 
 		"type": &graphql.Field{
@@ -575,7 +575,7 @@ func genLocalMetaClassBooleanPropertyFields(class *models.SemanticSchemaClass, p
 }
 
 // a duplicate of the string function, this is a separate function to account for future expansions of functionality
-func genLocalMetaClassDatePropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty  ) *graphql.Object {
+func genLocalMetaClassDatePropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	topOccurrencesFields := genLocalMetaClassDatePropertyTopOccurrencesFields(class, property)
 
 	getMetaDateFields := graphql.Fields{
@@ -627,7 +627,7 @@ func genLocalMetaClassDatePropertyFields(class *models.SemanticSchemaClass, prop
 	return graphql.NewObject(getMetaDateProperty)
 }
 
-func genLocalMetaClassDatePropertyTopOccurrencesFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty  ) *graphql.Object {
+func genLocalMetaClassDatePropertyTopOccurrencesFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	getMetaMetaPointingFields := graphql.Fields{
 
 		"value": &graphql.Field{
@@ -658,7 +658,7 @@ func genLocalMetaClassDatePropertyTopOccurrencesFields(class *models.SemanticSch
 	return graphql.NewObject(getMetaMetaPointing)
 }
 
-func genLocalMetaClassCRefPropertyObj(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty  ) *graphql.Object {
+func genLocalMetaClassCRefPropertyObj(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
 	getMetaCRefPropertyFields := graphql.Fields{
 
 		"type": &graphql.Field{
@@ -698,7 +698,7 @@ func genLocalMetaClassCRefPropertyObj(class *models.SemanticSchemaClass, propert
 	return graphql.NewObject(metaClassCRefPropertyConf)
 }
 
-func genLocalMetaPropertyObj(class *models.SemanticSchemaClass  ) *graphql.Object {
+func genLocalMetaPropertyObj(class *models.SemanticSchemaClass) *graphql.Object {
 	getMetaPropertyFields := graphql.Fields{
 
 		"count": &graphql.Field{

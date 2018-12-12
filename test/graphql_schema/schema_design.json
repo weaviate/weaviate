@@ -5045,7 +5045,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "AggregateTestThingGroupedBy",
+                "name": "AggregateTestThingGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -5376,7 +5376,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "AggregateTestThingGroupedBy",
+          "name": "AggregateTestThingGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -5508,7 +5508,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "AggregateTestThingTwoGroupedBy",
+                "name": "AggregateTestThingTwoGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -5911,7 +5911,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "AggregateTestThingTwoGroupedBy",
+          "name": "AggregateTestThingTwoGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -6156,7 +6156,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "AggregateTestActionGroupedBy",
+                "name": "AggregateTestActionGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -6475,7 +6475,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "AggregateTestActionGroupedBy",
+          "name": "AggregateTestActionGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -6607,7 +6607,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "AggregateTestActionTwoGroupedBy",
+                "name": "AggregateTestActionTwoGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -6926,7 +6926,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "AggregateTestActionTwoGroupedBy",
+          "name": "AggregateTestActionTwoGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {

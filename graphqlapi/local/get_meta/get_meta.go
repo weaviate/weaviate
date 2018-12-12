@@ -17,18 +17,18 @@ package get_meta
 import (
 	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/graphql-go/graphql"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/graphql-go/graphql"
 )
 
 // Build the local queries from the database schema.
 func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
-	
+
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
 		return nil, fmt.Errorf("There are no Actions or Things classes defined yet.")
 	}
-	
+
 	getMetaKinds := graphql.Fields{}
 
 	if len(dbSchema.Actions.Classes) > 0 {
@@ -37,7 +37,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		if localGetMetaErr != nil {
 			return nil, fmt.Errorf("failed to generate action fields from schema for local MetaGet because: %v", localGetMetaErr)
 		}
-		
+
 		getMetaKinds["Actions"] = &graphql.Field{
 			Name:        "WeaviateLocalGetMetaActions",
 			Description: descriptions.LocalGetMetaActionsDesc,
@@ -47,14 +47,14 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			},
 		}
 	}
-	
+
 	if len(dbSchema.Things.Classes) > 0 {
 		classParentTypeIsAction := false
 		localGetMetaThings, localGetMetaErr := genLocalMetaClassFieldsFromSchema(dbSchema.Things.Classes, classParentTypeIsAction)
 		if localGetMetaErr != nil {
 			return nil, fmt.Errorf("failed to generate thing fields from schema for local MetaGet because: %v", localGetMetaErr)
 		}
-		
+
 		getMetaKinds["Things"] = &graphql.Field{
 			Name:        "WeaviateLocalGetMetaThings",
 			Description: descriptions.LocalGetMetaThingsDesc,
@@ -64,11 +64,11 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			},
 		}
 	}
-		
+
 	getMetaObj := graphql.NewObject(graphql.ObjectConfig{
-			Name:        "WeaviateLocalGetMetaObj",
-			Fields:      getMetaKinds,
-			Description: descriptions.LocalGetObjDesc,
+		Name:        "WeaviateLocalGetMetaObj",
+		Fields:      getMetaKinds,
+		Description: descriptions.LocalGetObjDesc,
 	})
 
 	localField := &graphql.Field{

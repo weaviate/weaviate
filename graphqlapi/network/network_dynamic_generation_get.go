@@ -18,9 +18,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/graphql-go/graphql"
 )
 

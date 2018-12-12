@@ -71,7 +71,7 @@ func buildGraphqlSchema(dbSchema *schema.Schema) (graphql.Schema, error) {
 	if err != nil {
 		return graphql.Schema{}, err
 	}
-	
+
 	networkSchema, err := network.Build(dbSchema)
 	if err != nil {
 		return graphql.Schema{}, err
