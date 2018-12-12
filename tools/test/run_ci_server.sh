@@ -4,8 +4,8 @@ set -euo pipefail
 # This scripts starts a Weaviate server with the test scheme and waits until weaviate is up and running.
 
 docker pull golang:1.11-alpine
-docker-compose -f docker-compose/test/docker-compose.yml build weaviate janus index db
-docker-compose -f docker-compose/test/docker-compose.yml up --force-recreate -d weaviate janus index db
+docker-compose -f docker-compose-test.yml build weaviate janus index db
+docker-compose -f ddocker-compose-test.yml up --force-recreate -d weaviate janus index db
 
 MAX_WAIT_SECONDS=60
 ALREADY_WAITING=0
@@ -18,7 +18,7 @@ while true; do
       echo "Weaviate is not up yet. (waited for ${ALREADY_WAITING}s)"
       if [ $ALREADY_WAITING -gt $MAX_WAIT_SECONDS ]; then
         echo "Weaviate did not start up in $MAX_WAIT_SECONDS."
-        docker-compose -f docker-compose/test/docker-compose.yml logs
+        docker-compose -f docker-compose-test.yml logs
         exit 1
       else
         sleep 2
