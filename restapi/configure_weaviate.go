@@ -2127,7 +2127,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE SCHEMA: NOTE, CAN BE FOUND IN /DATABASE
 	 */
 
-  /*
+	/*
 	 * HANDLE KNOWLEDGE TOOLS
 	 */
 	api.KnowledgeToolsWeaviateToolsMapHandler = knowledge_tools.WeaviateToolsMapHandlerFunc(func(params knowledge_tools.WeaviateToolsMapParams, principal interface{}) middleware.Responder {
