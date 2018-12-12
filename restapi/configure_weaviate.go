@@ -2447,13 +2447,12 @@ func configureServer(s *http.Server, scheme, addr string) {
 		fmt.Printf("UPDATESCHEMA DB: %#v\n", db)
 		peers, err := network.ListPeers()
 		if err != nil {
-			// TODO: turn on safe mode gh-520
 			graphQL = nil
 			messaging.ErrorMessage(fmt.Sprintf("could not list network peers to regenerate schema:\n%#v\n", err))
 			return
 		}
 
-		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, dbAndNetwork{Database: db, Network: network})
+		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers.Names(), dbAndNetwork{Database: db, Network: network})
 		if err != nil {
 			// TODO: turn on safe mode gh-520
 			graphQL = nil
@@ -2471,7 +2470,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	}
 	manager.TriggerSchemaUpdateCallbacks()
 
-	network.RegisterUpdatePeerCallback(func(peers []libnetwork.Peer) {
+	network.RegisterUpdatePeerCallback(func(peers libnetwork.Peers) {
 		manager.TriggerSchemaUpdateCallbacks()
 	})
 }

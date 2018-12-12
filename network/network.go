@@ -35,21 +35,35 @@ func (p Peer) CreateClient() (*client.WeaviateDecentralisedKnowledgeGraph, error
 	return peerClient, nil
 }
 
+// Peers is a list of peers, can be used to retrieve all names
+type Peers []Peer
+
+// Names returns a list of all names of all peers
+// This is to not expose internals in cases where
+// only the names matter, such as in the GraphQL API
+func (p Peers) Names() []string {
+	names := make([]string, len(p), len(p))
+	for i, peer := range p {
+		names[i] = peer.Name
+	}
+	return names
+}
+
 // PeerUpdateCallback should be called by UpdatePeers after a successful peer update
-type PeerUpdateCallback func(peers []Peer)
+type PeerUpdateCallback func(peers Peers)
 
 // Network is a Minimal abstraction over the network. This is the only API exposed to the rest of Weaviate.
 type Network interface {
 	IsReady() bool
 	GetStatus() string
 
-	ListPeers() ([]Peer, error)
+	ListPeers() (Peers, error)
 	// GetNetworkResolver() Network
 
 	ProxyGetInstance(network_get.ProxyGetInstanceParams) (*models.GraphQLResponse, error)
 
 	// UpdatePeers is Invoked by the Genesis server via an HTTP endpoint.
-	UpdatePeers(newPeers []Peer) error
+	UpdatePeers(newPeers Peers) error
 
 	// RegisterUpdatePeerCallback to be called after successful peer updates
 	RegisterUpdatePeerCallback(callbackFn PeerUpdateCallback)

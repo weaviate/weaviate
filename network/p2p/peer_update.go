@@ -7,7 +7,7 @@ import (
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 )
 
-func (n *network) UpdatePeers(newPeers []libnetwork.Peer) error {
+func (n *network) UpdatePeers(newPeers libnetwork.Peers) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -29,6 +29,6 @@ func (n *network) RegisterUpdatePeerCallback(callbackFn libnetwork.PeerUpdateCal
 	n.callbacks = append(n.callbacks, callbackFn)
 }
 
-func havePeersChanged(oldPeers []libnetwork.Peer, newPeers []libnetwork.Peer) bool {
+func havePeersChanged(oldPeers libnetwork.Peers, newPeers libnetwork.Peers) bool {
 	return !reflect.DeepEqual(oldPeers, newPeers)
 }

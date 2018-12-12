@@ -21,11 +21,11 @@ func (fn FakeNetwork) GetStatus() string {
 	return "not configured"
 }
 
-func (fn FakeNetwork) ListPeers() ([]network.Peer, error) {
+func (fn FakeNetwork) ListPeers() (network.Peers, error) {
 	return nil, fmt.Errorf("Cannot list peers, because there is no network configured")
 }
 
-func (fn FakeNetwork) UpdatePeers(new_peers []network.Peer) error {
+func (fn FakeNetwork) UpdatePeers(new_peers network.Peers) error {
 	return fmt.Errorf("Cannot update peers, because there is no network configured")
 }
 

@@ -5,10 +5,12 @@ import (
 	"testing"
 )
 
+var availableInstances = []string{"weaviateB", "weaviateC"}
+
 func TestNoFilters(t *testing.T) {
 	args := map[string]interface{}{}
 
-	result, err := FiltersForNetworkInstances(args)
+	result, err := FiltersForNetworkInstances(args, availableInstances)
 
 	if !reflect.DeepEqual(result, FiltersPerInstance{}) {
 		t.Errorf("expected an empty filters per instance, but got %#v", result)
@@ -45,7 +47,7 @@ func TestSingleInstanceWithSingleFilterAsOperands(t *testing.T) {
 		},
 	}
 
-	result, err := FiltersForNetworkInstances(args)
+	result, err := FiltersForNetworkInstances(args, availableInstances)
 
 	if !reflect.DeepEqual(expectedResult, result) {
 		t.Errorf("expected result to be \n\n%#v\n\n, but got \n\n%#v\n\n", expectedResult, result)
@@ -74,7 +76,7 @@ func TestSingleInstanceWithSingleAsOperator(t *testing.T) {
 		},
 	}
 
-	result, err := FiltersForNetworkInstances(args)
+	result, err := FiltersForNetworkInstances(args, availableInstances)
 
 	if !reflect.DeepEqual(expectedResult, result) {
 		t.Errorf("expected result to be \n\n%#v\n\n, but got \n\n%#v\n\n", expectedResult, result)
@@ -82,6 +84,22 @@ func TestSingleInstanceWithSingleAsOperator(t *testing.T) {
 
 	if err != nil {
 		t.Errorf("expected FiltersForNetworkInstances not to error, but got %s", err)
+	}
+}
+
+func TestSingleInstanceWithSingleWrongInstanceNameInPath(t *testing.T) {
+	args := map[string]interface{}{
+		"where": map[string]interface{}{
+			"operator":    "NotEqual",
+			"valueString": "Berlin",
+			"path":        []interface{}{"weaviateX", "Things", "City", "name"},
+		},
+	}
+
+	_, err := FiltersForNetworkInstances(args, availableInstances)
+
+	if err == nil {
+		t.Error("expected FiltersForNetworkInstances to error, but got nothing")
 	}
 }
 
@@ -126,7 +144,7 @@ func TestTwoInstancesWithSingleFilterEach(t *testing.T) {
 		},
 	}
 
-	result, err := FiltersForNetworkInstances(args)
+	result, err := FiltersForNetworkInstances(args, availableInstances)
 
 	if !reflect.DeepEqual(expectedResult, result) {
 		t.Errorf("expected result to be \n\n%#v\n\n, but got \n\n%#v\n\n", expectedResult, result)
@@ -172,7 +190,7 @@ func TestOneInstanceWithTwoFilters(t *testing.T) {
 		},
 	}
 
-	result, err := FiltersForNetworkInstances(args)
+	result, err := FiltersForNetworkInstances(args, availableInstances)
 
 	if !reflect.DeepEqual(expectedResult, result) {
 		t.Errorf("expected result to be \n\n%#v\n\n, but got \n\n%#v\n\n", expectedResult, result)
