@@ -1,8 +1,8 @@
 # Running Weaviate
 
-> Documentation on how to run Weaviate with Docker or stand-alone.
+> Documentation on how to run Weaviate with Docker-compose, Docker or stand-alone.
 
-_This document describes how to run Weaviate for users. If you want to run a development version of Weaviate for contributors, click [here](../contribute/running-weaviate.md)_
+This document describes how to run Weaviate for users. If you want to run a development version of Weaviate for contributors, click [here](../contribute/running-weaviate.md).
 
 ## Run full stack with Docker-compose
 
