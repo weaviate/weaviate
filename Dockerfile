@@ -37,8 +37,8 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go install -a -tags netgo -ldflags '-w
 # This image builds the contextionary fixtures.
 FROM build_base AS contextionary_fixture_builder
 COPY . .
-RUN apt-get update
-RUN apt-get -y curl jq
+RUN apk add --no-cache curl
+RUN apk add --no-cache jq
 RUN ./tools/download_latest_contextionary.sh
 
 ###############################################################################
