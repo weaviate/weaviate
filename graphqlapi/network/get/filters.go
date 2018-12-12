@@ -8,7 +8,7 @@ type FiltersPerInstance map[string]interface{}
 // FiltersForNetworkInstances takes the global filters from a network filter
 // parameter and splits it up into individual filter queries arranged by
 // instance
-func FiltersForNetworkInstances(args map[string]interface{}) (FiltersPerInstance, error) {
+func FiltersForNetworkInstances(args map[string]interface{}, availableInstances []string) (FiltersPerInstance, error) {
 	resultSet := FiltersPerInstance{}
 
 	where, ok := args["where"]
@@ -26,13 +26,13 @@ func FiltersForNetworkInstances(args map[string]interface{}) (FiltersPerInstance
 	if operandsErr == nil {
 		// return results on success,
 		// continue on error, try whether an operator is set
-		return buildFiltersFromOperands(operands, whereMap)
+		return buildFiltersFromOperands(operands, whereMap, availableInstances)
 	}
 
 	operator, operatorErr := operatorFromWhere(whereMap)
 	if operatorErr == nil {
 		// return results on success
-		return buildFiltersFromOperator(operator, whereMap)
+		return buildFiltersFromOperator(operator, whereMap, availableInstances)
 	}
 
 	return resultSet, fmt.Errorf("expected either operands or operator to be set in where clause, "+
@@ -82,7 +82,7 @@ type pathAndInstance struct {
 	instance string
 }
 
-func parsePathAndExtractInstance(operand map[string]interface{}) (pathAndInstance, error) {
+func parsePathAndExtractInstance(operand map[string]interface{}, availableInstances []string) (pathAndInstance, error) {
 	result := pathAndInstance{}
 	path, ok := operand["path"]
 	if !ok {
@@ -111,16 +111,21 @@ func parsePathAndExtractInstance(operand map[string]interface{}) (pathAndInstanc
 				"got got only length %d on path\n%#v", len(pathFragments), pathFragments)
 	}
 
-	result.instance = pathFragments[0]
+	instance, ok := isValidInstance(pathFragments[0], availableInstances)
+	if !ok {
+		return result, fmt.Errorf("invalid instance name '%s', network only contains %v", instance, availableInstances)
+	}
+
+	result.instance = instance
 	result.path = pathFragments[1:]
 	return result, nil
 }
 
 func buildFiltersFromOperands(operands []map[string]interface{}, whereMap map[string]interface{},
-) (FiltersPerInstance, error) {
+	instances []string) (FiltersPerInstance, error) {
 	resultSet := FiltersPerInstance{}
 	for _, operand := range operands {
-		parsedPath, err := parsePathAndExtractInstance(operand)
+		parsedPath, err := parsePathAndExtractInstance(operand, instances)
 		if err != nil {
 			return resultSet, err
 		}
@@ -153,9 +158,9 @@ func mergeInstanceWithNewOperand(instance interface{}, newOperand map[string]int
 }
 
 func buildFiltersFromOperator(operator string, whereMap map[string]interface{},
-) (FiltersPerInstance, error) {
+	instances []string) (FiltersPerInstance, error) {
 	resultSet := FiltersPerInstance{}
-	parsedPath, err := parsePathAndExtractInstance(whereMap)
+	parsedPath, err := parsePathAndExtractInstance(whereMap, instances)
 	if err != nil {
 		return resultSet, err
 	}
@@ -166,4 +171,14 @@ func buildFiltersFromOperator(operator string, whereMap map[string]interface{},
 	}
 
 	return resultSet, nil
+}
+
+func isValidInstance(needle string, haystack []string) (string, bool) {
+	for _, current := range haystack {
+		if current == needle {
+			return needle, true
+		}
+	}
+
+	return needle, false
 }

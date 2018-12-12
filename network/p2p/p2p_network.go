@@ -40,7 +40,7 @@ type network struct {
 	genesis_url strfmt.URI
 	messaging   *messages.Messaging
 	client      genesis_client.WeaviateGenesisServer
-	peers       []libnetwork.Peer
+	peers       libnetwork.Peers
 	callbacks   []libnetwork.PeerUpdateCallback
 }
 
@@ -124,7 +124,7 @@ func (n *network) GetStatus() string {
 	return n.state
 }
 
-func (n *network) ListPeers() ([]libnetwork.Peer, error) {
+func (n *network) ListPeers() (libnetwork.Peers, error) {
 	return n.peers, nil
 }
 

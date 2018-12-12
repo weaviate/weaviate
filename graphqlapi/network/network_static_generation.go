@@ -470,7 +470,12 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 				},
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				filters, err := network_get.FiltersForNetworkInstances(p.Args)
+				peers, ok := p.Source.(map[string]interface{})["NetworkPeers"].([]string)
+				if !ok {
+					return nil, fmt.Errorf("source does not contain NetworkPeers, but \n%#v", p.Source)
+				}
+
+				filters, err := network_get.FiltersForNetworkInstances(p.Args, peers)
 				if err != nil {
 					return nil, err
 				}
