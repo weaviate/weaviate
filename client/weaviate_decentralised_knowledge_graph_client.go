@@ -14,6 +14,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/client/graphql"
 	"github.com/creativesoftwarefdn/weaviate/client/keys"
+	"github.com/creativesoftwarefdn/weaviate/client/knowledge_tools"
 	"github.com/creativesoftwarefdn/weaviate/client/meta"
 	"github.com/creativesoftwarefdn/weaviate/client/operations"
 	"github.com/creativesoftwarefdn/weaviate/client/p2_p"
@@ -69,6 +70,8 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *WeaviateDe
 	cli.Graphql = graphql.New(transport, formats)
 
 	cli.Keys = keys.New(transport, formats)
+
+	cli.KnowledgeTools = knowledge_tools.New(transport, formats)
 
 	cli.Meta = meta.New(transport, formats)
 
@@ -130,6 +133,8 @@ type WeaviateDecentralisedKnowledgeGraph struct {
 
 	Keys *keys.Client
 
+	KnowledgeTools *knowledge_tools.Client
+
 	Meta *meta.Client
 
 	Operations *operations.Client
@@ -152,6 +157,8 @@ func (c *WeaviateDecentralisedKnowledgeGraph) SetTransport(transport runtime.Cli
 	c.Graphql.SetTransport(transport)
 
 	c.Keys.SetTransport(transport)
+
+	c.KnowledgeTools.SetTransport(transport)
 
 	c.Meta.SetTransport(transport)
 

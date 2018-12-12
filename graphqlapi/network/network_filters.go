@@ -15,11 +15,11 @@
 package network
 
 import (
+	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
-	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 )
 
 // generate these elements once
@@ -145,6 +145,10 @@ func genNetworkFetchWhereInpObjPropertiesObj(filterContainer *utils.FilterContai
 	filterPropertiesElements["valueDate"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.String,
 		Description: descriptions.WhereValueDateDesc,
+	}
+	filterPropertiesElements["valueText"] = &graphql.InputObjectFieldConfig{
+		Type:        graphql.String,
+		Description: descriptions.WhereValueTextDesc,
 	}
 	filterPropertiesElements["name"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.String,
