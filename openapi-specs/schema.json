@@ -815,6 +815,84 @@
           }
         }
       }
+    },
+    "ToolsMapRequest": {
+      "properties": {
+        "type": {
+          "description": "What type of map should be generated?",
+          "type": "string",
+          "enum": [
+            "zeroPointPosition",
+            "centerOfSelf",
+            "centerOfNetwork",
+            "centerOfConcept"
+          ]
+        },
+        "networkCenter": {
+          "description": "Only needs to be set when type is centerOfNetwork and should contain the name of the Weaviate that is taken as center.",
+          "type": "string"
+        },
+        "conceptCenter": {
+          "description": "Concept that should function as center. Should be one concept (e.g., car) or CamelCased (e.g, MovedTo)",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ToolsMapRequestResponse": {
+      "description": "Map of concepts.",
+      "properties": {
+        "type": {
+          "description": "What type of map should be generated?",
+          "type": "string",
+          "enum": [
+            "zeroPointPosition",
+            "centerOfSelf",
+            "centerOfNetwork",
+            "centerOfConcept"
+          ]
+        },
+        "results": {
+          "type": "array",
+          "description": "Results of the map request",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "description": "Thing or Action",
+                "type": "string",
+                "enum": [
+                  "thing",
+                  "action"
+                ]
+              },
+              "distance": {
+                "description": "Distance to original vector concept",
+                "type": "number",
+                "format": "float"
+              },
+              "location": {
+                "description": "On which Weaviate is this concept located?",
+                "type": "string"
+              },
+              "concept": {
+                "$ref": "#/definitions/SemanticSchemaClass"
+              }
+            }
+          }
+        },
+        "startVector": {
+          "description": "Startpoint in the Contextionary expressed as 300-dimensional space",
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float",
+            "minimum": 300,
+            "maximum": 300
+          }
+        }
+      },
+      "type": "object"
     }
   },
   "externalDocs": {
@@ -828,7 +906,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.10.0"
+    "version": "0.10.6"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
@@ -2028,14 +2106,14 @@
           "200": {
             "description": "Removed the Action class from the ontology."
           },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
           "400": {
             "description": "Could not delete the Action class.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
           }
         }
       },
@@ -2255,14 +2333,14 @@
           "200": {
             "description": "Removed the Thing class from the ontology."
           },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
           "400": {
             "description": "Could not delete the Thing class.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
           }
         }
       },
@@ -2958,6 +3036,48 @@
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
+    },
+    "/tools/map": {
+      "post": {
+        "description": "Tool to render a map of concepts, based on ontologies available over the network.",
+        "operationId": "weaviate.tools.map",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/ToolsMapRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ToolsMapRequestResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "The used API-key has insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Tool to render a map of concepts, based on ontologies available over the network.",
+        "tags": [
+          "knowledge tools"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
     }
   },
   "produces": [
@@ -3007,6 +3127,9 @@
     },
     {
       "name": "things"
+    },
+    {
+      "name": "knowledge tools"
     },
     {
       "name": "schema",
