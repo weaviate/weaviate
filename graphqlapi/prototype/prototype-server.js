@@ -525,7 +525,7 @@ function createAggregateSubClasses(ontologyThings, weaviate){
 
         // add groupedBy as field
         returnFields["groupedBy"] = { // should actually be the property where there is grouped on
-          name: "Aggregate" + singleClass.class + "GroupedBy",
+          name: "Aggregate" + singleClass.class + "GroupedByObj",
           description: function() {
           return getDesc("AggregateSubClassGrouped")},
           type: new GraphQLObjectType({

@@ -15,8 +15,8 @@
 package common_filters
 
 import (
-	"github.com/graphql-go/graphql"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	"github.com/graphql-go/graphql"
 	"sync"
 )
 
@@ -28,16 +28,16 @@ var initEnum sync.Once
 // The filters common to Network->Get and Network->GetMeta queries.
 func GetGetAndGetMetaWhereFilters() graphql.InputObjectConfigFieldMap {
 	initFilter.Do(func() {
-    sharedGetAndGetMetaWhereFilters = BuildNewGetAndGetMetaFilters()
-  })
+		sharedGetAndGetMetaWhereFilters = BuildNewGetAndGetMetaFilters()
+	})
 
-  return sharedGetAndGetMetaWhereFilters
+	return sharedGetAndGetMetaWhereFilters
 }
 
 func BuildNewGetAndGetMetaFilters() graphql.InputObjectConfigFieldMap {
-    commonFilters := graphql.InputObjectConfigFieldMap{
+	commonFilters := graphql.InputObjectConfigFieldMap{
 		"operator": &graphql.InputObjectFieldConfig{
-			Type: GetOperatorEnum(),
+			Type:        GetOperatorEnum(),
 			Description: descriptions.WhereOperatorDesc,
 		},
 		"path": &graphql.InputObjectFieldConfig{
@@ -90,13 +90,13 @@ func BuildNewGetAndGetMetaFilters() graphql.InputObjectConfigFieldMap {
 // The common operator enum object.
 func GetOperatorEnum() *graphql.Enum {
 	initEnum.Do(func() {
-    sharedOperatorEnum = BuildNewOperatorEnum()
-  })
+		sharedOperatorEnum = BuildNewOperatorEnum()
+	})
 
-  return sharedOperatorEnum
+	return sharedOperatorEnum
 }
 
-func BuildNewOperatorEnum() *graphql.Enum{
+func BuildNewOperatorEnum() *graphql.Enum {
 	operatorEnum := graphql.NewEnum(graphql.EnumConfig{
 		Name: "WhereOperatorEnum",
 		Values: graphql.EnumValueConfigMap{
@@ -112,6 +112,6 @@ func BuildNewOperatorEnum() *graphql.Enum{
 		},
 		Description: descriptions.WhereOperatorEnumDesc,
 	})
-		
+
 	return operatorEnum
-}		
+}

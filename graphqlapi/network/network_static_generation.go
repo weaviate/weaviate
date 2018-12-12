@@ -17,9 +17,9 @@ package network
 import (
 	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 )
 
 // temporary function that does nothing but display a Weaviate instance // TODO: delete this once p2p functionality is up

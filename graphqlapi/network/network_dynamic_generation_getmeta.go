@@ -15,12 +15,12 @@
 package network
 
 import (
-	"strings" 
 	"fmt"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/graphql-go/graphql"
+	"strings"
 )
 
 // Build the dynamically generated GetMeta Things part of the schema
@@ -117,8 +117,8 @@ func genSingleNetworkMetaClassPropertyFields(class *models.SemanticSchemaClass, 
 		if err != nil {
 			return nil, err
 		}
-		
-		if *propertyType == schema.DataTypeCRef{
+
+		if *propertyType == schema.DataTypeCRef {
 			singleClassPropertyFields[strings.Title(property.Name)] = convertedDataType
 		} else {
 			singleClassPropertyFields[property.Name] = convertedDataType
