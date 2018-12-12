@@ -17,7 +17,7 @@ package network
 import (
 	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
-	//	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
 )
@@ -134,17 +134,13 @@ func genNetworkFetchThingsAndActionsFilterFields(filterContainer *utils.FilterCo
 }
 
 func genNetworkFetchWhereInpObjPropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
-	filterPropertiesElements := genNetworkStaticWhereFilterElements()
+	filterPropertiesElements := common_filters.GetGetAndGetMetaWhereFilters()
 	// delete "path" key/value set
 	delete(filterPropertiesElements, "path")
 
 	filterPropertiesElements["certainty"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.Float,
 		Description: descriptions.WhereCertaintyDesc,
-	}
-	filterPropertiesElements["valueDate"] = &graphql.InputObjectFieldConfig{
-		Type:        graphql.String,
-		Description: descriptions.WhereValueDateDesc,
 	}
 	filterPropertiesElements["valueText"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.String,
