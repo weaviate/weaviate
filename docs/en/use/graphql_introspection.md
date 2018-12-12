@@ -1,13 +1,6 @@
----
-publishedOnWebsite: false
-title: GraphQL introspection
-subject: OSS
-author: Laura Ham
-date first published: 01Nov2018
-last updated: 05Dec2018
----
+# GraphQL - Introspection
 
-## Audience: technical
+> About GraphQL's introspection in Weaviate.
 
 ## Purpose: Introduction to how to do an introspection on the GraphQL schema
 

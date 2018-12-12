@@ -1,11 +1,6 @@
----
-publishedOnWebsite: true
-title: GraphQL Network - Example usage
-subject: OSS
-author: Laura Ham
-date first published: 01Nov2018
-last updated: 05Dec2018
----
+# GraphQL - Network Filters
+
+> About GraphQL's Network{} filters.
 
 ## Audience: technical
 
