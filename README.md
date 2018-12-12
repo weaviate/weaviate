@@ -5,7 +5,7 @@ purpose: General Weaviate description document
 
 # Weaviate <img alt='Weaviate logo' src='https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/19de0956c69b66c5552447e84d016f4fe29d12c9/docs/assets/weaviate-logo.png' width='180' align='right' />
 
-_Decentralized Knowledge Graph & Decentralized Knowledge P2P Network_
+_The Decentralized Knowledge Graph & The Decentralized Knowledge P2P Network_
 
 ## Introduction
 
