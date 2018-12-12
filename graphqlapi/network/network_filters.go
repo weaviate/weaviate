@@ -26,7 +26,7 @@ import (
 func genNetworkStaticWhereFilterElements() graphql.InputObjectConfigFieldMap {
 	staticFilterElements := graphql.InputObjectConfigFieldMap{
 		"operator": &graphql.InputObjectFieldConfig{
-			Type:        graphql.String,//common_filters.GetOperatorEnum(), // TODO
+			Type:        graphql.String, //common_filters.GetOperatorEnum(), // TODO
 			Description: descriptions.WhereOperatorDesc,
 		},
 		"path": &graphql.InputObjectFieldConfig{
