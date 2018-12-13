@@ -55,7 +55,7 @@ RUN ./test/contextionary/gen_simple_contextionary.sh
 
 ###############################################################################
 # This is the base image for running waviates configurations; contains the executable & contextionary
-FROM alpine as weaviate_base
+FROM alpine AS weaviate_base
 COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
 COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
 COPY --from=contextionary_fixture_builder /go/src/github.com/creativesoftwarefdn/weaviate/contextionary/contextionary.idx /contextionary/contextionary.idx
@@ -64,7 +64,7 @@ ENTRYPOINT ["/bin/weaviate"]
 
 ###############################################################################
 # This is the base image for running waviates configurations IN DEV OR TEST; contains the executable & contextionary
-FROM alpine as weaviate_base_dev
+FROM alpine AS weaviate_base_dev
 COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
 COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
 COPY --from=contextionary_fixture_builder_dev /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.idx /contextionary/example.idx
