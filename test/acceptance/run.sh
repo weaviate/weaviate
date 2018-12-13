@@ -30,9 +30,6 @@ function main() {
 
   echo_green "Run acceptance tests..."
   run_acceptance_tests
-
-  echo_green "Deleting coverage profiles..."
-  rm ./*.cover
 }
 
 function run_acceptance_tests() {
