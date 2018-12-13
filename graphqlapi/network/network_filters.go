@@ -43,34 +43,6 @@ func genNetworkWhereOperatorEnum() *graphql.Enum {
 	return graphql.NewEnum(enumConf)
 }
 
-//// generate these elements once
-//func genNetworkStaticWhereFilterElements() graphql.InputObjectConfigFieldMap {
-//	staticFilterElements := graphql.InputObjectConfigFieldMap{
-//		"operator": &graphql.InputObjectFieldConfig{
-//			Type:        genNetworkWhereOperatorEnum(),
-//			Description: descriptions.WhereOperatorDesc,
-//		},
-//		"valueInt": &graphql.InputObjectFieldConfig{
-//			Type:        graphql.Int,
-//			Description: descriptions.WhereValueIntDesc,
-//		},
-//		"valueNumber": &graphql.InputObjectFieldConfig{
-//			Type:        graphql.Float,
-//			Description: descriptions.WhereValueNumberDesc,
-//		},
-//		"valueBoolean": &graphql.InputObjectFieldConfig{
-//			Type:        graphql.Boolean,
-//			Description: descriptions.WhereValueBooleanDesc,
-//		},
-//		"valueString": &graphql.InputObjectFieldConfig{
-//			Type:        graphql.String,
-//			Description: descriptions.WhereValueStringDesc,
-//		},
-//	}
-//
-//	return staticFilterElements
-//}
-
 // This is an exact translation of the Prototype from JS to Go. In the prototype some filter elements are declared as global variables, this is recreated here.
 func genGlobalNetworkFilterElements(filterContainer *utils.FilterContainer) {
 	filterContainer.WeaviateNetworkWhereKeywordsInpObj = genWeaviateNetworkWhereNameKeywordsInpObj()
