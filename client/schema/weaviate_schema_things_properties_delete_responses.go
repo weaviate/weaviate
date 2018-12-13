@@ -97,7 +97,7 @@ func NewWeaviateSchemaThingsPropertiesDeleteForbidden() *WeaviateSchemaThingsPro
 
 /*WeaviateSchemaThingsPropertiesDeleteForbidden handles this case with default header values.
 
-Could not find the Thing class or property
+Could not find the Thing class or property.
 */
 type WeaviateSchemaThingsPropertiesDeleteForbidden struct {
 }

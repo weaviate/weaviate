@@ -35,10 +35,10 @@ type SingleRef struct {
 	// Format: uuid
 	NrDollarCref strfmt.UUID `json:"$cref,omitempty"`
 
-	// url of location. http://localhost means this database. This option can be used to refer to other databases.
+	// Url of location. Http://localhost means this database. This option can be used to refer to other databases.
 	LocationURL *string `json:"locationUrl,omitempty"`
 
-	// Type should be Thing, Action or Key
+	// Type should be Thing, Action or Key.
 	// Enum: [Thing Action Key]
 	Type string `json:"type,omitempty"`
 }

@@ -52,7 +52,7 @@ func (o *WeaviateSchemaThingsDeleteOK) WriteResponse(rw http.ResponseWriter, pro
 // WeaviateSchemaThingsDeleteBadRequestCode is the HTTP code returned for type WeaviateSchemaThingsDeleteBadRequest
 const WeaviateSchemaThingsDeleteBadRequestCode int = 400
 
-/*WeaviateSchemaThingsDeleteBadRequest Could not delete the Thing class
+/*WeaviateSchemaThingsDeleteBadRequest Could not delete the Thing class.
 
 swagger:response weaviateSchemaThingsDeleteBadRequest
 */

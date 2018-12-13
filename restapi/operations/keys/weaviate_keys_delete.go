@@ -43,7 +43,7 @@ func NewWeaviateKeysDelete(ctx *middleware.Context, handler WeaviateKeysDeleteHa
 
 /*WeaviateKeysDelete swagger:route DELETE /keys/{keyId} keys weaviateKeysDelete
 
-Delete a key based on its uuid related to this key.
+Delete a key based on its UUID related to this key.
 
 Deletes a key. Only parent or self is allowed to delete key. When you delete a key, all its children will be deleted as well.
 

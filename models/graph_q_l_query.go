@@ -23,14 +23,14 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// GraphQLQuery GraphQL query based on: http://facebook.github.io/graphql/
+// GraphQLQuery GraphQL query based on: http://facebook.github.io/graphql/.
 // swagger:model GraphQLQuery
 type GraphQLQuery struct {
 
-	// Name of the operation if multiple exist in query.
+	// The name of the operation if multiple exist in the query.
 	OperationName string `json:"operationName,omitempty"`
 
-	// Query based on GraphQL syntax
+	// Query based on GraphQL syntax.
 	Query string `json:"query,omitempty"`
 
 	// Additional variables for the query.

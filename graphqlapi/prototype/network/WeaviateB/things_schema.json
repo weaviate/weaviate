@@ -6,6 +6,325 @@
     "maintainer": "yourfriends@weaviate.com",
     "classes": [
         {
+            "class": "City",
+            "description": "A city, place or town",
+            "properties": [
+                {
+                    "name": "name",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Official name of the city.",
+                    "keywords": [
+                        {
+                            "keyword": "name",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "official",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "name",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "coordinates",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "The city's longitude and latitude",
+                    "keywords": [
+                        {
+                            "keyword": "coordinates",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "longitude",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "latitude",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "inCountry",
+                    "@dataType": [
+                        "Country"
+                    ],
+                    "description": "The country the city lies in",
+                    "keywords": [
+                        {
+                            "keyword": "country",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "country",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "population",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Number of inhabitants of the city",
+                    "keywords": [
+                        {
+                            "keyword": "population",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "number",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "inhabitants",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "isCapital",
+                    "@dataType": [
+                        "boolean"
+                    ],
+                    "description": "True if the city is a capital",
+                    "keywords": [
+                        {
+                            "keyword": "is",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "capital",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "capital",
+                            "weight": 0.25
+                        }
+                    ]
+                }
+            ],
+            "keywords": [
+                {
+                    "keyword": "city",
+                    "weight": 1.0
+                },
+                {
+                    "keyword": "city",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "place",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "town",
+                    "weight": 0.25
+                }
+            ]
+        },
+        {
+            "class": "Person",
+            "description": "Person",
+            "properties": [
+                {
+                    "name": "livesIn",
+                    "@dataType": [
+                        "City", "Country"
+                    ],
+                    "description": "The place where the person lives in.",
+                    "keywords": [
+                        {
+                            "keyword": "lives",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "in",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "place",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "birthday",
+                    "@dataType": [
+                        "date"
+                    ],
+                    "description": "Birthday of the person",
+                    "keywords": [
+                        {
+                            "keyword": "birthday",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "birthday",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "name",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Name of the person",
+                    "keywords": [
+                        {
+                            "keyword": "name",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "nationality",
+                    "@dataType": [
+                        "Country"
+                    ],
+                    "description": "Nationality of the person",
+                    "keywords": [
+                        {
+                            "keyword": "nationality",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "country",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "nationality",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                }
+            ],
+            "keywords": [
+                {
+                    "keyword": "person",
+                    "weight": 1.0
+                },
+                {
+                    "keyword": "person",
+                    "weight": 0.25
+                }
+            ]
+        },
+        {
+            "class": "Country",
+            "description": "Country",
+            "properties": [
+                {
+                    "name": "name",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Official name of the country",
+                    "keywords": [
+                        {
+                            "keyword": "name",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "official",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "name",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "country",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "population",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Amount of people living in the country",
+                    "keywords": [
+                        {
+                            "keyword": "population",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "amount",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "people",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "country",
+                            "weight": 0.25
+                        }
+                    ]
+                }
+            ],
+            "keywords": [
+                {
+                    "keyword": "country",
+                    "weight": 1.0
+                },
+                {
+                    "keyword": "country",
+                    "weight": 0.25
+                }
+            ]
+        },
+        {
             "class": "Airport",
             "description": "An airport",
             "properties": [
@@ -31,9 +350,9 @@
                     ]
                 },
                 {
-                    "name": "place",
+                    "name": "inCity",
                     "@dataType": [
-                        "string"
+                        "City"
                     ],
                     "description": "City where the airport lies.",
                     "keywords": [
@@ -60,15 +379,23 @@
                     ]
                 },
                 {
-                    "name": "label",
+                    "name": "name",
                     "@dataType": [
                         "string"
                     ],
-                    "description": "Label for the airport",
+                    "description": "Official name of the airport",
                     "keywords": [
                         {
-                            "keyword": "label",
+                            "keyword": "name",
                             "weight": 1.0
+                        },
+                        {
+                            "keyword": "official",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "name",
+                            "weight": 0.25
                         },
                         {
                             "keyword": "airport",
@@ -114,18 +441,60 @@
                     ]
                 },
                 {
-                    "name": "label",
+                    "name": "basedIn",
                     "@dataType": [
-                        "string"
+                        "City",
+                        "Country"
                     ],
-                    "description": "Label for the airline",
+                    "description": "City or country where the airline is based.",
                     "keywords": [
                         {
-                            "keyword": "label",
+                            "keyword": "based",
                             "weight": 1.0
                         },
                         {
-                            "keyword": "label",
+                            "keyword": "in",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "country",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "country",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "airline",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "name",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Official name of the airline",
+                    "keywords": [
+                        {
+                            "keyword": "name",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "official",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "name",
                             "weight": 0.25
                         },
                         {
@@ -287,18 +656,18 @@
             "description": "The kind of aircraft (e.g., \"Boeing 747\")",
             "properties": [
                 {
-                    "name": "label",
+                    "name": "name",
                     "@dataType": [
                         "string"
                     ],
-                    "description": "label of the aircraft",
+                    "description": "name of the aircraft",
                     "keywords": [
                         {
-                            "keyword": "label",
+                            "keyword": "name",
                             "weight": 1.0
                         },
                         {
-                            "keyword": "label",
+                            "keyword": "name",
                             "weight": 0.25
                         },
                         {

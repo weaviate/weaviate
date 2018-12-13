@@ -28,7 +28,7 @@ import (
 // WeaviateActionsPropertiesCreateOKCode is the HTTP code returned for type WeaviateActionsPropertiesCreateOK
 const WeaviateActionsPropertiesCreateOKCode int = 200
 
-/*WeaviateActionsPropertiesCreateOK Successfully added the refference.
+/*WeaviateActionsPropertiesCreateOK Successfully added the reference.
 
 swagger:response weaviateActionsPropertiesCreateOK
 */
@@ -100,7 +100,7 @@ func (o *WeaviateActionsPropertiesCreateForbidden) WriteResponse(rw http.Respons
 // WeaviateActionsPropertiesCreateUnprocessableEntityCode is the HTTP code returned for type WeaviateActionsPropertiesCreateUnprocessableEntity
 const WeaviateActionsPropertiesCreateUnprocessableEntityCode int = 422
 
-/*WeaviateActionsPropertiesCreateUnprocessableEntity Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
+/*WeaviateActionsPropertiesCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?
 
 swagger:response weaviateActionsPropertiesCreateUnprocessableEntity
 */

@@ -33,7 +33,7 @@ type SemanticSchemaClass struct {
 	// Name of the class as URI relative to the schema URL.
 	Class string `json:"class,omitempty"`
 
-	// Description of the class
+	// Description of the class.
 	Description string `json:"description,omitempty"`
 
 	// keywords

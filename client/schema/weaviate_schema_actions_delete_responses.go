@@ -79,7 +79,7 @@ func NewWeaviateSchemaActionsDeleteBadRequest() *WeaviateSchemaActionsDeleteBadR
 
 /*WeaviateSchemaActionsDeleteBadRequest handles this case with default header values.
 
-Could not delete the Action class
+Could not delete the Action class.
 */
 type WeaviateSchemaActionsDeleteBadRequest struct {
 	Payload *models.ErrorResponse

@@ -26,7 +26,7 @@ import (
 // WeaviateKeysDeleteNoContentCode is the HTTP code returned for type WeaviateKeysDeleteNoContent
 const WeaviateKeysDeleteNoContentCode int = 204
 
-/*WeaviateKeysDeleteNoContent Successful deleted.
+/*WeaviateKeysDeleteNoContent Successfully deleted.
 
 swagger:response weaviateKeysDeleteNoContent
 */

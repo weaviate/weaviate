@@ -74,7 +74,7 @@ func (o *WeaviateSchemaThingsPropertiesDeleteUnauthorized) WriteResponse(rw http
 // WeaviateSchemaThingsPropertiesDeleteForbiddenCode is the HTTP code returned for type WeaviateSchemaThingsPropertiesDeleteForbidden
 const WeaviateSchemaThingsPropertiesDeleteForbiddenCode int = 403
 
-/*WeaviateSchemaThingsPropertiesDeleteForbidden Could not find the Thing class or property
+/*WeaviateSchemaThingsPropertiesDeleteForbidden Could not find the Thing class or property.
 
 swagger:response weaviateSchemaThingsPropertiesDeleteForbidden
 */

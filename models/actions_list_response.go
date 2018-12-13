@@ -26,14 +26,14 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ActionsListResponse List of actions.
+// ActionsListResponse List of Actions.
 // swagger:model ActionsListResponse
 type ActionsListResponse struct {
 
-	// The actual list of actions.
+	// The actual list of Actions.
 	Actions []*ActionGetResponse `json:"actions"`
 
-	// The total number of actions for the query. The number of items in a response may be smaller due to paging.
+	// The total number of Actions for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int64 `json:"totalResults,omitempty"`
 }
 

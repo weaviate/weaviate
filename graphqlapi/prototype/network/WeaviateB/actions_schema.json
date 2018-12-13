@@ -6,8 +6,8 @@
     "maintainer": "yourfriends@weaviate.com",
     "classes": [
         {
-            "class": "Aviation",
-            "description": "An airline Aviation",
+            "class": "Flight",
+            "description": "An airline flight",
             "properties": [
                 {
                     "name": "aircraft",
@@ -35,7 +35,7 @@
                     ]
                 },
                 {
-                    "name": "arrival",
+                    "name": "arrivalAirport",
                     "@dataType": [
                         "Airport"
                     ],
@@ -64,7 +64,7 @@
                     ]
                 },
                 {
-                    "name": "departure",
+                    "name": "departureAirport",
                     "@dataType": [
                         "Airport"
                     ],
@@ -93,7 +93,7 @@
                     ]
                 },
                 {
-                    "name": "identifier",
+                    "name": "flightNumber",
                     "@dataType": [
                         "string"
                     ],
@@ -172,7 +172,7 @@
                     ]
                 },
                 {
-                    "name": "passengers",
+                    "name": "numberOfPassengers",
                     "@dataType": [
                         "int"
                     ],
@@ -233,6 +233,122 @@
                 },
                 {
                     "keyword": "flight",
+                    "weight": 0.25
+                }
+            ]
+        },
+        {
+            "class": "BuyAction",
+            "description": "An agent buys an object, product, or service from a seller for a price.",
+            "properties": [
+                {
+                    "name": "seller",
+                    "@dataType": [
+                        "Airline",
+                        "Person"
+                    ],
+                    "description": "The seller of the thing",
+                    "keywords": [
+                        {
+                            "keyword": "seller",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "airline",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "seller",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "thing",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "price",
+                    "@dataType": [
+                        "number"
+                    ],
+                    "description": "The offer price of a product",
+                    "keywords": [
+                        {
+                            "keyword": "price",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "offer",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "price",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "product",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "buyer",
+                    "@dataType": [
+                        "Person"
+                    ],
+                    "description": "The buyer of the good",
+                    "keywords": [
+                        {
+                            "keyword": "buyer",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "buyer",
+                            "weight": 0.25
+                        }
+                    ]
+                }
+            ],
+            "keywords": [
+                {
+                    "keyword": "buy",
+                    "weight": 1.0
+                },
+                {
+                    "keyword": "action",
+                    "weight": 1.0
+                },
+                {
+                    "keyword": "agent",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "object",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "product",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "service",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "seller",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "price",
                     "weight": 0.25
                 }
             ]

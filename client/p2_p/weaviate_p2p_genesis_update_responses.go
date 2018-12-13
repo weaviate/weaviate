@@ -76,7 +76,7 @@ func NewWeaviateP2pGenesisUpdateUnauthorized() *WeaviateP2pGenesisUpdateUnauthor
 
 /*WeaviateP2pGenesisUpdateUnauthorized handles this case with default header values.
 
-Unauthorized update
+Unauthorized update.
 */
 type WeaviateP2pGenesisUpdateUnauthorized struct {
 }
@@ -97,7 +97,7 @@ func NewWeaviateP2pGenesisUpdateInternalServerError() *WeaviateP2pGenesisUpdateI
 
 /*WeaviateP2pGenesisUpdateInternalServerError handles this case with default header values.
 
-Internal error
+Internal error.
 */
 type WeaviateP2pGenesisUpdateInternalServerError struct {
 }

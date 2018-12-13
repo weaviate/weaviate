@@ -43,7 +43,7 @@ func NewWeaviateSchemaThingsDelete(ctx *middleware.Context, handler WeaviateSche
 
 /*WeaviateSchemaThingsDelete swagger:route DELETE /schema/things/{className} schema weaviateSchemaThingsDelete
 
-Remove a Thing class (and all data in the instances) from the ontology
+Remove a Thing class (and all data in the instances) from the ontology.
 
 */
 type WeaviateSchemaThingsDelete struct {

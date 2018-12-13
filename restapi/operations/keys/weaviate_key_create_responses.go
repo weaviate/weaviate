@@ -96,7 +96,7 @@ func (o *WeaviateKeyCreateUnauthorized) WriteResponse(rw http.ResponseWriter, pr
 // WeaviateKeyCreateUnprocessableEntityCode is the HTTP code returned for type WeaviateKeyCreateUnprocessableEntity
 const WeaviateKeyCreateUnprocessableEntityCode int = 422
 
-/*WeaviateKeyCreateUnprocessableEntity Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*WeaviateKeyCreateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response weaviateKeyCreateUnprocessableEntity
 */

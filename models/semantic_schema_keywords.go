@@ -26,7 +26,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// SemanticSchemaKeywords Describes a class or property using multiple weighted other words
+// SemanticSchemaKeywords Describes a class or property using multiple weighted words.
 // swagger:model SemanticSchemaKeywords
 type SemanticSchemaKeywords []*SemanticSchemaKeywordsItems0
 

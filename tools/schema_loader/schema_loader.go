@@ -58,6 +58,6 @@ func main() {
 	err = loader.Load()
 
 	if err != nil {
-		panic(err)
+		panic(err.Error())
 	}
 }

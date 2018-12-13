@@ -67,7 +67,7 @@ type Path struct {
 	Class    schema.ClassName
 	Property schema.PropertyName
 
-	// If nil, than this is the property we're interested in.
+	// If nil, then this is the property we're interested in.
 	// If a pointer to another Path, the constraint applies to that one.
 	Child *Path
 }

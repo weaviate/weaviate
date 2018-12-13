@@ -67,7 +67,7 @@ type WeaviateThingsUpdateParams struct {
 	/*Body*/
 	Body *models.ThingUpdate
 	/*ThingID
-	  Unique ID of the thing.
+	  Unique ID of the Thing.
 
 	*/
 	ThingID strfmt.UUID

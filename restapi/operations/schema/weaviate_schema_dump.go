@@ -48,7 +48,7 @@ func NewWeaviateSchemaDump(ctx *middleware.Context, handler WeaviateSchemaDumpHa
 
 /*WeaviateSchemaDump swagger:route GET /schema schema weaviateSchemaDump
 
-Dump the current the database schema
+Dump the current the database schema.
 
 */
 type WeaviateSchemaDump struct {

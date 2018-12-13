@@ -48,9 +48,9 @@ func NewWeaviateThingsCreate(ctx *middleware.Context, handler WeaviateThingsCrea
 
 /*WeaviateThingsCreate swagger:route POST /things things weaviateThingsCreate
 
-Create a new thing based on a thing template related to this key.
+Create a new Thing based on a Thing template related to this key.
 
-Registers a new thing. Given meta-data and schema values are validated.
+Registers a new Thing. Given meta-data and schema values are validated.
 
 */
 type WeaviateThingsCreate struct {
@@ -93,7 +93,7 @@ func (o *WeaviateThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request
 // swagger:model WeaviateThingsCreateBody
 type WeaviateThingsCreateBody struct {
 
-	// If `async` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the value is persisted. The value of `async` defaults to false.
+	// If `async` is true, return a 202 with the new ID of the Thing. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the value is made persistent. The value of `async` defaults to false.
 	Async bool `json:"async,omitempty"`
 
 	// thing

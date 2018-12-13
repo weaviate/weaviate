@@ -20,7 +20,7 @@ func newMockResolver() *mockResolver {
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        "WeaviateLocalGetWhereInpObj",
-						Fields:      BuildNew(),
+						Fields:      BuildNew("WeaviateLocalGet"),
 						Description: "",
 					},
 				),

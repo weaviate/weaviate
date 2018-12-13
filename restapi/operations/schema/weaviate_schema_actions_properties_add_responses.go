@@ -28,7 +28,7 @@ import (
 // WeaviateSchemaActionsPropertiesAddOKCode is the HTTP code returned for type WeaviateSchemaActionsPropertiesAddOK
 const WeaviateSchemaActionsPropertiesAddOKCode int = 200
 
-/*WeaviateSchemaActionsPropertiesAddOK Added the property
+/*WeaviateSchemaActionsPropertiesAddOK Added the property.
 
 swagger:response weaviateSchemaActionsPropertiesAddOK
 */
@@ -76,7 +76,7 @@ func (o *WeaviateSchemaActionsPropertiesAddUnauthorized) WriteResponse(rw http.R
 // WeaviateSchemaActionsPropertiesAddForbiddenCode is the HTTP code returned for type WeaviateSchemaActionsPropertiesAddForbidden
 const WeaviateSchemaActionsPropertiesAddForbiddenCode int = 403
 
-/*WeaviateSchemaActionsPropertiesAddForbidden Could not find the Action class
+/*WeaviateSchemaActionsPropertiesAddForbidden Could not find the Action class.
 
 swagger:response weaviateSchemaActionsPropertiesAddForbidden
 */
@@ -100,7 +100,7 @@ func (o *WeaviateSchemaActionsPropertiesAddForbidden) WriteResponse(rw http.Resp
 // WeaviateSchemaActionsPropertiesAddUnprocessableEntityCode is the HTTP code returned for type WeaviateSchemaActionsPropertiesAddUnprocessableEntity
 const WeaviateSchemaActionsPropertiesAddUnprocessableEntityCode int = 422
 
-/*WeaviateSchemaActionsPropertiesAddUnprocessableEntity Invalid property
+/*WeaviateSchemaActionsPropertiesAddUnprocessableEntity Invalid property.
 
 swagger:response weaviateSchemaActionsPropertiesAddUnprocessableEntity
 */
