@@ -19,7 +19,7 @@ after_success:
         DOCKERTARGET=development
       fi
       # Build & Push
-      docker build -t creativesoftwarefdn/weaviate:$LATESTVERSION --target $DOCKERTARGET .
+      docker build -f "Dockerfile-prod" -t creativesoftwarefdn/weaviate:$LATESTVERSION --target $DOCKERTARGET .
       docker push creativesoftwarefdn/weaviate:unstable
     fi
 before_script: ~
