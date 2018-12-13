@@ -138,7 +138,20 @@
                         "TestAction"
                     ],
                     "description": "Value of testCref."
-                }
+                },
+		{
+                    "name": "testCrefs",
+                    "cardinality": "many",
+                    "keywords": [
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "reference", "weight": 1.0 }
+                    ],
+                    "@dataType": [
+                        "TestAction"
+                    ],
+                    "description": "Value of testCref."
+		}
+
             ]
         }
     ]

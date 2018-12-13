@@ -15,15 +15,14 @@
 package common_filters
 
 import (
+	"sync"
+
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/graphql-go/graphql"
-	"sync"
 )
 
 var sharedGetAndGetMetaWhereFilters graphql.InputObjectConfigFieldMap
-var sharedOperatorEnum *graphql.Enum
 var initFilter sync.Once
-var initEnum sync.Once
 
 // The filters common to Network->Get and Network->GetMeta queries.
 func GetGetAndGetMetaWhereFilters() graphql.InputObjectConfigFieldMap {
@@ -34,10 +33,25 @@ func GetGetAndGetMetaWhereFilters() graphql.InputObjectConfigFieldMap {
 	return sharedGetAndGetMetaWhereFilters
 }
 
+// The filters common to Local->Get and Local->GetMeta queries.
 func BuildNewGetAndGetMetaFilters() graphql.InputObjectConfigFieldMap {
 	commonFilters := graphql.InputObjectConfigFieldMap{
 		"operator": &graphql.InputObjectFieldConfig{
-			Type:        GetOperatorEnum(),
+			Type: graphql.NewEnum(graphql.EnumConfig{
+				Name: "WhereOperatorEnum",
+				Values: graphql.EnumValueConfigMap{
+					"And":              &graphql.EnumValueConfig{},
+					"Or":               &graphql.EnumValueConfig{},
+					"Equal":            &graphql.EnumValueConfig{},
+					"Not":              &graphql.EnumValueConfig{},
+					"NotEqual":         &graphql.EnumValueConfig{},
+					"GreaterThan":      &graphql.EnumValueConfig{},
+					"GreaterThanEqual": &graphql.EnumValueConfig{},
+					"LessThan":         &graphql.EnumValueConfig{},
+					"LessThanEqual":    &graphql.EnumValueConfig{},
+				},
+				Description: descriptions.WhereOperatorEnumDesc,
+			}),
 			Description: descriptions.WhereOperatorDesc,
 		},
 		"path": &graphql.InputObjectFieldConfig{
@@ -85,33 +99,4 @@ func BuildNewGetAndGetMetaFilters() graphql.InputObjectConfigFieldMap {
 	}
 
 	return commonFilters
-}
-
-// The common operator enum object.
-func GetOperatorEnum() *graphql.Enum {
-	initEnum.Do(func() {
-		sharedOperatorEnum = BuildNewOperatorEnum()
-	})
-
-	return sharedOperatorEnum
-}
-
-func BuildNewOperatorEnum() *graphql.Enum {
-	operatorEnum := graphql.NewEnum(graphql.EnumConfig{
-		Name: "WhereOperatorEnum",
-		Values: graphql.EnumValueConfigMap{
-			"And":              &graphql.EnumValueConfig{},
-			"Or":               &graphql.EnumValueConfig{},
-			"Equal":            &graphql.EnumValueConfig{},
-			"Not":              &graphql.EnumValueConfig{},
-			"NotEqual":         &graphql.EnumValueConfig{},
-			"GreaterThan":      &graphql.EnumValueConfig{},
-			"GreaterThanEqual": &graphql.EnumValueConfig{},
-			"LessThan":         &graphql.EnumValueConfig{},
-			"LessThanEqual":    &graphql.EnumValueConfig{},
-		},
-		Description: descriptions.WhereOperatorEnumDesc,
-	})
-
-	return operatorEnum
 }
