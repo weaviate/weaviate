@@ -7,12 +7,16 @@
 # Create contextionary dir if not available
 mkdir -p ./contextionary
 
-# Download the latest files
-wget -O ./contextionary/contextionary.vocab https://contextionary.creativesoftwarefdn.org/$(curl -sS https://contextionary.creativesoftwarefdn.org/contextionary.json | jq -r ".latestVersion")/en/contextionary.vocab && echo "vocab file = done" &
-wget -O ./contextionary/contextionary.idx https://contextionary.creativesoftwarefdn.org/$(curl -sS https://contextionary.creativesoftwarefdn.org/contextionary.json | jq -r ".latestVersion")/en/contextionary.idx && echo "idx file = done" &
-wget -O ./contextionary/contextionary.knn https://contextionary.creativesoftwarefdn.org/$(curl -sS https://contextionary.creativesoftwarefdn.org/contextionary.json | jq -r ".latestVersion")/en/contextionary.knn && echo "knn file = done" &
+# Download the latest files and remove old ones
+for SINGLEEXT in idx knn; do
+    echo "Start Downloading $SINGLEEXT" && \
+    rm -f ./contextionary/contextionary.$SINGLEEXT && \
+    wget --quiet -O ./contextionary/contextionary.$SINGLEEXT https://contextionary.creativesoftwarefdn.org/$(curl -sS https://contextionary.creativesoftwarefdn.org/contextionary.json | jq -r ".latestVersion")/en/contextionary.$SINGLEEXT && \
+    echo "$SINGLEEXT file = done" &
+done 
 
 # Wiat to finish download
 wait
 
-echo "Done downlaoding the open source contextionary."
+echo "Done downloading the open source contextionary."
+exit 0
