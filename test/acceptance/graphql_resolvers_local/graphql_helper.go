@@ -3,11 +3,13 @@ package test
 import (
 	"encoding/json"
 	"fmt"
+	"testing"
+
+	"github.com/creativesoftwarefdn/weaviate/client/graphql"
 	graphql_client "github.com/creativesoftwarefdn/weaviate/client/graphql"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/go-openapi/runtime"
-	"testing"
 )
 
 type GraphQLResult struct {
@@ -31,7 +33,11 @@ func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation
 func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query string) *GraphQLResult {
 	response, err := QueryGraphQL(t, auth, "", query, nil)
 	if err != nil {
-		t.Fatalf("Expected the query to succeed, but failed due to: %#v", err)
+		parsedErr, ok := err.(*graphql.WeaviateGraphqlPostUnprocessableEntity)
+		if !ok {
+			t.Fatalf("Expected the query to succeed, but failed due to: %#v", err)
+		}
+		t.Fatalf("Expected the query to succeed, but failed with unprocessable entity: %s", parsedErr.Payload.Error)
 	}
 
 	if len(response.Errors) != 0 {
