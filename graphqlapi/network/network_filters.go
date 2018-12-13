@@ -43,7 +43,7 @@ func genNetworkWhereOperatorEnum() *graphql.Enum {
 	return graphql.NewEnum(enumConf)
 }
 
-// This is an exact translation of the Prototype from JS to Go. In the prototype some filter elements are declared as global variables, this is recreated here.
+// This is a translation of the Prototype from JS to Go. In the prototype some filter elements are declared as global variables, this is recreated here.
 func genGlobalNetworkFilterElements(filterContainer *utils.FilterContainer) {
 	filterContainer.WeaviateNetworkWhereKeywordsInpObj = genWeaviateNetworkWhereNameKeywordsInpObj()
 	filterContainer.WeaviateNetworkIntrospectPropertiesObjField = genWeaviateNetworkIntrospectPropertiesObjField()
