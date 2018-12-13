@@ -22,7 +22,8 @@ func (fn FakeNetwork) GetStatus() string {
 }
 
 func (fn FakeNetwork) ListPeers() (network.Peers, error) {
-	return nil, fmt.Errorf("Cannot list peers, because there is no network configured")
+	// there are no peers, but don't error
+	return network.Peers{}, nil
 }
 
 func (fn FakeNetwork) UpdatePeers(new_peers network.Peers) error {

@@ -1963,6 +1963,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Add security principal to context that we pass on to the GraphQL resolver.
 		graphql_context := context.WithValue(params.HTTPRequest.Context(), "principal", (principal.(*models.KeyTokenGetResponse)))
 
+		if graphQL == nil {
+			errorResponse.Error = []*models.ErrorResponseErrorItems0{
+				&models.ErrorResponseErrorItems0{
+					Message: "no graphql provider present" +
+						"this is most likely because no schema is present. Import a schema first!",
+				}}
+			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
+		}
+
 		result := graphQL.Resolve(query, operationName, variables, graphql_context)
 
 		// Marshal the JSON
