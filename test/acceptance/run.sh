@@ -28,9 +28,11 @@ function main() {
   # cleaned up) the test fixtures it needs, but one step at a time ;)
   surpress_on_success import_test_fixtures
 
-
   echo_green "Run acceptance tests..."
   run_acceptance_tests
+
+  echo_green "Deleting coverage profiles..."
+  rm ./*.cover
 }
 
 function run_acceptance_tests() {
