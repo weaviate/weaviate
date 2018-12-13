@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.10.6"
+    "version": "0.10.9"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -3221,7 +3221,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.10.6"
+    "version": "0.10.9"
   },
   "basePath": "/weaviate/v1",
   "paths": {

@@ -1,13 +1,6 @@
----
-publishedOnWebsite: true
-title: Filter design pattern for Local queries
-subject: OSS
-author: Laura Ham
-date first published: 01Nov2018
-last updated: 05Dec2018
----
+# GraphQL - Local Filters
 
-## Audience: technical
+> About GraphQL's Local{} filters.
 
 ## Purpose: Show how filters can be used in local queries
 
