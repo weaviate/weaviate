@@ -1,10 +1,6 @@
----
-publishedOnWebsite: false
-title: GraphQL prototype
-subject: OSS
----
-
 # GraphQL Prototype
+
+> SHORT DESCRIPTION OF THIS DOC
 
 ## About
 

@@ -5,6 +5,12 @@ dist
 nightly
 dist
 
+# ignore confectionary files
+contextionary/contextionary.vocab
+contextionary/contextionary.idx
+contextionary/contextionary.knn
+wget-log*
+
 # ignore update files
 semver
 cc-test-reporter

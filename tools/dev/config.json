@@ -14,8 +14,8 @@
         }
       },
       "contextionary": {
-        "knn_file" : "test/contextionary/example.knn",
-        "idx_file" : "test/contextionary/example.idx"
+        "knn_file" : "contextionary/contextionary.knn",
+	"idx_file" : "contextionary/contextionary.idx"
       },
       "schemas": {
         "Thing": "tools/dev//schema/things_schema.json",
@@ -47,8 +47,8 @@
         }
       },
       "contextionary": {
-        "knn_file" : "test/contextionary/example.knn",
-        "idx_file" : "test/contextionary/example.idx"
+        "knn_file" : "contextionary/contextionary.knn",
+	"idx_file" : "contextionary/contextionary.idx"
       },
       "schemas": {
         "Thing": "test/schema/test-thing-schema.json",
@@ -71,8 +71,8 @@
         }
       },
       "contextionary": {
-        "knn_file" : "/contextionary/example.knn",
-        "idx_file" : "/contextionary/example.idx"
+        "knn_file" : "contextionary/contextionary.knn",
+	"idx_file" : "contextionary/contextionary.idx"
       },
       "schemas": {
         "Thing": "/schema/things_schema.json",
@@ -104,8 +104,8 @@
         }
       },
       "contextionary": {
-        "knn_file" : "/contextionary/example.knn",
-        "idx_file" : "/contextionary/example.idx"
+        "knn_file" : "contextionary/contextionary.knn",
+	"idx_file" : "contextionary/contextionary.idx"
       },
       "schemas": {
         "Thing": "/schema/things_schema.json",
