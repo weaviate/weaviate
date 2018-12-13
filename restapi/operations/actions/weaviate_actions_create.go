@@ -48,9 +48,9 @@ func NewWeaviateActionsCreate(ctx *middleware.Context, handler WeaviateActionsCr
 
 /*WeaviateActionsCreate swagger:route POST /actions actions weaviateActionsCreate
 
-Create actions between two things (object and subject).
+Create Actions between two Things (object and subject).
 
-Registers a new action. Given meta-data and schema values are validated.
+Registers a new Action. Provided meta-data and schema values are validated.
 
 */
 type WeaviateActionsCreate struct {
@@ -96,7 +96,7 @@ type WeaviateActionsCreateBody struct {
 	// action
 	Action *models.ActionCreate `json:"action,omitempty"`
 
-	// If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is persisted. If `async` is false, you will receive confirmation after the value is persisted. The value of `async` defaults to false.
+	// If `async` is true, return a 202 with the new ID of the Action. You will receive this response before the data is made persistent. If `async` is false, you will receive confirmation after the value is made persistent. The value of `async` defaults to false.
 	Async bool `json:"async,omitempty"`
 }
 

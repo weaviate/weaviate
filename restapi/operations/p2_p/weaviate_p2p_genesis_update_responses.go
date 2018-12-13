@@ -50,7 +50,7 @@ func (o *WeaviateP2pGenesisUpdateOK) WriteResponse(rw http.ResponseWriter, produ
 // WeaviateP2pGenesisUpdateUnauthorizedCode is the HTTP code returned for type WeaviateP2pGenesisUpdateUnauthorized
 const WeaviateP2pGenesisUpdateUnauthorizedCode int = 401
 
-/*WeaviateP2pGenesisUpdateUnauthorized Unauthorized update
+/*WeaviateP2pGenesisUpdateUnauthorized Unauthorized update.
 
 swagger:response weaviateP2pGenesisUpdateUnauthorized
 */
@@ -74,7 +74,7 @@ func (o *WeaviateP2pGenesisUpdateUnauthorized) WriteResponse(rw http.ResponseWri
 // WeaviateP2pGenesisUpdateInternalServerErrorCode is the HTTP code returned for type WeaviateP2pGenesisUpdateInternalServerError
 const WeaviateP2pGenesisUpdateInternalServerErrorCode int = 500
 
-/*WeaviateP2pGenesisUpdateInternalServerError Internal error
+/*WeaviateP2pGenesisUpdateInternalServerError Internal error.
 
 swagger:response weaviateP2pGenesisUpdateInternalServerError
 */

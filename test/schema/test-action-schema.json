@@ -17,6 +17,13 @@
                     "description": "Value of testString."
                 },
                 {
+                   "name": "testText",
+                    "@dataType": [
+                        "text"
+                    ],
+                    "description": "Value of testText."
+                },
+                {
                     "name": "testInt",
                     "keywords": [
                       { "keyword": "test", "weight": 1.0 },
@@ -78,6 +85,13 @@
                     "description": "Value of testString."
                 },
                 {
+                   "name": "testText",
+                    "@dataType": [
+                        "text"
+                    ],
+                    "description": "Value of testText."
+                },
+                {
                     "name": "testInt",
                     "@dataType": [
                         "int"
@@ -125,7 +139,7 @@
                     ],
                     "description": "Value of testCref."
                 },
-                {
+		{
                     "name": "testCrefs",
                     "cardinality": "many",
                     "keywords": [
@@ -136,7 +150,7 @@
                         "TestAction"
                     ],
                     "description": "Value of testCref."
-                }
+		}
 
             ]
         }

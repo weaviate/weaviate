@@ -48,7 +48,7 @@ func NewWeaviateSchemaActionsPropertiesUpdate(ctx *middleware.Context, handler W
 
 /*WeaviateSchemaActionsPropertiesUpdate swagger:route PUT /schema/actions/{className}/properties/{propertyName} schema weaviateSchemaActionsPropertiesUpdate
 
-Rename, or replace the keywords of the property
+Rename, or replace the keywords of the property.
 
 */
 type WeaviateSchemaActionsPropertiesUpdate struct {
@@ -94,7 +94,7 @@ type WeaviateSchemaActionsPropertiesUpdateBody struct {
 	// keywords
 	Keywords models.SemanticSchemaKeywords `json:"keywords"`
 
-	// The new name of the property
+	// The new name of the property.
 	NewName string `json:"newName,omitempty"`
 }
 

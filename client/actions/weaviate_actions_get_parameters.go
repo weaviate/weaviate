@@ -63,7 +63,7 @@ for the weaviate actions get operation typically these are written to a http.Req
 type WeaviateActionsGetParams struct {
 
 	/*ActionID
-	  Unique ID of the action.
+	  Unique ID of the Action.
 
 	*/
 	ActionID strfmt.UUID

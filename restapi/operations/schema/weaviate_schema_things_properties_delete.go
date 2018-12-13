@@ -43,7 +43,7 @@ func NewWeaviateSchemaThingsPropertiesDelete(ctx *middleware.Context, handler We
 
 /*WeaviateSchemaThingsPropertiesDelete swagger:route DELETE /schema/things/{className}/properties/{propertyName} schema weaviateSchemaThingsPropertiesDelete
 
-Remove a property from a Thing class
+Remove a property from a Thing class.
 
 */
 type WeaviateSchemaThingsPropertiesDelete struct {

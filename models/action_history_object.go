@@ -29,7 +29,7 @@ import (
 type ActionHistoryObject struct {
 	ActionCreate
 
-	// Timestamp of creation of this action history in milliseconds since epoch UTC.
+	// Timestamp of creation of this Action history in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 }
 

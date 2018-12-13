@@ -87,7 +87,7 @@ func (a *Client) WeaviateKeysChildrenGet(params *WeaviateKeysChildrenGetParams, 
 }
 
 /*
-WeaviateKeysDelete deletes a key based on its uuid related to this key
+WeaviateKeysDelete deletes a key based on its UUID related to this key
 
 Deletes a key. Only parent or self is allowed to delete key. When you delete a key, all its children will be deleted as well.
 */
@@ -118,7 +118,7 @@ func (a *Client) WeaviateKeysDelete(params *WeaviateKeysDeleteParams, authInfo r
 }
 
 /*
-WeaviateKeysGet gets a key based on its uuid related to this key
+WeaviateKeysGet gets a key based on its UUID related to this key
 
 Get a key.
 */

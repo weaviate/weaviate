@@ -30,7 +30,7 @@ import (
 type KeyTokenGetResponse struct {
 	KeyGetResponse
 
-	// Key for user to use.
+	// Key for the user to use.
 	// Format: uuid
 	Token strfmt.UUID `json:"token,omitempty"`
 }

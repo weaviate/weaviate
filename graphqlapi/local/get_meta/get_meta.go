@@ -1,193 +1,96 @@
-package local_get_meta
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
+ */
+
+// Package get_meta provides the local get meta graphql endpoint for Weaviate
+package get_meta
 
 import (
 	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
-	"strings"
 )
 
+// Build the local queries from the database schema.
 func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
-	getKinds := graphql.Fields{}
 
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
-		return nil, fmt.Errorf("There are not any Actions or Things classes defined yet.")
+		return nil, fmt.Errorf("There are no Actions or Things classes defined yet.")
 	}
 
-	knownClasses := map[string]*graphql.Object{}
-
-	metaProperties := newMetaProperties()
+	getMetaKinds := graphql.Fields{}
 
 	if len(dbSchema.Actions.Classes) > 0 {
-		localGetActions, err := buildGetMetaClasses(dbSchema, kind.ACTION_KIND, dbSchema.Actions, metaProperties, &knownClasses)
-		if err != nil {
-			return nil, err
+		classParentTypeIsAction := true
+		localGetMetaActions, localGetMetaErr := genLocalMetaClassFieldsFromSchema(dbSchema.Actions.Classes, classParentTypeIsAction)
+		if localGetMetaErr != nil {
+			return nil, fmt.Errorf("failed to generate action fields from schema for local MetaGet because: %v", localGetMetaErr)
 		}
 
-		getKinds["Actions"] = &graphql.Field{
+		getMetaKinds["Actions"] = &graphql.Field{
 			Name:        "WeaviateLocalGetMetaActions",
-			Description: "Get Meta information about Actions on the Local Weaviate",
-			Type:        localGetActions,
+			Description: descriptions.LocalGetMetaActionsDesc,
+			Type:        localGetMetaActions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				// Does nothing; pass through the filters
-				return p.Source, nil
+				return nil, fmt.Errorf("not supported")
 			},
 		}
 	}
 
 	if len(dbSchema.Things.Classes) > 0 {
-		localGetMetaThings, err := buildGetMetaClasses(dbSchema, kind.THING_KIND, dbSchema.Things, metaProperties, &knownClasses)
-		if err != nil {
-			return nil, err
+		classParentTypeIsAction := false
+		localGetMetaThings, localGetMetaErr := genLocalMetaClassFieldsFromSchema(dbSchema.Things.Classes, classParentTypeIsAction)
+		if localGetMetaErr != nil {
+			return nil, fmt.Errorf("failed to generate thing fields from schema for local MetaGet because: %v", localGetMetaErr)
 		}
 
-		getKinds["Things"] = &graphql.Field{
+		getMetaKinds["Things"] = &graphql.Field{
 			Name:        "WeaviateLocalGetMetaThings",
-			Description: "Get Meta information about Things on the Local Weaviate",
+			Description: descriptions.LocalGetMetaThingsDesc,
 			Type:        localGetMetaThings,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				// Does nothing; pass through the filters
-				return p.Source, nil
+				return nil, fmt.Errorf("not supported")
 			},
 		}
 	}
 
-	getMetaField := &graphql.Field{
+	getMetaObj := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateLocalGetMetaObj",
-		Description: "Type of Get function to get meta information about Things or Actions on the Local Weaviate",
-		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name:        "WeaviateLocalGetMetaObj",
-			Fields:      getKinds,
-			Description: "Type of Get function to get meta information about Things or Actions on the Local Weaviate",
-		}),
+		Fields:      getMetaKinds,
+		Description: descriptions.LocalGetObjDesc,
+	})
+
+	localField := &graphql.Field{
+		Name:        "WeaviateLocalGetMeta",
+		Type:        getMetaObj,
+		Description: descriptions.LocalGetMetaDesc,
 		Args: graphql.FieldConfigArgument{
 			"where": &graphql.ArgumentConfig{
-				Description: "Filter options for the GetMeta search, to convert the data to the filter input",
+				Description: descriptions.LocalGetWhereDesc,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        "WeaviateLocalGetMetaWhereInpObj",
-						Fields:      common_filters.Get(),
-						Description: "Filter options for the GetMeta search, to convert the data to the filter input",
+						Fields:      common_filters.BuildNew("WeaviateLocalGetMeta"),
+						Description: descriptions.LocalGetWhereInpObjDesc,
 					},
 				),
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			// TODO: not implemented yet.
-			return nil, nil
+			return nil, fmt.Errorf("not supported")
 		},
 	}
 
-	return getMetaField, nil
-}
-
-// Builds the classes below a Local -> Get -> (k kind.Kind)
-func buildGetMetaClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *models.SemanticSchema, metaProperties MetaProperties, knownClasses *map[string]*graphql.Object) (*graphql.Object, error) {
-	classFields := graphql.Fields{}
-
-	var kindName string
-	switch k {
-	case kind.THING_KIND:
-		kindName = "Thing"
-	case kind.ACTION_KIND:
-		kindName = "Action"
-	}
-
-	for _, class := range semanticSchema.Classes {
-		classField, err := buildGetMetaClass(dbSchema, k, class, metaProperties, knownClasses)
-		if err != nil {
-			return nil, fmt.Errorf("Could not build class for %s", class.Class)
-		}
-		classFields[class.Class] = classField
-	}
-
-	classes := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("WeaviateLocalGetMeta%ssObj", kindName),
-		Fields:      classFields,
-		Description: fmt.Sprintf("Type of %ss i.e. %ss classes to GetMeta information of on the Local Weaviate", kindName, kindName),
-	})
-
-	return classes, nil
-}
-
-// Build a single class in Local -> Get -> (k kind.Kind) -> (models.SemanticSchemaClass)
-func buildGetMetaClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass, metaProperties MetaProperties, knownClasses *map[string]*graphql.Object) (*graphql.Field, error) {
-	classObject := graphql.NewObject(graphql.ObjectConfig{
-		Name: fmt.Sprintf("%sMeta", class.Class),
-		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
-			classProperties := graphql.Fields{}
-
-			classProperties["meta"] = metaProperties.classMeta
-
-			for _, property := range class.Properties {
-				propertyType, err := dbSchema.FindPropertyDataType(property.AtDataType)
-				if err != nil {
-					// We can't return an error in this FieldsThunk function, so we need to panic
-					panic(fmt.Sprintf("buildGetMetaClass: wrong propertyType for %s.%s.%s; %s", k.Name(), class.Class, property.Name, err.Error()))
-				}
-
-				if propertyType.IsPrimitive() {
-					primitiveType := propertyType.AsPrimitive()
-					propertyObject := metaProperties.properties[primitiveType]
-
-					if propertyObject == nil {
-						panic(fmt.Sprintf("buildGetMetaClass: unknown primitive type for %s.%s.%s; %s", k.Name(), class.Class, property.Name, propertyType.AsPrimitive()))
-					}
-
-					classProperties[property.Name] = &graphql.Field{
-						Name: fmt.Sprintf("Meta%s%s", class.Class, property.Name),
-						Type: propertyObject,
-					}
-				} else {
-					// This is a reference
-					refClasses := propertyType.Classes()
-					propertyName := strings.Title(property.Name)
-					dataTypeClasses := make([]*graphql.Object, len(refClasses))
-
-					for index, refClassName := range refClasses {
-						refClass, ok := (*knownClasses)[string(refClassName)]
-
-						if !ok {
-							panic(fmt.Sprintf("buildGetMetaClass: unknown referenced class type for %s.%s.%s; %s", k.Name(), class.Class, property.Name, refClassName))
-						}
-
-						dataTypeClasses[index] = refClass
-					}
-
-					classProperties[propertyName] = &graphql.Field{
-						Type:        graphql.String,
-						Description: property.Description,
-					}
-				}
-			}
-
-			return classProperties
-		}),
-		Description: class.Description,
-	})
-
-	(*knownClasses)[class.Class] = classObject
-
-	classField := graphql.Field{
-		Type:        graphql.NewList(classObject),
-		Description: class.Description,
-		Args: graphql.FieldConfigArgument{
-			"first": &graphql.ArgumentConfig{
-				Description: "Pagination option, show the first x results",
-				Type:        graphql.Int,
-			},
-			"after": &graphql.ArgumentConfig{
-				Description: "Pagination option, show the results after the first x results",
-				Type:        graphql.Int,
-			},
-		},
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, nil
-		},
-	}
-
-	return &classField, nil
+	return localField, nil
 }

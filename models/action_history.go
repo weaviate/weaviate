@@ -30,13 +30,13 @@ import (
 // swagger:model ActionHistory
 type ActionHistory struct {
 
-	// Indication whether the action is deleted
+	// Indication of whether the Action is deleted.
 	Deleted bool `json:"deleted,omitempty"`
 
 	// key
 	Key *SingleRef `json:"key,omitempty"`
 
-	// An array with the history of the action.
+	// An array with the history of the Action.
 	PropertyHistory []*ActionHistoryObject `json:"propertyHistory"`
 }
 

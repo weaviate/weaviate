@@ -26,14 +26,14 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ThingsListResponse List of things.
+// ThingsListResponse List of Things.
 // swagger:model ThingsListResponse
 type ThingsListResponse struct {
 
-	// The actual list of things.
+	// The actual list of Things.
 	Things []*ThingGetResponse `json:"things"`
 
-	// The total number of things for the query. The number of items in a response may be smaller due to paging.
+	// The total number of Things for the query. The number of items in a response may be smaller due to paging.
 	TotalResults int64 `json:"totalResults,omitempty"`
 }
 

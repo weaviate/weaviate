@@ -65,7 +65,7 @@ func NewWeaviateSchemaThingsPropertiesAddOK() *WeaviateSchemaThingsPropertiesAdd
 
 /*WeaviateSchemaThingsPropertiesAddOK handles this case with default header values.
 
-Added the property
+Added the property.
 */
 type WeaviateSchemaThingsPropertiesAddOK struct {
 }
@@ -107,7 +107,7 @@ func NewWeaviateSchemaThingsPropertiesAddForbidden() *WeaviateSchemaThingsProper
 
 /*WeaviateSchemaThingsPropertiesAddForbidden handles this case with default header values.
 
-Could not find the Thing class
+Could not find the Thing class.
 */
 type WeaviateSchemaThingsPropertiesAddForbidden struct {
 }
@@ -128,7 +128,7 @@ func NewWeaviateSchemaThingsPropertiesAddUnprocessableEntity() *WeaviateSchemaTh
 
 /*WeaviateSchemaThingsPropertiesAddUnprocessableEntity handles this case with default header values.
 
-Invalid property
+Invalid property.
 */
 type WeaviateSchemaThingsPropertiesAddUnprocessableEntity struct {
 	Payload *models.ErrorResponse

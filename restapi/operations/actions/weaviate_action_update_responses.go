@@ -144,7 +144,7 @@ func (o *WeaviateActionUpdateNotFound) WriteResponse(rw http.ResponseWriter, pro
 // WeaviateActionUpdateUnprocessableEntityCode is the HTTP code returned for type WeaviateActionUpdateUnprocessableEntity
 const WeaviateActionUpdateUnprocessableEntityCode int = 422
 
-/*WeaviateActionUpdateUnprocessableEntity Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+/*WeaviateActionUpdateUnprocessableEntity Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 
 swagger:response weaviateActionUpdateUnprocessableEntity
 */

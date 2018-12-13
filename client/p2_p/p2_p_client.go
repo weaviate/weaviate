@@ -55,7 +55,7 @@ func (a *Client) WeaviateP2pGenesisUpdate(params *WeaviateP2pGenesisUpdateParams
 /*
 WeaviateP2pHealth checks if a peer is alive
 
-Check if a peer is alive and healthy
+Check if a peer is alive and healthy.
 */
 func (a *Client) WeaviateP2pHealth(params *WeaviateP2pHealthParams) (*WeaviateP2pHealthOK, error) {
 	// TODO: Validate the params before sending

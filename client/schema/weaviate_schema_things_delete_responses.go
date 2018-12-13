@@ -79,7 +79,7 @@ func NewWeaviateSchemaThingsDeleteBadRequest() *WeaviateSchemaThingsDeleteBadReq
 
 /*WeaviateSchemaThingsDeleteBadRequest handles this case with default header values.
 
-Could not delete the Thing class
+Could not delete the Thing class.
 */
 type WeaviateSchemaThingsDeleteBadRequest struct {
 	Payload *models.ErrorResponse

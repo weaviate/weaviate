@@ -129,6 +129,8 @@ func GetValueDataTypeFromString(dt string) (*DataType, error) {
 			returnDataType = DataTypeNumber
 		} else if dt == string(DataTypeString) {
 			returnDataType = DataTypeString
+		} else if dt == string(DataTypeText) {
+			returnDataType = DataTypeText
 		}
 	} else {
 		return nil, errors_.New(ErrorNoSuchDatatype)
@@ -142,6 +144,7 @@ func IsValidValueDataType(dt string) bool {
 	switch dt {
 	case
 		string(DataTypeString),
+		string(DataTypeText),
 		string(DataTypeInt),
 		string(DataTypeNumber),
 		string(DataTypeBoolean),

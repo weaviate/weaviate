@@ -13,6 +13,8 @@ const (
 	DataTypeCRef DataType = "cref"
 	// DataTypeString The data type is a value of type string
 	DataTypeString DataType = "string"
+	// DataTypeText The data type is a value of type string
+	DataTypeText DataType = "text"
 	// DataTypeInt The data type is a value of type int
 	DataTypeInt DataType = "int"
 	// DataTypeNumber The data type is a value of type number/float
@@ -23,7 +25,7 @@ const (
 	DataTypeDate DataType = "date"
 )
 
-var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate}
+var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate}
 
 type PropertyKind int
 
@@ -99,7 +101,7 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 		firstLetter := rune(someDataType[0])
 		if unicode.IsLower(firstLetter) {
 			switch someDataType {
-			case string(DataTypeString), string(DataTypeInt), string(DataTypeNumber), string(DataTypeBoolean), string(DataTypeDate):
+			case string(DataTypeString), string(DataTypeText), string(DataTypeInt), string(DataTypeNumber), string(DataTypeBoolean), string(DataTypeDate):
 				return &propertyDataType{
 					kind:          PropertyKindPrimitive,
 					primitiveType: DataType(someDataType),

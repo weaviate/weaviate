@@ -62,7 +62,7 @@ func NewWeaviateThingsDeleteNoContent() *WeaviateThingsDeleteNoContent {
 
 /*WeaviateThingsDeleteNoContent handles this case with default header values.
 
-Successful deleted.
+Successfully deleted.
 */
 type WeaviateThingsDeleteNoContent struct {
 }

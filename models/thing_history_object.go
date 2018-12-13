@@ -29,7 +29,7 @@ import (
 type ThingHistoryObject struct {
 	ThingCreate
 
-	// Timestamp of creation of this thing history in milliseconds since epoch UTC.
+	// Timestamp of creation of this Thing history in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 }
 

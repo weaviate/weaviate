@@ -65,7 +65,7 @@ func NewWeaviateGraphqlPostOK() *WeaviateGraphqlPostOK {
 
 /*WeaviateGraphqlPostOK handles this case with default header values.
 
-Succesful query (with select).
+Successful query (with select).
 */
 type WeaviateGraphqlPostOK struct {
 	Payload *models.GraphQLResponse
@@ -136,7 +136,7 @@ func NewWeaviateGraphqlPostUnprocessableEntity() *WeaviateGraphqlPostUnprocessab
 
 /*WeaviateGraphqlPostUnprocessableEntity handles this case with default header values.
 
-Request body contains well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?
 */
 type WeaviateGraphqlPostUnprocessableEntity struct {
 	Payload *models.ErrorResponse

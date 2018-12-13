@@ -31,14 +31,14 @@ import (
 // swagger:model SemanticSchemaClassProperty
 type SemanticSchemaClassProperty struct {
 
-	// Can be a reference ($cref) to another type when starts with a capital (for example Person) otherwise "string" or "int".
+	// Can be a reference ($cref) to another type when it starts with a capital (for example Person), otherwise "string" or "int".
 	AtDataType []string `json:"@dataType"`
 
 	// The cardinality of this property. If you want to store more than one value in a property, set this to 'many'. Defaults to 'atMostOne'. Note that by default properties can be empty in Weaviate.
 	// Enum: [atMostOne many]
 	Cardinality *string `json:"cardinality,omitempty"`
 
-	// Description of the property
+	// Description of the property.
 	Description string `json:"description,omitempty"`
 
 	// keywords
