@@ -36,9 +36,9 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go install -a -tags netgo -ldflags '-w
 ###############################################################################
 # This image builds the contextionary fixtures.
 FROM build_base AS contextionary_fixture_builder
-COPY . .
 RUN apk add --no-cache curl
 RUN apk add --no-cache jq
+COPY ./tools/download_latest_contextionary.sh ./tools/
 RUN ./tools/download_latest_contextionary.sh
 
 ###############################################################################
@@ -67,8 +67,8 @@ ENTRYPOINT ["/bin/weaviate"]
 FROM alpine AS weaviate_base_dev
 COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
 COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
-COPY --from=contextionary_fixture_builder_dev /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.idx /contextionary/example.idx
-COPY --from=contextionary_fixture_builder_dev /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.knn /contextionary/example.knn
+COPY --from=contextionary_fixture_builder_dev /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.idx /contextionary/contextionary.idx
+COPY --from=contextionary_fixture_builder_dev /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.knn /contextionary/contextionary.knn
 ENTRYPOINT ["/bin/weaviate"]
 
 ###############################################################################
