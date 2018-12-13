@@ -30,6 +30,9 @@ function main() {
 
   echo_green "Run acceptance tests..."
   run_acceptance_tests
+
+  echo_green "Prepare coverage output for code climate"
+  prepare_coverage_for_cc
 }
 
 function run_acceptance_tests() {
@@ -39,6 +42,12 @@ function run_acceptance_tests() {
           return 1
         fi
     done
+}
+
+function prepare_coverage_for_cc() {
+    echo "mode: set" > c.out
+    grep -h -v "^mode:" ./*.cover >> c.out
+    rm -f ./*.cover
 }
 
 function import_test_fixtures() {
