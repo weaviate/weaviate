@@ -80,8 +80,6 @@ before_script:
     fi
   # Verify that the code is properly formatted.
   - if [[ -n "$(gofmt -l .)" ]]; then echo "The following files were not formatted properly!"; gofmt -l .; exit 1; fi
-  # Run Weaviate backed by JanusGraph
-  - tools/test/run_ci_server.sh || travis_terminate 1
 script: 
   # Verify dev setup is not broken
   #- ./tools/test/import_journey.sh || travis_terminate 1
