@@ -33,6 +33,7 @@ function main() {
 
   echo_green "Prepare coverage output for code climate"
   prepare_coverage_for_cc
+  echo "Done!"
 }
 
 function run_acceptance_tests() {
