@@ -55,104 +55,110 @@ function getDesc(name) {
 /**
  * Create enum for filter operators
  */
-var WhereOperators = new GraphQLEnumType({
-  name: "WhereOperatorEnum",
-  description: function() {
-    return getDesc("WhereOperatorEnum")},
-  values: {
-    "And": {
-      value: "And"
-    }, 
-    "Or": {
-      value: "Or"
-    }, 
-    "Equal": {
-      value: "Equal"
-    }, 
-    "Not": {
-      value: "Not"
-    }, 
-    "NotEqual": {
-      value: "NotEqual"
-    }, 
-    "GreaterThan": {
-      value: "GreaterThan"
-    }, 
-    "GreaterThanEqual": {
-      value: "GreaterThanEqual"
-    }, 
-    "LessThan": {
-      value: "LessThan"
-    },
-    "LessThanEqual": {
-      value: "LessThanEqual"
-    },
-  }
-})
+ function genWhereOperators(path) {
+	return new GraphQLEnumType({
+	  name: path + "WhereOperatorEnum",
+	  description: function() {
+		return getDesc("WhereOperatorEnum")},
+	  values: {
+		"And": {
+		  value: "And"
+		}, 
+		"Or": {
+		  value: "Or"
+		}, 
+		"Equal": {
+		  value: "Equal"
+		}, 
+		"Not": {
+		  value: "Not"
+		}, 
+		"NotEqual": {
+		  value: "NotEqual"
+		}, 
+		"GreaterThan": {
+		  value: "GreaterThan"
+		}, 
+		"GreaterThanEqual": {
+		  value: "GreaterThanEqual"
+		}, 
+		"LessThan": {
+		  value: "LessThan"
+		},
+		"LessThanEqual": {
+		  value: "LessThanEqual"
+		},
+	  }
+	})
+}
+
 
 /**
  * Create filter fields for queries
  */
-var whereFields = {
-  operator: {
-    name: "WhereOperator",
-    description: function() {
-      return getDesc("WhereOperator")},
-    type: WhereOperators
-  },
-  operands: {
-    name: "WhereOperands",
-    description: function() {
-      return getDesc("WhereOperands")},
-    type: new GraphQLList(new GraphQLInputObjectType({
-      name: "WhereOperandsInpObj",
-      description: function() {
-        return getDesc("WhereOperandsInpObj")},
-      fields: function () {return whereFields}
-    }))
-  },
-  path: { 
-    name: "WherePath",
-    description: function() {
-      return getDesc("WherePath")},
-    type: new GraphQLList(GraphQLString) 
-  },
-  valueInt: { 
-    name: "WhereValueInt",
-    description: function() {
-      return getDesc("WhereValueInt")},
-    type: GraphQLInt 
-  },
-  valueNumber: { 
-    name: "WhereValueNumber",
-    description: function() {
-      return getDesc("WhereValueNumber")},
-    type: GraphQLFloat
-  },
-  valueBoolean: { 
-    name: "WhereValueBoolean",
-    description: function() {
-      return getDesc("WhereValueBoolean")},
-    type: GraphQLBoolean
-  },
-  valueString: { 
-    name: "WhereValueString",
-    description: function() {
-      return getDesc("WhereValueString")},
-    type: GraphQLString 
-  },
-  valueDate: { 
-    name: "WhereValueDate",
-    description: function() {
-      return getDesc("WhereValueDate")},
-    type: GraphQLString 
-  },
-  valueText: { 
-    name: "NetworkFetchWherePropertyWhereValueText",
-    description: function() {
-      return getDesc("WhereValueText")},
-    type: GraphQLString 
+function genWhereFields (path) {
+  var whereFields = {	
+	  operator: {
+		name: path + "WhereOperator",
+		description: function() {
+		  return getDesc("WhereOperator")},
+		type: genWhereOperators(path)
+	  },
+	  operands: {
+		name: path + "WhereOperands",
+		description: function() {
+		  return getDesc("WhereOperands")},
+		type: new GraphQLList(new GraphQLInputObjectType({
+		  name: path + "WhereOperandsInpObj",
+		  description: function() {
+			return getDesc("WhereOperandsInpObj")},
+		  fields: function () {return whereFields}
+		}))
+	  },
+	  path: { 
+		name: "WherePath",
+		description: function() {
+		  return getDesc("WherePath")},
+		type: new GraphQLList(GraphQLString) 
+	  },
+	  valueInt: { 
+		name: "WhereValueInt",
+		description: function() {
+		  return getDesc("WhereValueInt")},
+		type: GraphQLInt 
+	  },
+	  valueNumber: { 
+		name: "WhereValueNumber",
+		description: function() {
+		  return getDesc("WhereValueNumber")},
+		type: GraphQLFloat
+	  },
+	  valueBoolean: { 
+		name: "WhereValueBoolean",
+		description: function() {
+		  return getDesc("WhereValueBoolean")},
+		type: GraphQLBoolean
+	  },
+	  valueString: { 
+		name: "WhereValueString",
+		description: function() {
+		  return getDesc("WhereValueString")},
+		type: GraphQLString 
+	  },
+	  valueDate: { 
+		name: "WhereValueDate",
+		description: function() {
+		  return getDesc("WhereValueDate")},
+		type: GraphQLString 
+	  },
+	  valueText: { 
+		name: "NetworkFetchWherePropertyWhereValueText",
+		description: function() {
+		  return getDesc("WhereValueText")},
+		type: GraphQLString 
+	  }
   }
+  return whereFields
 }
 
 
@@ -1323,7 +1329,7 @@ var NetworkFetchWherePropertyFilterFields = {
     name: "NetworkFetchWherePropertyWhereOperator",
     description: function() {
       return getDesc("NetworkFetchWherePropertyWhereOperator")},
-    type: WhereOperators
+    type: genWhereOperators("WeaviateNetworkFetch")
   },
   valueInt: { 
     name: "NetworkFetchWherePropertyWhereValueInt",
@@ -1582,7 +1588,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                       name: "WeaviateLocalGetWhereInpObj",
                       description: function() {
                         return getDesc("WeaviateLocalGetWhereInpObj")},
-                      fields: whereFields
+                      fields: genWhereFields("WeaviateLocalGet")
                     }) 
                   }
                 },
@@ -1645,7 +1651,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                       name: "WeaviateLocalGetMetaWhereInpObj",
                       description: function() {
                         return getDesc("WeaviateLocalGetMetaWhereInpObj")},
-                      fields: whereFields
+                      fields: genWhereFields("WeaviateLocalGetMeta")
                     }) 
                 }
                 },
@@ -1708,7 +1714,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                       name: "WeaviateLocalAggregateWhereInpObj",
                       description: function() {
                         return getDesc("WeaviateLocalAggregateWhereInpObj")},
-                      fields: whereFields
+                      fields: genWhereFields("WeaviateLocalAggregate")
                     }) 
                   }
                 },
@@ -1801,7 +1807,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                       name: "WeaviateNetworkGetWhereInpObj",
                       description: function() {
                         return getDesc("WeaviateNetworkGetWhereInpObj")},
-                      fields: whereFields
+                      fields: genWhereFields("WeaviateNetworkGet")
                     }) 
                   }
                 },
@@ -2028,7 +2034,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                       name: "WeaviateNetworkGetMetaWhereInpObj",
                       description: function() {
                         return getDesc("WeaviateNetworkGetMetaWhereInpObj")},
-                      fields: whereFields
+                      fields: genWhereFields("WeaviateNetworkGetMeta")
                     }) 
                 }
                 },
