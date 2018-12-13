@@ -62,7 +62,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        "WeaviateLocalAggregateWhereInpObj",
-						Fields:      common_filters.GetGetAndGetMetaWhereFilters(),
+						Fields:      common_filters.BuildNew("WeaviateLocalAggregate"),
 						Description: descriptions.LocalAggregateWhereInpObjDesc,
 					},
 				),
