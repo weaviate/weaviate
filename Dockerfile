@@ -67,8 +67,8 @@ ENTRYPOINT ["/bin/weaviate"]
 FROM alpine AS weaviate_base_dev
 COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
 COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
-COPY --from=contextionary_fixture_builder_dev /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.idx /contextionary/example.idx
-COPY --from=contextionary_fixture_builder_dev /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.knn /contextionary/example.knn
+COPY --from=contextionary_fixture_builder_dev /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.idx /contextionary/contextionary.idx
+COPY --from=contextionary_fixture_builder_dev /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.knn /contextionary/contextionary.knn
 ENTRYPOINT ["/bin/weaviate"]
 
 ###############################################################################
