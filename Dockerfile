@@ -37,13 +37,21 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go install -a -tags netgo -ldflags '-w
 # This image builds the contextionary fixtures.
 FROM build_base AS contextionary_fixture_builder
 COPY . .
-RUN ./test/contextionary/gen_simple_contextionary.sh
+RUN apk add --no-cache curl
+RUN apk add --no-cache jq
+RUN ./tools/download_latest_contextionary.sh
 
 ###############################################################################
 # This creates an image that can be run to import the demo dataset for development
 FROM build_base AS data_importer
 COPY . .
 ENTRYPOINT ["./tools/dev/import_demo_data.sh"]
+
+###############################################################################
+# This image builds the contextionary fixtures FOR DEV OR TEST.
+FROM build_base AS contextionary_fixture_builder_dev
+COPY . .
+RUN ./test/contextionary/gen_simple_contextionary.sh
 
 ###############################################################################
 # This is the base image for running waviates configurations; contains the executable & contextionary
@@ -55,15 +63,24 @@ COPY --from=contextionary_fixture_builder /go/src/github.com/creativesoftwarefdn
 ENTRYPOINT ["/bin/weaviate"]
 
 ###############################################################################
+# This is the base image for running waviates configurations IN DEV OR TEST; contains the executable & contextionary
+FROM alpine as weaviate_base_dev
+COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
+COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
+COPY --from=contextionary_fixture_builder_dev /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.idx /contextionary/example.idx
+COPY --from=contextionary_fixture_builder_dev /go/src/github.com/creativesoftwarefdn/weaviate/test/contextionary/example.knn /contextionary/example.knn
+ENTRYPOINT ["/bin/weaviate"]
+
+###############################################################################
 # Development configuration with demo dataset
-FROM weaviate_base AS development
+FROM weaviate_base_dev AS development
 COPY ./tools/dev/schema /schema
 COPY ./tools/dev/config.json /weaviate.conf.json
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config", "janusgraph_docker"]
 
 ###############################################################################
 # Configuration used for the acceptance tests.
-FROM weaviate_base AS test
+FROM weaviate_base_dev AS test
 COPY ./test/schema/test-action-schema.json /schema/actions_schema.json
 COPY ./test/schema/test-thing-schema.json /schema/things_schema.json
 COPY ./tools/dev/config.json /weaviate.conf.json
