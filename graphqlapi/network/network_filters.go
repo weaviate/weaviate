@@ -16,7 +16,9 @@ package network
 
 import (
 	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
 )
@@ -41,33 +43,33 @@ func genNetworkWhereOperatorEnum() *graphql.Enum {
 	return graphql.NewEnum(enumConf)
 }
 
-// generate these elements once
-func genNetworkStaticWhereFilterElements() graphql.InputObjectConfigFieldMap {
-	staticFilterElements := graphql.InputObjectConfigFieldMap{
-		"operator": &graphql.InputObjectFieldConfig{
-			Type:        genNetworkWhereOperatorEnum(),
-			Description: descriptions.WhereOperatorDesc,
-		},
-		"valueInt": &graphql.InputObjectFieldConfig{
-			Type:        graphql.Int,
-			Description: descriptions.WhereValueIntDesc,
-		},
-		"valueNumber": &graphql.InputObjectFieldConfig{
-			Type:        graphql.Float,
-			Description: descriptions.WhereValueNumberDesc,
-		},
-		"valueBoolean": &graphql.InputObjectFieldConfig{
-			Type:        graphql.Boolean,
-			Description: descriptions.WhereValueBooleanDesc,
-		},
-		"valueString": &graphql.InputObjectFieldConfig{
-			Type:        graphql.String,
-			Description: descriptions.WhereValueStringDesc,
-		},
-	}
-
-	return staticFilterElements
-}
+//// generate these elements once
+//func genNetworkStaticWhereFilterElements() graphql.InputObjectConfigFieldMap {
+//	staticFilterElements := graphql.InputObjectConfigFieldMap{
+//		"operator": &graphql.InputObjectFieldConfig{
+//			Type:        genNetworkWhereOperatorEnum(),
+//			Description: descriptions.WhereOperatorDesc,
+//		},
+//		"valueInt": &graphql.InputObjectFieldConfig{
+//			Type:        graphql.Int,
+//			Description: descriptions.WhereValueIntDesc,
+//		},
+//		"valueNumber": &graphql.InputObjectFieldConfig{
+//			Type:        graphql.Float,
+//			Description: descriptions.WhereValueNumberDesc,
+//		},
+//		"valueBoolean": &graphql.InputObjectFieldConfig{
+//			Type:        graphql.Boolean,
+//			Description: descriptions.WhereValueBooleanDesc,
+//		},
+//		"valueString": &graphql.InputObjectFieldConfig{
+//			Type:        graphql.String,
+//			Description: descriptions.WhereValueStringDesc,
+//		},
+//	}
+//
+//	return staticFilterElements
+//}
 
 // This is an exact translation of the Prototype from JS to Go. In the prototype some filter elements are declared as global variables, this is recreated here.
 func genGlobalNetworkFilterElements(filterContainer *utils.FilterContainer) {
@@ -149,19 +151,14 @@ func genNetworkFetchThingsAndActionsFilterFields(filterContainer *utils.FilterCo
 }
 
 func genNetworkFetchWhereInpObjPropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
-	filterPropertiesElements := genNetworkStaticWhereFilterElements()
+	filterPropertiesElements := common_filters.BuildNew("WeaviateNetworkFetch")
+
+	// Remove path field as it's not required here
+	delete(filterPropertiesElements, "path")
 
 	filterPropertiesElements["certainty"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.Float,
 		Description: descriptions.WhereCertaintyDesc,
-	}
-	filterPropertiesElements["valueDate"] = &graphql.InputObjectFieldConfig{
-		Type:        graphql.String,
-		Description: descriptions.WhereValueDateDesc,
-	}
-	filterPropertiesElements["valueText"] = &graphql.InputObjectFieldConfig{
-		Type:        graphql.String,
-		Description: descriptions.WhereValueTextDesc,
 	}
 	filterPropertiesElements["name"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.String,
