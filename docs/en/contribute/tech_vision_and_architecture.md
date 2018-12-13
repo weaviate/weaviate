@@ -1,13 +1,6 @@
----
-publishedOnWebsite: false
-title: Vision and future outlook
-subject: OSS
----
+# Technology Vision & Architecture
 
-# Technology Vision
-
-> This document describes the technical vision of what Weaviate will be.
-> To have an overview of what is implemented currently, look in the [Current Architecture](./tech_current_architecture.md) file.
+> Description of the technical vision of Weaviate and the current and (planned) architecture.
 
 ## Introduction
 

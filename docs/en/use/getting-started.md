@@ -1,8 +1,3 @@
----
-publishedOnWebsite: true
-title: Getting Started
-subject: OSS
----
-
 # Getting Started
 
+> An introduction to Weaviate and how to start using it.
