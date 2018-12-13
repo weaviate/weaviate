@@ -34,6 +34,10 @@ func maybeSkipGraphqlTest(t *testing.T) {
 	}
 }
 
+/* Skip length comparisons of field lengths due to multiple schema's being loaded into Weaviate when running the acceptance test,
+causing the Weaviate's schema to be larger than the prototype's schema*/
+var fieldLengthComparisonEnabled bool = false
+
 /*
 Loop through all branches of the expected schema and compare each leaf to an
 actual schema retrieved from an introspection query on a local weaviate
@@ -105,8 +109,9 @@ func compareExpectedElementToActualElement(t *testing.T, schemaPath string, expe
 		if reflect.TypeOf(expectedValue) == reflect.TypeOf(actualValue) {
 			// check if both lists have the same length
 			parsedActualValue := actualValue.([]interface{})
-			assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s", schemaPath))
-
+			if fieldLengthComparisonEnabled {
+				assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Array length inequality detected at path: %s", schemaPath))
+			}
 			if len(parsedExpectedValue) > 0 {
 				handleListComparisons(t, schemaPath, parsedExpectedValue, parsedActualValue)
 			}
@@ -118,8 +123,12 @@ func compareExpectedElementToActualElement(t *testing.T, schemaPath string, expe
 		parsedExpectedValue := expectedValue.(map[string]interface{})
 		if reflect.TypeOf(expectedValue) == reflect.TypeOf(actualValue) {
 			parsedActualValue := actualValue.(map[string]interface{})
-			// check if both maps have the same length
-			assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Map length inequality detected at path: %s", schemaPath))
+
+			if fieldLengthComparisonEnabled {
+				// check if both maps have the same length
+				assert.Equal(t, len(parsedExpectedValue), len(parsedActualValue), fmt.Sprintf("Map length inequality detected at path: %s", schemaPath))
+			}
+
 			if len(parsedExpectedValue) > 0 {
 				traverseNestedSchemaLayer(t, schemaPath, parsedExpectedValue, parsedActualValue)
 			}
