@@ -20,7 +20,7 @@ function main() {
 
   echo_green "Start up weaviate and backing dbs in docker-compose..."
   echo "This could take some time..."
-  surpress_on_success tools/test/run_ci_server.sh
+  tools/test/run_ci_server.sh
 
   echo_green "Import required schema and test fixtures..."
   # Note: It's not best practice to do this as part of the test script
