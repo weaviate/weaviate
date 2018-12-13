@@ -125,8 +125,9 @@ func genNetworkFetchThingsAndActionsFilterFields(filterContainer *utils.FilterCo
 func genNetworkFetchWhereInpObjPropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
 	filterPropertiesElements := common_filters.BuildNew("WeaviateNetworkFetch")
 
-	// Remove path field as it's not required here
+	// Remove path and operands fields as they are not required here
 	delete(filterPropertiesElements, "path")
+	delete(filterPropertiesElements, "operands")
 
 	filterPropertiesElements["certainty"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.Float,
