@@ -11,8 +11,8 @@
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
-// Package network provides the network graphql endpoint for Weaviate
-package network
+// Package network_get provides the network get graphql endpoint for Weaviate
+package network_get
 
 import (
 	"fmt"
@@ -20,13 +20,12 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
-	network_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
 
 // Build the dynamically generated Get Actions part of the schema
-func genNetworkActionClassFieldsFromSchema(dbSchema *schema.Schema, networkGetActionsAndThings *map[string]*graphql.Object, weaviate string) (*graphql.Object, error) {
+func GenNetworkActionClassFieldsFromSchema(dbSchema *schema.Schema, networkGetActionsAndThings *map[string]*graphql.Object, weaviate string) (*graphql.Object, error) {
 	actionClassFields := graphql.Fields{}
 
 	for _, class := range dbSchema.Actions.Classes {
@@ -75,7 +74,7 @@ func genSingleNetworkActionClassField(class *models.SemanticSchemaClass, network
 				Type:        graphql.Int,
 			},
 		},
-		Resolve: network_get.ResolveAction,
+		Resolve: ResolveAction,
 	}
 	return singleNetworkActionClassPropertyFieldsField, singleNetworkActionClassPropertyFieldsObj
 }
@@ -146,7 +145,7 @@ func genSingleNetworkActionClassPropertyFields(class *models.SemanticSchemaClass
 }
 
 // Build the dynamically generated Get Things part of the schema
-func genNetworkThingClassFieldsFromSchema(dbSchema *schema.Schema, getNetworkActionsAndThings *map[string]*graphql.Object, weaviate string) (*graphql.Object, error) {
+func GenNetworkThingClassFieldsFromSchema(dbSchema *schema.Schema, getNetworkActionsAndThings *map[string]*graphql.Object, weaviate string) (*graphql.Object, error) {
 	thingClassFields := graphql.Fields{}
 
 	for _, class := range dbSchema.Things.Classes {
@@ -192,7 +191,7 @@ func genSingleNetworkThingClassField(class *models.SemanticSchemaClass, getActio
 				Type:        graphql.Int,
 			},
 		},
-		Resolve: network_get.ResolveThing,
+		Resolve: ResolveThing,
 	}
 	return thingClassPropertyFieldsField, thingClassPropertyFieldsObject
 }

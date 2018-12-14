@@ -11,20 +11,21 @@
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
-// Package network provides the network graphql endpoint for Weaviate
-package network
+// Package network_getmeta provides the network getmeta graphql endpoint for Weaviate
+package network_getmeta
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
-	"strings"
 )
 
 // Build the dynamically generated GetMeta Things part of the schema
-func genNetworkMetaClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, classParentTypeIsAction bool, weaviate string) (*graphql.Object, error) {
+func GenNetworkMetaClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, classParentTypeIsAction bool, weaviate string) (*graphql.Object, error) {
 	classFields := graphql.Fields{}
 	name := fmt.Sprintf("%s%s%s", "WeaviateNetworkGetMeta", weaviate, "ThingsObj")
 	description := descriptions.NetworkGetMetaThingsObjDesc
