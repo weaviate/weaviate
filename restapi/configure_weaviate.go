@@ -1966,7 +1966,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if graphQL == nil {
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				&models.ErrorResponseErrorItems0{
-					Message: "no graphql provider present" +
+					Message: "no graphql provider present, " +
 						"this is most likely because no schema is present. Import a schema first!",
 				}}
 			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
