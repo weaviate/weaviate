@@ -21,7 +21,7 @@ func TestPeerUpdateWithNewPeers(t *testing.T) {
 
 	callbackCalled := false
 	callbackCalledWith := []libnetwork.Peer{}
-	callbackSpy := func(peers []libnetwork.Peer) {
+	callbackSpy := func(peers libnetwork.Peers) {
 		callbackCalled = true
 		callbackCalledWith = peers
 	}
@@ -51,7 +51,7 @@ func TestPeerUpdateWithoutAnyChange(t *testing.T) {
 	}
 
 	callbackCalled := false
-	callbackSpy := func(peers []libnetwork.Peer) {
+	callbackSpy := func(peers libnetwork.Peers) {
 		callbackCalled = true
 	}
 
