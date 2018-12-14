@@ -11,7 +11,7 @@ A complete Weaviate stack based on Janusgraph (with; Elasticsearch and Cassandra
 #### Running the latest stable version
 
 ```sh
-$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/feature/docs/docker-compose/runtime-stable/docker-compose.yml
+$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-stable/docker-compose.yml
 $ docker-compose up
 ```
 
@@ -22,7 +22,7 @@ $ docker-compose up
 #### Running the latest unstable version
 
 ```sh
-$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/feature/docs/docker-compose/runtime-unstable/docker-compose.yml
+$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-unstable/docker-compose.yml
 $ docker-compose up
 ```
 
@@ -32,10 +32,10 @@ $ docker-compose up
 #### Running a specific version
 
 ```sh
-$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/feature/docs/docker-compose/runtime-stable/docker-compose.yml
+$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-stable/docker-compose.yml
 ```
 
-Open docker-compose.yml and replace `unstable` in the image (`image: creativesoftwarefdn/weaviate:unstable`) with the prefered version number.
+Open docker-compose.yml and replace `stable` in the image (`image: creativesoftwarefdn/weaviate:stable`) with the prefered version number.
 
 ```sh
 $ docker-compose up
