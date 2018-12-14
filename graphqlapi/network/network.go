@@ -19,6 +19,11 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	network_fetch "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
+	network_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
+	network_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get_meta"
+	network_introspect "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/introspect"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/graphql-go/graphql"
 )
@@ -55,7 +60,7 @@ func Build(dbSchema *schema.Schema, peers []string) (*graphql.Field, error) {
 		getMetaKinds := graphql.Fields{}
 
 		if len(dbSchema.Actions.Classes) > 0 {
-			networkGetActions, networkGetErr := genNetworkActionClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, peer)
+			networkGetActions, networkGetErr := network_get.GenNetworkActionClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, peer)
 			if networkGetErr != nil {
 				return nil, fmt.Errorf("failed to generate action fields from schema for network Get because: %v", networkGetErr)
 			}
@@ -72,7 +77,7 @@ func Build(dbSchema *schema.Schema, peers []string) (*graphql.Field, error) {
 			}
 
 			classParentTypeIsAction := true
-			networkGetMetaActions, networkGetMetaErr := genNetworkMetaClassFieldsFromSchema(dbSchema.Actions.Classes, classParentTypeIsAction, peer)
+			networkGetMetaActions, networkGetMetaErr := network_getmeta.GenNetworkMetaClassFieldsFromSchema(dbSchema.Actions.Classes, classParentTypeIsAction, peer)
 			if networkGetMetaErr != nil {
 				return nil, fmt.Errorf("failed to generate action fields from schema for network MetaGet because: %v", networkGetMetaErr)
 			}
@@ -90,7 +95,7 @@ func Build(dbSchema *schema.Schema, peers []string) (*graphql.Field, error) {
 		}
 
 		if len(dbSchema.Things.Classes) > 0 {
-			networkGetThings, networkGetErr := genNetworkThingClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, peer)
+			networkGetThings, networkGetErr := network_get.GenNetworkThingClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, peer)
 			if networkGetErr != nil {
 				return nil, fmt.Errorf("failed to generate thing fields from schema for network Get because: %v", networkGetErr)
 			}
@@ -107,7 +112,7 @@ func Build(dbSchema *schema.Schema, peers []string) (*graphql.Field, error) {
 			}
 
 			classParentTypeIsAction := false
-			networkGetMetaThings, networkGetMetaErr := genNetworkMetaClassFieldsFromSchema(dbSchema.Things.Classes, classParentTypeIsAction, peer)
+			networkGetMetaThings, networkGetMetaErr := network_getmeta.GenNetworkMetaClassFieldsFromSchema(dbSchema.Things.Classes, classParentTypeIsAction, peer)
 			if networkGetMetaErr != nil {
 				return nil, fmt.Errorf("failed to generate thing fields from schema for network MetaGet because: %v", networkGetMetaErr)
 			}
@@ -145,9 +150,9 @@ func Build(dbSchema *schema.Schema, peers []string) (*graphql.Field, error) {
 
 	genGlobalNetworkFilterElements(filterContainer)
 
-	networkFetchObj := genFieldsObjForNetworkFetch(filterContainer)
+	networkFetchObj := network_fetch.GenFieldsObjForNetworkFetch(filterContainer)
 
-	networkIntrospectObj := genFieldsObjForNetworkIntrospect(filterContainer)
+	networkIntrospectObj := network_introspect.GenFieldsObjForNetworkIntrospect(filterContainer)
 
 	graphQLNetworkFieldContents := utils.GraphQLNetworkFieldContents{
 		networkGetObject,
@@ -174,4 +179,132 @@ func Build(dbSchema *schema.Schema, peers []string) (*graphql.Field, error) {
 	}
 
 	return networkField, nil
+}
+
+func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldContents) *graphql.Object {
+	networkGetAndGetMetaFields := graphql.Fields{
+
+		"Get": &graphql.Field{
+			Name:        descriptions.NetworkGetDesc,
+			Type:        graphQLNetworkFieldContents.NetworkGetObject,
+			Description: descriptions.NetworkGetDesc,
+			Args: graphql.FieldConfigArgument{
+				"where": &graphql.ArgumentConfig{
+					Description: descriptions.NetworkGetWhereDesc,
+					Type: graphql.NewInputObject(
+						graphql.InputObjectConfig{
+							Name:        "WeaviateNetworkGetWhereInpObj",
+							Fields:      common_filters.BuildNew("WeaviateNetworkGet"),
+							Description: descriptions.NetworkGetWhereInpObjDesc,
+						},
+					),
+				},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				peers, ok := p.Source.(map[string]interface{})["NetworkPeers"].([]string)
+				if !ok {
+					return nil, fmt.Errorf("source does not contain NetworkPeers, but \n%#v", p.Source)
+				}
+
+				filters, err := network_get.FiltersForNetworkInstances(p.Args, peers)
+				if err != nil {
+					return nil, err
+				}
+
+				resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_get.Resolver)
+				if !ok {
+					return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+				}
+
+				return network_get.FiltersAndResolver{
+					Filters:  filters,
+					Resolver: resolver,
+				}, nil
+			},
+		},
+
+		"GetMeta": &graphql.Field{
+			Name:        "WeaviateNetworkGetMeta",
+			Type:        graphQLNetworkFieldContents.NetworkGetMetaObject,
+			Description: descriptions.NetworkGetMetaDesc,
+			Args: graphql.FieldConfigArgument{
+				"where": &graphql.ArgumentConfig{
+					Description: descriptions.NetworkGetWhereDesc,
+					Type: graphql.NewInputObject(
+						graphql.InputObjectConfig{
+							Name:        "WeaviateNetworkGetMetaWhereInpObj",
+							Fields:      common_filters.BuildNew("WeaviateNetworkGetMeta"),
+							Description: descriptions.NetworkGetWhereInpObjDesc,
+						},
+					),
+				},
+			},
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				return nil, fmt.Errorf("not supported")
+			},
+		},
+
+		"Fetch": &graphql.Field{
+			Name:        "WeaviateNetworkFetch",
+			Type:        graphQLNetworkFieldContents.NetworkFetchObject,
+			Description: descriptions.NetworkFetchDesc,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				return nil, fmt.Errorf("not supported")
+			},
+		},
+
+		"Introspect": &graphql.Field{
+			Name:        "WeaviateNetworkIntrospection",
+			Type:        graphQLNetworkFieldContents.NetworkIntrospectObject,
+			Description: descriptions.NetworkIntrospectDesc,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				return nil, fmt.Errorf("not supported")
+			},
+		},
+	}
+
+	weaviateNetworkObject := &graphql.ObjectConfig{
+		Name:        "WeaviateNetworkObj",
+		Fields:      networkGetAndGetMetaFields,
+		Description: descriptions.NetworkObjDesc,
+	}
+
+	return graphql.NewObject(*weaviateNetworkObject)
+}
+
+// temporary function that does nothing but display a Weaviate instance // TODO: delete this once p2p functionality is up
+func insertDummyNetworkWeaviateField(weaviatesWithGetFields map[string]*graphql.Object, weaviatesWithMetaGetFields map[string]*graphql.Object) (*graphql.Object, *graphql.Object) {
+
+	getWeaviates := graphql.Fields{}
+	metaGetWeaviates := graphql.Fields{}
+
+	for weaviate, weaviateFields := range weaviatesWithGetFields {
+		getWeaviates[weaviate] = &graphql.Field{
+			Name:        weaviate,
+			Description: fmt.Sprintf("%s%s", descriptions.NetworkWeaviateDesc, weaviate),
+			Type:        weaviateFields,
+			Resolve:     network_get.NetworkGetInstanceResolve,
+		}
+		metaGetWeaviates[weaviate] = &graphql.Field{
+			Name:        fmt.Sprintf("%s%s", "Meta", weaviate),
+			Description: fmt.Sprintf("%s%s", descriptions.NetworkWeaviateDesc, weaviate),
+			Type:        weaviatesWithMetaGetFields[weaviate],
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				return nil, fmt.Errorf("not supported")
+			},
+		}
+	}
+
+	dummyWeaviateGetObject := graphql.ObjectConfig{
+		Name:        "WeaviateNetworkGetObj",
+		Fields:      getWeaviates,
+		Description: descriptions.NetworkGetObjDesc,
+	}
+	dummyWeaviateGetMetaObject := graphql.ObjectConfig{
+		Name:        "WeaviateNetworkGetMetaObj",
+		Fields:      metaGetWeaviates,
+		Description: descriptions.NetworkGetMetaObjDesc,
+	}
+
+	return graphql.NewObject(dummyWeaviateGetObject), graphql.NewObject(dummyWeaviateGetMetaObject)
 }
