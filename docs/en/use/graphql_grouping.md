@@ -1,13 +1,6 @@
----
-publishedOnWebsite: false
-title: GraphQL Grouping
-subject: OSS
-author: Laura Ham
-date first published: 01Dec2018
-last updated: 05Dec2018
----
+# GraphQL - Grouping
 
-## Audience: technical
+> About Grouping in GraphQL.
 
 ## Purpose: Show how grouping can be done using GraphQL queries
 

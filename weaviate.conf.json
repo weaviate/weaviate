@@ -9,8 +9,8 @@
 			}
 		},
 		"contextionary": {
-			"knn_file" : "test/contextionary/example.knn",
-			"idx_file" : "test/contextionary/example.idx"
+			"knn_file" : "contextionary/contextionary.knn",
+			"idx_file" : "contextionary/contextionary.idx"
 		},
  		"schemas": {
 			"Thing": "./test/schema/test-thing-schema.json",
@@ -28,8 +28,8 @@
 			}
 		},
 		"contextionary": {
-			"knn_file" : "test/contextionary/example.knn",
-			"idx_file" : "test/contextionary/example.idx"
+			"knn_file" : "contextionary/contextionary.knn",
+			"idx_file" : "contextionary/contextionary.idx"
 		},
     "network": {
       "genesis_url": "http://localhost:8000",
@@ -52,8 +52,8 @@
 			}
 		},
 		"contextionary": {
-			"knn_file" : "test/contextionary/example.knn",
-			"idx_file" : "test/contextionary/example.idx"
+			"knn_file" : "contextionary/contextionary.knn",
+			"idx_file" : "contextionary/contextionary.idx"
 		},
     "network": {
       "genesis_url": "http://localhost:8000",

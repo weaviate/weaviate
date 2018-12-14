@@ -31,6 +31,7 @@ require (
 	github.com/onsi/gomega v1.4.1 // indirect
 	github.com/pborman/uuid v0.0.0-20180122190007-c65b2f87fee3 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/pmezard/licenses v0.0.0-20160314180953-1117911df3df // indirect
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
 	github.com/sirupsen/logrus v1.0.6
