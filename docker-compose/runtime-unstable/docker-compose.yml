@@ -1,7 +1,7 @@
 version: '3.4'
 services:
   weaviate:
-    image: weaviate/unstable
+    image: creativesoftwarefdn/weaviate:unstable
     depends_on:
       - janus
     restart: on-failure:0
