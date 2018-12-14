@@ -29,6 +29,21 @@ func updatePeerWithList() {
 		"uri":  getEnvOrDefault("REMOTE_PEER_URI", "http://localhost:8081"),
 	}}
 
+	if os.Getenv("ACCEPTANCE_TEST") == "on" {
+		// the acceptance test expects a specific schema which also means
+		// specific network nodes need to be present
+		otherPeers := []map[string]string{{
+			"id":   "481e4518-293f-4161-bad0-561bb3aa2c70",
+			"name": "WeaviateB",
+			"uri":  "http://does-not-matter",
+		}, {
+			"id":   "2be57d67-1968-43d9-ad6e-07758022678d",
+			"name": "WeaviateC",
+			"uri":  "http://does-not-matter",
+		}}
+		payload = append(payload, otherPeers...)
+	}
+
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		log.Printf("could not marshal payload to json: %s", err)
