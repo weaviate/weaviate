@@ -6,17 +6,27 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 )
 
 var id = "d2a9b5be-4cfc-4929-963c-185c7f9c8697"
 var weaviateFakeID = "e90effd8-dac7-40af-9a15-6eb8f2f7bcab"
 
+func getEnvOrDefault(envName string, defaultValue string) string {
+	value := os.Getenv(envName)
+	if value == "" {
+		return defaultValue
+	}
+
+	return value
+}
+
 func updatePeerWithList() {
 	payload := []map[string]string{{
 		"id":   weaviateFakeID,
-		"name": "WeaviateB",
-		"uri":  "http://localhost:8081",
+		"name": getEnvOrDefault("REMOTE_PEER_NAME", "WeaviateB"),
+		"uri":  getEnvOrDefault("REMOTE_PEER_URI", "http://localhost:8081"),
 	}}
 
 	payloadBytes, err := json.Marshal(payload)
@@ -29,7 +39,8 @@ func updatePeerWithList() {
 	// has to be fixed before merging the branch
 	// most likely this will become irrelevant as
 	// the p2p feature will only run in docker-compose
-	req, err := http.NewRequest("PUT", "http://docker.for.mac.localhost:8080/weaviate/v1/p2p/genesis", bytes.NewReader(payloadBytes))
+	localPeerOrigin := getEnvOrDefault("LOCAL_PEER_URI", "http://docker.for.mac.localhost:8080")
+	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/weaviate/v1/p2p/genesis", localPeerOrigin), bytes.NewReader(payloadBytes))
 	req.Header.Set("Content-Type", "application/json")
 	if err != nil {
 		log.Printf("could create put request: %s", err)
@@ -81,7 +92,7 @@ func main() {
 	go func() {
 		for {
 			updatePeerWithList()
-			time.Sleep(10 * time.Second)
+			time.Sleep(1 * time.Second)
 		}
 
 	}()

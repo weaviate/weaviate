@@ -46,8 +46,12 @@ COPY . .
 ENTRYPOINT ["./tools/dev/genesis_fake.sh"]
 
 ###############################################################################
-# This is the base image for running waviates configurations; contains the executable & contextionary
-FROM alpine as weaviate_base
+# This creates an image that can be used to fake a genesis for a local network setup
+FROM build_base AS remote_weaviate_fake
+COPY . .
+ENTRYPOINT ["./tools/dev/remote_weaviate_fake.sh"]
+
+###############################################################################
 # This image builds the contextionary fixtures FOR DEV OR TEST.
 FROM build_base AS contextionary_fixture_builder
 COPY . .
