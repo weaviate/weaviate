@@ -1,10 +1,6 @@
----
-publishedOnWebsite: false
-title: Contributing
-subject: OSS
----
+# Contribution Guide Lines
 
-# Development of Weaviate
+> An overview of general contribution guide lines.
 
 ## FAQ
 

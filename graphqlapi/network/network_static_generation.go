@@ -463,7 +463,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 					Type: graphql.NewInputObject(
 						graphql.InputObjectConfig{
 							Name:        "WeaviateNetworkGetWhereInpObj",
-							Fields:      common_filters.GetGetAndGetMetaWhereFilters(),
+							Fields:      common_filters.BuildNew("WeaviateNetworkGet"),
 							Description: descriptions.NetworkGetWhereInpObjDesc,
 						},
 					),
@@ -502,7 +502,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 					Type: graphql.NewInputObject(
 						graphql.InputObjectConfig{
 							Name:        "WeaviateNetworkGetMetaWhereInpObj",
-							Fields:      common_filters.GetGetAndGetMetaWhereFilters(),
+							Fields:      common_filters.BuildNew("WeaviateNetworkGetMeta"),
 							Description: descriptions.NetworkGetWhereInpObjDesc,
 						},
 					),

@@ -144,7 +144,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WhereOperatorEnum",
+                "name": "WeaviateLocalGetWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -157,7 +157,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WhereOperandsInpObj",
+                  "name": "WeaviateLocalGetWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -244,7 +244,7 @@
         },
         {
           "kind": "ENUM",
-          "name": "WhereOperatorEnum",
+          "name": "WeaviateLocalGetWhereOperatorEnum",
           "description": "Enumeration object for the 'where' filter",
           "fields": null,
           "inputFields": null,
@@ -309,7 +309,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WhereOperandsInpObj",
+          "name": "WeaviateLocalGetWhereOperandsInpObj",
           "description": "Operands in the 'where' filter field, is a list of objects",
           "fields": null,
           "inputFields": [
@@ -318,7 +318,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WhereOperatorEnum",
+                "name": "WeaviateLocalGetWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -331,7 +331,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WhereOperandsInpObj",
+                  "name": "WeaviateLocalGetWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -1154,6 +1154,18 @@
               },
               "isDeprecated": false,
               "deprecationReason": null
+            },
+            {
+              "name": "TestCrefs",
+              "description": "Value of testCref.",
+              "args": [],
+              "type": {
+                "kind": "UNION",
+                "name": "TestActionTwoTestCrefsObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
             }
           ],
           "inputFields": null,
@@ -1178,6 +1190,22 @@
           ]
         },
         {
+          "kind": "UNION",
+          "name": "TestActionTwoTestCrefsObj",
+          "description": "Value of testCref.",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": [
+            {
+              "kind": "OBJECT",
+              "name": "TestAction",
+              "ofType": null
+            }
+          ]
+        },
+        {
           "kind": "INPUT_OBJECT",
           "name": "WeaviateLocalGetMetaWhereInpObj",
           "description": "Filter options for the GetMeta search, to convert the data to the filter input",
@@ -1188,7 +1216,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WhereOperatorEnum",
+                "name": "WeaviateLocalGetMetaWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -1201,7 +1229,181 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WhereOperandsInpObj",
+                  "name": "WeaviateLocalGetMetaWhereOperandsInpObj",
+                  "ofType": null
+                }
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "path",
+              "description": "Path of from 'Things' or 'Actions' to the property name through the classes",
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueInt",
+              "description": "Integer value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueNumber",
+              "description": "Number value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueBoolean",
+              "description": "Boolean value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueString",
+              "description": "String value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueDate",
+              "description": "Date value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueText",
+              "description": "Text value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            }
+          ],
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "ENUM",
+          "name": "WeaviateLocalGetMetaWhereOperatorEnum",
+          "description": "Enumeration object for the 'where' filter",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": [
+            {
+              "name": "And",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Or",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Equal",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Not",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "NotEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "GreaterThan",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "GreaterThanEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "LessThan",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "LessThanEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "possibleTypes": null
+        },
+        {
+          "kind": "INPUT_OBJECT",
+          "name": "WeaviateLocalGetMetaWhereOperandsInpObj",
+          "description": "Operands in the 'where' filter field, is a list of objects",
+          "fields": null,
+          "inputFields": [
+            {
+              "name": "operator",
+              "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
+              "type": {
+                "kind": "ENUM",
+                "name": "WeaviateLocalGetMetaWhereOperatorEnum",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "operands",
+              "description": "Operands in the 'where' filter field, is a list of objects",
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "INPUT_OBJECT",
+                  "name": "WeaviateLocalGetMetaWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -4042,6 +4244,18 @@
               },
               "isDeprecated": false,
               "deprecationReason": null
+            },
+            {
+              "name": "TestCrefs",
+              "description": "Meta information about the property \"testCrefs\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "MetaTestActionTwotestCrefsObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
             }
           ],
           "inputFields": null,
@@ -4694,6 +4908,57 @@
           "possibleTypes": null
         },
         {
+          "kind": "OBJECT",
+          "name": "MetaTestActionTwotestCrefsObj",
+          "description": "Object for property meta information",
+          "fields": [
+            {
+              "name": "type",
+              "description": "Datatype of the property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "pointingTo",
+              "description": "Which other classes the object property is pointing to",
+              "args": [],
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
           "kind": "INPUT_OBJECT",
           "name": "WeaviateLocalAggregateWhereInpObj",
           "description": "Filter options for the Aggregate search, to convert the data to the filter input",
@@ -4704,7 +4969,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WhereOperatorEnum",
+                "name": "WeaviateLocalAggregateWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -4717,7 +4982,181 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WhereOperandsInpObj",
+                  "name": "WeaviateLocalAggregateWhereOperandsInpObj",
+                  "ofType": null
+                }
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "path",
+              "description": "Path of from 'Things' or 'Actions' to the property name through the classes",
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueInt",
+              "description": "Integer value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueNumber",
+              "description": "Number value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueBoolean",
+              "description": "Boolean value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueString",
+              "description": "String value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueDate",
+              "description": "Date value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueText",
+              "description": "Text value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            }
+          ],
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "ENUM",
+          "name": "WeaviateLocalAggregateWhereOperatorEnum",
+          "description": "Enumeration object for the 'where' filter",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": [
+            {
+              "name": "And",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Or",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Equal",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Not",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "NotEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "GreaterThan",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "GreaterThanEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "LessThan",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "LessThanEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "possibleTypes": null
+        },
+        {
+          "kind": "INPUT_OBJECT",
+          "name": "WeaviateLocalAggregateWhereOperandsInpObj",
+          "description": "Operands in the 'where' filter field, is a list of objects",
+          "fields": null,
+          "inputFields": [
+            {
+              "name": "operator",
+              "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
+              "type": {
+                "kind": "ENUM",
+                "name": "WeaviateLocalAggregateWhereOperatorEnum",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "operands",
+              "description": "Operands in the 'where' filter field, is a list of objects",
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "INPUT_OBJECT",
+                  "name": "WeaviateLocalAggregateWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -6707,6 +7146,18 @@
               },
               "isDeprecated": false,
               "deprecationReason": null
+            },
+            {
+              "name": "testCrefs",
+              "description": "Value of testCref.",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
             }
           ],
           "inputFields": null,
@@ -7055,7 +7506,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WhereOperatorEnum",
+                "name": "WeaviateNetworkGetWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -7068,7 +7519,181 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WhereOperandsInpObj",
+                  "name": "WeaviateNetworkGetWhereOperandsInpObj",
+                  "ofType": null
+                }
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "path",
+              "description": "Path of from 'Things' or 'Actions' to the property name through the classes",
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueInt",
+              "description": "Integer value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueNumber",
+              "description": "Number value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueBoolean",
+              "description": "Boolean value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueString",
+              "description": "String value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueDate",
+              "description": "Date value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueText",
+              "description": "Text value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            }
+          ],
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "ENUM",
+          "name": "WeaviateNetworkGetWhereOperatorEnum",
+          "description": "Enumeration object for the 'where' filter",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": [
+            {
+              "name": "And",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Or",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Equal",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Not",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "NotEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "GreaterThan",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "GreaterThanEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "LessThan",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "LessThanEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "possibleTypes": null
+        },
+        {
+          "kind": "INPUT_OBJECT",
+          "name": "WeaviateNetworkGetWhereOperandsInpObj",
+          "description": "Operands in the 'where' filter field, is a list of objects",
+          "fields": null,
+          "inputFields": [
+            {
+              "name": "operator",
+              "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
+              "type": {
+                "kind": "ENUM",
+                "name": "WeaviateNetworkGetWhereOperatorEnum",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "operands",
+              "description": "Operands in the 'where' filter field, is a list of objects",
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "INPUT_OBJECT",
+                  "name": "WeaviateNetworkGetWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -7886,6 +8511,18 @@
               },
               "isDeprecated": false,
               "deprecationReason": null
+            },
+            {
+              "name": "TestCrefs",
+              "description": "Value of testCref.",
+              "args": [],
+              "type": {
+                "kind": "UNION",
+                "name": "WeaviateBTestActionTwoTestCrefsObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
             }
           ],
           "inputFields": null,
@@ -7896,6 +8533,22 @@
         {
           "kind": "UNION",
           "name": "WeaviateBTestActionTwoTestCrefObj",
+          "description": "Value of testCref.",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": [
+            {
+              "kind": "OBJECT",
+              "name": "WeaviateBTestAction",
+              "ofType": null
+            }
+          ]
+        },
+        {
+          "kind": "UNION",
+          "name": "WeaviateBTestActionTwoTestCrefsObj",
           "description": "Value of testCref.",
           "fields": null,
           "inputFields": null,
@@ -8607,6 +9260,18 @@
               },
               "isDeprecated": false,
               "deprecationReason": null
+            },
+            {
+              "name": "TestCrefs",
+              "description": "Value of testCref.",
+              "args": [],
+              "type": {
+                "kind": "UNION",
+                "name": "WeaviateCTestActionTwoTestCrefsObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
             }
           ],
           "inputFields": null,
@@ -8617,6 +9282,22 @@
         {
           "kind": "UNION",
           "name": "WeaviateCTestActionTwoTestCrefObj",
+          "description": "Value of testCref.",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": [
+            {
+              "kind": "OBJECT",
+              "name": "WeaviateCTestAction",
+              "ofType": null
+            }
+          ]
+        },
+        {
+          "kind": "UNION",
+          "name": "WeaviateCTestActionTwoTestCrefsObj",
           "description": "Value of testCref.",
           "fields": null,
           "inputFields": null,
@@ -8963,7 +9644,7 @@
               "description": null,
               "type": {
                 "kind": "ENUM",
-                "name": "WhereOperatorEnum",
+                "name": "WeaviateNetworkFetchWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -9062,6 +9743,71 @@
           ],
           "interfaces": null,
           "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "ENUM",
+          "name": "WeaviateNetworkFetchWhereOperatorEnum",
+          "description": "Enumeration object for the 'where' filter",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": [
+            {
+              "name": "And",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Or",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Equal",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Not",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "NotEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "GreaterThan",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "GreaterThanEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "LessThan",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "LessThanEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
           "possibleTypes": null
         },
         {
@@ -9637,7 +10383,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WhereOperatorEnum",
+                "name": "WeaviateNetworkGetMetaWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -9650,7 +10396,181 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WhereOperandsInpObj",
+                  "name": "WeaviateNetworkGetMetaWhereOperandsInpObj",
+                  "ofType": null
+                }
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "path",
+              "description": "Path of from 'Things' or 'Actions' to the property name through the classes",
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueInt",
+              "description": "Integer value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueNumber",
+              "description": "Number value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Float",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueBoolean",
+              "description": "Boolean value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "Boolean",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueString",
+              "description": "String value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueDate",
+              "description": "Date value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "valueText",
+              "description": "Text value that the property at the provided path will be compared to by an operator",
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "defaultValue": null
+            }
+          ],
+          "interfaces": null,
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "ENUM",
+          "name": "WeaviateNetworkGetMetaWhereOperatorEnum",
+          "description": "Enumeration object for the 'where' filter",
+          "fields": null,
+          "inputFields": null,
+          "interfaces": null,
+          "enumValues": [
+            {
+              "name": "And",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Or",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Equal",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "Not",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "NotEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "GreaterThan",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "GreaterThanEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "LessThan",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "LessThanEqual",
+              "description": null,
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "possibleTypes": null
+        },
+        {
+          "kind": "INPUT_OBJECT",
+          "name": "WeaviateNetworkGetMetaWhereOperandsInpObj",
+          "description": "Operands in the 'where' filter field, is a list of objects",
+          "fields": null,
+          "inputFields": [
+            {
+              "name": "operator",
+              "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
+              "type": {
+                "kind": "ENUM",
+                "name": "WeaviateNetworkGetMetaWhereOperatorEnum",
+                "ofType": null
+              },
+              "defaultValue": null
+            },
+            {
+              "name": "operands",
+              "description": "Operands in the 'where' filter field, is a list of objects",
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "INPUT_OBJECT",
+                  "name": "WeaviateNetworkGetMetaWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -12526,6 +13446,18 @@
               },
               "isDeprecated": false,
               "deprecationReason": null
+            },
+            {
+              "name": "TestCrefs",
+              "description": "Meta information about the property \"testCrefs\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "WeaviateBMetaTestActionTwotestCrefsObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
             }
           ],
           "inputFields": null,
@@ -13129,6 +14061,57 @@
         {
           "kind": "OBJECT",
           "name": "WeaviateBMetaTestActionTwotestCrefObj",
+          "description": "Object for property meta information",
+          "fields": [
+            {
+              "name": "type",
+              "description": "Datatype of the property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "pointingTo",
+              "description": "Which other classes the object property is pointing to",
+              "args": [],
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "WeaviateBMetaTestActionTwotestCrefsObj",
           "description": "Object for property meta information",
           "fields": [
             {
@@ -15933,6 +16916,18 @@
               },
               "isDeprecated": false,
               "deprecationReason": null
+            },
+            {
+              "name": "TestCrefs",
+              "description": "Meta information about the property \"testCrefs\"",
+              "args": [],
+              "type": {
+                "kind": "OBJECT",
+                "name": "WeaviateCMetaTestActionTwotestCrefsObj",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
             }
           ],
           "inputFields": null,
@@ -16536,6 +17531,57 @@
         {
           "kind": "OBJECT",
           "name": "WeaviateCMetaTestActionTwotestCrefObj",
+          "description": "Object for property meta information",
+          "fields": [
+            {
+              "name": "type",
+              "description": "Datatype of the property",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "String",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "count",
+              "description": "Total amount of found instances",
+              "args": [],
+              "type": {
+                "kind": "SCALAR",
+                "name": "Int",
+                "ofType": null
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            },
+            {
+              "name": "pointingTo",
+              "description": "Which other classes the object property is pointing to",
+              "args": [],
+              "type": {
+                "kind": "LIST",
+                "name": null,
+                "ofType": {
+                  "kind": "SCALAR",
+                  "name": "String",
+                  "ofType": null
+                }
+              },
+              "isDeprecated": false,
+              "deprecationReason": null
+            }
+          ],
+          "inputFields": null,
+          "interfaces": [],
+          "enumValues": null,
+          "possibleTypes": null
+        },
+        {
+          "kind": "OBJECT",
+          "name": "WeaviateCMetaTestActionTwotestCrefsObj",
           "description": "Object for property meta information",
           "fields": [
             {

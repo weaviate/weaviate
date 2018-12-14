@@ -22,3 +22,6 @@ set -e
 
 # Now add the header to the generated code too.
 $DIR/add_header.py
+
+# Add licenses to file
+$DIR/create-license-dependency-file.sh

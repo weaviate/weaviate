@@ -1,13 +1,6 @@
----
-publishedOnWebsite: false
-title: GraphQL Local
-subject: OSS
-author: Laura Ham
-date first published: 01Nov2018
-last updated: 05Dec2018
----
+# GraphQL - Local Queries
 
-## Audience: technical
+> About GraphQL's Local{} queries.
 
 ## Purpose: Show how to query a local Weaviate
 

@@ -19,7 +19,7 @@ after_success:
         DOCKERTARGET=development
       fi
       # Build & Push
-      docker build -t creativesoftwarefdn/weaviate:$LATESTVERSION --target $DOCKERTARGET .
+      travis_wait 30 docker build -f "Dockerfile-prod" -t creativesoftwarefdn/weaviate:$LATESTVERSION --target $DOCKERTARGET .
       docker push creativesoftwarefdn/weaviate:unstable
     fi
 before_script: ~
@@ -32,7 +32,7 @@ go:
   - "1.11"
 env:
   matrix:
-  # Disable GraphQL tests and force using modules.
+  # Force using modules.
   - GO111MODULE=on
   global:
   # location of the open-api specs
@@ -69,7 +69,7 @@ before_script:
         git config credential.helper "store --file=.git/credentials"
         echo "https://${GH_TOKEN}:@github.com" > .git/credentials
         git add -A
-        git commit -m "🤖 semver bump"
+        git commit -m "🤖 bleep bloop - auto updated Weaviate"
         git push origin HEAD:${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
         # exit 0 will trigger a new build
         travis_terminate 0
@@ -80,31 +80,13 @@ before_script:
     fi
   # Verify that the code is properly formatted.
   - if [[ -n "$(gofmt -l .)" ]]; then echo "The following files were not formatted properly!"; gofmt -l .; exit 1; fi
-  # Run Weaviate backed by JanusGraph
-  - tools/test/run_ci_server.sh || travis_terminate 1
 script: 
   # Verify dev setup is not broken
   #- ./tools/test/import_journey.sh || travis_terminate 1
   # Run all tests
-  - |
-    # Load the test schema in weaviate.
-    go run ./tools/schema_loader -action-schema test/schema/test-action-schema.json -thing-schema test/schema/test-thing-schema.json
-    # Load the fixtures for the GraphQL acceptance tests
-    go run ./tools/schema_loader -action-schema test/acceptance/graphql_resolvers_local/fixtures/actions_schema.json -thing-schema test/acceptance/graphql_resolvers_local/fixtures/things_schema.json
-    go run ./tools/fixture_importer/ -fixture-file test/acceptance/graphql_resolvers_local/fixtures/data.json
-    # Prepare test reporter
-    ./cc-test-reporter before-build
-    # Run all tests
-    for pkg in $(go list ./... | grep -v main); do
-        if ! go test -race -v -coverprofile=$(echo $pkg | tr / -).cover $pkg; then
-          echo "Test for $pkg failed" >&2
-          travis_terminate 1
-        fi
-    done
-    echo "mode: set" > c.out
-    grep -h -v "^mode:" ./*.cover >> c.out
-    rm -f *.cover
-    ./cc-test-reporter after-build
+  - ./cc-test-reporter before-build
+  - ./test/acceptance/run.sh || travis_terminate 1
+  - ./cc-test-reporter after-build
 services: 
   - docker
 sudo: required

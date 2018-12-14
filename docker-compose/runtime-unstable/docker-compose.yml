@@ -1,11 +1,7 @@
 version: '3.4'
 services:
   weaviate:
-    image: weaviate/test-server
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: test
+    image: creativesoftwarefdn/weaviate:unstable
     depends_on:
       - janus
     restart: on-failure:0
@@ -20,7 +16,7 @@ services:
      - "8182:8182"
      - "8184:8184"
     environment:
-     - DEV_MODE=true
+     - DEV_MODE=false
   db:
     image: scylladb/scylla:2.0.1
     ports:

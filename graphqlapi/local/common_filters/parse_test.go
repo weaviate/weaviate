@@ -11,7 +11,13 @@ func TestExtractFilterToplevelField(t *testing.T) {
 	t.Parallel()
 
 	resolver := newMockResolver()
-
+	/*localfilter is a struct containing a clause struct
+		type Clause struct {
+		Operator Operator
+		On       *Path
+		Value    *Value
+		Operands []Clause
+	}*/
 	expectedParams := &LocalFilter{Root: &Clause{
 		Operator: OperatorEqual,
 		On: &Path{

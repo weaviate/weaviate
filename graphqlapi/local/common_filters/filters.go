@@ -15,30 +15,18 @@
 package common_filters
 
 import (
-	"sync"
+	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/graphql-go/graphql"
 )
 
-var sharedGetAndGetMetaWhereFilters graphql.InputObjectConfigFieldMap
-var initFilter sync.Once
-
-// The filters common to Network->Get and Network->GetMeta queries.
-func GetGetAndGetMetaWhereFilters() graphql.InputObjectConfigFieldMap {
-	initFilter.Do(func() {
-		sharedGetAndGetMetaWhereFilters = BuildNewGetAndGetMetaFilters()
-	})
-
-	return sharedGetAndGetMetaWhereFilters
-}
-
 // The filters common to Local->Get and Local->GetMeta queries.
-func BuildNewGetAndGetMetaFilters() graphql.InputObjectConfigFieldMap {
+func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 	commonFilters := graphql.InputObjectConfigFieldMap{
 		"operator": &graphql.InputObjectFieldConfig{
 			Type: graphql.NewEnum(graphql.EnumConfig{
-				Name: "WhereOperatorEnum",
+				Name: fmt.Sprintf("%sWhereOperatorEnum", path),
 				Values: graphql.EnumValueConfigMap{
 					"And":              &graphql.EnumValueConfig{},
 					"Or":               &graphql.EnumValueConfig{},
@@ -89,7 +77,7 @@ func BuildNewGetAndGetMetaFilters() graphql.InputObjectConfigFieldMap {
 		Description: descriptions.WhereOperandsDesc,
 		Type: graphql.NewList(graphql.NewInputObject(
 			graphql.InputObjectConfig{
-				Name:        "WhereOperandsInpObj",
+				Name:        fmt.Sprintf("%sWhereOperandsInpObj", path),
 				Description: descriptions.WhereOperandsInpObjDesc,
 				Fields: (graphql.InputObjectConfigFieldMapThunk)(func() graphql.InputObjectConfigFieldMap {
 					return commonFilters
