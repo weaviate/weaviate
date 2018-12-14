@@ -60,7 +60,7 @@ func Build(dbSchema *schema.Schema, peers []string) (*graphql.Field, error) {
 		getMetaKinds := graphql.Fields{}
 
 		if len(dbSchema.Actions.Classes) > 0 {
-			networkGetActions, networkGetErr := network_get.GenNetworkActionClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, peer)
+			networkGetActions, networkGetErr := network_get.ActionClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, peer)
 			if networkGetErr != nil {
 				return nil, fmt.Errorf("failed to generate action fields from schema for network Get because: %v", networkGetErr)
 			}
@@ -77,7 +77,7 @@ func Build(dbSchema *schema.Schema, peers []string) (*graphql.Field, error) {
 			}
 
 			classParentTypeIsAction := true
-			networkGetMetaActions, networkGetMetaErr := network_getmeta.GenNetworkMetaClassFieldsFromSchema(dbSchema.Actions.Classes, classParentTypeIsAction, peer)
+			networkGetMetaActions, networkGetMetaErr := network_getmeta.ClassFieldsFromSchema(dbSchema.Actions.Classes, classParentTypeIsAction, peer)
 			if networkGetMetaErr != nil {
 				return nil, fmt.Errorf("failed to generate action fields from schema for network MetaGet because: %v", networkGetMetaErr)
 			}
@@ -95,7 +95,7 @@ func Build(dbSchema *schema.Schema, peers []string) (*graphql.Field, error) {
 		}
 
 		if len(dbSchema.Things.Classes) > 0 {
-			networkGetThings, networkGetErr := network_get.GenNetworkThingClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, peer)
+			networkGetThings, networkGetErr := network_get.ThingClassFieldsFromSchema(dbSchema, &getNetworkActionsAndThings, peer)
 			if networkGetErr != nil {
 				return nil, fmt.Errorf("failed to generate thing fields from schema for network Get because: %v", networkGetErr)
 			}
@@ -112,7 +112,7 @@ func Build(dbSchema *schema.Schema, peers []string) (*graphql.Field, error) {
 			}
 
 			classParentTypeIsAction := false
-			networkGetMetaThings, networkGetMetaErr := network_getmeta.GenNetworkMetaClassFieldsFromSchema(dbSchema.Things.Classes, classParentTypeIsAction, peer)
+			networkGetMetaThings, networkGetMetaErr := network_getmeta.ClassFieldsFromSchema(dbSchema.Things.Classes, classParentTypeIsAction, peer)
 			if networkGetMetaErr != nil {
 				return nil, fmt.Errorf("failed to generate thing fields from schema for network MetaGet because: %v", networkGetMetaErr)
 			}
@@ -150,9 +150,9 @@ func Build(dbSchema *schema.Schema, peers []string) (*graphql.Field, error) {
 
 	genGlobalNetworkFilterElements(filterContainer)
 
-	networkFetchObj := network_fetch.GenFieldsObjForNetworkFetch(filterContainer)
+	networkFetchObj := network_fetch.FieldsObj(filterContainer)
 
-	networkIntrospectObj := network_introspect.GenFieldsObjForNetworkIntrospect(filterContainer)
+	networkIntrospectObj := network_introspect.FieldsObj(filterContainer)
 
 	graphQLNetworkFieldContents := utils.GraphQLNetworkFieldContents{
 		networkGetObject,
