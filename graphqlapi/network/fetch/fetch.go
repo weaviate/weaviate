@@ -8,20 +8,19 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
-func GenFieldsObjForNetworkFetch(filterContainer *utils.FilterContainer) *graphql.Object {
-	networkFetchActionsFields := genNetworkFetchActionsFieldsObj()
-	networkFetchThingsFields := genNetworkFetchThingsFieldsObj()
-	networkFetchFuzzyFields := genNetworkFetchFuzzyFieldsObj()
-	networkFetchWhereFilterFields := genNetworkFetchThingsActionsWhereFilterFields(filterContainer)
+func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
+	actionsFields := actionsFieldsObj()
+	thingsFields := thingsFieldsObj()
+	fuzzyFields := fuzzyFieldsObj()
+	whereFilterFields := thingsActionsWhereFilterFields(filterContainer)
 
-	networkFetchFields := graphql.Fields{
-
+	fields := graphql.Fields{
 		"Actions": &graphql.Field{
 			Name:        "WeaviateNetworkFetchActions",
 			Description: descriptions.NetworkFetchActionsDesc,
-			Type:        graphql.NewList(networkFetchActionsFields),
+			Type:        graphql.NewList(actionsFields),
 			Args: graphql.FieldConfigArgument{
-				"where": networkFetchWhereFilterFields,
+				"where": whereFilterFields,
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -31,9 +30,9 @@ func GenFieldsObjForNetworkFetch(filterContainer *utils.FilterContainer) *graphq
 		"Things": &graphql.Field{
 			Name:        "WeaviateNetworkFetchThings",
 			Description: descriptions.NetworkFetchThingsDesc,
-			Type:        graphql.NewList(networkFetchThingsFields),
+			Type:        graphql.NewList(thingsFields),
 			Args: graphql.FieldConfigArgument{
-				"where": networkFetchWhereFilterFields,
+				"where": whereFilterFields,
 			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -43,7 +42,7 @@ func GenFieldsObjForNetworkFetch(filterContainer *utils.FilterContainer) *graphq
 		"Fuzzy": &graphql.Field{
 			Name:        "WeaviateNetworkFetchFuzzy",
 			Description: descriptions.NetworkFetchFuzzyDesc,
-			Type:        graphql.NewList(networkFetchFuzzyFields),
+			Type:        graphql.NewList(fuzzyFields),
 			Args: graphql.FieldConfigArgument{
 				"value": &graphql.ArgumentConfig{
 					Description: descriptions.FetchFuzzyValueDesc,
@@ -60,16 +59,16 @@ func GenFieldsObjForNetworkFetch(filterContainer *utils.FilterContainer) *graphq
 		},
 	}
 
-	networkFetchFieldsObj := graphql.ObjectConfig{
+	fieldsObj := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkFetchObj",
-		Fields:      networkFetchFields,
+		Fields:      fields,
 		Description: descriptions.NetworkFetchObjDesc,
 	}
 
-	return graphql.NewObject(networkFetchFieldsObj)
+	return graphql.NewObject(fieldsObj)
 }
 
-func genNetworkFetchActionsFieldsObj() *graphql.Object {
+func actionsFieldsObj() *graphql.Object {
 	getNetworkFetchActionsFields := graphql.Fields{
 
 		"beacon": &graphql.Field{
@@ -100,7 +99,7 @@ func genNetworkFetchActionsFieldsObj() *graphql.Object {
 	return graphql.NewObject(getNetworkFetchActionsFieldsObject)
 }
 
-func genNetworkFetchThingsFieldsObj() *graphql.Object {
+func thingsFieldsObj() *graphql.Object {
 	getNetworkFetchThingsFields := graphql.Fields{
 
 		"beacon": &graphql.Field{
@@ -131,7 +130,7 @@ func genNetworkFetchThingsFieldsObj() *graphql.Object {
 	return graphql.NewObject(getNetworkFetchThingsFieldsObject)
 }
 
-func genNetworkFetchFuzzyFieldsObj() *graphql.Object {
+func fuzzyFieldsObj() *graphql.Object {
 	getNetworkFetchFuzzyFields := graphql.Fields{
 
 		"beacon": &graphql.Field{
@@ -162,13 +161,13 @@ func genNetworkFetchFuzzyFieldsObj() *graphql.Object {
 	return graphql.NewObject(getNetworkFetchFuzzyFieldsObject)
 }
 
-func genNetworkFetchThingsActionsWhereFilterFields(filterContainer *utils.FilterContainer) *graphql.ArgumentConfig {
+func thingsActionsWhereFilterFields(filterContainer *utils.FilterContainer) *graphql.ArgumentConfig {
 	whereFilterFields := &graphql.ArgumentConfig{
 		Description: descriptions.FetchWhereFilterFieldsDesc,
 		Type: graphql.NewNonNull(graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        "WeaviateNetworkFetchWhereInpObj",
-				Fields:      genNetworkFetchThingsAndActionsFilterFields(filterContainer),
+				Fields:      thingsAndActionsFilterFields(filterContainer),
 				Description: descriptions.FetchWhereFilterFieldsInpObjDesc,
 			},
 		)),

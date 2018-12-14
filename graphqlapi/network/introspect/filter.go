@@ -38,25 +38,25 @@ func GenWeaviateNetworkIntrospectPropertiesObjField() *graphql.Field {
 	return weaviateNetworkIntrospectPropertiesObjField
 }
 
-func genNetworkIntrospectThingsAndActionsFilterFields(filterContainer *utils.FilterContainer) graphql.InputObjectConfigFieldMap {
-	weaviateNetworkIntrospectWherePropertiesObj := genWeaviateNetworkIntrospectWherePropertiesObj(filterContainer)
-	weaviateNetworkIntrospectWhereClassObj := genWeaviateNetworkIntrospectWhereClassObj(filterContainer)
+func thingsAndActionsFilterFields(filterContainer *utils.FilterContainer) graphql.InputObjectConfigFieldMap {
+	wherePropertiesObj := wherePropertiesObj(filterContainer)
+	whereClassObj := whereClassObj(filterContainer)
 
-	networkIntrospectThingsAndActionsFilterFields := graphql.InputObjectConfigFieldMap{
+	fields := graphql.InputObjectConfigFieldMap{
 		"class": &graphql.InputObjectFieldConfig{
-			Type:        graphql.NewList(weaviateNetworkIntrospectWhereClassObj),
+			Type:        graphql.NewList(whereClassObj),
 			Description: descriptions.WhereClassDesc,
 		},
 		"properties": &graphql.InputObjectFieldConfig{
-			Type:        graphql.NewList(weaviateNetworkIntrospectWherePropertiesObj),
+			Type:        graphql.NewList(wherePropertiesObj),
 			Description: descriptions.WherePropertiesDesc,
 		},
 	}
 
-	return networkIntrospectThingsAndActionsFilterFields
+	return fields
 }
 
-func genWeaviateNetworkIntrospectWherePropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
+func wherePropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
 	filterPropertiesElements := graphql.InputObjectConfigFieldMap{
 		"first": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Int,
@@ -76,7 +76,7 @@ func genWeaviateNetworkIntrospectWherePropertiesObj(filterContainer *utils.Filte
 		},
 	}
 
-	weaviateNetworkIntrospectWherePropertiesObj := graphql.NewInputObject(
+	wherePropertiesObj := graphql.NewInputObject(
 		graphql.InputObjectConfig{
 			Name:        "WeaviateNetworkIntrospectWherePropertiesObj",
 			Fields:      filterPropertiesElements,
@@ -84,10 +84,10 @@ func genWeaviateNetworkIntrospectWherePropertiesObj(filterContainer *utils.Filte
 		},
 	)
 
-	return weaviateNetworkIntrospectWherePropertiesObj
+	return wherePropertiesObj
 }
 
-func genWeaviateNetworkIntrospectWhereClassObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
+func whereClassObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
 	filterClassElements := graphql.InputObjectConfigFieldMap{
 		"name": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
@@ -107,12 +107,12 @@ func genWeaviateNetworkIntrospectWhereClassObj(filterContainer *utils.FilterCont
 		},
 	}
 
-	weaviateNetworkIntrospectWhereClassObj := graphql.NewInputObject(
+	classObj := graphql.NewInputObject(
 		graphql.InputObjectConfig{
 			Name:        "WeaviateNetworkIntrospectWhereClassObj",
 			Fields:      filterClassElements,
 			Description: descriptions.WherePropertiesObjDesc,
 		},
 	)
-	return weaviateNetworkIntrospectWhereClassObj
+	return classObj
 }

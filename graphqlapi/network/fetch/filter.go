@@ -7,9 +7,9 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
-func genNetworkFetchThingsAndActionsFilterFields(filterContainer *utils.FilterContainer) graphql.InputObjectConfigFieldMap {
-	networkFetchWhereInpObjPropertiesObj := genNetworkFetchWhereInpObjPropertiesObj(filterContainer)
-	networkFetchWhereInpObjClassInpObj := genNetworkFetchWhereInpObjClassInpObj(filterContainer)
+func thingsAndActionsFilterFields(filterContainer *utils.FilterContainer) graphql.InputObjectConfigFieldMap {
+	networkFetchWhereInpObjPropertiesObj := whereInpObjPropertiesObj(filterContainer)
+	networkFetchWhereInpObjClassInpObj := whereInpObjClassInpObj(filterContainer)
 
 	networkFetchThingsAndActionsFilterFields := graphql.InputObjectConfigFieldMap{
 		"class": &graphql.InputObjectFieldConfig{
@@ -29,7 +29,7 @@ func genNetworkFetchThingsAndActionsFilterFields(filterContainer *utils.FilterCo
 	return networkFetchThingsAndActionsFilterFields
 }
 
-func genNetworkFetchWhereInpObjPropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
+func whereInpObjPropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
 	filterPropertiesElements := common_filters.BuildNew("WeaviateNetworkFetch")
 
 	// Remove path and operands fields as they are not required here
@@ -45,7 +45,7 @@ func genNetworkFetchWhereInpObjPropertiesObj(filterContainer *utils.FilterContai
 		Description: descriptions.WhereNameDesc,
 	}
 	filterPropertiesElements["keywords"] = &graphql.InputObjectFieldConfig{
-		Type:        graphql.NewList(genNetworkFetchWherePropertyWhereKeywordsInpObj()),
+		Type:        graphql.NewList(wherePropertyWhereKeywordsInpObj()),
 		Description: descriptions.WhereKeywordsDesc,
 	}
 
@@ -60,7 +60,7 @@ func genNetworkFetchWhereInpObjPropertiesObj(filterContainer *utils.FilterContai
 	return networkFetchWhereInpObjPropertiesObj
 }
 
-func genNetworkFetchWherePropertyWhereKeywordsInpObj() *graphql.InputObject {
+func wherePropertyWhereKeywordsInpObj() *graphql.InputObject {
 	outputObject := graphql.NewInputObject(
 		graphql.InputObjectConfig{
 			Name: "NetworkFetchWherePropertyWhereKeywordsInpObj",
@@ -80,7 +80,7 @@ func genNetworkFetchWherePropertyWhereKeywordsInpObj() *graphql.InputObject {
 	return outputObject
 }
 
-func genNetworkFetchWhereInpObjClassInpObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
+func whereInpObjClassInpObj(filterContainer *utils.FilterContainer) *graphql.InputObject {
 	filterClassElements := graphql.InputObjectConfigFieldMap{
 		"name": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
