@@ -14,8 +14,8 @@
         }
       },
       "contextionary": {
-        "knn_file" : "contextionary/contextionary.knn",
-	"idx_file" : "contextionary/contextionary.idx"
+        "knn_file" : "test/contextionary/example.knn",
+        "idx_file" : "test/contextionary/example.idx"
       },
       "schemas": {
         "Thing": "tools/dev//schema/things_schema.json",
