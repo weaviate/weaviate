@@ -25,9 +25,11 @@ import (
 
 // Peer represents a known peer, given to us by the Genesis service.
 type Peer struct {
-	Id   strfmt.UUID
-	Name string
-	URI  strfmt.URI
+	ID         strfmt.UUID
+	Name       string
+	URI        strfmt.URI
+	LastChange PeerChange
+	SchemaHash string
 }
 
 // CreateClient to access the full API of the peer. Pre-configured to the

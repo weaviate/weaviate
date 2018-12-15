@@ -1879,25 +1879,24 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.P2PWeaviateP2pGenesisUpdateHandler = p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
-		new_peers := make([]libnetwork.Peer, 0)
+		newPeers := make([]libnetwork.Peer, 0)
 
-		for _, genesis_peer := range params.Peers {
+		for _, genesisPeer := range params.Peers {
 			peer := libnetwork.Peer{
-				Id:   genesis_peer.ID,
-				Name: genesis_peer.Name,
-				URI:  genesis_peer.URI,
+				ID:   genesisPeer.ID,
+				Name: genesisPeer.Name,
+				URI:  genesisPeer.URI,
 			}
 
-			new_peers = append(new_peers, peer)
+			newPeers = append(newPeers, peer)
 		}
 
-		err := network.UpdatePeers(new_peers)
+		err := network.UpdatePeers(newPeers)
 
 		if err == nil {
 			return p2_p.NewWeaviateP2pGenesisUpdateOK()
-		} else {
-			return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()
 		}
+		return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()
 	})
 
 	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
