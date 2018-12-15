@@ -11,7 +11,9 @@ PATTERNS = [
         "{}/restapi/*.go",
         "{}/restapi/**/*.go",
         "{}/models/*.go",
-        "{}/cmd/**/*.go"
+        "{}/cmd/**/*.go",
+        "{}/graphqlapi/**/*.go",
+        "{}/network/**/*.go"
 ]
 
 FILES_TO_ADD_HEADERS_TO = []
