@@ -16,6 +16,8 @@ import (
 	cr "github.com/go-openapi/runtime/client"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/genesis/models"
 )
 
 // NewGenesisPeersPingParams creates a new GenesisPeersPingParams object
@@ -62,6 +64,11 @@ for the genesis peers ping operation typically these are written to a http.Reque
 */
 type GenesisPeersPingParams struct {
 
+	/*Body
+	  Request Body
+
+	*/
+	Body *models.PeerPing
 	/*PeerID
 	  Name of the Weaviate peer
 
@@ -106,6 +113,17 @@ func (o *GenesisPeersPingParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithBody adds the body to the genesis peers ping params
+func (o *GenesisPeersPingParams) WithBody(body *models.PeerPing) *GenesisPeersPingParams {
+	o.SetBody(body)
+	return o
+}
+
+// SetBody adds the body to the genesis peers ping params
+func (o *GenesisPeersPingParams) SetBody(body *models.PeerPing) {
+	o.Body = body
+}
+
 // WithPeerID adds the peerID to the genesis peers ping params
 func (o *GenesisPeersPingParams) WithPeerID(peerID strfmt.UUID) *GenesisPeersPingParams {
 	o.SetPeerID(peerID)
@@ -124,6 +142,12 @@ func (o *GenesisPeersPingParams) WriteToRequest(r runtime.ClientRequest, reg str
 		return err
 	}
 	var res []error
+
+	if o.Body != nil {
+		if err := r.SetBodyParam(o.Body); err != nil {
+			return err
+		}
+	}
 
 	// path param peerId
 	if err := r.SetPathParam("peerId", o.PeerID.String()); err != nil {

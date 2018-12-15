@@ -118,7 +118,7 @@ func init() {
     },
     "/peers/{peerId}/ping": {
       "post": {
-        "description": "Ping the Genesis server, to make mark the peer as alive",
+        "description": "Ping the Genesis server, to make mark the peer as alive and udpate schema info",
         "operationId": "genesis.peers.ping",
         "parameters": [
           {
@@ -128,6 +128,15 @@ func init() {
             "name": "peerId",
             "in": "path",
             "required": true
+          },
+          {
+            "description": "Request Body",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PeerPing"
+            }
           }
         ],
         "responses": {
@@ -193,6 +202,17 @@ func init() {
           }
         }
       ]
+    },
+    "PeerPing": {
+      "type": "object",
+      "properties": {
+        "schemaHash": {
+          "description": "(base64 encoded) hash of the current schema",
+          "type": "string",
+          "format": "byte",
+          "example": "59d41240e1b7024b6cdc1206696e62d2"
+        }
+      }
     },
     "PeerRegistrationResponse": {
       "type": "object",
@@ -322,7 +342,7 @@ func init() {
     },
     "/peers/{peerId}/ping": {
       "post": {
-        "description": "Ping the Genesis server, to make mark the peer as alive",
+        "description": "Ping the Genesis server, to make mark the peer as alive and udpate schema info",
         "operationId": "genesis.peers.ping",
         "parameters": [
           {
@@ -332,6 +352,15 @@ func init() {
             "name": "peerId",
             "in": "path",
             "required": true
+          },
+          {
+            "description": "Request Body",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PeerPing"
+            }
           }
         ],
         "responses": {
@@ -397,6 +426,17 @@ func init() {
           }
         }
       ]
+    },
+    "PeerPing": {
+      "type": "object",
+      "properties": {
+        "schemaHash": {
+          "description": "(base64 encoded) hash of the current schema",
+          "type": "string",
+          "format": "byte",
+          "example": "59d41240e1b7024b6cdc1206696e62d2"
+        }
+      }
     },
     "PeerRegistrationResponse": {
       "type": "object",
