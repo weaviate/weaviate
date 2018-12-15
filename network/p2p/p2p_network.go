@@ -1,6 +1,19 @@
-package network
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
+ */
+package p2p
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -13,6 +26,7 @@ import (
 	genesis_client "github.com/creativesoftwarefdn/weaviate/genesis/client"
 	client_ops "github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
 	genesis_models "github.com/creativesoftwarefdn/weaviate/genesis/models"
+	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 )
 
 const (
@@ -20,6 +34,10 @@ const (
 	NETWORK_STATE_FAILED        = "network failed"
 	NETWORK_STATE_HEALTHY       = "network healthy"
 )
+
+// ErrPeerNotFound because it was either never registered
+// or was registered, but timed out in the meantime
+var ErrPeerNotFound = errors.New("Peer does not exist or has been removed after being inactive")
 
 // The real network implementation. Se also `fake_network.go`
 type network struct {
@@ -34,10 +52,11 @@ type network struct {
 	genesis_url strfmt.URI
 	messaging   *messages.Messaging
 	client      genesis_client.WeaviateGenesisServer
-	peers       []Peer
+	peers       libnetwork.Peers
+	callbacks   []libnetwork.PeerUpdateCallback
 }
 
-func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI, public_url strfmt.URI, peer_name string) (*Network, error) {
+func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI, public_url strfmt.URI, peer_name string) (*libnetwork.Network, error) {
 	if genesis_url == "" {
 		return nil, fmt.Errorf("No genesis URL provided in network configuration")
 	}
@@ -75,13 +94,13 @@ func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI, public_url 
 		genesis_url: genesis_url,
 		messaging:   m,
 		client:      *client,
-		peers:       make([]Peer, 0),
+		peers:       make([]libnetwork.Peer, 0),
 	}
 
 	// Bootstrap the network in the background.
 	go n.bootstrap()
 
-	nw := Network(&n)
+	nw := libnetwork.Network(&n)
 	return &nw, nil
 }
 
@@ -117,19 +136,18 @@ func (n *network) GetStatus() string {
 	return n.state
 }
 
-func (n *network) ListPeers() ([]Peer, error) {
-	return nil, fmt.Errorf("Cannot list peers, because there is no network configured")
+func (n *network) ListPeers() (libnetwork.Peers, error) {
+	return n.peers, nil
 }
 
-func (n *network) UpdatePeers(new_peers []Peer) error {
-	n.Lock()
-	defer n.Unlock()
+func (n *network) GetPeerByName(name string) (libnetwork.Peer, error) {
+	for _, peer := range n.peers {
+		if peer.Name == name {
+			return peer, nil
+		}
+	}
 
-	n.messaging.InfoMessage(fmt.Sprintf("Received updated peer list with %v peers", len(new_peers)))
-
-	n.peers = new_peers
-
-	return nil
+	return libnetwork.Peer{}, ErrPeerNotFound
 }
 
 func (n *network) keep_pinging() {
@@ -146,4 +164,13 @@ func (n *network) keep_pinging() {
 			n.messaging.InfoMessage(fmt.Sprintf("Could not ping Genesis server; %+v", err))
 		}
 	}
+}
+
+// GetNetworkResolver for now simply returns itself
+// because the network is not fully plugable yet.
+// Once we have made the network pluggable, then this would
+// be a method on the connector which returns the actual
+// plugged in Network
+func (n *network) GetNetworkResolver() libnetwork.Network {
+	return n
 }
