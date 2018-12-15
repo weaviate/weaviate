@@ -13,8 +13,15 @@
 package p2p
 
 import (
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/genesis/client"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/go-openapi/strfmt"
 )
@@ -72,4 +79,122 @@ func TestGetWrongPeer(t *testing.T) {
 			t.Errorf("expected peer not found error, but got %s", err)
 		}
 	})
+}
+
+func TestPingPeer(t *testing.T) {
+	var (
+		subject      *network
+		genesis      *httptest.Server
+		schemaGetter *dummySchemaGetter
+	)
+
+	arrange := func(matchers ...requestMatcher) {
+		genesis = fakeGenesis(t, matchers...)
+		genesisURI, _ := url.Parse(genesis.URL)
+		transportConfig := client.TransportConfig{
+			Host:     genesisURI.Host,
+			BasePath: genesisURI.Path,
+			Schemes:  []string{genesisURI.Scheme},
+		}
+		genesisClient := client.NewHTTPClientWithConfig(nil, &transportConfig)
+		subject = &network{
+			client: *genesisClient,
+			peerID: strfmt.UUID("2dd9195c-e321-4025-aace-8cb48522661f"),
+		}
+		schemaGetter = &dummySchemaGetter{schema: sampleSchema()}
+		subject.RegisterSchemaGetter(schemaGetter)
+	}
+
+	act := func() {
+		subject.ping()
+	}
+
+	cleanUp := func() {
+		genesis.Close()
+	}
+
+	t.Run("genesis should be called", func(t *testing.T) {
+		called := false
+		matcher := func(t *testing.T, r *http.Request) {
+			called = true
+		}
+		arrange(matcher)
+		act()
+
+		if called == false {
+			t.Error("handler was never called")
+		}
+
+		cleanUp()
+	})
+
+	t.Run("contain schemaHash in body", func(t *testing.T) {
+		expectedBody := "{\"schemaHash\":\"6f94c1c316dc0c3a9fac3ada08e48507\"}\n"
+		matcher := func(t *testing.T, res *http.Request) {
+			defer res.Body.Close()
+			bodyBytes, _ := ioutil.ReadAll(res.Body)
+			if string(bodyBytes) != expectedBody {
+				t.Fatalf("for body, wanted \n%#v\nbut got\n%#v\n", string(bodyBytes),
+					expectedBody)
+			}
+		}
+		arrange(matcher)
+		act()
+		cleanUp()
+	})
+
+	t.Run("contain an updated schemaHash if the schema changes", func(t *testing.T) {
+		expectedBody := "{\"schemaHash\":\"1be52d8819861376b621a91c17c45d81\"}\n"
+		matcher := func(t *testing.T, res *http.Request) {
+			defer res.Body.Close()
+			bodyBytes, _ := ioutil.ReadAll(res.Body)
+			if string(bodyBytes) != expectedBody {
+				t.Fatalf("for body, wanted \n%#v\nbut got\n%#v\n", string(bodyBytes),
+					expectedBody)
+			}
+		}
+		arrange(matcher)
+		// now we have the initial schema
+		schemaGetter.schema.Actions.Classes[0].Class = "UpdatedFlight"
+		// now we changed it
+		act()
+		cleanUp()
+	})
+
+}
+
+type dummySchemaGetter struct {
+	schema schema.Schema
+}
+
+func (d *dummySchemaGetter) Schema() schema.Schema {
+	return d.schema
+}
+
+func fakeGenesis(t *testing.T, matchers ...requestMatcher) *httptest.Server {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, matcher := range matchers {
+			matcher(t, r)
+		}
+	}))
+	return ts
+}
+
+func sampleSchema() schema.Schema {
+	return schema.Schema{
+		Actions: &models.SemanticSchema{
+			Classes: []*models.SemanticSchemaClass{
+				&models.SemanticSchemaClass{
+					Class: "Flight",
+				},
+			},
+		},
+		Things: &models.SemanticSchema{
+			Classes: []*models.SemanticSchemaClass{
+				&models.SemanticSchemaClass{
+					Class: "Airplane",
+				},
+			},
+		},
+	}
 }

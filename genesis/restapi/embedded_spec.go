@@ -209,7 +209,7 @@ func init() {
         "schemaHash": {
           "description": "(base64 encoded) hash of the current schema",
           "type": "string",
-          "format": "byte",
+          "format": "md5",
           "example": "59d41240e1b7024b6cdc1206696e62d2"
         }
       }
@@ -433,7 +433,7 @@ func init() {
         "schemaHash": {
           "description": "(base64 encoded) hash of the current schema",
           "type": "string",
-          "format": "byte",
+          "format": "md5",
           "example": "59d41240e1b7024b6cdc1206696e62d2"
         }
       }
