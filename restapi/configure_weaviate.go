@@ -2490,6 +2490,18 @@ func configureServer(s *http.Server, scheme, addr string) {
 	network.RegisterUpdatePeerCallback(func(peers libnetwork.Peers) {
 		manager.TriggerSchemaUpdateCallbacks()
 	})
+
+	network.RegisterSchemaGetter(&schemaGetter{db: db})
+}
+
+type schemaGetter struct {
+	db database.Database
+}
+
+func (s *schemaGetter) Schema() schema.Schema {
+	dbLock := s.db.ConnectorLock()
+	defer dbLock.Unlock()
+	return dbLock.GetSchema()
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.

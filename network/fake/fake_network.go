@@ -58,3 +58,8 @@ func (fn FakeNetwork) RegisterUpdatePeerCallback(callbackFn network.PeerUpdateCa
 func (fn FakeNetwork) GetNetworkResolver() graphqlnetwork.Resolver {
 	return fn
 }
+
+// RegisterSchemaGetter does nothing, since it's a fake network
+// but also doesn't error
+func (fn FakeNetwork) RegisterSchemaGetter(schemaGetter network.SchemaGetter) {
+}
