@@ -77,6 +77,17 @@
       },
       "type": "object"
     },
+    "PeerPing": {
+      "properties": {
+        "schemaHash": {
+          "description": "(base64 encoded) hash of the current schema",
+          "type": "string",
+          "format": "byte",
+          "example": "59d41240e1b7024b6cdc1206696e62d2"
+        }
+      },
+      "type": "object"
+    },
     "PeerRegistrationResponse": {
       "properties": {
         "peer": { 
@@ -172,7 +183,7 @@
     },
     "/peers/{peerId}/ping": {
       "post": {
-        "description": "Ping the Genesis server, to make mark the peer as alive",
+        "description": "Ping the Genesis server, to make mark the peer as alive and udpate schema info",
         "operationId": "genesis.peers.ping",
         "parameters": [
           {
@@ -182,6 +193,15 @@
             "name": "peerId",
             "required": true,
             "type": "string"
+          },
+          {
+            "description": "Request Body",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PeerPing"
+            }
           }
         ],
         "responses": {

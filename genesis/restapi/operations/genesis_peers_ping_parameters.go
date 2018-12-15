@@ -6,13 +6,17 @@ package operations
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/validate"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/genesis/models"
 )
 
 // NewGenesisPeersPingParams creates a new GenesisPeersPingParams object
@@ -31,6 +35,11 @@ type GenesisPeersPingParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*Request Body
+	  Required: true
+	  In: body
+	*/
+	Body *models.PeerPing
 	/*Name of the Weaviate peer
 	  Required: true
 	  In: path
@@ -47,6 +56,28 @@ func (o *GenesisPeersPingParams) BindRequest(r *http.Request, route *middleware.
 
 	o.HTTPRequest = r
 
+	if runtime.HasBody(r) {
+		defer r.Body.Close()
+		var body models.PeerPing
+		if err := route.Consumer.Consume(r.Body, &body); err != nil {
+			if err == io.EOF {
+				res = append(res, errors.Required("body", "body"))
+			} else {
+				res = append(res, errors.NewParseError("body", "body", "", err))
+			}
+		} else {
+			// validate body object
+			if err := body.Validate(route.Formats); err != nil {
+				res = append(res, err)
+			}
+
+			if len(res) == 0 {
+				o.Body = &body
+			}
+		}
+	} else {
+		res = append(res, errors.Required("body", "body"))
+	}
 	rPeerID, rhkPeerID, _ := route.Params.GetOK("peerId")
 	if err := o.bindPeerID(rPeerID, rhkPeerID, route.Formats); err != nil {
 		res = append(res, err)
