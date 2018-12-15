@@ -48,12 +48,13 @@ type network struct {
 	peer_name  string
 	public_url strfmt.URI
 
-	state       string
-	genesis_url strfmt.URI
-	messaging   *messages.Messaging
-	client      genesis_client.WeaviateGenesisServer
-	peers       libnetwork.Peers
-	callbacks   []libnetwork.PeerUpdateCallback
+	state        string
+	genesis_url  strfmt.URI
+	messaging    *messages.Messaging
+	client       genesis_client.WeaviateGenesisServer
+	peers        libnetwork.Peers
+	callbacks    []libnetwork.PeerUpdateCallback
+	schemaGetter libnetwork.SchemaGetter
 }
 
 func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI, public_url strfmt.URI, peer_name string) (*libnetwork.Network, error) {
@@ -125,7 +126,7 @@ func (n *network) bootstrap() {
 		n.messaging.InfoMessage(fmt.Sprintf("Registered at Genesis server with id '%v'", n.peer_id))
 	}
 
-	go n.keep_pinging()
+	go n.keepPinging()
 }
 
 func (n *network) IsReady() bool {
@@ -150,19 +151,31 @@ func (n *network) GetPeerByName(name string) (libnetwork.Peer, error) {
 	return libnetwork.Peer{}, ErrPeerNotFound
 }
 
-func (n *network) keep_pinging() {
+func (n *network) keepPinging() {
 	for {
 		time.Sleep(30 * time.Second)
-		n.messaging.InfoMessage("Pinging Genesis server")
+		n.ping()
+	}
+}
 
-		n.Lock()
-		params := client_ops.NewGenesisPeersPingParams()
-		params.PeerID = n.peer_id
-		n.Unlock()
-		_, err := n.client.Operations.GenesisPeersPing(params)
-		if err != nil {
-			n.messaging.InfoMessage(fmt.Sprintf("Could not ping Genesis server; %+v", err))
-		}
+func (n *network) ping() {
+	n.messaging.InfoMessage("Pinging Genesis server")
+
+	if n.schemaGetter == nil {
+		n.messaging.InfoMessage("cannot ping genesis server: no SchemaGetter present on network")
+		return
+	}
+
+	currentSchema := n.schemaGetter.Schema()
+	_ = currentSchema
+
+	n.Lock()
+	params := client_ops.NewGenesisPeersPingParams()
+	params.PeerID = n.peer_id
+	n.Unlock()
+	_, err := n.client.Operations.GenesisPeersPing(params)
+	if err != nil {
+		n.messaging.InfoMessage(fmt.Sprintf("Could not ping Genesis server; %+v", err))
 	}
 }
 
@@ -173,4 +186,8 @@ func (n *network) keep_pinging() {
 // plugged in Network
 func (n *network) GetNetworkResolver() libnetwork.Network {
 	return n
+}
+
+func (n *network) RegisterSchemaGetter(schemaGetter libnetwork.SchemaGetter) {
+	n.schemaGetter = schemaGetter
 }

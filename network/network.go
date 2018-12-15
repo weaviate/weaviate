@@ -17,6 +17,7 @@ import (
 	"net/url"
 
 	"github.com/creativesoftwarefdn/weaviate/client"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	network_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/go-openapi/strfmt"
@@ -64,6 +65,15 @@ func (p Peers) Names() []string {
 // PeerUpdateCallback should be called by UpdatePeers after a successful peer update
 type PeerUpdateCallback func(peers Peers)
 
+// SchemaGetter must be provided to the Network, so the network
+// has a means to retrieve the schema on each polling cycle.
+// It does not care about whether a lock is necessary to retrieve the
+// schema. If it is, then the provided implemtation must make
+// sure that Schema() locks and unlocks.
+type SchemaGetter interface {
+	Schema() schema.Schema
+}
+
 // Network is a Minimal abstraction over the network. This is the only API exposed to the rest of Weaviate.
 type Network interface {
 	IsReady() bool
@@ -79,6 +89,10 @@ type Network interface {
 
 	// RegisterUpdatePeerCallback to be called after successful peer updates
 	RegisterUpdatePeerCallback(callbackFn PeerUpdateCallback)
+
+	// Register a SchemaGetter which can be called in each pinging
+	// cycle to retrieve the current schema (hash)
+	RegisterSchemaGetter(getter SchemaGetter)
 
 	// TODO: We'll add functions like
 	// - QueryNetwork(q NetworkQuery, timeout int) (chan NetworkResponse, error)
