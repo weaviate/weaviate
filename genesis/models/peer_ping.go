@@ -8,7 +8,6 @@ package models
 import (
 	strfmt "github.com/go-openapi/strfmt"
 
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/swag"
 )
 
@@ -17,32 +16,11 @@ import (
 type PeerPing struct {
 
 	// (base64 encoded) hash of the current schema
-	// Format: byte
-	SchemaHash strfmt.Base64 `json:"schemaHash,omitempty"`
+	SchemaHash string `json:"schemaHash,omitempty"`
 }
 
 // Validate validates this peer ping
 func (m *PeerPing) Validate(formats strfmt.Registry) error {
-	var res []error
-
-	if err := m.validateSchemaHash(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if len(res) > 0 {
-		return errors.CompositeValidationError(res...)
-	}
-	return nil
-}
-
-func (m *PeerPing) validateSchemaHash(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.SchemaHash) { // not required
-		return nil
-	}
-
-	// Format "byte" (base64 string) is already validated when unmarshalled
-
 	return nil
 }
 
