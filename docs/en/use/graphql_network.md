@@ -63,12 +63,12 @@ Via the P2P network, it will be possible to request ontologies of the Weaviate i
 ```graphql
 {
   Network {
-    Get(where: {
-        path: ["weaviateB", "Things", "Airport", "place"],
+    Get {
+      weaviateB(where: {
+        path: ["Airport", "place"],
         operator: Equal,
         valueString: "Amsterdam"
       }) {
-      weaviateB {
       	Things {
           Airport {
             code
@@ -238,14 +238,14 @@ For nodes in the network, meta information can be queried just like for nodes in
 ``` graphql
 {
   Network {
-    GetMeta(where: {
-        path: ["weaviateB", "Things", "Airport", "place"],
-        operator: Equal,
-        valueString: "Amsterdam"
-      }) {
+    GetMeta {
       weaviateB {
       	Things {
-          Airport {
+          Airport(where: {
+            path: ["place"],
+            operator: Equal,
+            valueString: "Amsterdam"
+          }) {
             meta {
               count
             }

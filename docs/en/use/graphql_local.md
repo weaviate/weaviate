@@ -162,27 +162,27 @@ To aggregate and group results, you can use the `Aggregation` function. More inf
 
 ## Filters
 
-For both functions `Get` and `GetMeta` in the Local Query filtering is possible. In the query introducted in the [Get function](#get-function) section, the result will contain the name and age of all the animals, and in which zoo they are. If you only want to Get all the Animals younger than 5 years old and living in the London Zoo, this can be specified in the `where` filter of the `Get` function:
+For both functions `Get` and `GetMeta` in the Local Query filtering is possible. In the query introducted in the [Get function](#get-function) section, the result will contain the name and age of all the animals, and in which zoo they are. If you only want to Get all the Animals younger than 5 years old and living in the London Zoo, this can be specified in the `where` filter of the class in the `Get` function:
 
 ```graphql
 {
   Local {
-    Get(where: {
-      operator: And,
-      operands: [{
-        path: ["Things", "Animal", "age"],
-        operator: LessThan
-        valueInt: 5
-      }, {
-        path: ["Things", "Animal", "inZoo", "Zoo", "name"],
-        operator: Equal,
-        valueString: "London Zoo"
-      }]
-    }) {
+    Get{
       Things {
-        Animal {
+        Animal(where: {
+          operator: And,
+          operands: [{
+            path: ["age"],
+            operator: LessThan
+            valueInt: 5
+          }, {
+            path: ["inZoo", "Zoo", "name"],
+            operator: Equal,
+            valueString: "London Zoo"
+          }]
+        }) {
           name
-      age
+          age
           InZoo {
             ... on Zoo {
               name
@@ -207,7 +207,7 @@ More generally, the `where` filter is an algrebraic object, which takes the foll
   - `LessThan`
   - `LessThanEqual`
 - `Operands`: Is a list of filter objects of this same structure
-- `Path`: Is a list of strings indicating the path from `Things` or `Actions` to the specific property name
+- `Path`: Is a list of strings indicating the property name of the class. If the property is a cross reference, the path of that should be followed to the property of the cross reference should be specified as a list of strings.
 - `ValueInt`: The integer value where the `Path`'s last property name should be compared to
 - `ValueBoolean`: The boolean value that the `Path`'s last property name should be compared to
 - `ValueString`: The string value that the `Path`'s last property name should be compared to
@@ -223,14 +223,20 @@ So, the `Not` operator only works on operands, while `NotEqual` only works on va
 ```graphql
 {
   Local {
-    Get(where: {
-      operator: <operator>,
-      operands: [{
-        path: [<path>],
-        operator: <operator>
-        value<Type>: <value>
-      }]
-    })
+    Get {
+      Things {
+        <className> (where: {
+          operator: <operator>,
+          operands: [{
+            path: [<path>],
+            operator: <operator>
+            value<Type>: <value>
+          }]
+        }) {
+          <propertyName>
+        }
+      }
+    }
   }
 }
 ```
@@ -240,12 +246,18 @@ Without operator 'And' or 'Or' at the highest level:
 ```graphql
 {
   Local {
-    Get(where: {
-      path: [<path>],
-      operator: <operator>
-      value<Type>: <value>
+    Get {
+      Things {
+        <className> (where: {
+          path: [<path>],
+          operator: <operator>
+          value<Type>: <value>
+          }
+        }) {
+          <propertyName>
+        }
       }
-    })
+    }
   }
 }
 ```

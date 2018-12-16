@@ -407,7 +407,7 @@
 			"isDelayed": false
 		}
 	]},
-	"weaviateB" : {
+	"WeaviateB" : {
 		"Things": [{
 			"class": "Airport",
 			"uuid": "0091",
@@ -529,7 +529,7 @@
 		}
 	]
 	},
-	"weaviateC": {
+	"WeaviateC": {
 		"Things": [{
 			"class": "Municipality",
 			"uuid": "0012",

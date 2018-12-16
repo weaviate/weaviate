@@ -80,7 +80,6 @@ var solve_groupBy = function(filter, list) {
 		returnlist.push(returndict[i]);
 	}
 	
-	console.log(returnlist)
 	return returnlist
 }
 
@@ -115,131 +114,100 @@ var solveAggregateRootClass = function(all_data, className, args) {
 }
 
 
-var solveMetaRootClass = function(all_data, className, args) {
-	var list = []
-	    for(var i=0; i < all_data.length; i++){
-	        if(all_data[i].class == className){
-			    list.push(all_data[i])
-		    }
-	    }
+var solveMetaRootClass = function(nodes_in_class, className, args) {	
+	metadata = []
+	metadata["class"] = className
+	metadata["meta"] = {"count": nodes_in_class.length}
+	
+	
+	for (var key in nodes_in_class[0]) {
+		if (key == "class" || key == "uuid") {
+			continue
+		}
+		metadata[key] = {}
+		metadata[key]["count"] = 0
+		var type = typeof(nodes_in_class[0][key])
+		if (type == "object") {
+			newkey = key[0].toUpperCase() + key.substring(1)
+			metadata[newkey] = {}
+			metadata[newkey]["count"] = 0
+			metadata[newkey]["type"] = "cref"
+			metadata[newkey]["pointingTo"] = [nodes_in_class[0][key]["class"]]
+		}
+		else if (type == "boolean") {
+			metadata[key]["type"] = "boolean"
+			metadata[key]["totalTrue"] = 0
+			metadata[key]["totalFalse"] = 0
+			metadata[key]["percentageTrue"] = 0
+			metadata[key]["percentageFalse"] = 0
+		}
+		else if (type == "number") {
+			if (!isNaN(nodes_in_class[0][key])) {
+				metadata[key]["type"] = "number"
+				metadata[key]["lowest"] = 999999999999
+				metadata[key]["highest"] = -999999999999
+				metadata[key]["average"] = 0
+				metadata[key]["sum"] = 0
+			}
+			else {
+				metadata[key]["type"] = "string"
+				metadata[key]["topOccurrences"] = []
+			}
+		}
+	}
 
-	  	if (args.after) {
-		    list = list.splice(args.after)
-	    }
-	    if (args.first) {
-		    list = list.splice(0, args.first)
-	    }
-		all_data = list
-		
-	    nodes_in_class = []
-	    for (var i in all_data) { // loop through single things or actions
-			if (all_data[i].class == className) {
-				nodes_in_class.push(all_data[i])
-		    }
-	    }
-
-	    metadata = []
-	    metadata["class"] = className
-		metadata["meta"] = {"count": nodes_in_class.length}
-		
-		
-		for (var key in nodes_in_class[0]) {
+	for (var node in nodes_in_class) {
+		for (var key in nodes_in_class[node]) {
 			if (key == "class" || key == "uuid") {
 				continue
 			}
-			metadata[key] = {}
-			metadata[key]["count"] = 0
-			var type = typeof(nodes_in_class[0][key])
-			if (type == "object") {
-				newkey = key[0].toUpperCase() + key.substring(1)
-				metadata[newkey] = {}
-				metadata[newkey]["count"] = 0
-				metadata[newkey]["type"] = "cref"
-				metadata[newkey]["pointingTo"] = [nodes_in_class[0][key]["class"]]
-			}
-			else if (type == "boolean") {
+			metadata[key]["count"] += 1;
+			var type = typeof(nodes_in_class[node][key])
+			if (type == "boolean") {
 				metadata[key]["type"] = "boolean"
-				metadata[key]["totalTrue"] = 0
-				metadata[key]["totalFalse"] = 0
-				metadata[key]["percentageTrue"] = 0
-				metadata[key]["percentageFalse"] = 0
+				if (nodes_in_class[node][key] == true) {
+					metadata[key]["totalTrue"] += 1;
+				}
+				else {
+					metadata[key]["totalFalse"] += 1;
+				}
+				metadata[key]["percentageTrue"] = (metadata[key]["totalTrue"] / metadata[key]["count"] * 100);
+				metadata[key]["percentageFalse"] = (metadata[key]["totalFalse"] / metadata[key]["count"] * 100);
 			}
-			else if (type == "string") {
-				if (!isNaN(nodes_in_class[0][key])) {
+			else if (type == "number") {
+				if (!isNaN(nodes_in_class[node][key])) {
 					metadata[key]["type"] = "number"
-					metadata[key]["lowest"] = 999999999999
-					metadata[key]["highest"] = -999999999999
-					metadata[key]["average"] = 0
-					metadata[key]["sum"] = 0
+					value = parseFloat(nodes_in_class[node][key])
+					if (value < metadata[key]["lowest"]) {
+						metadata[key]["lowest"] = value
+					}
+					if (value > metadata[key]["highest"]) {
+						metadata[key]["highest"] = value
+					}
+					metadata[key]["sum"] += value
+					metadata[key]["average"] = (metadata[key]["sum"] / metadata[key]["count"])
 				}
 				else {
 					metadata[key]["type"] = "string"
-					metadata[key]["topOccurrences"] = []
+					metadata[key]["topOccurrences"].push({"value": nodes_in_class[node][key], "occurs": 1}) // currently doesn't count occurrences
 				}
 			}
 		}
+	}
 
-		for (var node in nodes_in_class) {
-			for (var key in nodes_in_class[node]) {
-				if (key == "class" || key == "uuid") {
-					continue
-				}
-				metadata[key]["count"] += 1;
-				var type = typeof(nodes_in_class[node][key])
-				if (type == "boolean") {
-					metadata[key]["type"] = "boolean"
-					if (nodes_in_class[node][key] == true) {
-						metadata[key]["totalTrue"] += 1;
-					}
-					else {
-						metadata[key]["totalFalse"] += 1;
-					}
-					metadata[key]["percentageTrue"] = (metadata[key]["totalTrue"] / metadata[key]["count"] * 100);
-					metadata[key]["percentageFalse"] = (metadata[key]["totalFalse"] / metadata[key]["count"] * 100);
-				}
-				else if (type == "string") {
-					if (!isNaN(nodes_in_class[node][key])) {
-						metadata[key]["type"] = "number"
-						value = parseFloat(nodes_in_class[node][key])
-						if (value < metadata[key]["lowest"]) {
-							metadata[key]["lowest"] = value
-						}
-						if (value > metadata[key]["highest"]) {
-							metadata[key]["highest"] = value
-						}
-						metadata[key]["sum"] += value
-						metadata[key]["average"] = (metadata[key]["sum"] / metadata[key]["count"])
-					}
-					else {
-						metadata[key]["type"] = "string"
-						metadata[key]["topOccurrences"].push({"value": nodes_in_class[node][key], "occurs": 1}) // currently doesn't count occurrences
-					}
-				}
-			}
-		}
-
-		return metadata
+	return metadata
 }
 
 
-var resolve_IE = function (operator, path, value, location="Local") {
+var resolve_IE = function (object_list, operator, path, value, location="Local") {
 	// loop over filter EQ list
 	var return_list = []
-
-	if(location=="Local"){
-		var object_list = data[location][path[0]]
-		p_start = 1
-	}
-	else{
-		var object_list = data[location][path[1]]
-		p_start = 2
-	}
 
 	// loop over things/actions in list
 	for(var j=0; j < object_list.length; j++) {
 		var object = object_list[j]
 
-		for (var p=p_start; p < path.length; p++) { // loop over rest of items in path			
+		for (var p=0; p < path.length; p++) { // loop over rest of items in path			
 			if (object.class === path[p]) {
 				continue
 			}
@@ -283,38 +251,21 @@ var resolve_IE = function (operator, path, value, location="Local") {
 			}
 		}
 	}
-	var return_array = {}
-
-	if(location=="Local"){
-		return_array[path[0]] = return_list
-	}
-	else{
-		return_array[path[0]] = {}
-		return_array[path[0]][path[1]] = return_list
-	}
-	
-	return return_array
+	return return_list
 }
 
 
-var resolve_NEQ = function (path, value, location="Local") {
+var resolve_NEQ = function (object_list, path, value, location="Local") {
 	// loop over filter NEQ list
 	var return_list = []
-	if(location=="Local"){
-		var object_list = data[location][path[0]]
-		p_start = 1
-	}
-	else{
-		var object_list = data[location][path[1]]
-		p_start = 2
-	}
+
 	var short_list = Object.assign([], object_list)
 
 	// loop over things/actions in list
 	for(var j=0; j < object_list.length; j++) {
 		var object = object_list[j]
 
-		for (var p=p_start; p < path.length; p++) { // loop over rest of items in path
+		for (var p=0; p < path.length; p++) { // loop over rest of items in path
 			if (object.class === path[p]) {
 				continue
 			}
@@ -342,37 +293,20 @@ var resolve_NEQ = function (path, value, location="Local") {
 		}
 	}
 	return_list = _.union(return_list, short_list)
-	var return_array = {}
-	if(location=="Local"){
-		return_array[path[0]] = return_list
-	}
-	else{
-		return_array[path[0]] = {}
-		return_array[path[0]][path[1]] = return_list
-	}
-	return return_array
+
+	return return_list
 }
 
 
-var resolve_EQ = function (path, value, location="Local") {
+var resolve_EQ = function (object_list, path, value, location="Local") {
 	// loop over filter EQ list
-	var return_array = {}
 	var new_list = []
-	if(location=="Local"){
-		var object_list = data[location][path[0]]
-		p_start = 1
-	}
-	else{
-		var object_list = data[location][path[1]]
-		p_start = 2
-	}
-	
 
 	// loop over things/actions in list
 	for(var j=0; j < object_list.length; j++) {
 		var object = object_list[j]
 
-		for (var p=p_start; p < path.length; p++) { // loop over rest of items in path
+		for (var p=0; p < path.length; p++) { // loop over rest of items in path
 			if (object.class === path[p]) {
 				continue
 			}
@@ -399,150 +333,151 @@ var resolve_EQ = function (path, value, location="Local") {
 		}
 	}
 
-	if(location=="Local"){
-		return_array[path[0]] = _.union(new_list, return_array[path[0]])
-	}
-	else{
-		return_array[path[0]] = {}
-		return_array[path[0]][path[1]] = new_list
-	}
-	return return_array
+
+	return new_list
 }
 
 
-const solve_path = function (operator, path, value, location="Local") {
+const solve_path = function (list, operator, path, value, location="Local") {
+	
 
 	if (["GreaterThan", "GreaterThanEqual", "LessThan", "LessThanEqual"].includes(operator)) {
 		// IE
-		return resolve_IE(operator, path, value, location)
+		return resolve_IE(list, operator, path, value, location)
 	}
 	else if (operator == "Equal") {
 		// EQ
-		return resolve_EQ(path, value, location)
+		return resolve_EQ(list, path, value, location)
 	}
 	else if (operator == "NotEqual") {
 		// NEQ
-		return resolve_NEQ(path, value, location)
+		return resolve_NEQ(list, path, value, location)
 	}
 }
 
 
-const solve_operands = function (operator, operands, location="Local") {
-	return_data = {}
-
+const solve_operands = function (list, operator, operands, location="Local") {
+	return_data = []
 	for (var i in operands) {
 		operand = operands[i]
 
 		if (operand.operator == 'And' || operand.operator == 'Or' || operand.operator == 'Not') {
-			result = solve_operands(operand.operator, operand.operands, location)
+			result = solve_operands(list, operand.operator, operand.operands, location)
 		}
-		// else if ((operand.operator == 'Not' || operand.operator == 'NotEqual') && operand.operands) {
-		// 	result = solve_operands(operand.operator, operand.operands)
-		// }
 		else {
 			if (operand.valueString) {
-				result = solve_path(operand.operator, operand.path, operand.valueString, location)
+				result = solve_path(list, operand.operator, operand.path, operand.valueString, location)
 			}
 			else if (operand.valueDate) {
-				result = solve_path(operand.operator, operand.path, operand.valueDate, location)
+				result = solve_path(list, operand.operator, operand.path, operand.valueDate, location)
 			}
 			else if (operand.valueInt) {
-				result = solve_path(operand.operator, operand.path, operand.valueInt, location)
+				result = solve_path(list, operand.operator, operand.path, operand.valueInt, location)
 			}
 			else if (operand.valueBoolean) {
-				result = solve_path(operand.operator, operand.path, operand.valueBoolean, location)
+				result = solve_path(list, operand.operator, operand.path, operand.valueBoolean, location)
 			}
 			else if (operand.valueFloat) {
-				result = solve_path(operand.operator, operand.path, operand.valueFloat, location)
+				result = solve_path(list, operand.operator, operand.path, operand.valueFloat, location)
 			}
 			else if (operand.valueText) {
 				return 'error'
 			}
 		}
 		if (operator == 'And') {
-			for (var key in result) {
-				if (all_data[location][key] !== undefined) {
-					all_data[location][key] = result[key].filter(value => -1 !== all_data[location][key].indexOf(value));
-				}
+			if (i == 0) {
+				return_data = result
 			}
-			return_data = all_data[location]
+			else {
+				return_data = _.intersection(result, return_data)
+			}
 		}
 		else if (operator == 'Or') {
-			for (var key in result) {
-				all_data[location][key] = _.union(result[key], all_data[location][key])
-			}
-			return_data = all_data[location]
+			return_data = _.union(result, return_data)
 
 		}
-		else if (operator == 'Not' || operator == 'NotEqual') {
-			data1 = JSON.parse(fs.readFileSync('./demo_resolver/demo_data.json', 'utf8'));
-			all_data1 = _.clone(data1);
-			for (var key in result) { // list of things and actions
-				console.log(all_data1)
-				all_data1[location][key] = _.differenceWith(data1[location][key], result[key], _.isEqual)
-			}
-			return_data = all_data1[location]
+		else if (operator == 'Not') {
+			// list min result
+			return_data =  _.difference(list, result)
 		}
 	}
 	return return_data
 }
 
 
+const resolve_where = function (list, filter) {
+	if (filter.operator == 'And' || filter.operator == 'Or' || filter.operator == 'Not') {
+		return solve_operands(list, filter.operator, filter.operands)
+	}
+	else {
+		if (filter.valueString) {
+			return solve_path(list, filter.operator, filter.path, filter.valueString)
+		}
+		else if (filter.valueDate) {
+			return solve_path(list, filter.operator, filter.path, filter.valueDate)
+		}
+		else if (filter.valueInt) {
+			return solve_path(list, filter.operator, filter.path, filter.valueInt)
+		}
+		else if (filter.valueBoolean) {
+			return solve_path(list, filter.operator, filter.path, filter.valueBoolean)
+		}
+		else if (filter.valueFloat) {
+			return solve_path(list, filter.operator, filter.path, filter.valueFloat)
+		}
+		else if (filter.valueText) {
+			return 'error'
+		}
+	}
+
+}
+
+
 module.exports = {
-	resolveGet: function(filter) {
-		all_data = _.clone(data);
-		if (filter) {
-			if (filter.operator == 'And' || filter.operator == 'Or' || filter.operator == 'Not') {
-				return solve_operands(filter.operator, filter.operands)
-			}
-			// else if ((filter.operator == 'Not' || filter.operator == 'NotEqual') && filter.operands) {
-			// 	return solve_operands(filter.operator, filter.operands)
-			// }
-			else {
-				if (filter.valueString) {
-					return solve_path(filter.operator, filter.path, filter.valueString)
-				}
-				else if (filter.valueDate) {
-					return solve_path(filter.operator, filter.path, filter.valueDate)
-				}
-				else if (filter.valueInt) {
-					return solve_path(filter.operator, filter.path, filter.valueInt)
-				}
-				else if (filter.valueBoolean) {
-					return solve_path(filter.operator, filter.path, filter.valueBoolean)
-				}
-				else if (filter.valueFloat) {
-					return solve_path(filter.operator, filter.path, filter.valueFloat)
-				}
-				else if (filter.valueText) {
-					return 'error'
-				}
-			}
-		}
-		else {
-			return data.Local
-		}
+	resolveGet: function() {
+		return data.Local
     },
     rootClassResolver: function(return_data, className, args) {
-	    var list = []
+	    var list = [] // all instances in demo data from this class
 	    for(var i=0; i < return_data.length; i++){
 	        if(return_data[i].class == className){
 			    list.push(return_data[i])
 		    }
-	    }
+		}
+
+		if (args.where) {
+			list = resolve_where(list, args.where)
+		}
+
 	  	if (args.after) {
 		    list = list.splice(args.after)
 	    }
 	    if (args.first) {
 		    list = list.splice(0, args.first)
 		}
-		if (args.groupBy) {[
-			list = solve_groupBy(args.groupBy, list)
-		]}
-	    return list
+		// if (args.groupBy) {[
+		// 	list = solve_groupBy(args.groupBy, list)
+		// ]}
+		return list
     },
-    metaRootClassResolver: function(all_data, className, args) {
-		return solveMetaRootClass(all_data, className, args)
+    metaRootClassResolver: function(return_data, className, args) {
+		var list = [] // all instances in demo data from this class
+	    for(var i=0; i < return_data.length; i++){
+	        if(return_data[i].class == className){
+			    list.push(return_data[i])
+		    }
+		}
+		if (args.where) {
+			list = resolve_where(list, args.where)
+		}
+
+	  	if (args.after) {
+		    list = list.splice(args.after)
+	    }
+	    if (args.first) {
+		    list = list.splice(0, args.first)
+		}
+		return solveMetaRootClass(list, className, args)
 	},
 	aggregateRootClassResolver: function(all_data, className, args) {
 		return solveAggregateRootClass(all_data, className, args)
