@@ -10,7 +10,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/go-openapi/strfmt"
-	"github.com/magiconair/properties/assert"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDownloadSchemaFromPeer(t *testing.T) {
