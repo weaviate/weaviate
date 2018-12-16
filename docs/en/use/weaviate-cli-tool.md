@@ -13,10 +13,26 @@ A complete Weaviate stack based on Janusgraph (with; Elasticsearch and Cassandra
 Install by running the following command;
 
 ```sh
-$ 
+$ source <(curl -s https://raw.githubusercontent.com/creativesoftwarefdn/weaviate-cli/master/install.sh)
 ```
 
-_Note: this command will try to install Python if not installed and might ask for sudo rights._
+_Note: this command will try to install Python, unzip, wget and pip3 if not installed and might ask for sudo rights._
+_Note: tested on Ubuntu 16 and up_
+
+## Manual Installation
+
+```sh
+# Clone the repo
+$ git clone https://github.com/creativesoftwarefdn/weaviate-cli
+# Into the repo
+$ cd weaviate-cli
+# Install deps
+$ pip3 install -r requirements.txt
+# Test the installation
+$ python3 weaviate-cli.py --help
+```
+
+_Note: you will need Python3 to run the Weaviate-cli tool_
 
 ## Usage
 
