@@ -23,7 +23,7 @@ func TestPeerUpdateWithNewPeers(t *testing.T) {
 	oldPeers := []libnetwork.Peer{}
 	newPeers := []libnetwork.Peer{{
 		Name: "best-weaviate",
-		Id:   "uuid",
+		ID:   "uuid",
 		URI:  "does-not-matter",
 	}}
 
@@ -54,7 +54,7 @@ func TestPeerUpdateWithNewPeers(t *testing.T) {
 func TestPeerUpdateWithoutAnyChange(t *testing.T) {
 	peers := []libnetwork.Peer{{
 		Name: "best-weaviate",
-		Id:   "uuid",
+		ID:   "uuid",
 		URI:  "does-not-matter",
 	}}
 

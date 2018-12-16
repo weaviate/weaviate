@@ -45,7 +45,7 @@ func TestProxyGetInstance(t *testing.T) {
 			peers: []libnetwork.Peer{{
 				Name: "best-instance",
 				URI:  strfmt.URI(remote.URL),
-				Id:   strfmt.UUID("some-id"),
+				ID:   strfmt.UUID("some-id"),
 			}},
 		}
 	}

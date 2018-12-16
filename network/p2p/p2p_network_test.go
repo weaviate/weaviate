@@ -28,7 +28,7 @@ import (
 
 func TestGetExistingPeer(t *testing.T) {
 	peer := libnetwork.Peer{
-		Id:   strfmt.UUID("some-id"),
+		ID:   strfmt.UUID("some-id"),
 		Name: "best-peer",
 		URI:  "http://best-peer.com",
 	}
@@ -46,8 +46,8 @@ func TestGetExistingPeer(t *testing.T) {
 	})
 
 	t.Run("should return correct peer", func(t *testing.T) {
-		if actual.Id != peer.Id {
-			t.Errorf("%s does not match, wanted %s, gut got %s", "Id", peer.Id, actual.Id)
+		if actual.ID != peer.ID {
+			t.Errorf("%s does not match, wanted %s, gut got %s", "ID", peer.ID, actual.ID)
 		}
 
 		if actual.Name != peer.Name {
@@ -63,7 +63,7 @@ func TestGetExistingPeer(t *testing.T) {
 
 func TestGetWrongPeer(t *testing.T) {
 	peer := libnetwork.Peer{
-		Id:   strfmt.UUID("some-id"),
+		ID:   strfmt.UUID("some-id"),
 		Name: "best-peer",
 		URI:  "http://best-peer.com",
 	}
