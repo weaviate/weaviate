@@ -16,14 +16,14 @@ package dbconnector
 import (
 	"context"
 
-	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/go-openapi/strfmt"
 	"github.com/graphql-go/graphql"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
+	graphqlapiLocal "github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
@@ -68,7 +68,7 @@ type BaseConnector interface {
 type DatabaseConnector interface {
 	BaseConnector
 	connector_state.Connector
-	graphqlapi.Resolver
+	graphqlapiLocal.Resolver
 
 	GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error
 	GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionResponse *models.ActionsListResponse) error
