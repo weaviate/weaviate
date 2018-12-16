@@ -16,7 +16,7 @@ function main() {
   echo "Done!"
 
   echo_green "Stop any running docker-compose containers..."
-  surpress_on_success docker-compose down
+  surpress_on_success docker-compose -f docker-compose-test.yml down
 
   echo_green "Start up weaviate and backing dbs in docker-compose..."
   echo "This could take some time..."
@@ -59,11 +59,11 @@ function import_test_fixtures() {
 
   # Load the fixtures for the GraphQL acceptance tests
   go run ./tools/schema_loader \
-    -action-schema test/acceptance/graphql_resolvers_local/fixtures/actions_schema.json \
-    -thing-schema test/acceptance/graphql_resolvers_local/fixtures/things_schema.json
+    -action-schema test/acceptance/graphql_resolvers/fixtures/actions_schema.json \
+    -thing-schema test/acceptance/graphql_resolvers/fixtures/things_schema.json
 
   go run ./tools/fixture_importer/ \
-    -fixture-file test/acceptance/graphql_resolvers_local/fixtures/data.json
+    -fixture-file test/acceptance/graphql_resolvers/fixtures/data.json
 }
 
 surpress_on_success() {
