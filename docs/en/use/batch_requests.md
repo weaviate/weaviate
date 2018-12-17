@@ -8,8 +8,8 @@ This document uses the following terminology:
 - `batch response`: refers to an array of responses
 - `batched response`: refers to an individual response in a `batch response`
 ### 1.1 Format
-Examples of the format used by a batch request and a batch response are detailed below (these were taken from the [Apollo blog](https://blog.apollographql.com/query-batching-in-apollo-63acfd859862)).
-#### 1.1.1 Batch request
+Examples of the formats used by a batch request and a batch response are detailed below (these were taken from the [Apollo blog](https://blog.apollographql.com/query-batching-in-apollo-63acfd859862)).
+#### 1.1.1 GraphQL batch request
 ```
 [
   {
@@ -26,14 +26,48 @@ Examples of the format used by a batch request and a batch response are detailed
   }
 ]
 ```
-#### 1.1.2 Batch response
-
+#### 1.1.2 GraphQL batch response
 ```
 [
   <result for query 0>,
   <result for query 1>,
   ...
   <result for query n>
+]
+```
+#### 1.1.3 Action/Thing create batch requests
+The Action and Thing create batch endpoints use a slightly different format to allow batch-level parameters to be applied to the batched requests.
+
+The `async` parameter enables asynchronous processing for the batched requests. The responses will each contain a 202 with the ID of the created Thing or Action, this reply is generated before persistence of the data is confirmed. This parameter defaults to `false`. 
+
+The `fields` parameter determines which fields will be returned in the response. This parameter defaults to `"ALL"`.
+##### 1.1.3.1 An Action/Thing create batch request
+```
+{
+	"actions": [
+	  {
+	    <regular action create request 0>,
+	  },
+	  {
+	    <regular action create request 1>,
+	  },
+	  {
+	    <regular action create request 2>,
+	  }
+	],
+	"async": true,
+	"fields": [
+		"ALL"
+	]
+}
+```
+##### 1.1.3.2 An Action/Thing create batch response
+```
+[
+  <response for request 0>,
+  <response for request 1>,
+  ...
+  <response for request n>,
 ]
 ```
 ### 1.2 Errors(section pending [issue](https://github.com/creativesoftwarefdn/weaviate/issues/513) resolution)
@@ -74,6 +108,9 @@ or this format for `non-GraphQL` endpoints:
     <result for query n>
 ```
 
-## 2. Batched request endpoints
-Weaviate has a regular and a batch endpoint for each HTTP request type it can process. These batch endpoints are specified below:
-* [graphql/batch](https://github.com/creativesoftwarefdn/weaviate/blob/e971fb87326f3b0eb37b7fd094b43153f927d0ca/restapi/configure_weaviate.go#L1260)
+## 2. Batch request endpoints
+Weaviate has a batch endpoint for a number of request types. These batch endpoints are specified below:
+* batching/actions
+* batching/things
+* graphql/batch
+

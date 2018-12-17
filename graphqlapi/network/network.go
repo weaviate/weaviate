@@ -19,7 +19,6 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	network_fetch "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
 	network_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
 	network_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get_meta"
@@ -188,18 +187,6 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 			Name:        descriptions.NetworkGetDesc,
 			Type:        graphQLNetworkFieldContents.NetworkGetObject,
 			Description: descriptions.NetworkGetDesc,
-			Args: graphql.FieldConfigArgument{
-				"where": &graphql.ArgumentConfig{
-					Description: descriptions.NetworkGetWhereDesc,
-					Type: graphql.NewInputObject(
-						graphql.InputObjectConfig{
-							Name:        "WeaviateNetworkGetWhereInpObj",
-							Fields:      common_filters.BuildNew("WeaviateNetworkGet"),
-							Description: descriptions.NetworkGetWhereInpObjDesc,
-						},
-					),
-				},
-			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				peers, ok := p.Source.(map[string]interface{})["NetworkPeers"].([]string)
 				if !ok {
@@ -227,18 +214,6 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 			Name:        "WeaviateNetworkGetMeta",
 			Type:        graphQLNetworkFieldContents.NetworkGetMetaObject,
 			Description: descriptions.NetworkGetMetaDesc,
-			Args: graphql.FieldConfigArgument{
-				"where": &graphql.ArgumentConfig{
-					Description: descriptions.NetworkGetWhereDesc,
-					Type: graphql.NewInputObject(
-						graphql.InputObjectConfig{
-							Name:        "WeaviateNetworkGetMetaWhereInpObj",
-							Fields:      common_filters.BuildNew("WeaviateNetworkGetMeta"),
-							Description: descriptions.NetworkGetWhereInpObjDesc,
-						},
-					),
-				},
-			},
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
 			},

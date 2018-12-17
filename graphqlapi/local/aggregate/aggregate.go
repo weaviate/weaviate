@@ -68,18 +68,6 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	field := graphql.Field{
 		Name:        "WeaviateLocalAggregate",
 		Description: descriptions.LocalAggregateWhereDesc,
-		Args: graphql.FieldConfigArgument{
-			"where": &graphql.ArgumentConfig{
-				Description: descriptions.LocalGetWhereDesc,
-				Type: graphql.NewInputObject(
-					graphql.InputObjectConfig{
-						Name:        "WeaviateLocalAggregateWhereInpObj",
-						Fields:      common_filters.BuildNew("WeaviateLocalAggregate"),
-						Description: descriptions.LocalAggregateWhereInpObjDesc,
-					},
-				),
-			},
-		},
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name:        "WeaviateLocalAggregateObj",
 			Fields:      getKinds,
@@ -106,7 +94,7 @@ func buildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema 
 	}
 
 	for _, class := range semanticSchema.Classes {
-		classField, err := buildAggregateClass(dbSchema, k, class, knownClasses)
+		classField, err := buildAggregateClass(dbSchema, k, kindName, class, knownClasses)
 		if err != nil {
 			return nil, fmt.Errorf("Could not build class for %s", class.Class)
 		}
@@ -123,7 +111,7 @@ func buildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema 
 }
 
 // Build a single class in Local -> Aggregate -> (k kind.Kind) -> (models.SemanticSchemaClass)
-func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object) (*graphql.Field, error) {
+func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, kindName string, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object) (*graphql.Field, error) {
 	classObject := graphql.NewObject(graphql.ObjectConfig{
 
 		Name: fmt.Sprintf("Aggregate%s", class.Class),
@@ -215,6 +203,16 @@ func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, class *models.Sem
 			"groupBy": &graphql.ArgumentConfig{
 				Description: descriptions.GroupByDesc,
 				Type:        graphql.NewList(graphql.String),
+			},
+			"where": &graphql.ArgumentConfig{
+				Description: descriptions.LocalGetWhereDesc,
+				Type: graphql.NewInputObject(
+					graphql.InputObjectConfig{
+						Name:        fmt.Sprintf("WeaviateLocalAggregate%ss%sWhereInpObj", kindName, class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalAggregate%ss%s", kindName, class.Class)),
+						Description: descriptions.LocalAggregateWhereInpObjDesc,
+					},
+				),
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
