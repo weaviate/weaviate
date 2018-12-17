@@ -17,19 +17,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/go-openapi/strfmt"
-
-	"net/url"
-
 	genesis_client "github.com/creativesoftwarefdn/weaviate/genesis/client"
 	client_ops "github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
 	genesismodels "github.com/creativesoftwarefdn/weaviate/genesis/models"
+	"github.com/creativesoftwarefdn/weaviate/messages"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	p2pschema "github.com/creativesoftwarefdn/weaviate/network/p2p/schema"
+	"github.com/go-openapi/strfmt"
 )
 
 const (
@@ -51,21 +50,24 @@ type network struct {
 	peerName  string
 	publicURL strfmt.URI
 
-	state        string
-	genesisURL   strfmt.URI
-	messaging    *messages.Messaging
-	client       genesis_client.WeaviateGenesisServer
-	peers        libnetwork.Peers
-	callbacks    []libnetwork.PeerUpdateCallback
-	schemaGetter libnetwork.SchemaGetter
+	state           string
+	genesisURL      strfmt.URI
+	messaging       *messages.Messaging
+	client          genesis_client.WeaviateGenesisServer
+	peers           libnetwork.Peers
+	callbacks       []libnetwork.PeerUpdateCallback
+	schemaGetter    libnetwork.SchemaGetter
+	downloadChanged downloadChangedFn
 }
+
+type downloadChangedFn func(libnetwork.Peers) libnetwork.Peers
 
 func BootstrapNetwork(m *messages.Messaging, genesisURL strfmt.URI, publicURL strfmt.URI, peerName string) (*libnetwork.Network, error) {
 	if genesisURL == "" {
 		return nil, fmt.Errorf("No genesis URL provided in network configuration")
 	}
 
-	genesis_uri, err := url.Parse(string(genesisURL))
+	genesisURI, err := url.Parse(string(genesisURL))
 	if err != nil {
 		return nil, fmt.Errorf("Could not parse genesis URL '%v'", genesisURL)
 	}
@@ -83,22 +85,23 @@ func BootstrapNetwork(m *messages.Messaging, genesisURL strfmt.URI, publicURL st
 		return nil, fmt.Errorf("No peer name specified in network configuration")
 	}
 
-	transport_config := genesis_client.TransportConfig{
-		Host:     genesis_uri.Host,
-		BasePath: genesis_uri.Path,
-		Schemes:  []string{genesis_uri.Scheme},
+	transportConfig := genesis_client.TransportConfig{
+		Host:     genesisURI.Host,
+		BasePath: genesisURI.Path,
+		Schemes:  []string{genesisURI.Scheme},
 	}
 
-	client := genesis_client.NewHTTPClientWithConfig(nil, &transport_config)
+	client := genesis_client.NewHTTPClientWithConfig(nil, &transportConfig)
 
 	n := network{
-		publicURL:  publicURL,
-		peerName:   peerName,
-		state:      NETWORK_STATE_BOOTSTRAPPING,
-		genesisURL: genesisURL,
-		messaging:  m,
-		client:     *client,
-		peers:      make([]libnetwork.Peer, 0),
+		publicURL:       publicURL,
+		peerName:        peerName,
+		state:           NETWORK_STATE_BOOTSTRAPPING,
+		genesisURL:      genesisURL,
+		messaging:       m,
+		client:          *client,
+		peers:           make([]libnetwork.Peer, 0),
+		downloadChanged: p2pschema.DownloadChanged,
 	}
 
 	// Bootstrap the network in the background.

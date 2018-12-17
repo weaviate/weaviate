@@ -28,7 +28,8 @@ func TestPeerUpdateWithNewPeers(t *testing.T) {
 	}}
 
 	subject := network{
-		peers: oldPeers,
+		peers:           oldPeers,
+		downloadChanged: downloadChangedFake(newPeers),
 	}
 
 	callbackCalled := false
@@ -59,7 +60,8 @@ func TestPeerUpdateWithoutAnyChange(t *testing.T) {
 	}}
 
 	subject := network{
-		peers: peers,
+		peers:           peers,
+		downloadChanged: downloadChangedFake(peers),
 	}
 
 	callbackCalled := false
@@ -72,5 +74,11 @@ func TestPeerUpdateWithoutAnyChange(t *testing.T) {
 
 	if callbackCalled != false {
 		t.Error("expect PeerUpdateCallback not to be called, but it was called")
+	}
+}
+
+func downloadChangedFake(peers libnetwork.Peers) func(libnetwork.Peers) libnetwork.Peers {
+	return func(libnetwork.Peers) libnetwork.Peers {
+		return peers
 	}
 }
