@@ -29,6 +29,10 @@ func (n *network) UpdatePeers(newPeers libnetwork.Peers) error {
 		return nil
 	}
 
+	// download schema updates if peers are new or their hash changed
+	// in this iteration.
+	newPeers = n.downloadChanged(newPeers)
+
 	n.peers = newPeers
 	for _, callbackFn := range n.callbacks {
 		callbackFn(newPeers)

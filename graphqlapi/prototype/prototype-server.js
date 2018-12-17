@@ -18,6 +18,12 @@ const cors = require('cors');
 const graphqlHTTP = require('express-graphql');
 const demoResolver = require('./demo_resolver/demo_resolver.js');
 
+// schema to send on /weaviate/v1/schema
+// so that we can use the prototype as a fake
+// for a second (network) weaviate instance
+const actions = require('./demo_schemas/actions_schema.json')
+const things = require('./demo_schemas/things_schema.json')
+
 // file system for reading files
 const fs = require('fs');
 
@@ -2082,6 +2088,12 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
     }
     app.use('/graphql', graphQLHandler);
     app.use('/weaviate/v1/graphql', dummyAuthChecker, graphQLHandler)
+    app.get('/weaviate/v1/schema', (req, res) => {
+      res.send({
+        actions,
+        things,
+      })
+    })
     app.listen(8081, function() {
       const port = this.address().port;
       console.log(`Started on http://localhost:${port}/graphql`);
