@@ -68,16 +68,28 @@ COPY ./test/schema/test-action-schema.json /schema/actions_schema.json
 COPY ./test/schema/test-thing-schema.json /schema/things_schema.json
 COPY ./tools/dev/config.json /weaviate.conf.json
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config", "janusgraph_docker"]
+
 ###############################################################################
 # This is the production image for running waviates configurations; contains the executable & contextionary
 FROM alpine as weaviate_prod
+RUN apk add --no-cache curl jq
 COPY --from=server_builder /go/bin/weaviate-server /bin/weaviate
 COPY --from=build_base /etc/ssl/certs /etc/ssl/certs
-ARG CONTEXTIONARY_LOC=https://contextionary.creativesoftwarefdn.org/0.4.0/en/
 
 RUN mkdir /contextionary
-ADD $CONTEXTIONARY_LOC/contextionary.vocab /contextionary/contextionary.vocab
-ADD $CONTEXTIONARY_LOC/contextionary.idx /contextionary/contextionary.idx 
-ADD $CONTEXTIONARY_LOC/contextionary.knn /contextionary/contextionary.knn
+ARG CONTEXTIONARY_VERSION
+ARG CONTEXTIONARY_LOC
+
+RUN if [ -z "$CONTEXTIONARY_LOC" ]; \
+	then if [ -z "$CONTEXTIONARY_VERSION" ]; \
+		then export CONTEXTIONARY_VERSION=$(curl -sS https://contextionary.creativesoftwarefdn.org/contextionary.json | jq -r ".latestVersion"); \
+		fi; \
+	export CONTEXTIONARY_LOC=https://contextionary.creativesoftwarefdn.org/$CONTEXTIONARY_VERSION/en; \
+	wget -O /contextionary/contextionary.vocab $CONTEXTIONARY_LOC/contextionary.vocab; \
+	wget -O /contextionary/contextionary.idx $CONTEXTIONARY_LOC/contextionary.idx; \
+	wget -O /contextionary/contextionary.knn $CONTEXTIONARY_LOC/contextionary.knn; \
+	fi
+
+COPY tmp.txt $CONTEXTIONARY_LOC/contextionary.vocab* $CONTEXTIONARY_LOC/contextionary.idx* $CONTEXTIONARY_LOC/contextionary.knn* /contextionary/
 
 ENTRYPOINT ["/bin/weaviate"]
