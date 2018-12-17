@@ -34,6 +34,13 @@ COPY . .
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go install -a -tags netgo -ldflags '-w -extldflags "-static"' ./cmd/weaviate-server
 
 ###############################################################################
+# This image builds the genesis
+FROM build_base AS genesis
+COPY . .
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go install -a -tags netgo -ldflags '-w -extldflags "-static"' ./genesis/cmd/weaviate-genesis-server/
+ENTRYPOINT ["/go/bin/weaviate-genesis-server"]
+
+###############################################################################
 # This creates an image that can be run to import the demo dataset for development
 FROM build_base AS data_importer
 COPY . .
