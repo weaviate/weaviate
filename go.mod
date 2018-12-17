@@ -25,6 +25,7 @@ require (
 	github.com/graphql-go/graphql v0.7.5
 	github.com/hpcloud/tail v1.0.0 // indirect
 	github.com/jessevdk/go-flags v1.4.0
+	github.com/magiconair/properties v1.8.0
 	github.com/mailru/easyjson v0.0.0-20180723221831-d5012789d665 // indirect
 	github.com/mitchellh/mapstructure v0.0.0-20180715050151-f15292f7a699
 	github.com/onsi/ginkgo v1.6.0 // indirect
