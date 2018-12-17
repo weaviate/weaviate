@@ -18,7 +18,6 @@ import (
 
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
-	"github.com/davecgh/go-spew/spew"
 )
 
 func (n *network) UpdatePeers(newPeers peers.Peers) error {
@@ -34,8 +33,6 @@ func (n *network) UpdatePeers(newPeers peers.Peers) error {
 	// download schema updates if peers are new or their hash changed
 	// in this iteration.
 	newPeers = n.downloadChanged(newPeers)
-
-	spew.Dump(newPeers)
 
 	n.peers = newPeers
 	for _, callbackFn := range n.callbacks {
