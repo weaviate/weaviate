@@ -33,7 +33,7 @@ import (
 func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
-		return nil, fmt.Errorf("There are no Actions or Things classes defined yet.")
+		return nil, fmt.Errorf("there are no Actions or Things classes defined yet")
 	}
 
 	filterContainer := &utils.FilterContainer{}
@@ -60,9 +60,9 @@ func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 		getKinds := graphql.Fields{}
 		getMetaKinds := graphql.Fields{}
 
-		if len(dbSchema.Actions.Classes) > 0 {
+		if len(peer.Schema.Actions.Classes) > 0 {
 			networkGetActions, networkGetErr := network_get.ActionClassFieldsFromSchema(
-				dbSchema, &getNetworkActionsAndThings, peer.Name)
+				&peer.Schema, &getNetworkActionsAndThings, peer.Name)
 			if networkGetErr != nil {
 				return nil, fmt.Errorf(
 					"failed to generate action fields from schema for network Get because: %v", networkGetErr)
@@ -81,7 +81,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 
 			classParentTypeIsAction := true
 			networkGetMetaActions, networkGetMetaErr := network_getmeta.ClassFieldsFromSchema(
-				dbSchema.Actions.Classes, classParentTypeIsAction, peer.Name)
+				peer.Schema.Actions.Classes, classParentTypeIsAction, peer.Name)
 			if networkGetMetaErr != nil {
 				return nil, fmt.Errorf(
 					"failed to generate action fields from schema for network MetaGet because: %v",
@@ -100,8 +100,8 @@ func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 			}
 		}
 
-		if len(dbSchema.Things.Classes) > 0 {
-			networkGetThings, networkGetErr := network_get.ThingClassFieldsFromSchema(dbSchema,
+		if len(peer.Schema.Things.Classes) > 0 {
+			networkGetThings, networkGetErr := network_get.ThingClassFieldsFromSchema(&peer.Schema,
 				&getNetworkActionsAndThings, peer.Name)
 			if networkGetErr != nil {
 				return nil, fmt.Errorf(
@@ -121,7 +121,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 
 			classParentTypeIsAction := false
 			networkGetMetaThings, networkGetMetaErr := network_getmeta.ClassFieldsFromSchema(
-				dbSchema.Things.Classes, classParentTypeIsAction, peer.Name)
+				peer.Schema.Things.Classes, classParentTypeIsAction, peer.Name)
 			if networkGetMetaErr != nil {
 				return nil, fmt.Errorf("failed to generate thing fields from schema for network MetaGet because: %v", networkGetMetaErr)
 			}
@@ -155,7 +155,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 
 	}
 	// TODO this is a temp function, inserts a temp weaviate obj in between Get and Things/Actions
-	networkGetObject, networkGetMetaObject := insertDummyNetworkWeaviateField(weaviateNetworkGetResults, weaviateNetworkGetMetaResults)
+	networkGetObject, networkGetMetaObject := buildGetAndGetMeta(weaviateNetworkGetResults, weaviateNetworkGetMetaResults)
 
 	genGlobalNetworkFilterElements(filterContainer)
 
@@ -164,10 +164,10 @@ func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 	networkIntrospectObj := network_introspect.FieldsObj(filterContainer)
 
 	graphQLNetworkFieldContents := utils.GraphQLNetworkFieldContents{
-		networkGetObject,
-		networkGetMetaObject,
-		networkFetchObj,
-		networkIntrospectObj,
+		NetworkGetObject:        networkGetObject,
+		NetworkGetMetaObject:    networkGetMetaObject,
+		NetworkFetchObject:      networkFetchObj,
+		NetworkIntrospectObject: networkIntrospectObj,
 	}
 
 	networkGetAndGetMetaObject := genNetworkFields(&graphQLNetworkFieldContents /*, filterContainer*/)
@@ -209,27 +209,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 					),
 				},
 			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				peers, ok := p.Source.(map[string]interface{})["NetworkPeers"].(peers.Peers)
-				if !ok {
-					return nil, fmt.Errorf("source does not contain NetworkPeers, but \n%#v", p.Source)
-				}
-
-				filters, err := network_get.FiltersForNetworkInstances(p.Args, peers.Names())
-				if err != nil {
-					return nil, err
-				}
-
-				resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_get.Resolver)
-				if !ok {
-					return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
-				}
-
-				return network_get.FiltersAndResolver{
-					Filters:  filters,
-					Resolver: resolver,
-				}, nil
-			},
+			Resolve: passThroughFiltersAndResolvers,
 		},
 
 		"GetMeta": &graphql.Field{
@@ -281,8 +261,8 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 	return graphql.NewObject(*weaviateNetworkObject)
 }
 
-// temporary function that does nothing but display a Weaviate instance // TODO: delete this once p2p functionality is up
-func insertDummyNetworkWeaviateField(weaviatesWithGetFields map[string]*graphql.Object, weaviatesWithMetaGetFields map[string]*graphql.Object) (*graphql.Object, *graphql.Object) {
+func buildGetAndGetMeta(weaviatesWithGetFields map[string]*graphql.Object,
+	weaviatesWithMetaGetFields map[string]*graphql.Object) (*graphql.Object, *graphql.Object) {
 
 	getWeaviates := graphql.Fields{}
 	metaGetWeaviates := graphql.Fields{}
@@ -304,16 +284,38 @@ func insertDummyNetworkWeaviateField(weaviatesWithGetFields map[string]*graphql.
 		}
 	}
 
-	dummyWeaviateGetObject := graphql.ObjectConfig{
+	GetObject := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkGetObj",
 		Fields:      getWeaviates,
 		Description: descriptions.NetworkGetObjDesc,
 	}
-	dummyWeaviateGetMetaObject := graphql.ObjectConfig{
+	GetMetaObject := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkGetMetaObj",
 		Fields:      metaGetWeaviates,
 		Description: descriptions.NetworkGetMetaObjDesc,
 	}
 
-	return graphql.NewObject(dummyWeaviateGetObject), graphql.NewObject(dummyWeaviateGetMetaObject)
+	return graphql.NewObject(GetObject), graphql.NewObject(GetMetaObject)
+}
+
+func passThroughFiltersAndResolvers(p graphql.ResolveParams) (interface{}, error) {
+	peers, ok := p.Source.(map[string]interface{})["NetworkPeers"].(peers.Peers)
+	if !ok {
+		return nil, fmt.Errorf("source does not contain NetworkPeers, but \n%#v", p.Source)
+	}
+
+	filters, err := network_get.FiltersForNetworkInstances(p.Args, peers.Names())
+	if err != nil {
+		return nil, err
+	}
+
+	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_get.Resolver)
+	if !ok {
+		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+	}
+
+	return network_get.FiltersAndResolver{
+		Filters:  filters,
+		Resolver: resolver,
+	}, nil
 }
