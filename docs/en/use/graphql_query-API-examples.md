@@ -45,23 +45,22 @@ The query below returns information about all airports which lie in a city with 
 ``` graphql
 {
   Local {
-    Get(where: {
-      operator: And,
-      operands: [{
-        path: ["Things", "Airport", "inCity", "City", "inCountry", "Country", "name"],
-        operator:Equal,
-        valueString: "Netherlands"
-      },
-      {
-        path: ["Things", "Airport", "inCity", "City", "population"],
-        operator: GreaterThan
-        valueInt: 1000000
-      }]
-    }) {
+    Get {
       Things {
-        Airport {
+        Airport(where: {
+          operator: And,
+          operands: [{
+            path: ["inCity", "City", "inCountry", "Country", "name"],
+            operator: Equal,
+            valueString: "Netherlands"
+          },
+          {
+            path: ["inCity", "City", "population"],
+            operator: GreaterThan
+            valueInt: 1000000
+          }]
+        }) {
           code
-          name
           InCity {
             ... on City {
               name
@@ -83,7 +82,7 @@ The query below returns information about all airports which lie in a city with 
 }
 ```
 
-##### Fetch Things in a converted way on a local Weaviate instance with arbitratry AND an OR filters
+##### Get Things on a local Weaviate instance with arbitratry AND an OR filters
 For the filter design, look [here](https://github.com/bobvanluijt/weaviate-graphql-prototype/wiki/Filter-design-pattern-for-Local-queries)
 The query below returns all cities where either (at least one of the following conditions should hold):
 - The population is between 1,000,000 and 10,000,000
@@ -92,27 +91,28 @@ The query below returns all cities where either (at least one of the following c
 ``` graphql
 {
   Local {
-    Get(where: {
-      operator: Or,
-      operands: [{
-        operator: And,
-        operands: [{
-          path: ["Things", "Airport", "inCity", "City", "population"],
-          operator: LessThan,
-          valueInt: 10000000
-        },
-        {
-          path: ["Things", "Airport", "inCity", "City", "population"],
-          operator: GreaterThanEqual
-          valueInt: 1000000
-        }],
-      }, {
-        path: ["Things", "City", "isCapital"],
-        valueBoolean: true
-    }]
-    }) {
+    Get {
       Things {
-        City {
+        City (where: {
+          operator: Or,
+          operands: [{
+            operator: And,
+            operands: [{
+              path: ["population"],
+              operator: LessThan,
+              valueInt: 10000000
+            },
+            {
+              path: ["population"],
+              operator: GreaterThanEqual
+              valueInt: 1000000
+            }],
+          }, {
+            path: ["isCapital"],
+            operator: Equal
+            valueBoolean: true
+        }]
+      }) {
         name
         population
         coordinates
@@ -122,7 +122,6 @@ The query below returns all cities where either (at least one of the following c
     }
   }
 }
-
 ```
 
 ##### Query generic meta data of Thing or Action classes
@@ -138,7 +137,7 @@ The query below returns metadata of the nodes in the class `City`.
           meta {
             count
           }
-          inCountry {
+          InCountry {
             type
             count
             pointingTo
@@ -180,17 +179,17 @@ The same filters as the converted fetch can be used to filter the data. The foll
 ``` graphql
 {
   Local {
-    GetMeta(where: {
-      path: ["Things", "City", "inCountry", "name"],
-      operator: Equal
-      valueString: "Netherlands"
-    }) {
+    GetMeta {
       Things {
-        City {
+        City(where: {
+          path: ["inCountry", "name"],
+          operator: Equal
+          valueString: "Netherlands"
+        }) {
           meta {
             count
           }
-          inCountry {
+          InCountry {
             type
             count
             pointingTo

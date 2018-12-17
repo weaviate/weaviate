@@ -26,25 +26,25 @@ Without filters, a local query could look like this:
 }
 ```
 
-In this query, the result will contain the names and population of all the cities, and which country they are in. If you only want to Get all the cities in the Netherlands with a population higher than 100,000, this can be specified in the `where` filter of the `Get` function:
+In this query, the result will contain the names and population of all the cities, and which country they are in. If you only want to Get all the cities in the Netherlands with a population higher than 100,000, this can be specified in the `where` filter in the class in the `Get` function:
 
 ```graphql
 {
   Local {
-    Get(where: {
-      operator: And,
-      operands: [{
-        path: ["Things", "City", "population"],
-        operator: GreaterThan
-        valueInt: 1000000
-      }, {
-        path: ["Things", "City", "inCountry", "Country", "name"],
-        operator: Equal,
-        valueString: "Netherlands"
-      }]
-    }) {
+    Get {
       Things {
-        City {
+        City (where: {
+          operator: And,
+          operands: [{
+            path: ["population"],
+            operator: GreaterThan
+            valueInt: 1000000
+          }, {
+            path: ["inCountry", "Country", "name"],
+            operator: Equal,
+            valueString: "Netherlands"
+          }]
+        }){
           name
           InCountry {
             ... on Country {
@@ -70,7 +70,7 @@ More generally, the `where` filter is an algrebraic object, which takes the foll
   - `LessThan`
   - `LessThanEqual`
 - `Operands`: Is a list of filter objects of this same structure
-- `Path`: Is a list of strings indicating the path from `Things` or `Actions` to the specific property name
+- `Path`: Is a list of strings indicating the property name of the class. If the property is a cross reference, the path of that should be followed to the property of the cross reference should be specified as a list of strings.
 - `ValueInt`: The integer value where the `Path`'s last property name should be compared to
 - `ValueBoolean`: The boolean value that the `Path`'s last property name should be compared to
 - `ValueString`: The string value that the `Path`'s last property name should be compared to
@@ -86,14 +86,20 @@ So, the `Not` operator only works on operands, while `NotEqual` only works on va
 ```graphql
 {
   Local {
-    Get(where: {
-      operator: <operator>,
-      operands: [{
-        path: [<path>],
-        operator: <operator>
-        value<Type>: <value>
-      }]
-    })
+    Get {
+      Things {
+        <className> (where: {
+          operator: <operator>,
+          operands: [{
+            path: [<path>],
+            operator: <operator>
+            value<Type>: <value>
+          }]
+        }) {
+          <propertyName>
+        }
+      }
+    }
   }
 }
 ```
@@ -103,12 +109,18 @@ Without operator 'And' or 'Or' at the highest level:
 ```graphql
 {
   Local {
-    Get(where: {
-      path: [<path>],
-      operator: <operator>
-      value<Type>: <value>
+    Get {
+      Things {
+        <className> (where: {
+          path: [<path>],
+          operator: <operator>
+          value<Type>: <value>
+          }
+        }) {
+          <propertyName>
+        }
       }
-    })
+    }
   }
 }
 ```
