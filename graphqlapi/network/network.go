@@ -17,7 +17,6 @@ package network
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	network_fetch "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
@@ -30,11 +29,7 @@ import (
 )
 
 // Build the network queries from the database schema.
-func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
-
-	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
-		return nil, fmt.Errorf("there are no Actions or Things classes defined yet")
-	}
+func Build(peers peers.Peers) (*graphql.Field, error) {
 
 	filterContainer := &utils.FilterContainer{}
 
@@ -60,7 +55,13 @@ func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 		getKinds := graphql.Fields{}
 		getMetaKinds := graphql.Fields{}
 
-		if len(peer.Schema.Actions.Classes) > 0 {
+		if peer.Schema.Actions == nil && peer.Schema.Things == nil {
+			// don't error, but skip this particular peer as it currently
+			// has an empty schema
+			continue
+		}
+
+		if peer.Schema.Actions != nil && len(peer.Schema.Actions.Classes) > 0 {
 			networkGetActions, networkGetErr := network_get.ActionClassFieldsFromSchema(
 				&peer.Schema, &getNetworkActionsAndThings, peer.Name)
 			if networkGetErr != nil {
@@ -100,7 +101,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 			}
 		}
 
-		if len(peer.Schema.Things.Classes) > 0 {
+		if peer.Schema.Things != nil && len(peer.Schema.Things.Classes) > 0 {
 			networkGetThings, networkGetErr := network_get.ThingClassFieldsFromSchema(&peer.Schema,
 				&getNetworkActionsAndThings, peer.Name)
 			if networkGetErr != nil {
@@ -156,6 +157,12 @@ func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 	}
 	// TODO this is a temp function, inserts a temp weaviate obj in between Get and Things/Actions
 	networkGetObject, networkGetMetaObject := buildGetAndGetMeta(weaviateNetworkGetResults, weaviateNetworkGetMetaResults)
+	if networkGetObject == nil && networkGetMetaObject == nil {
+		// if we don't have any peers with schemas, we effectively don't have
+		// a Network Field.
+		// We should not error thoug, because local queries are still possible.
+		return nil, nil
+	}
 
 	genGlobalNetworkFilterElements(filterContainer)
 
@@ -263,6 +270,13 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 
 func buildGetAndGetMeta(weaviatesWithGetFields map[string]*graphql.Object,
 	weaviatesWithMetaGetFields map[string]*graphql.Object) (*graphql.Object, *graphql.Object) {
+
+	if len(weaviatesWithGetFields) == 0 {
+		// if we don't have any peers, we must return nil
+		// otherwise we'd have an empty Get and GetMeta object, which
+		// is not valid GraphQL
+		return nil, nil
+	}
 
 	getWeaviates := graphql.Fields{}
 	metaGetWeaviates := graphql.Fields{}

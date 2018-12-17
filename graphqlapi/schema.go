@@ -81,7 +81,7 @@ func buildGraphqlSchema(dbSchema *schema.Schema, peers peers.Peers) (graphql.Sch
 		return graphql.Schema{}, err
 	}
 
-	networkSchema, err := network.Build(dbSchema, peers)
+	networkSchema, err := network.Build(peers)
 	if err != nil {
 		return graphql.Schema{}, err
 	}
