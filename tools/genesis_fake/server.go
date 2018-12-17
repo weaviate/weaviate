@@ -119,7 +119,9 @@ func main() {
 	go func() {
 		var backOff time.Duration = 1
 		for {
-			backOff++
+			if backOff < 30 {
+				backOff++
+			}
 			updatePeerWithList()
 			time.Sleep(backOff * time.Second)
 		}

@@ -22,7 +22,7 @@ import (
 func main() {
 	http.HandleFunc("/weaviate/v1/graphql", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "POST" {
-			w.WriteHeader(422)
+			w.WriteHeader(405)
 			w.Write([]byte("only POST allowed"))
 			return
 		}
@@ -34,7 +34,7 @@ func main() {
 			w.Write([]byte(fmt.Sprintf("could not read body: %s", err)))
 			return
 		}
-		expectedBody := fmt.Sprintf("%s\n", `{"query":"{ Local { Get { Things { City { name } } } } }"}`)
+		expectedBody := fmt.Sprintf("%s\n", `{"query":"{ Local { Get { Things { Instruments { name } } } } }"}`)
 
 		if string(bodyBytes) != expectedBody {
 			w.WriteHeader(422)
@@ -46,6 +46,17 @@ func main() {
 		fmt.Fprintf(w, "%s", happyPathResponse)
 	})
 
+	http.HandleFunc("/weaviate/v1/schema", func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "GET" {
+			w.WriteHeader(405)
+			w.Write([]byte("only GET allowed"))
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, "%s", schemaResponse)
+	})
+
 	log.Fatal(http.ListenAndServe(":8081", nil))
 }
 
@@ -54,22 +65,71 @@ var happyPathResponse = `{
     "Local": {
       "Get": {
         "Things": {
-          "City": [
+          "Instruments": [
             {
-              "name": "Hamburg"
+              "name": "Piano"
             },
             {
-              "name": "New York"
+              "name": "Guitar"
             },
             {
-              "name": "Neustadt an der Weinstraße"
+              "name": "Bass Guitar"
             },
             {
-              "name": "Tokyo"
+              "name": "Talkbox"
             }
           ]
         }
       }
     }
+  }
+}`
+
+var schemaResponse = `{
+  "actions": {
+    "@context": "",
+    "version": "0.0.1",
+    "type": "action",
+    "name": "weaviate demo actions schema",
+    "maintainer": "yourfriends@weaviate.com",
+    "classes": []
+  },
+  "things": {
+    "@context": "",
+    "version": "0.0.1",
+    "type": "thing",
+    "name": "weaviate demo things schema",
+    "maintainer": "yourfriends@weaviate.com",
+    "classes": [
+      {
+        "class": "Instruments",
+        "description": "Musical instruments",
+        "properties": [
+          {
+            "name": "name",
+            "@dataType": [
+              "string"
+            ],
+            "description": "The name of the instrument",
+            "keywords": [
+              {
+                "keyword": "name",
+                "weight": 1
+              }
+            ]
+          }
+        ],
+        "keywords": [
+          {
+            "keyword": "instrument",
+            "weight": 1
+          },
+          {
+            "keyword": "music",
+            "weight": 0.25
+          }
+        ]
+      }
+    ]
   }
 }`
