@@ -13,13 +13,15 @@
 package state
 
 import (
-	"github.com/go-openapi/strfmt"
 	"time"
+
+	"github.com/go-openapi/strfmt"
 )
 
 type PeerInfo struct {
 	Id            strfmt.UUID
 	LastContactAt time.Time
+	SchemaHash    string
 }
 
 type Peer struct {
@@ -44,5 +46,5 @@ type State interface {
 	// Idempotent remove; removing a non-existing peer should not fail.
 	RemovePeer(id strfmt.UUID) error
 
-	UpdateLastContact(id strfmt.UUID, contact_time time.Time) error
+	UpdateLastContact(id strfmt.UUID, contact_time time.Time, schemaHash string) error
 }
