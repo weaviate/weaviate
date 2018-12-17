@@ -29,7 +29,7 @@ function main() {
   surpress_on_success import_test_fixtures
 
   echo_green "Run acceptance tests..."
-  run_acceptance_tests
+  run_acceptance_tests "$@"
 
   echo_green "Prepare coverage output for code climate"
   prepare_coverage_for_cc
@@ -37,12 +37,16 @@ function main() {
 }
 
 function run_acceptance_tests() {
-  for pkg in $(go list ./... | grep -v main); do
-        if ! go test -race -coverprofile=$(echo $pkg | tr / -).cover $pkg; then
-          echo "Test for $pkg failed" >&2
-          return 1
-        fi
-    done
+  if [[ "$*" == *--no-coverage* ]]; then
+    go test -race ./...
+  else
+    for pkg in $(go list ./... | grep -v main); do
+          if ! go test -race -coverprofile=$(echo $pkg | tr / -).cover $pkg; then
+            echo "Test for $pkg failed" >&2
+            return 1
+          fi
+      done
+  fi
 }
 
 function prepare_coverage_for_cc() {
