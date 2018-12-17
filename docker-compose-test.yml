@@ -79,3 +79,15 @@ services:
      - "9300:9300"
     volumes:
      - ./data/elasticsearch/data:/usr/share/elasticsearch/data
+  genesis: # an actual genesis - not used in the weaviate tests, but used to test the genesis itself
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: genesis
+    restart: on-failure:0
+    ports:
+      - "8111:8111"
+    command:
+      - "--scheme=http"
+      - "--host=0.0.0.0"
+      - "--port=8111"
