@@ -272,7 +272,7 @@ function createArgs(item, location, groupBy, where){
       type: new GraphQLInputObjectType({
         name: "Weaviate" + location + item.class + "WhereInpObj",
         description: "Input fields for the where filter to filter the class " + item.class + " on",
-        fields: genWhereFields("Weaviate" + location + item.class + "Where")
+        fields: genWhereFields("Weaviate" + location + item.class)
       }) 
     }
   }

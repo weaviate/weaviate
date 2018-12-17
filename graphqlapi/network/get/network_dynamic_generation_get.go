@@ -20,6 +20,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
@@ -72,6 +73,16 @@ func actionClassField(class *models.SemanticSchemaClass, getActionsAndThings *ma
 			"after": &graphql.ArgumentConfig{
 				Description: descriptions.AfterDesc,
 				Type:        graphql.Int,
+			},
+			"where": &graphql.ArgumentConfig{
+				Description: descriptions.NetworkGetWhereDesc,
+				Type: graphql.NewInputObject(
+					graphql.InputObjectConfig{
+						Name:        fmt.Sprintf("WeaviateNetworkGetActions%sWhereInpObj", class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGetActions%s", class.Class)),
+						Description: descriptions.NetworkGetWhereInpObjDesc,
+					},
+				),
 			},
 		},
 		Resolve: ResolveAction,
@@ -189,6 +200,16 @@ func thingClassField(class *models.SemanticSchemaClass, getActionsAndThings *map
 			"after": &graphql.ArgumentConfig{
 				Description: descriptions.AfterDesc,
 				Type:        graphql.Int,
+			},
+			"where": &graphql.ArgumentConfig{
+				Description: descriptions.NetworkGetWhereDesc,
+				Type: graphql.NewInputObject(
+					graphql.InputObjectConfig{
+						Name:        fmt.Sprintf("WeaviateNetworkGetThings%sWhereInpObj", class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGetThings%s", class.Class)),
+						Description: descriptions.NetworkGetWhereInpObjDesc,
+					},
+				),
 			},
 		},
 		Resolve: ResolveThing,
