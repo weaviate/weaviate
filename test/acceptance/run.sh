@@ -16,7 +16,7 @@ function main() {
   echo "Done!"
 
   echo_green "Stop any running docker-compose containers..."
-  surpress_on_success docker-compose -f docker-compose-test.yml down
+  surpress_on_success docker-compose -f docker-compose-test.yml down --remove-orphans
 
   echo_green "Start up weaviate and backing dbs in docker-compose..."
   echo "This could take some time..."
