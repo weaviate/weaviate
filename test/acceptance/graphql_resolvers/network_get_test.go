@@ -24,7 +24,7 @@ import (
 // schema on a remote instance.
 func TestNetworkGetSimple(t *testing.T) {
 	result := AssertGraphQL(t, helper.RootAuth, "{ Network { Get { RemoteWeaviateForAcceptanceTest { Things { Instruments { name } } } } } }")
-	cities := result.Get("Network", "Get", "RemoteWeaviateForAcceptanceTest", "Things", "Instruments").AsSlice()
+	instruments := result.Get("Network", "Get", "RemoteWeaviateForAcceptanceTest", "Things", "Instruments").AsSlice()
 
 	expected := []interface{}{
 		map[string]interface{}{"name": "Piano"},
@@ -33,5 +33,5 @@ func TestNetworkGetSimple(t *testing.T) {
 		map[string]interface{}{"name": "Talkbox"},
 	}
 
-	assert.ElementsMatch(t, expected, cities)
+	assert.ElementsMatch(t, expected, instruments)
 }
