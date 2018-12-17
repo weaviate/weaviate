@@ -8,7 +8,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 )
@@ -16,8 +16,8 @@ import (
 func TestDownloadPeersWithChanges(t *testing.T) {
 
 	var (
-		initialPeers    network.Peers
-		updatedPeers    network.Peers
+		initialPeers    peers.Peers
+		updatedPeers    peers.Peers
 		p1server        *httptest.Server
 		p2server        *httptest.Server
 		p3server        *httptest.Server
@@ -33,26 +33,26 @@ func TestDownloadPeersWithChanges(t *testing.T) {
 		p1server = schemaEndpoint(t, p1updatedSchema, p1matchers...)
 		p2server = schemaEndpoint(t, p2updatedSchema, p2matchers...)
 		p3server = schemaEndpoint(t, p3updatedSchema, p3matchers...)
-		initialPeers = network.Peers{
+		initialPeers = peers.Peers{
 			{
 				Name:       "peer1",
 				ID:         "peer1",
 				URI:        strfmt.URI(p1server.URL),
-				LastChange: network.NoChange,
+				LastChange: peers.NoChange,
 				Schema:     schemaWithThingClasses("p1oldClass1", "p1oldClass2"),
 			},
 			{
 				Name:       "peer2",
 				ID:         "peer2",
 				URI:        strfmt.URI(p2server.URL),
-				LastChange: network.SchemaChange,
+				LastChange: peers.SchemaChange,
 				Schema:     schemaWithThingClasses("p2oldClass1", "p2oldClass2"),
 			},
 			{
 				Name:       "peer3",
 				ID:         "peer3",
 				URI:        strfmt.URI(p3server.URL),
-				LastChange: network.NewlyAdded,
+				LastChange: peers.NewlyAdded,
 			},
 		}
 	}

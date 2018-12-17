@@ -17,9 +17,10 @@ import (
 	"reflect"
 
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
 
-func (n *network) UpdatePeers(newPeers libnetwork.Peers) error {
+func (n *network) UpdatePeers(newPeers peers.Peers) error {
 	n.Lock()
 	defer n.Unlock()
 
@@ -45,6 +46,6 @@ func (n *network) RegisterUpdatePeerCallback(callbackFn libnetwork.PeerUpdateCal
 	n.callbacks = append(n.callbacks, callbackFn)
 }
 
-func havePeersChanged(oldPeers libnetwork.Peers, newPeers libnetwork.Peers) bool {
+func havePeersChanged(oldPeers peers.Peers, newPeers peers.Peers) bool {
 	return !reflect.DeepEqual(oldPeers, newPeers)
 }

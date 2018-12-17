@@ -22,19 +22,19 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/genesis/client"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/go-openapi/strfmt"
 )
 
 func TestGetExistingPeer(t *testing.T) {
-	peer := libnetwork.Peer{
+	peer := peers.Peer{
 		ID:   strfmt.UUID("some-id"),
 		Name: "best-peer",
 		URI:  "http://best-peer.com",
 	}
 
 	subject := network{
-		peers: []libnetwork.Peer{peer},
+		peers: []peers.Peer{peer},
 	}
 
 	actual, err := subject.GetPeerByName("best-peer")
@@ -62,14 +62,14 @@ func TestGetExistingPeer(t *testing.T) {
 }
 
 func TestGetWrongPeer(t *testing.T) {
-	peer := libnetwork.Peer{
+	peer := peers.Peer{
 		ID:   strfmt.UUID("some-id"),
 		Name: "best-peer",
 		URI:  "http://best-peer.com",
 	}
 
 	subject := network{
-		peers: []libnetwork.Peer{peer},
+		peers: []peers.Peer{peer},
 	}
 
 	_, err := subject.GetPeerByName("worst-peer")

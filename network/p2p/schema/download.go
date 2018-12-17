@@ -6,10 +6,10 @@ import (
 
 	schemaclient "github.com/creativesoftwarefdn/weaviate/client/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
 
-func download(peer network.Peer) (schema.Schema, error) {
+func download(peer peers.Peer) (schema.Schema, error) {
 	peerClient, err := peer.CreateClient()
 	if err != nil {
 		return schema.Schema{}, fmt.Errorf(

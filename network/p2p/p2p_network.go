@@ -27,6 +27,7 @@ import (
 	genesismodels "github.com/creativesoftwarefdn/weaviate/genesis/models"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	p2pschema "github.com/creativesoftwarefdn/weaviate/network/p2p/schema"
 	"github.com/go-openapi/strfmt"
 )
@@ -54,13 +55,13 @@ type network struct {
 	genesisURL      strfmt.URI
 	messaging       *messages.Messaging
 	client          genesis_client.WeaviateGenesisServer
-	peers           libnetwork.Peers
+	peers           peers.Peers
 	callbacks       []libnetwork.PeerUpdateCallback
 	schemaGetter    libnetwork.SchemaGetter
 	downloadChanged downloadChangedFn
 }
 
-type downloadChangedFn func(libnetwork.Peers) libnetwork.Peers
+type downloadChangedFn func(peers.Peers) peers.Peers
 
 func BootstrapNetwork(m *messages.Messaging, genesisURL strfmt.URI, publicURL strfmt.URI, peerName string) (*libnetwork.Network, error) {
 	if genesisURL == "" {
@@ -100,7 +101,7 @@ func BootstrapNetwork(m *messages.Messaging, genesisURL strfmt.URI, publicURL st
 		genesisURL:      genesisURL,
 		messaging:       m,
 		client:          *client,
-		peers:           make([]libnetwork.Peer, 0),
+		peers:           make([]peers.Peer, 0),
 		downloadChanged: p2pschema.DownloadChanged,
 	}
 
@@ -143,18 +144,18 @@ func (n *network) GetStatus() string {
 	return n.state
 }
 
-func (n *network) ListPeers() (libnetwork.Peers, error) {
+func (n *network) ListPeers() (peers.Peers, error) {
 	return n.peers, nil
 }
 
-func (n *network) GetPeerByName(name string) (libnetwork.Peer, error) {
+func (n *network) GetPeerByName(name string) (peers.Peer, error) {
 	for _, peer := range n.peers {
 		if peer.Name == name {
 			return peer, nil
 		}
 	}
 
-	return libnetwork.Peer{}, ErrPeerNotFound
+	return peers.Peer{}, ErrPeerNotFound
 }
 
 func (n *network) keepPinging() {

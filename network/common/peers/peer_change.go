@@ -1,4 +1,4 @@
-package network
+package peers
 
 // PeerChange indicates how a peer has changed compared to a previous
 // update cycle
