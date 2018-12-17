@@ -87,6 +87,7 @@ COPY ./test/schema/test-action-schema.json /schema/actions_schema.json
 COPY ./test/schema/test-thing-schema.json /schema/things_schema.json
 COPY ./tools/dev/config.json /weaviate.conf.json
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config", "janusgraph_docker"]
+<<<<<<< HEAD
 
 ###############################################################################
 # This is the production image for running waviates configurations; contains the executable & contextionary
