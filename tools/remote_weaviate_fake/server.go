@@ -13,10 +13,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
 )
 
 func main() {
@@ -34,11 +36,21 @@ func main() {
 			w.Write([]byte(fmt.Sprintf("could not read body: %s", err)))
 			return
 		}
-		expectedBody := fmt.Sprintf("%s\n", `{"query":"{ Local { Get { Things { Instruments { name } } } } }"}`)
 
-		if string(bodyBytes) != expectedBody {
+		var body map[string]string
+		err = json.Unmarshal(bodyBytes, &body)
+		if err != nil {
 			w.WriteHeader(422)
-			w.Write([]byte(fmt.Sprintf("wrong body, got \n%#v\nwanted\n%#v\n", string(bodyBytes), expectedBody)))
+			w.Write([]byte(fmt.Sprintf("could not parse query: %s", err)))
+			return
+		}
+
+		parsed := removeAllWhiteSpace(body["query"])
+
+		expectedQuery := fmt.Sprintf("%s", `{ Local { Get { Things { Instruments { name } } } } }`)
+		if removeAllWhiteSpace(parsed) != removeAllWhiteSpace(expectedQuery) {
+			w.WriteHeader(422)
+			w.Write([]byte(fmt.Sprintf("wrong body, got \n%#v\nwanted\n%#v\n", parsed, expectedQuery)))
 			return
 		}
 
@@ -133,3 +145,9 @@ var schemaResponse = `{
     ]
   }
 }`
+
+func removeAllWhiteSpace(input string) string {
+	noWS := strings.Replace(input, " ", "", -1)
+	noTabs := strings.Replace(noWS, "\t", "", -1)
+	return strings.Replace(noTabs, "\n", "", -1)
+}
