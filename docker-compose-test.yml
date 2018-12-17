@@ -27,7 +27,7 @@ services:
       REMOTE_PEER_URI: http://remote_weaviate_fake:8081
       LOCAL_PEER_URI: http://weaviate:8080
       ACCEPTANCE_TEST: "on"
-  remote_weaviate_fake:
+  remote_weaviate_fake: # used for testing the Network.Get functionality
     build:
       context: .
       dockerfile: Dockerfile
@@ -35,6 +35,13 @@ services:
     restart: on-failure:0
     ports:
       - "8081:8081"
+  remote_weaviate_fakes_with_test_schema: # used for comparing the remote schema against the prototype
+    build:
+      context: ./tools/remote_weaviate_fake_with_test_schema/
+      dockerfile: Dockerfile
+    restart: on-failure:0
+    ports:
+      - "8082:8082"
   janus:
     image: creativesoftwarefdn/janusgraph-docker:0.2.0
     depends_on:
