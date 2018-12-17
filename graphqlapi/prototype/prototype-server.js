@@ -2087,11 +2087,28 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
       res.status(401).send("unauthorized")
     }
     app.use('/graphql', graphQLHandler);
+
+    // (use prototype as network instance fake)
+    // return API at the well-known path for a weaviage
     app.use('/weaviate/v1/graphql', dummyAuthChecker, graphQLHandler)
+
+    // (use prototype as network instance fake)
+    // return only a subset of the schema, so we can tell
+    // it apart from the local schema. Right now
+    // our development environment has the same schema
+    // as the prototype, so it'd be hard to see otherwise
     app.get('/weaviate/v1/schema', (req, res) => {
       res.send({
-        actions,
-        things,
+        actions: {
+          ...actions,
+          // have no action classes
+          classes: [],
+        },
+        things: {
+          ...things,
+          // have only country (which has no deps on other classes) as things
+          classes: things.classes.filter(c => c.class === "Country"),
+        },
       })
     })
     app.listen(8081, function() {
