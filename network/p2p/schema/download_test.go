@@ -8,7 +8,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 )
@@ -18,12 +18,12 @@ func TestDownloadSchemaFromPeer(t *testing.T) {
 		result     schema.Schema
 		err        error
 		peerServer *httptest.Server
-		peer       network.Peer
+		peer       peers.Peer
 	)
 
 	arrange := func(matchers ...requestMatcher) {
 		peerServer = fakePeerSchemaEndpoint(t, matchers...)
-		peer = network.Peer{
+		peer = peers.Peer{
 			Name: "bestPeer",
 			URI:  strfmt.URI(peerServer.URL),
 		}

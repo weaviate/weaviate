@@ -2,7 +2,7 @@ package schema
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
 
 type schemaDownload struct {
@@ -16,12 +16,12 @@ type schemaDownload struct {
 // of the schema from that particular peer will be initiated.
 // Downloads happen concurrently, but this function blocks
 // until all downloads either finished or timed out.
-func DownloadChanged(peers network.Peers) network.Peers {
+func DownloadChanged(peerList peers.Peers) peers.Peers {
 	downloads := make(chan schemaDownload)
 	downloadsStarted := 0
 
-	for i, peer := range peers {
-		if peer.LastChange != network.NoChange {
+	for i, peer := range peerList {
+		if peer.LastChange != peers.NoChange {
 			downloadsStarted++
 			go downloadPeerAtIndex(peer, i, downloads)
 		}
@@ -29,14 +29,14 @@ func DownloadChanged(peers network.Peers) network.Peers {
 
 	for i := 0; i < downloadsStarted; i++ {
 		result := <-downloads
-		peers[result.peerIndex].Schema = result.schema
-		peers[result.peerIndex].SchemaError = result.err
+		peerList[result.peerIndex].Schema = result.schema
+		peerList[result.peerIndex].SchemaError = result.err
 	}
 
-	return peers
+	return peerList
 }
 
-func downloadPeerAtIndex(peer network.Peer, i int, downloads chan schemaDownload) {
+func downloadPeerAtIndex(peer peers.Peer, i int, downloads chan schemaDownload) {
 	schema, err := download(peer)
 	downloads <- schemaDownload{schema, i, err}
 }

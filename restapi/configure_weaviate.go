@@ -68,6 +68,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
 	"github.com/creativesoftwarefdn/weaviate/lib/feature_flags"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	libnetworkFake "github.com/creativesoftwarefdn/weaviate/network/fake"
 	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/network/p2p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/swagger_middleware"
@@ -1879,10 +1880,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.P2PWeaviateP2pGenesisUpdateHandler = p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
-		newPeers := make([]libnetwork.Peer, 0)
+		newPeers := make([]peers.Peer, 0)
 
 		for _, genesisPeer := range params.Peers {
-			peer := libnetwork.Peer{
+			peer := peers.Peer{
 				ID:   genesisPeer.ID,
 				Name: genesisPeer.Name,
 				URI:  genesisPeer.URI,
@@ -2486,7 +2487,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	}
 	manager.TriggerSchemaUpdateCallbacks()
 
-	network.RegisterUpdatePeerCallback(func(peers libnetwork.Peers) {
+	network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
 		manager.TriggerSchemaUpdateCallbacks()
 	})
 
