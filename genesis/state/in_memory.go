@@ -14,11 +14,12 @@ package state
 
 import (
 	"fmt"
-	"github.com/go-openapi/strfmt"
-	"github.com/satori/go.uuid"
-	log "github.com/sirupsen/logrus"
 	"sync"
 	"time"
+
+	"github.com/go-openapi/strfmt"
+	uuid "github.com/satori/go.uuid"
+	log "github.com/sirupsen/logrus"
 )
 
 type inMemoryState struct {
@@ -88,7 +89,7 @@ func (im *inMemoryState) RemovePeer(id strfmt.UUID) error {
 	return nil
 }
 
-func (im *inMemoryState) UpdateLastContact(id strfmt.UUID, contact_at time.Time) error {
+func (im *inMemoryState) UpdateLastContact(id strfmt.UUID, contact_at time.Time, schemaHash string) error {
 	log.Debugf("Updating last contact for %v", id)
 
 	im.Lock()
@@ -98,6 +99,7 @@ func (im *inMemoryState) UpdateLastContact(id strfmt.UUID, contact_at time.Time)
 
 	if ok {
 		peer.LastContactAt = contact_at
+		peer.SchemaHash = schemaHash
 		im.peers[id] = peer
 		return nil
 	} else {
