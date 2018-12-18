@@ -2140,6 +2140,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			batchedRequestResponse[batchedRequestResult.RequestIndex] = batchedRequestResult.Response
 		}
 
+		// TODO `Fields` parameter handling, check if has unrecognised values. Needs hardcoded mapping to class attributes.
+		// Can reach fields through `Payload`
 		return operations.NewWeaviateBatchingThingsCreateOK().WithPayload(batchedRequestResponse)
 
 	})
