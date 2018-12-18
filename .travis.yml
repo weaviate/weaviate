@@ -27,6 +27,7 @@ branches:
   only: 
     - master
     - develop
+    - feature/p2p_schema_sync
 dist: xenial
 go: 
   - "1.11"
