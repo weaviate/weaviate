@@ -6,7 +6,7 @@ Weaviate can run as a stand-alone service or as a node on a peer-to-peer (P2P)
 network. Networks are designed in a pluggable fashion, however as of now the
 only available network is a Hybrid P2P network over HTTP.
 
-## Hybrid P2P Network over HTTP
+## Hybrid P2P Network over HTTP(S)
 
 The P2P network is a [Hybrid P2P
 system](https://en.wikipedia.org/wiki/Peer-to-peer#Hybrid_models), that
