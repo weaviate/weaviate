@@ -2,6 +2,13 @@ package test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"reflect"
 	"testing"
 	"time"
 
@@ -15,11 +22,13 @@ import (
 
 func TestPeerRegistrationJourney(t *testing.T) {
 	var (
-		newPeerID strfmt.UUID
+		newPeerID     strfmt.UUID
+		newPeerServer = newPeerServer()
+		genesisClient = genesisSwaggerClient()
 	)
-	genesisClient := client.NewHTTPClient(nil)
-	transport := httptransport.New("localhost:8111", "/", []string{"http"})
-	genesisClient.SetTransport(transport)
+
+	newPeerServer.start()
+	defer newPeerServer.close()
 
 	t.Run("peers should be empty in the beginning", func(t *testing.T) {
 		peers, err := genesisClient.Operations.GenesisPeersList(nil)
@@ -38,7 +47,7 @@ func TestPeerRegistrationJourney(t *testing.T) {
 		params := &operations.GenesisPeersRegisterParams{
 			Body: &models.PeerUpdate{
 				PeerName: "myFavoritePeer",
-				PeerURI:  strfmt.URI("http://does-not-matter-for-now"),
+				PeerURI:  newPeerServer.url(),
 			},
 			Context: ctx,
 		}
@@ -61,6 +70,19 @@ func TestPeerRegistrationJourney(t *testing.T) {
 		assert.Equal(t, "myFavoritePeer", peers.Payload[0].PeerName, "peer should match what we registered before")
 	})
 
+	t.Run("the peer was informed of an update", func(t *testing.T) {
+		equalsBeforeTimeout(t, 1, func() interface{} { return len(newPeerServer.requests()) },
+			"there should be one request before the timeout", 10*time.Second)
+
+		request := newPeerServer.requests()[0]
+		var peers []map[string]string
+		err := json.Unmarshal(request.body, &peers)
+		assert.Equal(t, nil, err, "unmarshalling json should not error")
+		assert.Equal(t, 1, len(peers), "expected exactly one peer in request")
+		assert.Equal(t, string(newPeerID), peers[0]["id"], "expected correct peer id")
+		assert.Equal(t, "myFavoritePeer", peers[0]["name"], "expected correct peer name")
+	})
+
 	t.Run("peers can be deregistered", func(t *testing.T) {
 		params := operations.NewGenesisPeersLeaveParams().
 			WithTimeout(1 * time.Second).
@@ -70,4 +92,71 @@ func TestPeerRegistrationJourney(t *testing.T) {
 			t.Fatalf("expected no error, but got %s", err)
 		}
 	})
+}
+
+func genesisSwaggerClient() *client.WeaviateGenesisServer {
+	genesisClient := client.NewHTTPClient(nil)
+	transport := httptransport.New("localhost:8111", "/", []string{"http"})
+	genesisClient.SetTransport(transport)
+	return genesisClient
+}
+
+type request struct {
+	origRequest *http.Request
+	body        []byte
+}
+
+type peerServer struct {
+	server     *httptest.Server
+	requestLog []request
+}
+
+func equalsBeforeTimeout(t *testing.T, expected interface{}, actual func() interface{}, message string, timeout time.Duration) {
+	interval := 100 * time.Millisecond
+	elapsed := time.Duration(0)
+	for elapsed < timeout {
+		if reflect.DeepEqual(expected, actual()) {
+			return
+		}
+
+		time.Sleep(interval)
+		elapsed = elapsed + interval
+	}
+
+	t.Fatalf("waited for %s, but never happened: %s", timeout, message)
+}
+
+func newPeerServer() *peerServer {
+	return &peerServer{}
+}
+
+func (p *peerServer) start() {
+	p.server = httptest.NewServer(http.HandlerFunc(p.handle))
+}
+
+func (p *peerServer) close() {
+	p.server.Close()
+}
+
+func (p *peerServer) requests() []request {
+	return p.requestLog
+}
+
+func (p *peerServer) url() strfmt.URI {
+	parsed, _ := url.Parse(p.server.URL)
+	port := parsed.Port()
+	return strfmt.URI(fmt.Sprintf("http://host.docker.internal:%s", port))
+}
+
+func (p *peerServer) handle(w http.ResponseWriter, r *http.Request) {
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		panic("could not read body: " + err.Error())
+	}
+
+	request := request{
+		origRequest: r,
+		body:        body,
+	}
+	p.requestLog = append(p.requestLog, request)
 }
