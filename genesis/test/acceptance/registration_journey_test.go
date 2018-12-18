@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
@@ -84,6 +85,16 @@ func TestPeerRegistrationJourney(t *testing.T) {
 	})
 
 	t.Run("the peer was informed of an update", func(t *testing.T) {
+		// with our current test setup this tests would need to be able
+		// to access the host machine that the tests are running on
+		// this works locally, but unfortunately not on travis.
+		// so we need to skip this particular test on travis until
+		// we improve our testing setup.
+
+		if os.Getenv("TRAVIS") == "true" {
+			t.Skip()
+		}
+
 		equalsBeforeTimeout(t, 1, func() interface{} { return len(newPeerServer.requests()) },
 			"there should be one request before the timeout", 10*time.Second)
 
