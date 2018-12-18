@@ -103,7 +103,7 @@ To register your peer specify the following configuraiton in your
       "peer_name": "WeaviateA"
     }
   }]
-]
+}
 ```
 
 In the example above
