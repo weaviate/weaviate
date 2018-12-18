@@ -40,7 +40,15 @@ The Action and Thing create batch endpoints use a slightly different format to a
 
 The `async` parameter enables asynchronous processing for the batched requests. The responses will each contain a 202 with the ID of the created Thing or Action, this reply is generated before persistence of the data is confirmed. This parameter defaults to `false`. 
 
-The `fields` parameter determines which field values of the batched responses will be returned normally; the values of fields that are not named in this parameter will be returned as `null`. This parameter defaults to `"ALL"`. The options are any of the high-level fields in an `ActionCreate` or `ThingCreate` response and the result field: `"@class"`, `"@context"`, `"schema"`, `"creationTimeUnix"`, `"key"`, `"lastUpdateTimeUnix"`, `"actionId"` or `"thingId"`, `"result"`.
+The `fields` parameter determines which field values of the batched responses will be returned normally; the values of fields that are not named in this parameter will be returned as `null`. This parameter defaults to `"ALL"`. The options are any of the high-level fields in an `ActionCreate` or `ThingCreate` response and the result field: 
++ `"@class"`
++ `"@context"`
++ `"schema"`
++ `"creationTimeUnix"`
++ `"key"`
++ `"lastUpdateTimeUnix"`
++ `"actionId"` or `"thingId"`
++ `"result"`
 ##### 1.1.3.1 An Action/Thing create batch request
 ```
 {
