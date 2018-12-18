@@ -1884,9 +1884,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		for _, genesisPeer := range params.Peers {
 			peer := peers.Peer{
-				ID:   genesisPeer.ID,
-				Name: genesisPeer.Name,
-				URI:  genesisPeer.URI,
+				ID:         genesisPeer.ID,
+				Name:       genesisPeer.Name,
+				URI:        genesisPeer.URI,
+				SchemaHash: genesisPeer.SchemaHash,
 			}
 
 			newPeers = append(newPeers, peer)

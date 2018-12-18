@@ -29,6 +29,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/genesis/client"
 	"github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
 	"github.com/creativesoftwarefdn/weaviate/genesis/models"
+	"github.com/davecgh/go-spew/spew"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -105,6 +106,59 @@ func TestPeerRegistrationJourney(t *testing.T) {
 		assert.Equal(t, 1, len(peers), "expected exactly one peer in request")
 		assert.Equal(t, string(newPeerID), peers[0]["id"], "expected correct peer id")
 		assert.Equal(t, "myFavoritePeer", peers[0]["name"], "expected correct peer name")
+	})
+
+	t.Run("a peer can send a ping with a schema hash", func(t *testing.T) {
+		params := operations.NewGenesisPeersPingParams().
+			WithTimeout(1 * time.Second).
+			WithBody(&models.PeerPing{
+				SchemaHash: "some-new-schema-hash",
+			}).
+			WithPeerID(newPeerID)
+
+		_, err := genesisClient.Operations.GenesisPeersPing(params)
+		if err != nil {
+			t.Fatalf("expected no error, but got %s", err)
+		}
+	})
+
+	t.Run("peers should now be updated", func(t *testing.T) {
+		peers, err := genesisClient.Operations.GenesisPeersList(nil)
+		if err != nil {
+			t.Fatalf("expected no error, but got %s", err)
+		}
+
+		assert.Equal(t, 1, len(peers.Payload),
+			"list of peers should have exactly one entry")
+		assert.Equal(t, "myFavoritePeer", peers.Payload[0].PeerName,
+			"peer id should match what we registered before")
+		assert.Equal(t, "some-new-schema-hash", peers.Payload[0].SchemaHash,
+			"peer schema should match what we registered before")
+	})
+
+	t.Run("the peer was informed of an update again (schema update)", func(t *testing.T) {
+		// with our current test setup this tests would need to be able
+		// to access the host machine that the tests are running on
+		// this works locally, but unfortunately not on travis.
+		// so we need to skip this particular test on travis until
+		// we improve our testing setup.
+
+		if os.Getenv("TRAVIS") == "true" {
+			t.Skip()
+		}
+
+		equalsBeforeTimeout(t, 2, func() interface{} { return len(newPeerServer.requests()) },
+			"there should now be two requests before the timeout", 10*time.Second)
+
+		request := newPeerServer.requests()[1]
+		var peers []map[string]string
+		err := json.Unmarshal(request.body, &peers)
+		assert.Equal(t, nil, err, "unmarshalling json should not error")
+		assert.Equal(t, 1, len(peers), "expected exactly one peer in request")
+		assert.Equal(t, string(newPeerID), peers[0]["id"], "expected correct peer id")
+		assert.Equal(t, "myFavoritePeer", peers[0]["name"], "expected correct peer name")
+		spew.Dump(peers[0])
+		assert.Equal(t, "some-new-schema-hash", peers[0]["schemaHash"], "expected correct schema_hash")
 	})
 
 	t.Run("peers can be deregistered", func(t *testing.T) {

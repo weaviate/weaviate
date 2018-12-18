@@ -2689,6 +2689,10 @@ func init() {
           "description": "Human readable name.",
           "type": "string"
         },
+        "schemaHash": {
+          "description": "The latest known hash of the peer's schema.",
+          "type": "string"
+        },
         "uri": {
           "description": "The location where the peer is exposed to the internet.",
           "type": "string",
@@ -5876,6 +5880,10 @@ func init() {
         },
         "name": {
           "description": "Human readable name.",
+          "type": "string"
+        },
+        "schemaHash": {
+          "description": "The latest known hash of the peer's schema.",
           "type": "string"
         },
         "uri": {

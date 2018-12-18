@@ -97,14 +97,17 @@ func (im *inMemoryState) UpdateLastContact(id strfmt.UUID, contact_at time.Time,
 
 	peer, ok := im.peers[id]
 
-	if ok {
-		peer.LastContactAt = contact_at
-		peer.SchemaHash = schemaHash
-		im.peers[id] = peer
-		return nil
-	} else {
+	if !ok {
 		return fmt.Errorf("No such peer exists")
 	}
+
+	peer.LastContactAt = contact_at
+	if schemaHash != peer.SchemaHash {
+		peer.SchemaHash = schemaHash
+		go im.broadcast_update()
+	}
+	im.peers[id] = peer
+	return nil
 }
 
 func (im *inMemoryState) garbage_collect() {
