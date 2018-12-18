@@ -455,6 +455,10 @@
           "description": "The location where the peer is exposed to the internet.",
           "type": "string",
           "format": "uri"
+        },
+        "schemaHash": {
+          "description": "The latest known hash of the peer's schema.",
+          "type": "string"
         }
       }
     },

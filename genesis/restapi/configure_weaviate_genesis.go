@@ -114,6 +114,7 @@ func configureAPI(api *operations.WeaviateGenesisAPI) http.Handler {
 				},
 				ID:            peer.Id,
 				LastContactAt: peer.LastContactAt.Unix(),
+				SchemaHash:    peer.SchemaHash,
 			}
 
 			peers = append(peers, &p)

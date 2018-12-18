@@ -210,6 +210,10 @@ func init() {
               "description": "When we were received a ping from this peer from the last time",
               "type": "integer",
               "format": "int64"
+            },
+            "schema_hash": {
+              "description": "The latest known hash of the local schema of the peer",
+              "type": "string"
             }
           }
         }
@@ -434,6 +438,10 @@ func init() {
               "description": "When we were received a ping from this peer from the last time",
               "type": "integer",
               "format": "int64"
+            },
+            "schema_hash": {
+              "description": "The latest known hash of the local schema of the peer",
+              "type": "string"
             }
           }
         }

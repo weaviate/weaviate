@@ -56,6 +56,10 @@
               "description": "When we were received a ping from this peer from the last time",
               "format": "int64",
               "type": "integer"
+            },
+            "schema_hash" : {
+              "description": "The latest known hash of the local schema of the peer",
+              "type": "string"
             }
           },
           "type": "object"

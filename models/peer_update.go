@@ -36,6 +36,9 @@ type PeerUpdate struct {
 	// Human readable name.
 	Name string `json:"name,omitempty"`
 
+	// The latest known hash of the peer's schema.
+	SchemaHash string `json:"schemaHash,omitempty"`
+
 	// The location where the peer is exposed to the internet.
 	// Format: uri
 	URI strfmt.URI `json:"uri,omitempty"`
