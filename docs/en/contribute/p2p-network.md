@@ -67,16 +67,16 @@ As an example look at the following query.
 
 ### Resolve `Network.GetMeta.<peerName>.<kind>.<className>`
 
-Not implemented yet, see #644.
+Not implemented yet, see [issue #644](https://github.com/creativesoftwarefdn/weaviate/issues/644).
 
 ### Resolve `Network.Fetch.<kind>`
 
-Not implemented yet, see #645.
+Not implemented yet, see [issue #645](https://github.com/creativesoftwarefdn/weaviate/issues/645).
 
 ### Resolve `Network.Fetch.Fuzzy`
 
-Not implemented yet, see #647.
+Not implemented yet, see [issue #647](https://github.com/creativesoftwarefdn/weaviate/issues/647).
 
 ### Resolve `Network.Fetch.Fuzzy`
 
-Not implemented yet, see #648.
+Not implemented yet, see [issue #648](https://github.com/creativesoftwarefdn/weaviate/issues/648).
