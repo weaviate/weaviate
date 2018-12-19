@@ -2141,9 +2141,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// TODO `Fields` parameter handling, check if has unrecognised values. Needs hardcoded mapping to class attributes.
-		// Can reach fields through `Payload`
+		// Can reach fields through `Payload` property.
 		return operations.NewWeaviateBatchingThingsCreateOK().WithPayload(batchedRequestResponse)
-
 	})
 
 	/*
