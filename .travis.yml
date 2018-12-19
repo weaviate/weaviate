@@ -71,10 +71,10 @@ before_script:
         git commit -m "🤖 bleep bloop - auto updated Weaviate"
         git push origin HEAD:${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
         # exit 0 will trigger a new build
-        return 0
+        travis_terminate 0
       elif [ "$PREVIOUSSEMVER" -eq -1 ]; then
         echo "Semver is behind the latest commit. This issue should be resolved and the version should be set to at least $(./semver bump patch $(git show --oneline HEAD~1:$SCHEMAFILE | jq -r ".info.version"))"
-        return 1
+        travis_terminate 1
       fi
     fi
   # Verify that the code is properly formatted.
