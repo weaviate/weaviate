@@ -27,6 +27,7 @@ branches:
   only: 
     - master
     - develop
+    - travis_bump_only_on_develop
 dist: xenial
 go: 
   - "1.11"
@@ -56,7 +57,7 @@ before_script:
   - sudo apt-get -qq -y install jq coreutils python3
   - |
     # Validate if the open-api schema needs to be bumped
-    if [ $TRAVIS_PULL_REQUEST = "false" ]; then
+    if [ $TRAVIS_BRANCH = "develop" ]; then
       # PREVIOUSSEMVER = comparison of the current HEAD of WEAVIATESCHEMAFILE with the previous commit. More info: https://github.com/fsaintjacques/semver-tool/blob/master/README.md
       PREVIOUSSEMVER=$(./semver compare $(git show --oneline HEAD:$WEAVIATESCHEMAFILE | jq -r ".info.version") $(git show --oneline HEAD~1:$WEAVIATESCHEMAFILE | jq -r ".info.version"))
       # Determine if the version should be bumped
