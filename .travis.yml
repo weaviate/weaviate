@@ -27,7 +27,6 @@ branches:
   only: 
     - master
     - develop
-    - travis_bump_only_on_develop
 dist: xenial
 go: 
   - "1.11"
