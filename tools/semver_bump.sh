@@ -5,7 +5,7 @@ cd "$( dirname "${BASH_SOURCE[0]}" )"/..
 
 set -e
 # Validate if the open-api schema needs to be bumped
-if [ $TRAVIS_BRANCH = "develop" ] && [ $TRAVIS_PULL_REQUEST = "false" ]; then
+if [ "$TRAVIS_BRANCH" = "develop" ] && [ "$TRAVIS_PULL_REQUEST" = "false" ]; then
   # PREVIOUSSEMVER = comparison of the current HEAD of WEAVIATESCHEMAFILE with the previous commit. More info: https://github.com/fsaintjacques/semver-tool/blob/master/README.md
   PREVIOUSSEMVER=$(./semver compare $(git show --oneline HEAD:$WEAVIATESCHEMAFILE | jq -r ".info.version") $(git show --oneline HEAD~1:$WEAVIATESCHEMAFILE | jq -r ".info.version"))
   # Determine if the version should be bumped
@@ -21,9 +21,9 @@ if [ $TRAVIS_BRANCH = "develop" ] && [ $TRAVIS_PULL_REQUEST = "false" ]; then
     git commit -m "🤖 bleep bloop - auto updated Weaviate"
     git push origin HEAD:${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
     # exit 0 will trigger a new build
-    travis_terminate 0
+    return 0
   elif [ "$PREVIOUSSEMVER" -eq -1 ]; then
     echo "Semver is behind the latest commit. This issue should be resolved and the version should be set to at least $(./semver bump patch $(git show --oneline HEAD~1:$SCHEMAFILE | jq -r ".info.version"))"
-    travis_terminate 1
+    return 1
   fi
 fi
