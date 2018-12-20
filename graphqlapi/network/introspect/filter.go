@@ -23,7 +23,7 @@ import (
 func GenWeaviateNetworkIntrospectPropertiesObjField() *graphql.Field {
 	weaviateNetworkIntrospectPropertiesObject := graphql.NewObject(
 		graphql.ObjectConfig{
-			Name: "WeaviateNetworkIntrospectPropertiesObj",
+			Name: "WeaviateNetworkIntrospectPropertiesInpObj",
 			Fields: graphql.Fields{
 				"propertyName": &graphql.Field{
 					Type:        graphql.String,
@@ -90,7 +90,7 @@ func wherePropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputOb
 
 	wherePropertiesObj := graphql.NewInputObject(
 		graphql.InputObjectConfig{
-			Name:        "WeaviateNetworkIntrospectWherePropertiesObj",
+			Name:        "WeaviateNetworkIntrospectWherePropertiesInpObj",
 			Fields:      filterPropertiesElements,
 			Description: descriptions.WherePropertiesObjDesc,
 		},
@@ -121,7 +121,7 @@ func whereClassObj(filterContainer *utils.FilterContainer) *graphql.InputObject 
 
 	classObj := graphql.NewInputObject(
 		graphql.InputObjectConfig{
-			Name:        "WeaviateNetworkIntrospectWhereClassObj",
+			Name:        "WeaviateNetworkIntrospectWhereClassInpObj",
 			Fields:      filterClassElements,
 			Description: descriptions.WherePropertiesObjDesc,
 		},
