@@ -202,7 +202,7 @@ func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, kindName string, 
 			},
 			"groupBy": &graphql.ArgumentConfig{
 				Description: descriptions.GroupByDesc,
-				Type:        graphql.NewList(graphql.String),
+				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
 			},
 			"where": &graphql.ArgumentConfig{
 				Description: descriptions.LocalGetWhereDesc,
