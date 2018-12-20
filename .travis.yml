@@ -27,6 +27,7 @@ branches:
   only: 
     - master
     - develop
+    - update_docs_and_fix_prototype_schema
 dist: xenial
 go: 
   - "1.11"
