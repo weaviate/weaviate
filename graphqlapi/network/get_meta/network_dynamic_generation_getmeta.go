@@ -90,8 +90,8 @@ func metaClassField(class *models.SemanticSchemaClass, kindName string, descript
 				Description: descriptions.NetworkGetWhereDesc,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateNetworkGetMeta%ss%sWhereInpObj", kindName, class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGetMeta%ss%s", kindName, class.Class)),
+						Name:        fmt.Sprintf("WeaviateNetworkGetMeta%s%ss%sWhereInpObj", weaviate, kindName, class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGetMeta%s%ss%s", weaviate, kindName, class.Class)),
 						Description: descriptions.NetworkGetWhereInpObjDesc,
 					},
 				),

@@ -90,8 +90,8 @@ func genSingleLocalMetaClassField(kindName string, class *models.SemanticSchemaC
 				Description: descriptions.LocalGetWhereDesc,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateLocalGetMeta%ss%sWhereInpObj", kindName, class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGetMeta%ss%s", kindName, class.Class)),
+						Name:        fmt.Sprintf("WeaviateLocalGetMeta%s%sWhereInpObj", kindName, class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGetMeta%s%s", kindName, class.Class)),
 						Description: descriptions.LocalGetWhereInpObjDesc,
 					},
 				),

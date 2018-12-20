@@ -78,8 +78,8 @@ func actionClassField(class *models.SemanticSchemaClass, getActionsAndThings *ma
 				Description: descriptions.NetworkGetWhereDesc,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateNetworkGetActions%sWhereInpObj", class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGetActions%s", class.Class)),
+						Name:        fmt.Sprintf("WeaviateNetworkGet%sActions%sWhereInpObj", weaviate, class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGet%sActions%s", weaviate, class.Class)),
 						Description: descriptions.NetworkGetWhereInpObjDesc,
 					},
 				),
@@ -205,8 +205,8 @@ func thingClassField(class *models.SemanticSchemaClass, getActionsAndThings *map
 				Description: descriptions.NetworkGetWhereDesc,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateNetworkGetThings%sWhereInpObj", class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGetThings%s", class.Class)),
+						Name:        fmt.Sprintf("WeaviateNetworkGet%sThings%sWhereInpObj", weaviate, class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGet%sThings%s", weaviate, class.Class)),
 						Description: descriptions.NetworkGetWhereInpObjDesc,
 					},
 				),
