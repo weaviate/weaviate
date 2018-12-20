@@ -23,7 +23,7 @@ import (
 func GenWeaviateNetworkIntrospectPropertiesObjField() *graphql.Field {
 	weaviateNetworkIntrospectPropertiesObject := graphql.NewObject(
 		graphql.ObjectConfig{
-			Name: "WeaviateNetworkIntrospectPropertiesInpObj",
+			Name: "WeaviateNetworkIntrospectPropertiesObj",
 			Fields: graphql.Fields{
 				"propertyName": &graphql.Field{
 					Type:        graphql.String,
