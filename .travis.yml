@@ -27,14 +27,13 @@ branches:
   only: 
     - master
     - develop
-    - update_docs_and_fix_prototype_schema
 dist: xenial
 go: 
   - "1.11"
 env:
   matrix:
   # Force using modules.
-  - GO111MODULE=on GRAPHQL_TESTS=skip
+  - GO111MODULE=on
   global:
   # location of the open-api specs
   - WEAVIATESCHEMAFILE=openapi-specs/schema.json
@@ -69,7 +68,7 @@ before_script:
         git config credential.helper "store --file=.git/credentials"
         echo "https://${GH_TOKEN}:@github.com" > .git/credentials
         git add -A
-        git commit -m "🤖 bleep bloop - auto updated Weaviate"
+        git commit -m "?? bleep bloop - auto updated Weaviate"
         git push origin HEAD:${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
         # exit 0 will trigger a new build
         travis_terminate 0
