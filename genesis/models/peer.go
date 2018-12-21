@@ -36,6 +36,9 @@ type Peer struct {
 
 	// When we were received a ping from this peer from the last time
 	LastContactAt int64 `json:"last_contact_at,omitempty"`
+
+	// The latest known hash of the local schema of the peer
+	SchemaHash string `json:"schema_hash,omitempty"`
 }
 
 // UnmarshalJSON unmarshals this object from a JSON structure
@@ -52,6 +55,8 @@ func (m *Peer) UnmarshalJSON(raw []byte) error {
 		ID strfmt.UUID `json:"id,omitempty"`
 
 		LastContactAt int64 `json:"last_contact_at,omitempty"`
+
+		SchemaHash string `json:"schema_hash,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
 		return err
@@ -60,6 +65,8 @@ func (m *Peer) UnmarshalJSON(raw []byte) error {
 	m.ID = dataAO1.ID
 
 	m.LastContactAt = dataAO1.LastContactAt
+
+	m.SchemaHash = dataAO1.SchemaHash
 
 	return nil
 }
@@ -78,11 +85,15 @@ func (m Peer) MarshalJSON() ([]byte, error) {
 		ID strfmt.UUID `json:"id,omitempty"`
 
 		LastContactAt int64 `json:"last_contact_at,omitempty"`
+
+		SchemaHash string `json:"schema_hash,omitempty"`
 	}
 
 	dataAO1.ID = m.ID
 
 	dataAO1.LastContactAt = m.LastContactAt
+
+	dataAO1.SchemaHash = m.SchemaHash
 
 	jsonDataAO1, errAO1 := swag.WriteJSON(dataAO1)
 	if errAO1 != nil {

@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.11.13"
+    "version": "0.12.0"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -2687,6 +2687,10 @@ func init() {
         },
         "name": {
           "description": "Human readable name.",
+          "type": "string"
+        },
+        "schemaHash": {
+          "description": "The latest known hash of the peer's schema.",
           "type": "string"
         },
         "uri": {
@@ -3221,7 +3225,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.11.13"
+    "version": "0.12.0"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -5876,6 +5880,10 @@ func init() {
         },
         "name": {
           "description": "Human readable name.",
+          "type": "string"
+        },
+        "schemaHash": {
+          "description": "The latest known hash of the peer's schema.",
           "type": "string"
         },
         "uri": {

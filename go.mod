@@ -21,10 +21,13 @@ require (
 	github.com/go-openapi/validate v0.0.0-20180703152151-9a6e517cddf1
 	github.com/golang/protobuf v1.1.0 // indirect
 	github.com/golang/snappy v0.0.0-20170215233205-553a64147049 // indirect
+	github.com/google/pprof v0.0.0-20181206194817-3ea8567a2e57 // indirect
 	github.com/gorilla/websocket v1.2.0
 	github.com/graphql-go/graphql v0.7.5
 	github.com/hpcloud/tail v1.0.0 // indirect
+	github.com/ianlancetaylor/demangle v0.0.0-20181102032728-5e5cf60278f6 // indirect
 	github.com/jessevdk/go-flags v1.4.0
+	github.com/magiconair/properties v1.8.0
 	github.com/mailru/easyjson v0.0.0-20180723221831-d5012789d665 // indirect
 	github.com/mitchellh/mapstructure v0.0.0-20180715050151-f15292f7a699
 	github.com/onsi/ginkgo v1.6.0 // indirect
@@ -38,6 +41,7 @@ require (
 	github.com/stretchr/objx v0.1.1 // indirect
 	github.com/stretchr/testify v1.2.2
 	github.com/syndtr/goleveldb v0.0.0-20180708030551-c4c61651e9e3
+	golang.org/x/arch v0.0.0-20181203225421-5a4828bb7045 // indirect
 	golang.org/x/crypto v0.0.0-20180723164146-c126467f60eb
 	golang.org/x/net v0.0.0-20180724234803-3673e40ba225
 	golang.org/x/sync v0.0.0-20180314180146-1d60e4601c6f // indirect

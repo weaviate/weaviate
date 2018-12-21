@@ -18,6 +18,12 @@ const cors = require('cors');
 const graphqlHTTP = require('express-graphql');
 const demoResolver = require('./demo_resolver/demo_resolver.js');
 
+// schema to send on /weaviate/v1/schema
+// so that we can use the prototype as a fake
+// for a second (network) weaviate instance
+const actions = require('./demo_schemas/actions_schema.json')
+const things = require('./demo_schemas/things_schema.json')
+
 // file system for reading files
 const fs = require('fs');
 
@@ -2124,7 +2130,30 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
       res.status(401).send("unauthorized")
     }
     app.use('/graphql', graphQLHandler);
+
+    // (use prototype as network instance fake)
+    // return API at the well-known path for a weaviage
     app.use('/weaviate/v1/graphql', dummyAuthChecker, graphQLHandler)
+
+    // (use prototype as network instance fake)
+    // return only a subset of the schema, so we can tell
+    // it apart from the local schema. Right now
+    // our development environment has the same schema
+    // as the prototype, so it'd be hard to see otherwise
+    app.get('/weaviate/v1/schema', (req, res) => {
+      res.send({
+        actions: {
+          ...actions,
+          // have no action classes
+          classes: [],
+        },
+        things: {
+          ...things,
+          // have only country (which has no deps on other classes) as things
+          classes: things.classes.filter(c => c.class === "Country"),
+        },
+      })
+    })
     app.listen(8081, function() {
       const port = this.address().port;
       console.log(`Started on http://localhost:${port}/graphql`);

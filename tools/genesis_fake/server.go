@@ -10,6 +10,7 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
+
 package main
 
 import (
@@ -47,11 +48,11 @@ func updatePeerWithList() {
 		otherPeers := []map[string]string{{
 			"id":   "481e4518-293f-4161-bad0-561bb3aa2c70",
 			"name": "WeaviateB",
-			"uri":  "http://does-not-matter",
+			"uri":  "http://remote_weaviate_fakes_with_test_schema:8082",
 		}, {
 			"id":   "2be57d67-1968-43d9-ad6e-07758022678d",
 			"name": "WeaviateC",
-			"uri":  "http://does-not-matter",
+			"uri":  "http://remote_weaviate_fakes_with_test_schema:8082",
 		}}
 		payload = append(payload, otherPeers...)
 	}
@@ -117,9 +118,13 @@ func main() {
 	})
 
 	go func() {
+		var backOff time.Duration = 1
 		for {
+			if backOff < 30 {
+				backOff++
+			}
 			updatePeerWithList()
-			time.Sleep(1 * time.Second)
+			time.Sleep(backOff * time.Second)
 		}
 
 	}()

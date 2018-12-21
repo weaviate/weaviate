@@ -69,6 +69,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/graphiql"
 	"github.com/creativesoftwarefdn/weaviate/lib/feature_flags"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	libnetworkFake "github.com/creativesoftwarefdn/weaviate/network/fake"
 	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/network/p2p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/swagger_middleware"
@@ -1880,25 +1881,25 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	})
 
 	api.P2PWeaviateP2pGenesisUpdateHandler = p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
-		new_peers := make([]libnetwork.Peer, 0)
+		newPeers := make([]peers.Peer, 0)
 
-		for _, genesis_peer := range params.Peers {
-			peer := libnetwork.Peer{
-				Id:   genesis_peer.ID,
-				Name: genesis_peer.Name,
-				URI:  genesis_peer.URI,
+		for _, genesisPeer := range params.Peers {
+			peer := peers.Peer{
+				ID:         genesisPeer.ID,
+				Name:       genesisPeer.Name,
+				URI:        genesisPeer.URI,
+				SchemaHash: genesisPeer.SchemaHash,
 			}
 
-			new_peers = append(new_peers, peer)
+			newPeers = append(newPeers, peer)
 		}
 
-		err := network.UpdatePeers(new_peers)
+		err := network.UpdatePeers(newPeers)
 
 		if err == nil {
 			return p2_p.NewWeaviateP2pGenesisUpdateOK()
-		} else {
-			return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()
 		}
+		return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()
 	})
 
 	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
@@ -2529,7 +2530,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 			return
 		}
 
-		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers.Names(), dbAndNetwork{Database: db, Network: network})
+		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, dbAndNetwork{Database: db, Network: network})
 		if err != nil {
 			// TODO: turn on safe mode gh-520
 			graphQL = nil
@@ -2547,9 +2548,21 @@ func configureServer(s *http.Server, scheme, addr string) {
 	}
 	manager.TriggerSchemaUpdateCallbacks()
 
-	network.RegisterUpdatePeerCallback(func(peers libnetwork.Peers) {
+	network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
 		manager.TriggerSchemaUpdateCallbacks()
 	})
+
+	network.RegisterSchemaGetter(&schemaGetter{db: db})
+}
+
+type schemaGetter struct {
+	db database.Database
+}
+
+func (s *schemaGetter) Schema() schema.Schema {
+	dbLock := s.db.ConnectorLock()
+	defer dbLock.Unlock()
+	return dbLock.GetSchema()
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
