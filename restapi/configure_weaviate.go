@@ -2190,6 +2190,9 @@ func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unba
 			variables = unbatchedRequest.Variables.(map[string]interface{})
 		}
 
+		if graphQL == nil {
+			panic("graphql is nil!")
+		}
 		result := graphQL.Resolve(query, operationName, variables, ctx)
 
 		// Marshal the JSON
