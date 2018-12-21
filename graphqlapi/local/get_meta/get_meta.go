@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/graphql-go/graphql"
 )
 
@@ -75,18 +74,6 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		Name:        "WeaviateLocalGetMeta",
 		Type:        getMetaObj,
 		Description: descriptions.LocalGetMetaDesc,
-		Args: graphql.FieldConfigArgument{
-			"where": &graphql.ArgumentConfig{
-				Description: descriptions.LocalGetWhereDesc,
-				Type: graphql.NewInputObject(
-					graphql.InputObjectConfig{
-						Name:        "WeaviateLocalGetMetaWhereInpObj",
-						Fields:      common_filters.BuildNew("WeaviateLocalGetMeta"),
-						Description: descriptions.LocalGetWhereInpObjDesc,
-					},
-				),
-			},
-		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return nil, fmt.Errorf("not supported")
 		},
