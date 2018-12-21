@@ -40,6 +40,13 @@ func (s *Schema) FindClassByName(className ClassName) *models.SemanticSchemaClas
 		return semSchemaClass
 	}
 
+	// TODO: Remove hard-coded test data
+	if className == "WeaviateB/Instrument" {
+		return &models.SemanticSchemaClass{
+			Class: "Instrument",
+		}
+	}
+
 	return nil
 }
 

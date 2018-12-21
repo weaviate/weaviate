@@ -15,14 +15,16 @@ package janusgraph
 import (
 	"errors"
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	"strings"
+	"time"
+
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
-	"strings"
-	"time"
 )
 
 func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, atContext string, creationTimeUnix int64, lastUpdateTimeUnix int64, key *models.SingleRef, rawProperties interface{}) error {
@@ -212,6 +214,10 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 
 	q = q.FromRef("newClass").
 		ToQuery(gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).HasString(PROP_UUID, key.NrDollarCref.String()))
+
+	fmt.Print("\n\n\n\n\n\n\n\n")
+	spew.Dump(q)
+	fmt.Print("\n\n\n\n\n\n\n\n")
 
 	_, err := j.client.Execute(q)
 
