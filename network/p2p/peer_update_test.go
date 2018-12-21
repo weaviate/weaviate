@@ -16,24 +16,25 @@ import (
 	"reflect"
 	"testing"
 
-	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
 
 func TestPeerUpdateWithNewPeers(t *testing.T) {
-	oldPeers := []libnetwork.Peer{}
-	newPeers := []libnetwork.Peer{{
+	oldPeers := []peers.Peer{}
+	newPeers := []peers.Peer{{
 		Name: "best-weaviate",
-		Id:   "uuid",
+		ID:   "uuid",
 		URI:  "does-not-matter",
 	}}
 
 	subject := network{
-		peers: oldPeers,
+		peers:           oldPeers,
+		downloadChanged: downloadChangedFake(newPeers),
 	}
 
 	callbackCalled := false
-	callbackCalledWith := []libnetwork.Peer{}
-	callbackSpy := func(peers libnetwork.Peers) {
+	callbackCalledWith := []peers.Peer{}
+	callbackSpy := func(peers peers.Peers) {
 		callbackCalled = true
 		callbackCalledWith = peers
 	}
@@ -52,25 +53,32 @@ func TestPeerUpdateWithNewPeers(t *testing.T) {
 }
 
 func TestPeerUpdateWithoutAnyChange(t *testing.T) {
-	peers := []libnetwork.Peer{{
+	unchangedPeers := []peers.Peer{{
 		Name: "best-weaviate",
-		Id:   "uuid",
+		ID:   "uuid",
 		URI:  "does-not-matter",
 	}}
 
 	subject := network{
-		peers: peers,
+		peers:           unchangedPeers,
+		downloadChanged: downloadChangedFake(unchangedPeers),
 	}
 
 	callbackCalled := false
-	callbackSpy := func(peers libnetwork.Peers) {
+	callbackSpy := func(peers peers.Peers) {
 		callbackCalled = true
 	}
 
 	subject.RegisterUpdatePeerCallback(callbackSpy)
-	subject.UpdatePeers(peers)
+	subject.UpdatePeers(unchangedPeers)
 
 	if callbackCalled != false {
 		t.Error("expect PeerUpdateCallback not to be called, but it was called")
+	}
+}
+
+func downloadChangedFake(peerList peers.Peers) func(peers.Peers) peers.Peers {
+	return func(peers.Peers) peers.Peers {
+		return peerList
 	}
 }

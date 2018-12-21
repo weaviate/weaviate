@@ -19,6 +19,7 @@ import (
 	graphqlnetworkGet "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	network "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
 
 type FakeNetwork struct {
@@ -33,12 +34,12 @@ func (fn FakeNetwork) GetStatus() string {
 	return "not configured"
 }
 
-func (fn FakeNetwork) ListPeers() (network.Peers, error) {
+func (fn FakeNetwork) ListPeers() (peers.Peers, error) {
 	// there are no peers, but don't error
-	return network.Peers{}, nil
+	return peers.Peers{}, nil
 }
 
-func (fn FakeNetwork) UpdatePeers(new_peers network.Peers) error {
+func (fn FakeNetwork) UpdatePeers(new_peers peers.Peers) error {
 	return fmt.Errorf("Cannot update peers, because there is no network configured")
 }
 
@@ -57,4 +58,9 @@ func (fn FakeNetwork) RegisterUpdatePeerCallback(callbackFn network.PeerUpdateCa
 // plugged in Network
 func (fn FakeNetwork) GetNetworkResolver() graphqlnetwork.Resolver {
 	return fn
+}
+
+// RegisterSchemaGetter does nothing, since it's a fake network
+// but also doesn't error
+func (fn FakeNetwork) RegisterSchemaGetter(schemaGetter network.SchemaGetter) {
 }
