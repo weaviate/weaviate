@@ -61,11 +61,11 @@ const NetworkAggregateMaxDesc string = "Aggregate on the maximum of numeric prop
 const NetworkAggregateCountDesc string = "Aggregate on the total amount of found property values"
 const NetworkAggregateGroupedByDesc string = "Indicates the group of returned data"
 
-const LocalAggregateNumericObj string = "An object containing the %s of numeric properties"
+const NetworkAggregateNumericObj string = "An object containing the %s of numeric properties"
 
-const LocalAggregateCountObj string = "An object containing countable properties"
+const NetworkAggregateCountObj string = "An object containing countable properties"
 
-const LocalAggregateGroupedByObjDesc string = "An object containing the path and value of the grouped property"
+const NetworkAggregateGroupedByObjDesc string = "An object containing the path and value of the grouped property"
 
-const LocalAggregateGroupedByGroupedByPathDesc string = "The path of the grouped property"
-const LocalAggregateGroupedByGroupedByValueDesc string = "The value of the grouped property"
+const NetworkAggregateGroupedByGroupedByPathDesc string = "The path of the grouped property"
+const NetworkAggregateGroupedByGroupedByValueDesc string = "The value of the grouped property"
