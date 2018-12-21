@@ -41,9 +41,10 @@ func broadcast_update(peer Peer, peers []Peer) {
 
 	for _, peer := range peers {
 		peer_update := weaviate_models.PeerUpdate{
-			URI:  peer.URI(),
-			ID:   peer.Id,
-			Name: peer.Name(),
+			URI:        peer.URI(),
+			ID:         peer.Id,
+			Name:       peer.Name(),
+			SchemaHash: peer.SchemaHash,
 		}
 
 		peer_updates = append(peer_updates, &peer_update)

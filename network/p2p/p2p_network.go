@@ -13,20 +13,23 @@
 package p2p
 
 import (
+	"crypto/md5"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
-	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/go-openapi/strfmt"
-
-	"net/url"
-
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	genesis_client "github.com/creativesoftwarefdn/weaviate/genesis/client"
 	client_ops "github.com/creativesoftwarefdn/weaviate/genesis/client/operations"
-	genesis_models "github.com/creativesoftwarefdn/weaviate/genesis/models"
+	genesismodels "github.com/creativesoftwarefdn/weaviate/genesis/models"
+	"github.com/creativesoftwarefdn/weaviate/messages"
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	p2pschema "github.com/creativesoftwarefdn/weaviate/network/p2p/schema"
+	"github.com/go-openapi/strfmt"
 )
 
 const (
@@ -44,57 +47,62 @@ type network struct {
 	sync.Mutex
 
 	// Peer ID assigned by genesis server
-	peer_id    strfmt.UUID
-	peer_name  string
-	public_url strfmt.URI
+	peerID    strfmt.UUID
+	peerName  string
+	publicURL strfmt.URI
 
-	state       string
-	genesis_url strfmt.URI
-	messaging   *messages.Messaging
-	client      genesis_client.WeaviateGenesisServer
-	peers       libnetwork.Peers
-	callbacks   []libnetwork.PeerUpdateCallback
+	state           string
+	genesisURL      strfmt.URI
+	messaging       *messages.Messaging
+	client          genesis_client.WeaviateGenesisServer
+	peers           peers.Peers
+	callbacks       []libnetwork.PeerUpdateCallback
+	schemaGetter    libnetwork.SchemaGetter
+	downloadChanged downloadChangedFn
 }
 
-func BootstrapNetwork(m *messages.Messaging, genesis_url strfmt.URI, public_url strfmt.URI, peer_name string) (*libnetwork.Network, error) {
-	if genesis_url == "" {
+type downloadChangedFn func(peers.Peers) peers.Peers
+
+func BootstrapNetwork(m *messages.Messaging, genesisURL strfmt.URI, publicURL strfmt.URI, peerName string) (*libnetwork.Network, error) {
+	if genesisURL == "" {
 		return nil, fmt.Errorf("No genesis URL provided in network configuration")
 	}
 
-	genesis_uri, err := url.Parse(string(genesis_url))
+	genesisURI, err := url.Parse(string(genesisURL))
 	if err != nil {
-		return nil, fmt.Errorf("Could not parse genesis URL '%v'", genesis_url)
+		return nil, fmt.Errorf("Could not parse genesis URL '%v'", genesisURL)
 	}
 
-	if public_url == "" {
+	if publicURL == "" {
 		return nil, fmt.Errorf("No public URL provided in network configuration")
 	}
 
-	_, err = url.Parse(string(public_url))
+	_, err = url.Parse(string(publicURL))
 	if err != nil {
-		return nil, fmt.Errorf("Could not parse public URL '%v'", public_url)
+		return nil, fmt.Errorf("Could not parse public URL '%v'", publicURL)
 	}
 
-	if peer_name == "" {
+	if peerName == "" {
 		return nil, fmt.Errorf("No peer name specified in network configuration")
 	}
 
-	transport_config := genesis_client.TransportConfig{
-		Host:     genesis_uri.Host,
-		BasePath: genesis_uri.Path,
-		Schemes:  []string{genesis_uri.Scheme},
+	transportConfig := genesis_client.TransportConfig{
+		Host:     genesisURI.Host,
+		BasePath: genesisURI.Path,
+		Schemes:  []string{genesisURI.Scheme},
 	}
 
-	client := genesis_client.NewHTTPClientWithConfig(nil, &transport_config)
+	client := genesis_client.NewHTTPClientWithConfig(nil, &transportConfig)
 
 	n := network{
-		public_url:  public_url,
-		peer_name:   peer_name,
-		state:       NETWORK_STATE_BOOTSTRAPPING,
-		genesis_url: genesis_url,
-		messaging:   m,
-		client:      *client,
-		peers:       make([]libnetwork.Peer, 0),
+		publicURL:       publicURL,
+		peerName:        peerName,
+		state:           NETWORK_STATE_BOOTSTRAPPING,
+		genesisURL:      genesisURL,
+		messaging:       m,
+		client:          *client,
+		peers:           make([]peers.Peer, 0),
+		downloadChanged: p2pschema.DownloadChanged,
 	}
 
 	// Bootstrap the network in the background.
@@ -108,24 +116,24 @@ func (n *network) bootstrap() {
 	time.Sleep(10) //TODO: Use channel close to listen for when complete configuration is done.
 	n.messaging.InfoMessage("Bootstrapping network")
 
-	new_peer := genesis_models.PeerUpdate{
-		PeerName: n.peer_name,
-		PeerURI:  n.public_url,
+	newPeer := genesismodels.PeerUpdate{
+		PeerName: n.peerName,
+		PeerURI:  n.publicURL,
 	}
 
 	params := client_ops.NewGenesisPeersRegisterParams()
-	params.Body = &new_peer
+	params.Body = &newPeer
 	response, err := n.client.Operations.GenesisPeersRegister(params)
 	if err != nil {
 		n.messaging.ErrorMessage(fmt.Sprintf("Could not register this peer in the network, because: %+v", err))
 		n.state = NETWORK_STATE_FAILED
 	} else {
 		n.state = NETWORK_STATE_HEALTHY
-		n.peer_id = response.Payload.Peer.ID
-		n.messaging.InfoMessage(fmt.Sprintf("Registered at Genesis server with id '%v'", n.peer_id))
+		n.peerID = response.Payload.Peer.ID
+		n.messaging.InfoMessage(fmt.Sprintf("Registered at Genesis server with id '%v'", n.peerID))
 	}
 
-	go n.keep_pinging()
+	go n.keepPinging()
 }
 
 func (n *network) IsReady() bool {
@@ -136,33 +144,54 @@ func (n *network) GetStatus() string {
 	return n.state
 }
 
-func (n *network) ListPeers() (libnetwork.Peers, error) {
+func (n *network) ListPeers() (peers.Peers, error) {
 	return n.peers, nil
 }
 
-func (n *network) GetPeerByName(name string) (libnetwork.Peer, error) {
+func (n *network) GetPeerByName(name string) (peers.Peer, error) {
 	for _, peer := range n.peers {
 		if peer.Name == name {
 			return peer, nil
 		}
 	}
 
-	return libnetwork.Peer{}, ErrPeerNotFound
+	return peers.Peer{}, ErrPeerNotFound
 }
 
-func (n *network) keep_pinging() {
+func (n *network) keepPinging() {
 	for {
 		time.Sleep(30 * time.Second)
-		n.messaging.InfoMessage("Pinging Genesis server")
+		n.ping()
+	}
+}
 
-		n.Lock()
-		params := client_ops.NewGenesisPeersPingParams()
-		params.PeerID = n.peer_id
-		n.Unlock()
-		_, err := n.client.Operations.GenesisPeersPing(params)
-		if err != nil {
-			n.messaging.InfoMessage(fmt.Sprintf("Could not ping Genesis server; %+v", err))
-		}
+func (n *network) ping() {
+	n.messaging.InfoMessage("Pinging Genesis server")
+
+	if n.schemaGetter == nil {
+		n.messaging.InfoMessage("cannot ping genesis server: no SchemaGetter present on network")
+		return
+	}
+
+	currentSchema := n.schemaGetter.Schema()
+	_ = currentSchema
+
+	n.Lock()
+	params := client_ops.NewGenesisPeersPingParams()
+	params.PeerID = n.peerID
+	hash, err := schemaHash(currentSchema)
+	if err != nil {
+		n.messaging.InfoMessage(fmt.Sprintf("cannot ping genesis server: %s", err))
+		return
+	}
+
+	params.Body = &genesismodels.PeerPing{
+		SchemaHash: hash,
+	}
+	n.Unlock()
+	_, err = n.client.Operations.GenesisPeersPing(params)
+	if err != nil {
+		n.messaging.InfoMessage(fmt.Sprintf("Could not ping Genesis server; %+v", err))
 	}
 }
 
@@ -173,4 +202,19 @@ func (n *network) keep_pinging() {
 // plugged in Network
 func (n *network) GetNetworkResolver() libnetwork.Network {
 	return n
+}
+
+func (n *network) RegisterSchemaGetter(schemaGetter libnetwork.SchemaGetter) {
+	n.schemaGetter = schemaGetter
+}
+
+func schemaHash(s schema.Schema) (string, error) {
+	schemaBytes, err := json.Marshal(s)
+	if err != nil {
+		return "", fmt.Errorf("couldnt convert schema to json before hashing: %s", err)
+	}
+
+	hash := md5.New()
+	fmt.Fprintf(hash, "%s", schemaBytes)
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }

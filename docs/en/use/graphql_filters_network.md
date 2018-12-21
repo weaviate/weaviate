@@ -16,34 +16,31 @@ This page explains by an example how the Network fetch works. The design of the 
 
 
 ## Network Get
-The filter for the `Network` `Get` function has the same structure as the `Local` `Get` function. The only difference is that the weaviate you are pointing to should be added to the beginning of the `path` parameter. This means that you could use the filter as follows:
+The filter for the `Network` `Get` function has the same structure as the `Local` `Get` function. This means that you could use the filter as follows:
 
 ```graphql
 {
   Network {
-    Get(where: {
-      operator: And,
-      operands: [{
-        path: ["WeaviateB", "Things", "Airport", "name"],
-        operator: Equal
-        valueString: "Schiphol"
-      }, {
-        path: ["WeaviateC", "Things", "Municipality", "name"],
-        operator: NotEqual,
-        valueString: "Rotterdam"
-      }]
-    }){
-      weaviateB {
+    Get {
+      WeaviateB {
       	Things {
-          Airport {
+          Airport(where: {
+            path: ["place"],
+            operator: Equal
+            valueString: "Amsterdam"
+          }) {
             place
             label
           }
         }
       }
-      weaviateC {
+      WeaviateC {
       	Things {
-          Municipality {
+          Municipality(where: {
+            path: ["name"],
+            operator: NotEqual,
+            valueString: "Rotterdam"
+          }) {
             name
           }
           Human {
@@ -54,6 +51,7 @@ The filter for the `Network` `Get` function has the same structure as the `Local
       }
     }
   }
+}
 ```
 
 
@@ -175,14 +173,14 @@ Just like querying a local Weaviate, meta data about instances in the Network ca
 ```graphql
 {
   Network {
-    GetMeta(where: {
-        path: ["weaviateB", "Things", "Airport", "place"],
-        operator: Equal,
-        valueString: "Amsterdam"
-      }) {
-      weaviateB {
+    GetMeta {
+      WeaviateB {
       	Things {
-          Airport {
+          Airport(where: {
+            path: ["place"],
+            operator: Equal,
+            valueString: "Amsterdam"
+          }) {
             meta {
               count
             }

@@ -18,6 +18,12 @@ const cors = require('cors');
 const graphqlHTTP = require('express-graphql');
 const demoResolver = require('./demo_resolver/demo_resolver.js');
 
+// schema to send on /weaviate/v1/schema
+// so that we can use the prototype as a fake
+// for a second (network) weaviate instance
+const actions = require('./demo_schemas/actions_schema.json')
+const things = require('./demo_schemas/things_schema.json')
+
 // file system for reading files
 const fs = require('fs');
 
@@ -245,7 +251,7 @@ var argsKeywords = new GraphQLInputObjectType({
  * create arguments for a search
  */
 
-function createArgs(item, groupBy){
+function createArgs(item, location, groupBy, where){
   propsForArgs = {}
   // empty argument
   propsForArgs[item.class] = {}
@@ -265,10 +271,22 @@ function createArgs(item, groupBy){
       return getDesc("afterFilter")},
   }
 
+  if(where == true){
+    propsForArgs[item.class]["where"] = { 
+      name: "Weaviate" + location + item.class + "Where",
+      description: "Where filter to filter the class " + item.class + " on",
+      type: new GraphQLInputObjectType({
+        name: "Weaviate" + location + item.class + "WhereInpObj",
+        description: "Input fields for the where filter to filter the class " + item.class + " on",
+        fields: genWhereFields("Weaviate" + location + item.class)
+      }) 
+    }
+  }
+
   if(groupBy == true){
     propsForArgs[item.class]["groupBy"] = {
       name: "groupByFilter",
-      type: new GraphQLList(GraphQLString),
+      type: new GraphQLNonNull(new GraphQLList(GraphQLString)),
       description: function() {
         return getDesc("groupByFilter")},
     }
@@ -287,11 +305,9 @@ function createAggregateSubClasses(ontologyThings, weaviate){
   // loop through classes
   ontologyThings.classes.forEach(singleClass => {
 
-    //console.log(singleClass.class)
-
     // create recursive sub classes
     subClasses[singleClass.class] = new GraphQLObjectType({
-      name: "Aggregate" + singleClass.class,
+      name: weaviate + "Aggregate" + singleClass.class,
       description: singleClass.description,
       fields: function(){
         // declare props that should be returned
@@ -299,11 +315,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
 
         // add count as field
         returnFields["count"] = {
-          name: "Aggregate" + singleClass.class + "Count",
+          name: weaviate + "Aggregate" + singleClass.class + "Count",
           description: function() {
             return getDesc("AggregateSubClassCount")},
           type: new GraphQLObjectType({
-            name: "Aggregate" + singleClass.class + "CountObj",
+            name: weaviate + "Aggregate" + singleClass.class + "CountObj",
             description: function() {
               return getDesc("AggregateSubClassCountObj")},
             fields: function(){
@@ -312,7 +328,7 @@ function createAggregateSubClasses(ontologyThings, weaviate){
               singleClass.properties.forEach(singleClassProperty => {
                 singleClassProperty["@dataType"].forEach(singleClassPropertyDatatype => {
                   returnProps[singleClassProperty.name] = {
-                    name: "Aggregate" + singleClass.class + singleClassProperty.name,
+                    name: weaviate + "Aggregate" + singleClass.class + singleClassProperty.name,
                     description: singleClassProperty.description,
                     type: GraphQLInt
                   }
@@ -336,11 +352,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
         if (numericProps.length > 0) {
           // add numeric aggregations as field
           returnFields["minimum"] = {
-            name: "Aggregate" + singleClass.class + "Minimum",
+            name: weaviate + "Aggregate" + singleClass.class + "Minimum",
             description: function() {
               return getDesc("AggregateSubClassMinimum")},
             type: new GraphQLObjectType({
-              name: "Aggregate" + singleClass.class + "MinimumObj",
+              name: weaviate + "Aggregate" + singleClass.class + "MinimumObj",
               description: function() {
                 return getDesc("AggregateSubClassMinimumObj")},
               fields: function(){
@@ -350,13 +366,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -368,11 +384,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
             })
           },
           returnFields["maximum"] = {
-            name: "Aggregate" + singleClass.class + "Maximum",
+            name: weaviate + "Aggregate" + singleClass.class + "Maximum",
             description: function() {
               return getDesc("AggregateSubClassMaximum")},
             type: new GraphQLObjectType({
-              name: "Aggregate" + singleClass.class + "MaximumObj",
+              name: weaviate + "Aggregate" + singleClass.class + "MaximumObj",
               description: function() {
                 return getDesc("AggregateSubClassMaximumObj")},
               fields: function(){
@@ -382,13 +398,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -400,11 +416,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
             })
           },
           returnFields["mode"] = {
-            name: "Aggregate" + singleClass.class + "Mode",
+            name: weaviate + "Aggregate" + singleClass.class + "Mode",
             description: function() {
               return getDesc("AggregateSubClassMode")},
             type: new GraphQLObjectType({
-              name: "Aggregate" + singleClass.class + "ModeObj",
+              name: weaviate + "Aggregate" + singleClass.class + "ModeObj",
               description: function() {
                 return getDesc("AggregateSubClassModeObj")},
               fields: function(){
@@ -414,13 +430,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -432,11 +448,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
             })
           },
           returnFields["median"] = {
-            name: "Aggregate" + singleClass.class + "Median",
+            name: weaviate + "Aggregate" + singleClass.class + "Median",
             description: function() {
               return getDesc("AggregateSubClassMedian")},
             type: new GraphQLObjectType({
-              name: "Aggregate" + singleClass.class + "MedianObj",
+              name: weaviate + "Aggregate" + singleClass.class + "MedianObj",
               description: function() {
                 return getDesc("AggregateSubClassMedianObj")},
               fields: function(){
@@ -446,13 +462,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -464,11 +480,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
             })
           },
           returnFields["sum"] = {
-            name: "Aggregate" + singleClass.class + "Sum",
+            name: weaviate + "Aggregate" + singleClass.class + "Sum",
             description: function() {
               return getDesc("AggregateSubClassSum")},
             type: new GraphQLObjectType({
-              name: "Aggregate" + singleClass.class + "SumObj",
+              name: weaviate + "Aggregate" + singleClass.class + "SumObj",
               description: function() {
                 return getDesc("AggregateSubClassSumObj")},
               fields: function(){
@@ -478,13 +494,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -496,11 +512,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
             })
           }, 
           returnFields["mean"] = {
-            name: "Aggregate" + singleClass.class + "Mean",
+            name: weaviate + "Aggregate" + singleClass.class + "Mean",
             description: function() {
               return getDesc("AggregateSubClassMean")},
             type: new GraphQLObjectType({
-              name: "Aggregate" + singleClass.class + "MeanObj",
+              name: weaviate + "Aggregate" + singleClass.class + "MeanObj",
               description: function() {
                 return getDesc("AggregateSubClassMeanObj")},
               fields: function(){
@@ -510,13 +526,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Aggregate" + singleClass.class + numericProps.name,
+                        name: weaviate + "Aggregate" + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -531,22 +547,22 @@ function createAggregateSubClasses(ontologyThings, weaviate){
 
         // add groupedBy as field
         returnFields["groupedBy"] = { // should actually be the property where there is grouped on
-          name: "Aggregate" + singleClass.class + "GroupedByObj",
+          name: weaviate + "Aggregate" + singleClass.class + "GroupedByObj",
           description: function() {
           return getDesc("AggregateSubClassGrouped")},
           type: new GraphQLObjectType({
-            name: "Aggregate" + singleClass.class + "GroupedByObj",
+            name: weaviate + "Aggregate" + singleClass.class + "GroupedByObj",
             description: function() {
               return getDesc("AggregateSubClassGroupedObj")},
             fields: {
               path: {
-                name: "AggregateSubClassGroupedPath",
+                name: weaviate + "AggregateSubClassGroupedPath",
                 description: function() {
                   return getDesc("AggregateSubClassGroupedPath")},
                 type: new GraphQLList(GraphQLString)
               }, 
               value: {
-                name: "AggregateSubClassGroupedValue",
+                name: weaviate + "AggregateSubClassGroupedValue",
                 description: function() {
                   return getDesc("AggregateSubClassGroupedValue")},
                 type: GraphQLString
@@ -569,8 +585,7 @@ function createAggregateSubClasses(ontologyThings, weaviate){
 /**
  * Create the rootclasses of a Thing or Action in the Local function
  */
-function createAggregateRootClasses(ontologyThings, subClasses){
-
+function createAggregateRootClasses(ontologyThings, subClasses, location){
   var rootClassesFields = {}
 
   // loop through classes
@@ -580,9 +595,9 @@ function createAggregateRootClasses(ontologyThings, subClasses){
       name: singleClass.class,
       type: new GraphQLList(subClasses[singleClass.class]),
       description: singleClass.description,
-      args: createArgs(singleClass, true),
+      args: createArgs(singleClass, location=location, groupBy=true, where=true),
       resolve(parentValue, args) {
-        return demoResolver.aggregateRootClassResolver(parentValue, singleClass.class, args)
+        return demoResolver.aggregateRootClassResolver(parentValue, singleClass.class, args, location)
       }
     }
 
@@ -837,7 +852,7 @@ function createMetaSubClasses(ontologyThings, location='') {
 /**
  * Create the rootclasses of a Thing or Action in the Local function
  */
-function createMetaRootClasses(ontologyThings, metaSubClasses){
+function createMetaRootClasses(ontologyThings, metaSubClasses, location){
 
   console.log("------START METAROOTCLASSES--------")
 
@@ -850,7 +865,7 @@ function createMetaRootClasses(ontologyThings, metaSubClasses){
       name: "Meta" + singleClass.class,
       type: metaSubClasses[singleClass.class],
       description: singleClass.description,
-      args: createArgs(singleClass),
+      args: createArgs(singleClass, location=location, groupBy=false, where=true),
       resolve(parentValue, args) {
         return demoResolver.metaRootClassResolver(parentValue, singleClass.class, args)
       }
@@ -984,7 +999,7 @@ function createSubClasses(ontologyThings, weaviate){
 /**
  * Create the rootclasses of a Thing or Action in the Local function
  */
-function createRootClasses(ontologyThings, subClasses){
+function createRootClasses(ontologyThings, subClasses, location){
 
   console.log("------START ROOTCLASSES--------")
 
@@ -997,8 +1012,9 @@ function createRootClasses(ontologyThings, subClasses){
       name: singleClass.class,
       type: new GraphQLList(subClasses[singleClass.class]),
       description: singleClass.description,
-      args: createArgs(singleClass),
+      args: createArgs(singleClass, location=location, groupBy=false, where=true),
       resolve(parentValue, args) {
+        //console.log(demoResolver.rootClassResolver(parentValue, singleClass.class, args))
         return demoResolver.rootClassResolver(parentValue, singleClass.class, args)
       }
     }
@@ -1058,8 +1074,8 @@ function getWeaviateNetworkGetFields(weaviate) {
   // merge
   classes = mergeOntologies(JSON.parse(ontologyThings), JSON.parse(ontologyActions))
   var localSubClasses = createSubClasses(classes, weaviate);
-  var rootClassesNetworkThingsFields = createRootClasses(JSON.parse(ontologyThings), localSubClasses);
-  var rootClassesNetworkActionsFields = createRootClasses(JSON.parse(ontologyActions), localSubClasses);
+  var rootClassesNetworkThingsFields = createRootClasses(JSON.parse(ontologyThings), localSubClasses, location="NetworkGet" + weaviate + "Things");
+  var rootClassesNetworkActionsFields = createRootClasses(JSON.parse(ontologyActions), localSubClasses, location="NetworkGet" + weaviate + "Actions");
 
   fields = {
     Things: {
@@ -1093,7 +1109,7 @@ function getWeaviateNetworkGetFields(weaviate) {
       }
     }
   }
-return fields
+  return fields
 
 }
 
@@ -1107,8 +1123,8 @@ function getWeaviateNetworkGetMetaFields(weaviate) {
   // merge
   classes = mergeOntologies(JSON.parse(ontologyThings), JSON.parse(ontologyActions))
   var metaSubClasses = createMetaSubClasses(classes, weaviate);
-  var metaRootClassesNetworkThingsFields = createMetaRootClasses(JSON.parse(ontologyThings), metaSubClasses);
-  var metaRootClassesNetworkActionsFields = createMetaRootClasses(JSON.parse(ontologyActions), metaSubClasses);
+  var metaRootClassesNetworkThingsFields = createMetaRootClasses(JSON.parse(ontologyThings), metaSubClasses, location="NetworkGetMeta" + weaviate + "Things");
+  var metaRootClassesNetworkActionsFields = createMetaRootClasses(JSON.parse(ontologyActions), metaSubClasses, location="NetworkGetMeta" + weaviate + "Actions");
 
   fields = {
     Things: {
@@ -1145,6 +1161,57 @@ function getWeaviateNetworkGetMetaFields(weaviate) {
 return fields
 
 }
+
+
+function getWeaviateNetworkAggregateFields(weaviate) {
+  var thingsFile = './network/' + weaviate + '/things_schema.json';
+  var actionsFile = './network/' + weaviate + '/actions_schema.json';
+
+  let ontologyThings = fs.readFileSync(thingsFile, {encoding:'utf8'});
+  let ontologyActions = fs.readFileSync(actionsFile, {encoding:'utf8'});
+
+  // merge
+  classes = mergeOntologies(JSON.parse(ontologyThings), JSON.parse(ontologyActions))
+  var aggregateSubClasses = createAggregateSubClasses(classes, weaviate);
+  var aggregateRootClassesNetworkThingsFields = createAggregateRootClasses(JSON.parse(ontologyThings), aggregateSubClasses, location="NetworkAggregateThings" + weaviate);
+  var aggregateRootClassesNetworkActionsFields = createAggregateRootClasses(JSON.parse(ontologyActions), aggregateSubClasses, location="NetworkAggregateActions" + weaviate);
+
+  fields = {
+    Things: {
+      name: "WeaviateNetworkAggregate" + weaviate + "Things",
+      description: function() {
+        return getDesc("WeaviateNetworkAggregateThings")},
+      type: new GraphQLObjectType({
+        name: "WeaviateNetworkAggregate" + weaviate + "ThingsObj",
+        description: function() {
+          return getDesc("WeaviateNetworkAggregateThingsObj")},
+        fields: aggregateRootClassesNetworkThingsFields
+      }),
+      resolve(parentValue) {
+        console.log("resolve WeaviateNetworkAggregate" + weaviate + "Things")
+        return parentValue.Things // resolve with empty array
+      },
+    },
+    Actions: {
+      name: "WeaviateNetworkAggregate" + weaviate + "Actions",
+      description: function() {
+        return getDesc("WeaviateNetworkAggregateActions")},
+      type: new GraphQLObjectType({
+        name: "WeaviateNetworkAggregate" + weaviate + "ActionsObj",
+        description: function() {
+          return getDesc("WeaviateNetworkAggregateActionsObj")},
+        fields: aggregateRootClassesNetworkActionsFields
+      }),
+      resolve(parentValue) {
+        console.log("resolve WeaviateNetworkAggregate" + weaviate + "Actions")
+        return parentValue.Actions // resolve with empty array
+      }
+    }
+  }
+  return fields
+
+}
+
 
 function createNetworkWeaviateGetFields() {
   console.log("------START NETWORKWEAVIATEGETFIELDS--------")
@@ -1207,6 +1274,38 @@ function createNetworkWeaviateGetMetaFields() {
   })
 
   console.log("------STOP NETWORKWEAVIATEGETMETAFIELDS--------")
+  return networkFields
+}
+
+function createNetworkAggregateFields() {
+  console.log("------START NETWORKWEAVIATEAGGREGATEFIELDS--------")
+  var networkFields = {}
+
+  function getDirectories(path) {
+    return fs.readdirSync(path).filter(function (file) {
+      return fs.statSync(path+'/'+file).isDirectory();
+    });
+  }
+  var weaviates = getDirectories("./network");
+
+  weaviates.forEach(weaviate => {
+    weaviate = weaviate[0].toUpperCase() + weaviate.substring(1);
+    networkFields[weaviate] = {
+      name: "WeaviateNetworkAggregate" + weaviate,
+      description: "Object field for weaviate " + weaviate + " in the network.",
+      type: new GraphQLObjectType({
+        name: "WeaviateNetworkAggregate" + weaviate + "Obj",
+        description: "Objects for the what to aggregate and group on from the weaviate " + weaviate + " in the network.",
+        fields: getWeaviateNetworkAggregateFields(weaviate)
+      }),
+      resolve(parentValue){
+        console.log("resolve WeaviateNetworkAggregate" + weaviate)
+        return parentValue[weaviate]
+      }
+    }
+  })
+
+  console.log("------STOP NETWORKWEAVIATEAGGREGATEFIELDS--------")
   return networkFields
 }
 
@@ -1436,9 +1535,9 @@ var NetworkIntrospectWhereFilterFields = {
           description: function() {
             return getDesc("WeaviateNetworkIntrospectWhereClass")},
           type: new GraphQLList(new GraphQLInputObjectType({
-            name: "WeaviateNetworkIntrospectWhereClassObj",
+            name: "WeaviateNetworkIntrospectWhereClassInpObj",
             description: function() {
-              return getDesc("WeaviateNetworkIntrospectWhereClassObj")},
+              return getDesc("WeaviateNetworkIntrospectWhereClassInpObj")},
             fields: NetworkIntrospectWhereClassAndPropertyFilterFields
           }))
         },
@@ -1447,9 +1546,9 @@ var NetworkIntrospectWhereFilterFields = {
           description: function() {
             return getDesc("WeaviateNetworkIntrospectWhereProperties")},
           type: new GraphQLList(new GraphQLInputObjectType({
-            name: "WeaviateNetworkIntrospectWherePropertiesObj",
+            name: "WeaviateNetworkIntrospectWherePropertiesInpObj",
             description: function() {
-              return getDesc("WeaviateNetworkIntrospectWherePropertiesObj")},
+              return getDesc("WeaviateNetworkIntrospectWherePropertiesInpObj")},
             fields: NetworkIntrospectWhereClassAndPropertyFilterFields
           }))
         }
@@ -1537,20 +1636,22 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
   
     // create the root and sub classes based on the Weaviate schemas
     var localSubClasses = createSubClasses(classes, "");
-    var rootClassesThingsFields = createRootClasses(JSON.parse(ontologyThings), localSubClasses);
-    var rootClassesActionsFields = createRootClasses(JSON.parse(ontologyActions), localSubClasses);
+    var getRootClassesThingsFields = createRootClasses(JSON.parse(ontologyThings), localSubClasses, location="LocalGetThings");
+    var getRootClassesActionsFields = createRootClasses(JSON.parse(ontologyActions), localSubClasses, location="LocalGetActions");
     var classesEnum = createClassEnum(classes);
     // var PinPointField = createPinPointField(classes);
     var metaSubClasses = createMetaSubClasses(classes)
-    var metaRootClassesThingsFields = createMetaRootClasses(JSON.parse(ontologyThings), metaSubClasses);
-    var metaRootClassesActionsFields = createMetaRootClasses(JSON.parse(ontologyActions), metaSubClasses);
+    var metaRootClassesThingsFields = createMetaRootClasses(JSON.parse(ontologyThings), metaSubClasses, location="LocalGetMetaThings");
+    var metaRootClassesActionsFields = createMetaRootClasses(JSON.parse(ontologyActions), metaSubClasses, location="LocalGetMetaActions");
 
-    var aggregateSubClasses = createAggregateSubClasses(classes)
-    var aggregateRootClassesThingsFields = createAggregateRootClasses(JSON.parse(ontologyThings), aggregateSubClasses);
-    var aggregateRootClassesActionsFields = createAggregateRootClasses(JSON.parse(ontologyActions), aggregateSubClasses);
+    var aggregateSubClasses = createAggregateSubClasses(classes, "Local")
+    var aggregateRootClassesThingsFields = createAggregateRootClasses(JSON.parse(ontologyThings), aggregateSubClasses, location="LocalAggregateThings");
+    var aggregateRootClassesActionsFields = createAggregateRootClasses(JSON.parse(ontologyActions), aggregateSubClasses, location="LocalAggregateActions");
 
     var WeaviateNetworkGetFields = createNetworkWeaviateGetFields()
     var WeaviateNetworkGetMetaFields = createNetworkWeaviateGetMetaFields()
+
+    var WeaviateNetworkAggregateFields = createNetworkAggregateFields()
 
     // This is the root 
     var Weaviate = new GraphQLObjectType({
@@ -1579,19 +1680,6 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 name: "WeaviateLocalGet",
                 description: function() {
                   return getDesc("WeaviateLocalGet")},
-                args: {
-                  where: { 
-                    name: "WeaviateLocalGetWhere",
-                    description: function() {
-                      return getDesc("WeaviateLocalGetWhere")},
-                    type: new GraphQLInputObjectType({
-                      name: "WeaviateLocalGetWhereInpObj",
-                      description: function() {
-                        return getDesc("WeaviateLocalGetWhereInpObj")},
-                      fields: genWhereFields("WeaviateLocalGet")
-                    }) 
-                  }
-                },
                 type: new GraphQLObjectType({
                   name: "WeaviateLocalGetObj",
                   description: function() {
@@ -1605,7 +1693,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                         name: "WeaviateLocalGetThingsObj",
                         description: function() {
                           return getDesc("WeaviateLocalGetThingsObj")},
-                        fields: rootClassesThingsFields
+                        fields: getRootClassesThingsFields
                       }),
                       resolve(parentValue) {
                         console.log("resolve WeaviateLocalGetThings")
@@ -1620,7 +1708,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                         name: "WeaviateLocalGetActionsObj",
                         description: function() {
                           return getDesc("WeaviateLocalGetActionsObj")},
-                        fields: rootClassesActionsFields
+                        fields: getRootClassesActionsFields
                       }),
                       resolve(parentValue) {
                         console.log("resolve WeaviateLocalGetActions")
@@ -1631,7 +1719,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 }),
                 resolve(parentValue, args) {
                   console.log("resolve WeaviateLocalGet")
-                  result = demoResolver.resolveGet(args.where)
+                  result = demoResolver.resolveGet()
                   if (result != 'error') {
                     return result
                   }
@@ -1642,19 +1730,6 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 name: "WeaviateLocalGetMeta",
                 description: function() {
                   return getDesc("WeaviateLocalGetMeta")},
-                args: {
-                  where: { 
-                    name: "WeaviateLocalGetMetaWhere",
-                    description: function() {
-                      return getDesc("WeaviateLocalGetMetaWhere")},
-                    type: new GraphQLInputObjectType({
-                      name: "WeaviateLocalGetMetaWhereInpObj",
-                      description: function() {
-                        return getDesc("WeaviateLocalGetMetaWhereInpObj")},
-                      fields: genWhereFields("WeaviateLocalGetMeta")
-                    }) 
-                }
-                },
                 type: new GraphQLObjectType({
                   name: "WeaviateLocalGetMetaObj",
                   description: function() {
@@ -1694,7 +1769,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 }),
                 resolve(parentValue, args) {
                   console.log("resolve WeaviateLocalGetMeta")
-                  result = demoResolver.resolveGet(args.where)
+                  result = demoResolver.resolveGet()
                   if (result != 'error') {
                     return result
                   }
@@ -1705,19 +1780,6 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 name: "WeaviateLocalAggregate",
                 description: function() {
                   return getDesc("WeaviateLocalAggregate")},
-                args: {
-                  where: { 
-                    name: "WeaviateLocalAggregateWhere",
-                    description: function() {
-                      return getDesc("WeaviateLocalAggregateWhere")},
-                    type: new GraphQLInputObjectType({
-                      name: "WeaviateLocalAggregateWhereInpObj",
-                      description: function() {
-                        return getDesc("WeaviateLocalAggregateWhereInpObj")},
-                      fields: genWhereFields("WeaviateLocalAggregate")
-                    }) 
-                  }
-                },
                 type: new GraphQLObjectType({
                   name: "WeaviateLocalAggregateObj",
                   description: function() {
@@ -1757,7 +1819,7 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 }),
                 resolve(parentValue, args) {
                   console.log("resolve WeaviateLocalAggregate")
-                  result = demoResolver.resolveGet(args.where)
+                  result = demoResolver.resolveGet()
                   if (result != 'error') {
                     return result
                   }
@@ -1778,12 +1840,6 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 return getDesc("WeaviateNetworkNetworkTimeout")},
               type: GraphQLInt
             },
-            // network: {
-            //   name: "WeaviateNetworkNetworkNetwork",
-            //   description: function() {
-            //     return getDesc("WeaviateNetworkNetworkNetwork")},
-            //   type: GraphQLString
-            // }
           },
           resolve() {
             console.log("resolve WeaviateNetwork")
@@ -1798,19 +1854,6 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 name: "WeaviateNetworkGet",
                 description: function() {
                   return getDesc("WeaviateNetworkGet")},
-                args: {
-                  where: { 
-                    name: "WeaviateNetworkGetWhere",
-                    description: function() {
-                      return getDesc("WeaviateNetworkGetWhere")},
-                    type: new GraphQLInputObjectType({
-                      name: "WeaviateNetworkGetWhereInpObj",
-                      description: function() {
-                        return getDesc("WeaviateNetworkGetWhereInpObj")},
-                      fields: genWhereFields("WeaviateNetworkGet")
-                    }) 
-                  }
-                },
                 type: new GraphQLObjectType({
                   name: "WeaviateNetworkGetObj",
                   description: function() {
@@ -2025,19 +2068,6 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 name: "WeaviateNetworkGetMeta",
                 description: function() {
                   return getDesc("WeaviateNetworkGetMeta")},
-                args: {
-                  where: { 
-                    name: "WeaviateNetworkGetMetaWhere",
-                    description: function() {
-                      return getDesc("WeaviateNetworkGetMetaWhere")},
-                    type: new GraphQLInputObjectType({
-                      name: "WeaviateNetworkGetMetaWhereInpObj",
-                      description: function() {
-                        return getDesc("WeaviateNetworkGetMetaWhereInpObj")},
-                      fields: genWhereFields("WeaviateNetworkGetMeta")
-                    }) 
-                }
-                },
                 type: new GraphQLObjectType({
                   name: "WeaviateNetworkGetMetaObj",
                   description: function() {
@@ -2047,6 +2077,25 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
                 resolve(parentValue, args) {
                   console.log("resolve WeaviateNetworkGetMeta")
                   result = demoResolver.resolveNetworkGet(args.where)
+                  if (result != 'error') {
+                    return result
+                  }
+                  else {throw new Error('Text values cannot be filtered because they are not indexed.')}
+                },
+              },
+              Aggregate: {
+                name: "WeaviateNetworkAggregate",
+                description: function() {
+                  return getDesc("WeaviateNetworkAggregate")},
+                type: new GraphQLObjectType({
+                  name: "WeaviateNetworkAggregateObj",
+                  description: function() {
+                    return getDesc("WeaviateNetworkAggregateObj")},
+                  fields: WeaviateNetworkAggregateFields
+                }),
+                resolve(parentValue, args) {
+                  console.log("resolve WeaviateNetworkAggregate")
+                  result = demoResolver.resolveGet()
                   if (result != 'error') {
                     return result
                   }
@@ -2081,7 +2130,30 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
       res.status(401).send("unauthorized")
     }
     app.use('/graphql', graphQLHandler);
+
+    // (use prototype as network instance fake)
+    // return API at the well-known path for a weaviage
     app.use('/weaviate/v1/graphql', dummyAuthChecker, graphQLHandler)
+
+    // (use prototype as network instance fake)
+    // return only a subset of the schema, so we can tell
+    // it apart from the local schema. Right now
+    // our development environment has the same schema
+    // as the prototype, so it'd be hard to see otherwise
+    app.get('/weaviate/v1/schema', (req, res) => {
+      res.send({
+        actions: {
+          ...actions,
+          // have no action classes
+          classes: [],
+        },
+        things: {
+          ...things,
+          // have only country (which has no deps on other classes) as things
+          classes: things.classes.filter(c => c.class === "Country"),
+        },
+      })
+    })
     app.listen(8081, function() {
       const port = this.address().port;
       console.log(`Started on http://localhost:${port}/graphql`);

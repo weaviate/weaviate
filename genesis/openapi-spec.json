@@ -56,6 +56,10 @@
               "description": "When we were received a ping from this peer from the last time",
               "format": "int64",
               "type": "integer"
+            },
+            "schema_hash" : {
+              "description": "The latest known hash of the local schema of the peer",
+              "type": "string"
             }
           },
           "type": "object"
@@ -73,6 +77,17 @@
           "description": "Host or IP of the peer, defaults to peerName",
           "type": "string",
           "format": "uri"
+        }
+      },
+      "type": "object"
+    },
+    "PeerPing": {
+      "properties": {
+        "schemaHash": {
+          "description": "(base64 encoded) hash of the current schema",
+          "type": "string",
+          "format": "md5",
+          "example": "59d41240e1b7024b6cdc1206696e62d2"
         }
       },
       "type": "object"
@@ -172,7 +187,7 @@
     },
     "/peers/{peerId}/ping": {
       "post": {
-        "description": "Ping the Genesis server, to make mark the peer as alive",
+        "description": "Ping the Genesis server, to make mark the peer as alive and udpate schema info",
         "operationId": "genesis.peers.ping",
         "parameters": [
           {
@@ -182,6 +197,15 @@
             "name": "peerId",
             "required": true,
             "type": "string"
+          },
+          {
+            "description": "Request Body",
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/PeerPing"
+            }
           }
         ],
         "responses": {
