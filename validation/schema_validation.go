@@ -17,12 +17,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-openapi/strfmt"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+
 	"github.com/creativesoftwarefdn/weaviate/config"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
@@ -37,7 +38,7 @@ const (
 	// ErrorMissingSingleRefType message
 	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
 	// ErrorInvalidClassType message
-	ErrorInvalidClassType string = "class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s' or '%s'"
+	ErrorInvalidClassType string = "class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s', '%s', '%s' or '%s'"
 	// ErrorInvalidString message
 	ErrorInvalidString string = "class '%s' with property '%s' requires a string. The given value is '%v'"
 	// ErrorInvalidText message
@@ -149,6 +150,8 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 						connutils.RefTypeAction,
 						connutils.RefTypeThing,
 						connutils.RefTypeKey,
+						connutils.RefTypeNetworkAction,
+						connutils.RefTypeNetworkThing,
 					)
 				}
 
@@ -212,6 +215,8 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 							connutils.RefTypeAction,
 							connutils.RefTypeThing,
 							connutils.RefTypeKey,
+							connutils.RefTypeNetworkAction,
+							connutils.RefTypeNetworkThing,
 						)
 					}
 

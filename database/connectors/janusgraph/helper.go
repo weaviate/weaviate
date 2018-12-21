@@ -487,6 +487,12 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 					case *models.SingleRef:
 						var refClassName schema.ClassName
 						switch t.Type {
+						case "NetworkThing", "NetworkAction":
+							refClassName = "something"
+							// simply jump over this entire property for now
+							// so import works again
+							continue
+
 						case "Action":
 							var singleRefValue models.ActionGetResponse
 							err = j.GetAction(nil, t.NrDollarCref, &singleRefValue)
@@ -502,7 +508,7 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 							}
 							refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
 						default:
-							return fmt.Errorf("Illegal value for property %s; only Thing or Action supported, got ", t.Type)
+							return fmt.Errorf("illegal value for property %s; only Thing or Action supported", t.Type)
 						}
 
 						// Verify the cross reference

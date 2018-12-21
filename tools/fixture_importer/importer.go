@@ -18,14 +18,15 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"net/url"
+	"strings"
+
 	apiclient "github.com/creativesoftwarefdn/weaviate/client"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
-	"io/ioutil"
-	"net/url"
-	"strings"
 )
 
 var APITOKEN string
@@ -58,6 +59,7 @@ type fixupAddRef struct {
 	fromProperty string
 	toClass      string
 	toId         string
+	location     string
 }
 
 var idMap map[string]string

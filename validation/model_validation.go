@@ -18,8 +18,8 @@ import (
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
@@ -107,7 +107,11 @@ func validateBody(class string, context string) error {
 
 // validateRefType validates the reference type with one of the existing reference types
 func validateRefType(s connutils.RefType) bool {
-	return (s == connutils.RefTypeAction || s == connutils.RefTypeThing || s == connutils.RefTypeKey)
+	return (s == connutils.RefTypeAction ||
+		s == connutils.RefTypeThing ||
+		s == connutils.RefTypeKey ||
+		s == connutils.RefTypeNetworkThing ||
+		s == connutils.RefTypeNetworkAction)
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
@@ -117,28 +121,30 @@ func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
 
 	// Check existence of Object, external or internal
 	if serverConfig.GetHostAddress() != *cref.LocationURL {
-		// Search for key-information for resolving this part. Dont validate if not exists
-		instance, err := serverConfig.GetInstance(*cref.LocationURL, keyToken)
-		if err != nil {
-			return fmt.Errorf(ErrorNoExternalCredentials, *cref.LocationURL, errorVal)
-		}
+		// don't do any validation on here
 
-		// Set endpoint
-		endpoint := ""
+		// // Search for key-information for resolving this part. Dont validate if not exists
+		// instance, err := serverConfig.GetInstance(*cref.LocationURL, keyToken)
+		// if err != nil {
+		// 	return fmt.Errorf(ErrorNoExternalCredentials, *cref.LocationURL, errorVal)
+		// }
 
-		if refType == connutils.RefTypeThing {
-			endpoint = "things"
-		} else if refType == connutils.RefTypeAction {
-			endpoint = "actions"
-		} else if refType == connutils.RefTypeKey {
-			endpoint = "keys"
-		}
+		// // Set endpoint
+		// endpoint := ""
 
-		// Check wheter the Object's location URL is pointing to a existing Weaviate instance
-		response, err := connutils.DoExternalRequest(instance, endpoint, cref.NrDollarCref)
-		if err != nil {
-			return fmt.Errorf(ErrorExternalNotFound, *cref.LocationURL, response.StatusCode, errorVal)
-		}
+		// if refType == connutils.RefTypeThing {
+		// 	endpoint = "things"
+		// } else if refType == connutils.RefTypeAction {
+		// 	endpoint = "actions"
+		// } else if refType == connutils.RefTypeKey {
+		// 	endpoint = "keys"
+		// }
+
+		// // Check wheter the Object's location URL is pointing to a existing Weaviate instance
+		// response, err := connutils.DoExternalRequest(instance, endpoint, cref.NrDollarCref)
+		// if err != nil {
+		// 	return fmt.Errorf(ErrorExternalNotFound, *cref.LocationURL, response.StatusCode, errorVal)
+		// }
 	} else {
 		// Check whether the given Object exists in the DB
 		var err error
