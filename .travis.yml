@@ -27,7 +27,7 @@ branches:
   only: 
     - master
     - develop
-    - update_docs_and_fix_prototype_schema
+    - feature/network_cross_refs_imports
 dist: xenial
 go: 
   - "1.11"
