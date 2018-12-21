@@ -10,6 +10,7 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
+
 package schema
 
 import (
@@ -28,16 +29,20 @@ func (s *Schema) GetClass(k kind.Kind, className ClassName) *models.SemanticSche
 	return class
 }
 
-// Find either a Thing or Class by name.
+// FindClassByName will find either a Thing or Class by name.
 func (s *Schema) FindClassByName(className ClassName) *models.SemanticSchemaClass {
-	semSchemaClass, err := GetClassByName(s.Things, string(className))
-	if err == nil {
-		return semSchemaClass
+	if s.Things != nil {
+		semSchemaClass, err := GetClassByName(s.Things, string(className))
+		if err == nil {
+			return semSchemaClass
+		}
 	}
 
-	semSchemaClass, err = GetClassByName(s.Actions, string(className))
-	if err == nil {
-		return semSchemaClass
+	if s.Actions != nil {
+		semSchemaClass, err := GetClassByName(s.Actions, string(className))
+		if err == nil {
+			return semSchemaClass
+		}
 	}
 
 	// TODO: Remove hard-coded test data

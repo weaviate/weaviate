@@ -32,7 +32,7 @@ func TestNetworkCrossRefNames(t *testing.T) {
 		}
 		t.Run(msg, func(t *testing.T) {
 			if result := ValidClassName(data.input); result != data.expectedResult {
-				t.Fatalf("wanted %v, but got %v", data.expectedResult, result)
+				t.Errorf("wanted %v, but got %v", data.expectedResult, result)
 			}
 		})
 	}
