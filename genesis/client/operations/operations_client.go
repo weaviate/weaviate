@@ -93,7 +93,7 @@ func (a *Client) GenesisPeersList(params *GenesisPeersListParams) (*GenesisPeers
 }
 
 /*
-GenesisPeersPing Ping the Genesis server, to make mark the peer as alive
+GenesisPeersPing Ping the Genesis server, to make mark the peer as alive and udpate schema info
 */
 func (a *Client) GenesisPeersPing(params *GenesisPeersPingParams) (*GenesisPeersPingOK, error) {
 	// TODO: Validate the params before sending

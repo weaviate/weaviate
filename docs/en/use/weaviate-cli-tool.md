@@ -39,7 +39,7 @@ _Note: you will need Python3 to run the Weaviate-cli tool_
 Before being able to use Weaviate CLI you need to set variables of your Weaviate environment
 
 ```sh
-$ weaviate --init --init-url $WEAVIATE_URL --init-key $X_API_KEY --init-token $X_API_TOKEN
+$ weaviate-cli --init --init-url $WEAVIATE_URL --init-key $X_API_KEY --init-token $X_API_TOKEN
 ```
 
 _Note I, data will be stored in `~/.weaviate.conf`_
@@ -58,7 +58,7 @@ The ontology schema importer imports an ontolgy schema to Weaviate.
 | `--schema-import-actions=*` | OPTIONAL: Change the path to actions.json (path + filename) |
 
 ```sh
-$ weaviate --schema-import --schema-import-things=$PATH_TO_SCHEMA_JSON --schema-import-actions=$PATH_TO_SCHEMA_JSON
+$ weaviate-cli --schema-import --schema-import-things=$PATH_TO_SCHEMA_JSON --schema-import-actions=$PATH_TO_SCHEMA_JSON
 ```
 
 ## Ontology Export
@@ -74,7 +74,7 @@ The ontology schema exporter exports an ontolgy schema from Weaviate.
 | `--schema-export-actions=*` | OPTIONAL: Change the path to actions.json (path + filename) |
 
 ```sh
-$ weaviate --schema-export --schema-export-things=$PATH_TO_SCHEMA_JSON --schema-export-actions=$PATH_TO_SCHEMA_JSON
+$ weaviate-cli --schema-export --schema-export-things=$PATH_TO_SCHEMA_JSON --schema-export-actions=$PATH_TO_SCHEMA_JSON
 ```
 
 ## Bulk Data Import
@@ -88,5 +88,5 @@ Imports bulk data to Weaviate
 | `--data-import=*` | Imports the data from the JSON file provided | 
 
 ```sh
-$ weaviate --data-import=$PATH_TO_BULK_DATA
+$ weaviate-cli --data-import=$PATH_TO_BULK_DATA
 ```

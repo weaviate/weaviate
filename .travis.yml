@@ -27,6 +27,7 @@ branches:
   only: 
     - master
     - develop
+    - update_docs_and_fix_prototype_schema
 dist: xenial
 go: 
   - "1.11"
@@ -55,8 +56,7 @@ before_script:
   - sudo apt-get -qq -y update
   - sudo apt-get -qq -y install jq coreutils python3
   - |
-    # Validate if the open-api schema needs to be bumped
-    if [ $TRAVIS_PULL_REQUEST = "false" ]; then
+    if [ "$TRAVIS_BRANCH" = "develop" ] && [ "$TRAVIS_PULL_REQUEST" = "false" ]; then
       # PREVIOUSSEMVER = comparison of the current HEAD of WEAVIATESCHEMAFILE with the previous commit. More info: https://github.com/fsaintjacques/semver-tool/blob/master/README.md
       PREVIOUSSEMVER=$(./semver compare $(git show --oneline HEAD:$WEAVIATESCHEMAFILE | jq -r ".info.version") $(git show --oneline HEAD~1:$WEAVIATESCHEMAFILE | jq -r ".info.version"))
       # Determine if the version should be bumped
@@ -69,7 +69,7 @@ before_script:
         git config credential.helper "store --file=.git/credentials"
         echo "https://${GH_TOKEN}:@github.com" > .git/credentials
         git add -A
-        git commit -m "🤖 bleep bloop - auto updated Weaviate"
+        git commit -m "?? bleep bloop - auto updated Weaviate"
         git push origin HEAD:${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
         # exit 0 will trigger a new build
         travis_terminate 0

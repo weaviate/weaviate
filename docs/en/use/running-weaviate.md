@@ -8,6 +8,8 @@ This document describes how to run Weaviate for users. If you want to run a deve
 
 A complete Weaviate stack based on Janusgraph (with; Elasticsearch and Cassandra) can be directly run with the Docker compose files available in this repo.
 
+_Note: make sure to collect your `ROOTTOKEN` and `ROOTKEY` after starting a Weaviate. They will show up in the log files. When running Docker-compose you can [follow these steps](#user-content-getting-rootkey-and-roottoken-using-docker-compose) to collect them._
+
 #### Running the latest stable version
 
 ```sh
@@ -94,3 +96,18 @@ If you want to run Weaviate with a specific configuration (for example over SSL 
 $ git clone https://github.com/creativesoftwarefdn/weaviate
 # Select the correct branch, 
 ```
+
+## Getting ROOTKEY and ROOTTOKEN using Docker-compose
+
+To authenticate, you will need the `ROOTKEY` and `ROOTTOKEN`. When using Docker-compose, you'll be able to find them in the log files.
+
+```sh
+# Find the log file, look for creativesoftwarefdn/weaviate:${VERSION}. Copy the `CONTAINER ID`
+$ docker ps
+# Find the ROOTKEY
+$ cat $(docker inspect --format='{{.LogPath}}' $CONTAINER_ID) | grep -sPo '(?<=ROOTKEY=)[-a-f0-9]+'
+# Find the ROOTTOKEN
+$ cat $(docker inspect --format='{{.LogPath}}' $CONTAINER_ID) | grep -sPo '(?<=ROOTTOKEN=)[-a-f0-9]+'
+```
+
+_Note: you might need to run with `sudo` depending on how your Docker deamon runs._

@@ -21,7 +21,7 @@ import (
 
 	graphqlnetworkGet "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -42,10 +42,10 @@ func TestProxyGetInstance(t *testing.T) {
 			},
 		}
 		subject = &network{
-			peers: []libnetwork.Peer{{
+			peers: []peers.Peer{{
 				Name: "best-instance",
 				URI:  strfmt.URI(remote.URL),
-				Id:   strfmt.UUID("some-id"),
+				ID:   strfmt.UUID("some-id"),
 			}},
 		}
 	}

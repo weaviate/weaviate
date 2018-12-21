@@ -13,7 +13,7 @@ services:
     ports:
      - "8080:8080"
     environment:
-      DEBUG: 1
+      DEVELOPMENT_UI: "on"
   genesis_fake:
     build:
       context: .
@@ -27,7 +27,7 @@ services:
       REMOTE_PEER_URI: http://remote_weaviate_fake:8081
       LOCAL_PEER_URI: http://weaviate:8080
       ACCEPTANCE_TEST: "on"
-  remote_weaviate_fake:
+  remote_weaviate_fake: # used for testing the Network.Get functionality
     build:
       context: .
       dockerfile: Dockerfile
@@ -35,6 +35,13 @@ services:
     restart: on-failure:0
     ports:
       - "8081:8081"
+  remote_weaviate_fakes_with_test_schema: # used for comparing the remote schema against the prototype
+    build:
+      context: ./tools/remote_weaviate_fake_with_test_schema/
+      dockerfile: Dockerfile
+    restart: on-failure:0
+    ports:
+      - "8082:8082"
   janus:
     image: creativesoftwarefdn/janusgraph-docker:0.2.0
     depends_on:
@@ -72,3 +79,15 @@ services:
      - "9300:9300"
     volumes:
      - ./data/elasticsearch/data:/usr/share/elasticsearch/data
+  genesis: # an actual genesis - not used in the weaviate tests, but used to test the genesis itself
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: genesis
+    restart: on-failure:0
+    ports:
+      - "8111:8111"
+    command:
+      - "--scheme=http"
+      - "--host=0.0.0.0"
+      - "--port=8111"
