@@ -272,7 +272,7 @@ function createArgs(item, location, groupBy, where){
       type: new GraphQLInputObjectType({
         name: "Weaviate" + location + item.class + "WhereInpObj",
         description: "Input fields for the where filter to filter the class " + item.class + " on",
-        fields: genWhereFields("Weaviate" + location + item.class + "Where")
+        fields: genWhereFields("Weaviate" + location + item.class)
       }) 
     }
   }
@@ -1068,8 +1068,8 @@ function getWeaviateNetworkGetFields(weaviate) {
   // merge
   classes = mergeOntologies(JSON.parse(ontologyThings), JSON.parse(ontologyActions))
   var localSubClasses = createSubClasses(classes, weaviate);
-  var rootClassesNetworkThingsFields = createRootClasses(JSON.parse(ontologyThings), localSubClasses, location="NetworkGetThings" + weaviate);
-  var rootClassesNetworkActionsFields = createRootClasses(JSON.parse(ontologyActions), localSubClasses, location="NetworkGetActions" + weaviate);
+  var rootClassesNetworkThingsFields = createRootClasses(JSON.parse(ontologyThings), localSubClasses, location="NetworkGet" + weaviate + "Things");
+  var rootClassesNetworkActionsFields = createRootClasses(JSON.parse(ontologyActions), localSubClasses, location="NetworkGet" + weaviate + "Actions");
 
   fields = {
     Things: {
@@ -1117,8 +1117,8 @@ function getWeaviateNetworkGetMetaFields(weaviate) {
   // merge
   classes = mergeOntologies(JSON.parse(ontologyThings), JSON.parse(ontologyActions))
   var metaSubClasses = createMetaSubClasses(classes, weaviate);
-  var metaRootClassesNetworkThingsFields = createMetaRootClasses(JSON.parse(ontologyThings), metaSubClasses, location="NetworkGetMetaThings" + weaviate);
-  var metaRootClassesNetworkActionsFields = createMetaRootClasses(JSON.parse(ontologyActions), metaSubClasses, location="NetworkGetMetaActions" + weaviate);
+  var metaRootClassesNetworkThingsFields = createMetaRootClasses(JSON.parse(ontologyThings), metaSubClasses, location="NetworkGetMeta" + weaviate + "Things");
+  var metaRootClassesNetworkActionsFields = createMetaRootClasses(JSON.parse(ontologyActions), metaSubClasses, location="NetworkGetMeta" + weaviate + "Actions");
 
   fields = {
     Things: {

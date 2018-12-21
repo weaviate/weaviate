@@ -16,25 +16,29 @@ package get_meta
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
-	"strings"
 )
 
 // Build the dynamically generated GetMeta Things part of the schema
 func genLocalMetaClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, classParentTypeIsAction bool) (*graphql.Object, error) {
 	classFields := graphql.Fields{}
+	kindName := "Things"
 	name := "WeaviateLocalGetMetaThingsObj"
 	description := descriptions.LocalGetMetaThingsObjDesc
 	if classParentTypeIsAction {
 		name = "WeaviateLocalGetMetaActionsObj"
 		description = descriptions.LocalGetMetaActionsObjDesc
+		kindName = "Actions"
 	}
 
 	for _, class := range databaseSchema {
-		field, err := genSingleLocalMetaClassField(class, class.Description)
+		field, err := genSingleLocalMetaClassField(kindName, class, class.Description)
 
 		if err != nil {
 			return nil, err
@@ -52,7 +56,7 @@ func genLocalMetaClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaCl
 	return graphql.NewObject(LocalGetMetaClasses), nil
 }
 
-func genSingleLocalMetaClassField(class *models.SemanticSchemaClass, description string) (*graphql.Field, error) {
+func genSingleLocalMetaClassField(kindName string, class *models.SemanticSchemaClass, description string) (*graphql.Field, error) {
 	metaClassName := fmt.Sprintf("Meta%s", class.Class)
 
 	singleClassPropertyFields := graphql.ObjectConfig{
@@ -81,6 +85,16 @@ func genSingleLocalMetaClassField(class *models.SemanticSchemaClass, description
 			"after": &graphql.ArgumentConfig{
 				Description: descriptions.AfterDesc,
 				Type:        graphql.Int,
+			},
+			"where": &graphql.ArgumentConfig{
+				Description: descriptions.LocalGetWhereDesc,
+				Type: graphql.NewInputObject(
+					graphql.InputObjectConfig{
+						Name:        fmt.Sprintf("WeaviateLocalGetMeta%s%sWhereInpObj", kindName, class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGetMeta%s%s", kindName, class.Class)),
+						Description: descriptions.LocalGetWhereInpObjDesc,
+					},
+				),
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
