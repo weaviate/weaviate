@@ -24,65 +24,65 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
-func Build(dbSchema *schema.Schema, weaviate string) (*graphql.Field, error) {
-	getKinds := graphql.Fields{}
-
-	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
-		return nil, fmt.Errorf("There are no Actions or Things classes defined yet.")
-	}
-
-	knownClasses := map[string]*graphql.Object{}
-
-	if len(dbSchema.Actions.Classes) > 0 {
-		networkAggregateActions, err := buildAggregateClasses(dbSchema, kind.ACTION_KIND, dbSchema.Actions, &knownClasses, weaviate)
-		if err != nil {
-			return nil, err
-		}
-
-		getKinds["Actions"] = &graphql.Field{
-			Name:        fmt.Sprintf("WeaviateNetworkAggregate%sActions", weaviate),
-			Description: descriptions.NetworkAggregateActionsDesc,
-			Type:        networkAggregateActions,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
-		}
-	}
-
-	if len(dbSchema.Things.Classes) > 0 {
-		networkAggregateThings, err := buildAggregateClasses(dbSchema, kind.THING_KIND, dbSchema.Things, &knownClasses)
-		if err != nil {
-			return nil, err
-		}
-
-		getKinds["Things"] = &graphql.Field{
-			Name:        fmt.Sprintf("WeaviateNetworkAggregate%sThings", weaviate),
-			Description: descriptions.NetworkAggregateThingsDesc,
-			Type:        networkAggregateThings,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
-		}
-	}
-
-	field := graphql.Field{
-		Name:        "WeaviateNetworkAggregate",
-		Description: descriptions.NetworkAggregateWhereDesc,
-		Type: graphql.NewObject(graphql.ObjectConfig{
-			Name:        "WeaviateNetworkAggregateObj",
-			Fields:      getKinds,
-			Description: descriptions.NetworkAggregateObjDesc,
-		}),
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
-		},
-	}
-
-	return &field, nil
-}
+//func Build(dbSchema *schema.Schema, weaviate string) (*graphql.Field, error) {
+//	getKinds := graphql.Fields{}
+//
+//	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
+//		return nil, fmt.Errorf("There are no Actions or Things classes defined yet.")
+//	}
+//
+//	knownClasses := map[string]*graphql.Object{}
+//
+//	if len(dbSchema.Actions.Classes) > 0 {
+//		networkAggregateActions, err := buildAggregateClasses(dbSchema, kind.ACTION_KIND, dbSchema.Actions, &knownClasses, weaviate)
+//		if err != nil {
+//			return nil, err
+//		}
+//
+//		getKinds["Actions"] = &graphql.Field{
+//			Name:        fmt.Sprintf("WeaviateNetworkAggregate%sActions", weaviate),
+//			Description: descriptions.NetworkAggregateActionsDesc,
+//			Type:        networkAggregateActions,
+//			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+//				return nil, fmt.Errorf("not supported")
+//			},
+//		}
+//	}
+//
+//	if len(dbSchema.Things.Classes) > 0 {
+//		networkAggregateThings, err := buildAggregateClasses(dbSchema, kind.THING_KIND, dbSchema.Things, &knownClasses)
+//		if err != nil {
+//			return nil, err
+//		}
+//
+//		getKinds["Things"] = &graphql.Field{
+//			Name:        fmt.Sprintf("WeaviateNetworkAggregate%sThings", weaviate),
+//			Description: descriptions.NetworkAggregateThingsDesc,
+//			Type:        networkAggregateThings,
+//			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+//				return nil, fmt.Errorf("not supported")
+//			},
+//		}
+//	}
+//
+//	field := graphql.Field{
+//		Name:        "WeaviateNetworkAggregate",
+//		Description: descriptions.NetworkAggregateWhereDesc,
+//		Type: graphql.NewObject(graphql.ObjectConfig{
+//			Name:        "WeaviateNetworkAggregateObj",
+//			Fields:      getKinds,
+//			Description: descriptions.NetworkAggregateObjDesc,
+//		}),
+//		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+//			return nil, fmt.Errorf("not supported")
+//		},
+//	}
+//
+//	return &field, nil
+//}
 
 // Builds the classes below a Network -> Aggregate -> (k kind.Kind)
-func buildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *models.SemanticSchema, knownClasses *map[string]*graphql.Object, weaviate string) (*graphql.Object, error) {
+func BuildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *models.SemanticSchema, knownClasses *map[string]*graphql.Object, weaviate string) (*graphql.Object, error) {
 	classFields := graphql.Fields{}
 
 	var kindName string
@@ -94,7 +94,7 @@ func buildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema 
 	}
 
 	for _, class := range semanticSchema.Classes {
-		classField, err := buildAggregateClass(dbSchema, k, class, knownClasses, weaviate)
+		classField, err := buildAggregateClass(dbSchema, k, class, knownClasses, kindName, weaviate)
 		if err != nil {
 			return nil, fmt.Errorf("Could not build class for %s", class.Class)
 		}
@@ -111,7 +111,7 @@ func buildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema 
 }
 
 // Build a single class in Network -> Aggregate -> (k kind.Kind) -> (models.SemanticSchemaClass)
-func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object, weaviate string) (*graphql.Field, error) {
+func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object, kindName string, weaviate string) (*graphql.Field, error) {
 	classObject := graphql.NewObject(graphql.ObjectConfig{
 
 		Name: fmt.Sprintf("Aggregate%s%s", weaviate, class.Class),
@@ -201,7 +201,7 @@ func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, class *models.Sem
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{
-				Description: descriptions.LocalGetWhereDesc,
+				Description: descriptions.NetworkAggregateWhereDesc,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        fmt.Sprintf("WeaviateNetworkAggregate%s%ss%sWhereInpObj", weaviate, kindName, class.Class),

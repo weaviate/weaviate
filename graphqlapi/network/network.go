@@ -17,7 +17,9 @@ package network
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	network_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/aggregate"
 	network_fetch "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
 	network_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
 	network_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get_meta"
@@ -34,6 +36,7 @@ func Build(peers peers.Peers) (*graphql.Field, error) {
 
 	weaviateNetworkGetResults := make(map[string]*graphql.Object)
 	weaviateNetworkGetMetaResults := make(map[string]*graphql.Object)
+	weaviateNetworkAggregateResults := make(map[string]*graphql.Object)
 
 	// this map is used to store all the Filter InputObjects, so that we can use them in references.
 	filterContainer.NetworkFilterOptions = make(map[string]*graphql.InputObject)
@@ -101,7 +104,7 @@ func Build(peers peers.Peers) (*graphql.Field, error) {
 				},
 			}
 
-			networkAggregateActions, aggregateErr := network_aggregate.buildAggregateClasses(peer.Schema, kind.ACTION_KIND, peer.Schema.Actions, &aggregateKinds, peer.Name)
+			networkAggregateActions, aggregateErr := network_aggregate.BuildAggregateClasses(&peer.Schema, kind.ACTION_KIND, peer.Schema.Actions, &aggregateNetworkActionsAndThings, peer.Name)
 			if aggregateErr != nil {
 				return nil, fmt.Errorf(
 					"failed to generate action fields from schema for network Aggregate because: %v",
@@ -157,7 +160,7 @@ func Build(peers peers.Peers) (*graphql.Field, error) {
 				},
 			}
 
-			networkAggregateThings, aggregateErr := network_aggregate.buildAggregateClasses(peer.Schema, kind.THING_KIND, peer.Schema.Things, &aggregateKinds, peer.Name)
+			networkAggregateThings, aggregateErr := network_aggregate.BuildAggregateClasses(&peer.Schema, kind.THING_KIND, peer.Schema.Things, &aggregateNetworkActionsAndThings, peer.Name)
 			if aggregateErr != nil {
 				return nil, fmt.Errorf(
 					"failed to generate thing fields from schema for network Aggregate because: %v",
@@ -297,7 +300,7 @@ func buildGetAndGetMeta(weaviatesWithGetFields map[string]*graphql.Object,
 		// if we don't have any peers, we must return nil
 		// otherwise we'd have an empty Get and GetMeta object, which
 		// is not valid GraphQL
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	getWeaviates := graphql.Fields{}
