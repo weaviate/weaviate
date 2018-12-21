@@ -247,7 +247,17 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf(validation.ErrorInvalidClassType, "TestThing", "testCref", connutils.RefTypeAction, connutils.RefTypeThing, connutils.RefTypeKey), err.Error[0].Message)
+			assert.Equal(t,
+				fmt.Sprintf(
+					validation.ErrorInvalidClassType,
+					"TestThing",
+					"testCref",
+					connutils.RefTypeAction,
+					connutils.RefTypeThing,
+					connutils.RefTypeKey,
+					connutils.RefTypeNetworkAction,
+					connutils.RefTypeNetworkThing,
+				), err.Error[0].Message)
 		},
 	},
 	{
