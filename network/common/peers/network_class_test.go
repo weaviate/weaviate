@@ -54,6 +54,6 @@ func TestWithPeerWithClass(t *testing.T) {
 	networkClass, _ := crossrefs.ParseClass("WeaviateB/Car")
 
 	ok, err := peers.HasClass(networkClass)
-	assert.Equal(t, false, ok, "class should not exist on peer with empty network")
+	assert.Equal(t, true, ok, "class should exist")
 	assert.Equal(t, nil, err, "should have no error")
 }

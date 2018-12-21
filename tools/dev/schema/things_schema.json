@@ -29,7 +29,7 @@
                 {
                     "name": "inCountry",
                     "@dataType": [
-                        "Country", "WeaviateB/Instrument"
+                        "Country", "WeaviateB/Country"
                     ],
                     "description": "The country the city lies in"
                 },

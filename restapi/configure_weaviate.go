@@ -2516,7 +2516,8 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, "Local schema manager is not configured.")
 	}
 
-	manager, err := db_local_schema_manager.New(serverConfig.Environment.Database.LocalSchemaConfig.StateDir, dbConnector)
+	manager, err := db_local_schema_manager.New(
+		serverConfig.Environment.Database.LocalSchemaConfig.StateDir, dbConnector, network)
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 	"github.com/fatih/camelcase"
 )
 
@@ -135,7 +136,11 @@ func (l *localSchemaManager) validateCanAddProperty(property *models.SemanticSch
 	schema := l.GetSchema()
 	_, err = (&schema).FindPropertyDataType(property.AtDataType)
 	if err != nil {
-		return fmt.Errorf("Data type fo property '%s' is invalid; %v", property.Name, err)
+		return fmt.Errorf("Data type of property '%s' is invalid; %v", property.Name, err)
+	}
+
+	if err = l.validateNetworkCrossRefs(property.AtDataType); err != nil {
+		return fmt.Errorf("Data type of property '%s' is invalid; %v", property.Name, err)
 	}
 
 	// all is fine!
@@ -180,6 +185,38 @@ func (l *localSchemaManager) validatePropertyNameOrKeywordsCorrect(className str
 					return fmt.Errorf("Could not find the word '%s' from the property '%s' in the class name '%s' in the contextionary. Consider using keywords to define the semantic meaning of this class.", word, propertyName, className)
 				}
 			}
+		}
+	}
+
+	return nil
+}
+
+func (l *localSchemaManager) validateNetworkCrossRefs(dataTypes []string) error {
+	for _, dataType := range dataTypes {
+		if !crossrefs.ValidClassName(dataType) {
+			// we don't know anything about the validity of non-network-refs
+			// that's the concern of a separate validation
+			continue
+		}
+
+		if l.network == nil {
+			return fmt.Errorf(
+				"schema contains network-cross-ref '%s', but no network is configured", dataType)
+		}
+
+		peers, err := l.network.ListPeers()
+		if err != nil {
+			return fmt.Errorf(
+				"schema contains network-cross-ref '%s', but peers cannot be retrieved: %s", dataType, err)
+		}
+
+		networkClass, err := crossrefs.ParseClass(dataType)
+		if err != nil {
+			return err
+		}
+
+		if ok, err := peers.HasClass(networkClass); !ok {
+			return err
 		}
 	}
 

@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 	"unicode"
+
+	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 )
 
 type DataType string
@@ -127,12 +129,22 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 	var classes []ClassName
 
 	for _, someDataType := range dataType {
-		className := AssertValidClassName(someDataType)
-		if s.FindClassByName(className) == nil {
-			return nil, fmt.Errorf("SingleRef class name '%s' does not exist", className)
-		}
+		if crossrefs.ValidClassName(someDataType) {
+			// this is a network instance
+			classes = append(classes, ClassName(someDataType))
+		} else {
+			// this is a local reference
+			err, className := ValidateClassName(someDataType)
+			if err != nil {
+				return nil, err
+			}
 
-		classes = append(classes, className)
+			if s.FindClassByName(className) == nil {
+				return nil, fmt.Errorf("SingleRef class name '%s' does not exist", className)
+			}
+
+			classes = append(classes, className)
+		}
 	}
 
 	return &propertyDataType{

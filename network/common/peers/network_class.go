@@ -22,5 +22,5 @@ func (p Peers) HasClass(classRef crossrefs.NetworkClass) (bool, error) {
 			classRef.String(), classRef.PeerName, classRef.ClassName)
 	}
 
-	return false, nil
+	return true, nil
 }
