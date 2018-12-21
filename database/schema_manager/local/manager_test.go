@@ -13,10 +13,11 @@
 package local
 
 import (
-	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"os"
 	"testing"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -434,7 +435,7 @@ func newLSM(baseTempDir string) database.SchemaManager {
 		log.Fatalf("Could not initialize temporary directory: %v\n", err)
 	}
 
-	lsm, err := New(tempDir, &NilMigrator{})
+	lsm, err := New(tempDir, &NilMigrator{}, nil)
 	if err != nil {
 		panic(err)
 	}

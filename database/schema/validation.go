@@ -27,11 +27,6 @@ func init() {
 
 // Validates that this string is a valid class name (formate wise)
 func ValidateClassName(name string) (error, ClassName) {
-	// TODO: Remove hard-coded example
-	if name == "WeaviateB/Instrument" {
-		return nil, ClassName(name)
-	}
-
 	if validateClassNameRegex.MatchString(name) {
 		return nil, ClassName(name)
 	} else {
