@@ -225,6 +225,9 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 		default:
 			return q, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
 		}
+	default:
+		panic(fmt.Sprintf("Unkown primitive datatype %s", propType.AsPrimitive()))
 	}
-	panic(fmt.Sprintf("Unkown primitive datatype %s", propType.AsPrimitive()))
+
+	return q, nil
 }
