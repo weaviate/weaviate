@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -2064,6 +2065,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().WithPayload(errorResponse)
 		}
 
+		isThingsCreate := false
+		fieldsToKeep := determineResponseFields(params.Body.Fields, isThingsCreate)
+
 		requestResults := make(chan rest_api_utils.BatchedActionsCreateRequestResponse, amountOfBatchedRequests)
 
 		wg := new(sync.WaitGroup)
@@ -2073,7 +2077,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Generate a goroutine for each separate request
 		for requestIndex, batchedRequest := range params.Body.Actions {
 			wg.Add(1)
-			go handleBatchedActionsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, principal, &requestLocks)
+			go handleBatchedActionsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, principal, &requestLocks, fieldsToKeep)
 		}
 
 		wg.Wait()
@@ -2118,6 +2122,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errorResponse)
 		}
 
+		isThingsCreate := true
+		fieldsToKeep := determineResponseFields(params.Body.Fields, isThingsCreate)
+
 		requestResults := make(chan rest_api_utils.BatchedThingsCreateRequestResponse, amountOfBatchedRequests)
 
 		wg := new(sync.WaitGroup)
@@ -2127,7 +2134,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Generate a goroutine for each separate request
 		for requestIndex, batchedRequest := range params.Body.Things {
 			wg.Add(1)
-			go handleBatchedThingsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, principal, &requestLocks)
+			go handleBatchedThingsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, principal, &requestLocks, fieldsToKeep)
 		}
 
 		wg.Wait()
@@ -2142,7 +2149,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		return operations.NewWeaviateBatchingThingsCreateOK().WithPayload(batchedRequestResponse)
-
 	})
 
 	/*
@@ -2237,7 +2243,7 @@ func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unba
 
 }
 
-func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, batchedRequest *models.ActionCreate, requestIndex int, requestResults *chan rest_api_utils.BatchedActionsCreateRequestResponse, async bool, principal interface{}, requestLocks *rest_api_utils.RequestLocks) {
+func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, batchedRequest *models.ActionCreate, requestIndex int, requestResults *chan rest_api_utils.BatchedActionsCreateRequestResponse, async bool, principal interface{}, requestLocks *rest_api_utils.RequestLocks, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
 	// Generate UUID for the new object
@@ -2256,12 +2262,21 @@ func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, 
 
 	// Create Action object
 	action := &models.Action{}
-	action.AtClass = batchedRequest.AtClass
 	action.AtContext = batchedRequest.AtContext
-	action.Schema = batchedRequest.Schema
-	action.CreationTimeUnix = connutils.NowUnix()
 	action.LastUpdateTimeUnix = 0
-	action.Key = keyRef
+
+	if _, ok := fieldsToKeep["@class"]; ok {
+		action.AtClass = batchedRequest.AtClass
+	}
+	if _, ok := fieldsToKeep["schema"]; ok {
+		action.Schema = batchedRequest.Schema
+	}
+	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
+		action.CreationTimeUnix = connutils.NowUnix()
+	}
+	if _, ok := fieldsToKeep["key"]; ok {
+		action.Key = keyRef
+	}
 
 	// Create request result object
 	result := &models.ActionsGetResponseAO1Result{}
@@ -2270,7 +2285,9 @@ func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, 
 	// Create request response object
 	responseObject := &models.ActionsGetResponse{}
 	responseObject.Action = *action
-	responseObject.ActionID = UUID
+	if _, ok := fieldsToKeep["actionid"]; ok {
+		responseObject.ActionID = UUID
+	}
 	responseObject.Result = result
 
 	resultStatus := models.ActionsGetResponseAO1ResultStatusSUCCESS
@@ -2320,7 +2337,7 @@ func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, 
 	}
 }
 
-func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, batchedRequest *models.ThingCreate, requestIndex int, requestResults *chan rest_api_utils.BatchedThingsCreateRequestResponse, async bool, principal interface{}, requestLocks *rest_api_utils.RequestLocks) {
+func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, batchedRequest *models.ThingCreate, requestIndex int, requestResults *chan rest_api_utils.BatchedThingsCreateRequestResponse, async bool, principal interface{}, requestLocks *rest_api_utils.RequestLocks, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
 	// Generate UUID for the new object
@@ -2339,12 +2356,21 @@ func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, b
 
 	// Create Thing object
 	thing := &models.Thing{}
-	thing.AtClass = batchedRequest.AtClass
 	thing.AtContext = batchedRequest.AtContext
-	thing.Schema = batchedRequest.Schema
-	thing.CreationTimeUnix = connutils.NowUnix()
 	thing.LastUpdateTimeUnix = 0
-	thing.Key = keyRef
+
+	if _, ok := fieldsToKeep["@class"]; ok {
+		thing.AtClass = batchedRequest.AtClass
+	}
+	if _, ok := fieldsToKeep["schema"]; ok {
+		thing.Schema = batchedRequest.Schema
+	}
+	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
+		thing.CreationTimeUnix = connutils.NowUnix()
+	}
+	if _, ok := fieldsToKeep["key"]; ok {
+		thing.Key = keyRef
+	}
 
 	// Create request result object
 	result := &models.ThingsGetResponseAO1Result{}
@@ -2352,8 +2378,11 @@ func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, b
 
 	// Create request response object
 	responseObject := &models.ThingsGetResponse{}
+
 	responseObject.Thing = *thing
-	responseObject.ThingID = UUID
+	if _, ok := fieldsToKeep["thingid"]; ok {
+		responseObject.ThingID = UUID
+	}
 	responseObject.Result = result
 
 	resultStatus := models.ThingsGetResponseAO1ResultStatusSUCCESS
@@ -2401,6 +2430,37 @@ func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, b
 		requestIndex,
 		responseObject,
 	}
+}
+
+// determine which field values not to return
+func determineResponseFields(fields []*string, isThingsCreate bool) map[string]int {
+	fieldsToKeep := map[string]int{"@class": 0, "schema": 0, "creationtimeunix": 0, "key": 0, "actionid": 0}
+
+	// convert to things instead of actions
+	if isThingsCreate {
+		delete(fieldsToKeep, "actionid")
+		fieldsToKeep["thingid"] = 0
+	}
+
+	if len(fields) > 0 {
+
+		// check if "ALL" option is provided
+		for _, field := range fields {
+			fieldToKeep := strings.ToLower(*field)
+			if fieldToKeep == "all" {
+				return fieldsToKeep
+			}
+		}
+
+		fieldsToKeep = make(map[string]int)
+		// iterate over the provided fields
+		for _, field := range fields {
+			fieldToKeep := strings.ToLower(*field)
+			fieldsToKeep[fieldToKeep] = 0
+		}
+	}
+
+	return fieldsToKeep
 }
 
 // The TLS configuration before HTTPS server starts.
