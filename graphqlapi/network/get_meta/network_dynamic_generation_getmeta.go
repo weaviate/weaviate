@@ -20,6 +20,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
@@ -27,15 +28,17 @@ import (
 // Build the dynamically generated GetMeta Things part of the schema
 func ClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, classParentTypeIsAction bool, weaviate string) (*graphql.Object, error) {
 	classFields := graphql.Fields{}
+	kindName := "Thing"
 	name := fmt.Sprintf("%s%s%s", "WeaviateNetworkGetMeta", weaviate, "ThingsObj")
 	description := descriptions.NetworkGetMetaThingsObjDesc
 	if classParentTypeIsAction {
+		kindName = "Action"
 		name = fmt.Sprintf("%s%s%s", "WeaviateNetworkGetMeta", weaviate, "ActionsObj")
 		description = descriptions.NetworkGetMetaActionsObjDesc
 	}
 
 	for _, class := range databaseSchema {
-		field, err := metaClassField(class, class.Description, weaviate)
+		field, err := metaClassField(class, kindName, class.Description, weaviate)
 
 		if err != nil {
 			return nil, err
@@ -53,7 +56,7 @@ func ClassFieldsFromSchema(databaseSchema []*models.SemanticSchemaClass, classPa
 	return graphql.NewObject(classes), nil
 }
 
-func metaClassField(class *models.SemanticSchemaClass, description string, weaviate string) (*graphql.Field, error) {
+func metaClassField(class *models.SemanticSchemaClass, kindName string, description string, weaviate string) (*graphql.Field, error) {
 	metaClassName := fmt.Sprintf("%s%s%s", weaviate, "Meta", class.Class)
 
 	propertyFields := graphql.ObjectConfig{
@@ -82,6 +85,16 @@ func metaClassField(class *models.SemanticSchemaClass, description string, weavi
 			"after": &graphql.ArgumentConfig{
 				Description: descriptions.AfterDesc,
 				Type:        graphql.Int,
+			},
+			"where": &graphql.ArgumentConfig{
+				Description: descriptions.NetworkGetWhereDesc,
+				Type: graphql.NewInputObject(
+					graphql.InputObjectConfig{
+						Name:        fmt.Sprintf("WeaviateNetworkGetMeta%s%ss%sWhereInpObj", weaviate, kindName, class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGetMeta%s%ss%s", weaviate, kindName, class.Class)),
+						Description: descriptions.NetworkGetWhereInpObjDesc,
+					},
+				),
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
