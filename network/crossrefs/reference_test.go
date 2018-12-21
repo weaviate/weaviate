@@ -1,0 +1,54 @@
+package crossrefs
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestNetworkCrossRefNames(t *testing.T) {
+	testData := []struct {
+		input          string
+		expectedResult bool
+	}{
+		{"Car", false},
+		{"WeviateB/Car", true},
+		{"weviateb/Car", true},
+		{"weviateb/car", false},
+		{"/", false},
+		{"/Car", false},
+		{"weaviateB/", false},
+		{"we4viateB/Car", false},
+		{"weaviateB/C4r", false},
+	}
+
+	for _, data := range testData {
+		var msg string
+		if data.expectedResult {
+			msg = fmt.Sprintf("'%s' should be a valid network cross-ref", data.input)
+		} else {
+			msg = fmt.Sprintf("'%s' should NOT be a valid network cross-ref", data.input)
+		}
+		t.Run(msg, func(t *testing.T) {
+			if result := ValidClassName(data.input); result != data.expectedResult {
+				t.Fatalf("wanted %v, but got %v", data.expectedResult, result)
+			}
+		})
+	}
+}
+
+func TestParseClass(t *testing.T) {
+
+	t.Run("a valid class name", func(t *testing.T) {
+		ref, err := ParseClass("WeaviateB/Car")
+		assert.Equal(t, nil, err, "should not error")
+		assert.Equal(t, NetworkClass{PeerName: "WeaviateB", ClassName: "Car"}, ref,
+			"should be parsed correctly into peerName and ClassName")
+	})
+
+	t.Run("an invalid class name", func(t *testing.T) {
+		_, err := ParseClass("Car")
+		assert.NotEqual(t, nil, err, "should error")
+	})
+}
