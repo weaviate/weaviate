@@ -84,7 +84,7 @@ var solve_groupBy = function(filter, list) {
 }
 
 
-var solveAggregateRootClass = function(all_data, className, args) {
+var solveAggregateRootClass = function(all_data, className, args, location) {
 	var list = []
 	for(var i=0; i < all_data.length; i++){
 		if(all_data[i].class == className){
@@ -479,8 +479,8 @@ module.exports = {
 		}
 		return solveMetaRootClass(list, className, args)
 	},
-	aggregateRootClassResolver: function(all_data, className, args) {
-		return solveAggregateRootClass(all_data, className, args)
+	aggregateRootClassResolver: function(all_data, className, args, location) {
+		return solveAggregateRootClass(all_data, className, args, location)
 	},
 	resolveNetworkGet: function(filter) {
 		all_data = _.clone(data);
