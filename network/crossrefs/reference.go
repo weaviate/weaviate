@@ -40,3 +40,7 @@ func ParseClass(name string) (NetworkClass, error) {
 	result.ClassName = parts[1]
 	return result, nil
 }
+
+func (n NetworkClass) String() string {
+	return fmt.Sprintf("%s/%s", n.PeerName, n.ClassName)
+}
