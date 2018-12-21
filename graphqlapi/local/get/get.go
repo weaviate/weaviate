@@ -89,18 +89,6 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	field := graphql.Field{
 		Name:        "WeaviateLocalGet",
 		Description: descriptions.LocalGetDesc,
-		Args: graphql.FieldConfigArgument{
-			"where": &graphql.ArgumentConfig{
-				Description: descriptions.LocalGetWhereDesc,
-				Type: graphql.NewInputObject(
-					graphql.InputObjectConfig{
-						Name:        "WeaviateLocalGetWhereInpObj",
-						Fields:      common_filters.BuildNew("WeaviateLocalGet"),
-						Description: descriptions.LocalGetWhereInpObjDesc,
-					},
-				),
-			},
-		},
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name:        "WeaviateLocalGetObj",
 			Fields:      getKinds,
@@ -138,7 +126,7 @@ func buildGetClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *model
 	}
 
 	for _, class := range semanticSchema.Classes {
-		classField, err := buildGetClass(dbSchema, k, class, knownClasses)
+		classField, err := buildGetClass(dbSchema, k, kindName, class, knownClasses)
 		if err != nil {
 			return nil, fmt.Errorf("Could not build class for %s", class.Class)
 		}
@@ -155,7 +143,7 @@ func buildGetClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *model
 }
 
 // Build a single class in Local -> Get -> (k kind.Kind) -> (models.SemanticSchemaClass)
-func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object) (*graphql.Field, error) {
+func buildGetClass(dbSchema *schema.Schema, k kind.Kind, kindName string, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object) (*graphql.Field, error) {
 	classObject := graphql.NewObject(graphql.ObjectConfig{
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
@@ -269,6 +257,16 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticS
 			"after": &graphql.ArgumentConfig{
 				Description: descriptions.AfterDesc,
 				Type:        graphql.Int,
+			},
+			"where": &graphql.ArgumentConfig{
+				Description: descriptions.LocalGetWhereDesc,
+				Type: graphql.NewInputObject(
+					graphql.InputObjectConfig{
+						Name:        fmt.Sprintf("WeaviateLocalGet%ss%sWhereInpObj", kindName, class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGet%ss%s", kindName, class.Class)),
+						Description: descriptions.LocalGetWhereInpObjDesc,
+					},
+				),
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
