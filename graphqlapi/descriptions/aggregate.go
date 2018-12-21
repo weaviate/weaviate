@@ -45,6 +45,8 @@ const LocalAggregateGroupedByGroupedByPathDesc string = "The path of the grouped
 const LocalAggregateGroupedByGroupedByValueDesc string = "The value of the grouped property"
 
 // NETWORK
+const NetworkAggregateWeaviateObjDesc string = "An object containing Get Things and Actions fields for network Weaviate instance: "
+
 const NetworkAggregateThingsDesc string = "Aggregate Things on a network Weaviate"
 const NetworkAggregateActionsDesc string = "Aggregate Things on a network Weaviate"
 
