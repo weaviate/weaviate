@@ -14,12 +14,13 @@ package main
 
 import (
 	"fmt"
+	"strconv"
+	"time"
+
 	"github.com/creativesoftwarefdn/weaviate/client/things"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	spew "github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
-	"strconv"
-	"time"
 )
 
 func createThings() {
@@ -37,11 +38,17 @@ func createThings() {
 
 			ref, isRef := value.(map[string]interface{})
 			if isRef {
+				var location string
+				location, ok := ref["location"].(string)
+				if !ok {
+					location = ""
+				}
 				thingFixups = append(thingFixups, fixupAddRef{
 					fromId:       uuid,
 					fromProperty: key,
 					toClass:      ref["class"].(string),
 					toId:         ref["uuid"].(string),
+					location:     location,
 				})
 			} else {
 				class := findClass(schema.Things, className)
@@ -95,6 +102,11 @@ func fixupThings() {
 		allExist := true
 
 		for _, fixup := range thingFixups {
+			if fixup.location != "" {
+				// it's a network ref, we can't do any validation
+				continue
+			}
+
 			if !checkThingExists(idMap[fixup.fromId]) {
 				allExist = false
 				fmt.Printf("From does not exist! %v\n", idMap[fixup.fromId])
@@ -130,21 +142,38 @@ func fixupThings() {
 	// Now fix up refs
 	op := "add"
 	for _, fixup := range thingFixups {
+		var patch *models.PatchDocument
 		path := fmt.Sprintf("/schema/%s", fixup.fromProperty)
-		kind, ok := classKinds[fixup.toClass]
 
-		if !ok {
-			panic(fmt.Sprintf("Unknown class '%s'", fixup.toClass))
-		}
+		if fixup.location == "" {
+			// is local ref
+			kind, ok := classKinds[fixup.toClass]
 
-		patch := &models.PatchDocument{
-			Op:   &op,
-			Path: &path,
-			Value: map[string]interface{}{
-				"$cref":       idMap[fixup.toId],
-				"locationUrl": "http://localhost:8080",
-				"type":        kind,
-			},
+			if !ok {
+				panic(fmt.Sprintf("Unknown class '%s'", fixup.toClass))
+			}
+
+			patch = &models.PatchDocument{
+				Op:   &op,
+				Path: &path,
+				Value: map[string]interface{}{
+					"$cref":       idMap[fixup.toId],
+					"locationUrl": "http://localhost:8080",
+					"type":        kind,
+				},
+			}
+		} else {
+			// is network ref
+			patch = &models.PatchDocument{
+				Op:   &op,
+				Path: &path,
+				Value: map[string]interface{}{
+					"$cref":       idMap[fixup.toId],
+					"locationUrl": fmt.Sprintf("http://%s", fixup.location),
+					"type":        "NetworkThing", // hard-code thing for now
+				},
+			}
+
 		}
 
 		assertPatchThing(idMap[fixup.fromId], patch)
