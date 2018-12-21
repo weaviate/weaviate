@@ -24,6 +24,7 @@ type GraphQLNetworkFieldContents struct {
 	NetworkGetMetaObject    *graphql.Object // Object containing all fields for GraphQL Network GetMeta schema generation
 	NetworkFetchObject      *graphql.Object // Object containing all fields for GraphQL Network Fetch schema generation
 	NetworkIntrospectObject *graphql.Object // Object containing all fields for GraphQL Network Introspect schema generation
+	NetworkAggregateObject  *graphql.Object // Object containing all fields for GraphQL Network Aggregate schema generation
 }
 
 // FilterContainer contains all objects regarding GraphQL filters. Some filter elements are declared as global variables in the prototype, this struct achieves the same goal.
