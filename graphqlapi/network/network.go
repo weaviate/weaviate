@@ -203,8 +203,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 			Name:        descriptions.NetworkGetDesc,
 			Type:        graphQLNetworkFieldContents.NetworkGetObject,
 			Description: descriptions.NetworkGetDesc,
-			},
-			Resolve: passThroughFiltersAndResolvers,
+			Resolve:     passThroughFiltersAndResolvers,
 		},
 
 		"GetMeta": &graphql.Field{
