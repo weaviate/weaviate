@@ -11,6 +11,14 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
+// map properties in thing.Schema according to the mapping.
+type expectedEdge struct {
+	PropertyName string
+	Type         string
+	Reference    string
+	Location     string
+}
+
 func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, atContext string, lastUpdateTimeUnix int64, rawProperties interface{}) error {
 	vertexLabel := j.state.getMappedClassName(className)
 
@@ -22,115 +30,55 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 		StringProperty(PROP_AT_CONTEXT, atContext).
 		Int64Property(PROP_LAST_UPDATE_TIME_UNIX, lastUpdateTimeUnix)
 
-	// map properties in thing.Schema according to the mapping.
-	type expectedEdge struct {
-		PropertyName string
-		Type         string
-		Reference    string
-		Location     string
+	q, err := j.addEdgesToQuery(q, k, className, rawProperties)
+	if err != nil {
+		return err
 	}
+
+	_, err = j.client.Execute(q)
+	return err
+}
+
+func (j *Janusgraph) addEdgesToQuery(q *gremlin.Query, k kind.Kind, className schema.ClassName, rawProperties interface{}) (*gremlin.Query, error) {
 
 	var expectedEdges []expectedEdge
 	var dropTheseEdgeTypes []string
 
-	properties, schema_ok := rawProperties.(map[string]interface{})
-	if schema_ok {
-		for propName, value := range properties {
-			sanitizedPropertyName := schema.AssertValidPropertyName(propName)
-			err, property := j.schema.GetProperty(k, className, sanitizedPropertyName)
+	properties, ok := rawProperties.(map[string]interface{})
+	if !ok {
+		// nothing to do because we don't have any
+		// (useable) properties
+		return q, nil
+	}
+
+	for propName, value := range properties {
+		sanitizedPropertyName := schema.AssertValidPropertyName(propName)
+		err, property := j.schema.GetProperty(k, className, sanitizedPropertyName)
+		if err != nil {
+			return q, err
+		}
+
+		janusPropertyName := string(
+			j.state.getMappedPropertyName(className, sanitizedPropertyName))
+		propType, err := j.schema.FindPropertyDataType(property.AtDataType)
+		if err != nil {
+			return q, err
+		}
+
+		if propType.IsPrimitive() {
+			q, err = addPrimitivePropToQuery(q, propType, value,
+				janusPropertyName, sanitizedPropertyName)
 			if err != nil {
-				return err
+				return q, err
 			}
-
-			janusPropertyName := string(
-				j.state.getMappedPropertyName(className, sanitizedPropertyName))
-			propType, err := j.schema.FindPropertyDataType(property.AtDataType)
+		} else {
+			result, err := j.edgesFromReferenceProp(property, value, propType, janusPropertyName, sanitizedPropertyName)
 			if err != nil {
-				return err
+				return q, err
 			}
 
-			if propType.IsPrimitive() {
-				q, err = addPrimitivePropToQuery(q, propType, value,
-					janusPropertyName, sanitizedPropertyName)
-				if err != nil {
-					return err
-				}
-			} else {
-				switch schema.CardinalityOfProperty(property) {
-				case schema.CardinalityAtMostOne:
-					switch t := value.(type) {
-					case *models.SingleRef:
-						var refClassName schema.ClassName
-						switch t.Type {
-						case "NetworkThing", "NetworkAction":
-							refClassName = "something"
-							// simply jump over this entire property for now
-							// so import works again
-							continue
-
-						case "Action":
-							var singleRefValue models.ActionGetResponse
-							err = j.GetAction(nil, t.NrDollarCref, &singleRefValue)
-							if err != nil {
-								return fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", t.NrDollarCref.String(), err)
-							}
-							refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
-						case "Thing":
-							var singleRefValue models.ThingGetResponse
-							err = j.GetThing(nil, t.NrDollarCref, &singleRefValue)
-							if err != nil {
-								return fmt.Errorf("Illegal value for property %s; could not resolve thing with UUID: %v", t.NrDollarCref.String(), err)
-							}
-							refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
-						default:
-							return fmt.Errorf("illegal value for property %s; only Thing or Action supported", t.Type)
-						}
-
-						// Verify the cross reference
-						if !propType.ContainsClass(refClassName) {
-							return fmt.Errorf("Illegal value for property %s; cannot point to %s", sanitizedPropertyName, t.Type)
-						}
-						expectedEdges = append(expectedEdges, expectedEdge{
-							PropertyName: janusPropertyName,
-							Reference:    t.NrDollarCref.String(),
-							Type:         t.Type,
-							Location:     *t.LocationURL,
-						})
-					default:
-						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
-					}
-				case schema.CardinalityMany:
-					dropTheseEdgeTypes = append(dropTheseEdgeTypes, janusPropertyName)
-					switch t := value.(type) {
-					case *models.MultipleRef:
-						for _, ref := range *t {
-							expectedEdges = append(expectedEdges, expectedEdge{
-								PropertyName: janusPropertyName,
-								Reference:    ref.NrDollarCref.String(),
-								Type:         ref.Type,
-								Location:     *ref.LocationURL,
-							})
-						}
-					case []interface{}:
-						for _, ref_ := range t {
-							ref, ok := ref_.(*models.SingleRef)
-							if !ok {
-								return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
-							}
-							expectedEdges = append(expectedEdges, expectedEdge{
-								PropertyName: janusPropertyName,
-								Reference:    ref.NrDollarCref.String(),
-								Type:         ref.Type,
-								Location:     *ref.LocationURL,
-							})
-						}
-					default:
-						return fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
-					}
-				default:
-					panic(fmt.Sprintf("Unexpected cardinality %v", schema.CardinalityOfProperty(property)))
-				}
-			}
+			expectedEdges = append(expectedEdges, result.expectedEdge...)
+			dropTheseEdgeTypes = append(dropTheseEdgeTypes, result.edgeToDrop...)
 		}
 	}
 
@@ -139,7 +87,7 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 		q = q.Optional(gremlin.Current().OutEWithLabel(edgeLabel).HasString(PROP_REF_ID, edgeLabel).Drop())
 	}
 
-	// Add edges to all referened things.
+	// Re-Add edges to all referened things.
 	for _, edge := range expectedEdges {
 		q = q.AddE(edge.PropertyName).
 			FromRef("class").
@@ -150,9 +98,7 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 			StringProperty(PROP_REF_EDGE_LOCATION, edge.Location)
 	}
 
-	_, err := j.client.Execute(q)
-
-	return err
+	return q, nil
 }
 
 func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
@@ -230,4 +176,92 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 	}
 
 	return q, nil
+}
+
+type edgeFromRefProp struct {
+	expectedEdge []expectedEdge
+	edgeToDrop   []string
+}
+
+func (j *Janusgraph) edgesFromReferenceProp(property *models.SemanticSchemaClassProperty,
+	value interface{}, propType schema.PropertyDataType, janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
+	result := edgeFromRefProp{}
+
+	switch schema.CardinalityOfProperty(property) {
+	case schema.CardinalityAtMostOne:
+		switch t := value.(type) {
+		case *models.SingleRef:
+			var refClassName schema.ClassName
+			switch t.Type {
+			case "NetworkThing", "NetworkAction":
+				refClassName = "something"
+				// simply jump over this entire property for now
+				// so import works again
+				return result, nil
+
+			case "Action":
+				var singleRefValue models.ActionGetResponse
+				err := j.GetAction(nil, t.NrDollarCref, &singleRefValue)
+				if err != nil {
+					return result, fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", t.NrDollarCref.String(), err)
+				}
+				refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
+			case "Thing":
+				var singleRefValue models.ThingGetResponse
+				err := j.GetThing(nil, t.NrDollarCref, &singleRefValue)
+				if err != nil {
+					return result, fmt.Errorf("Illegal value for property %s; could not resolve thing with UUID: %v", t.NrDollarCref.String(), err)
+				}
+				refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
+			default:
+				return result, fmt.Errorf("illegal value for property %s; only Thing or Action supported", t.Type)
+			}
+
+			// Verify the cross reference
+			if !propType.ContainsClass(refClassName) {
+				return result, fmt.Errorf("Illegal value for property %s; cannot point to %s", sanitizedPropertyName, t.Type)
+			}
+			result.expectedEdge = []expectedEdge{{
+				PropertyName: janusPropertyName,
+				Reference:    t.NrDollarCref.String(),
+				Type:         t.Type,
+				Location:     *t.LocationURL,
+			}}
+			return result, nil
+		default:
+			return result, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+		}
+	case schema.CardinalityMany:
+		result.edgeToDrop = []string{janusPropertyName}
+		switch t := value.(type) {
+		case *models.MultipleRef:
+			for _, ref := range *t {
+				result.expectedEdge = append(result.expectedEdge, expectedEdge{
+					PropertyName: janusPropertyName,
+					Reference:    ref.NrDollarCref.String(),
+					Type:         ref.Type,
+					Location:     *ref.LocationURL,
+				})
+			}
+			return result, nil
+		case []interface{}:
+			for _, ref_ := range t {
+				ref, ok := ref_.(*models.SingleRef)
+				if !ok {
+					return result, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+				}
+				result.expectedEdge = append(result.expectedEdge, expectedEdge{
+					PropertyName: janusPropertyName,
+					Reference:    ref.NrDollarCref.String(),
+					Type:         ref.Type,
+					Location:     *ref.LocationURL,
+				})
+			}
+			return result, nil
+		default:
+			return result, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+		}
+	default:
+		panic(fmt.Sprintf("Unexpected cardinality %v", schema.CardinalityOfProperty(property)))
+	}
 }
