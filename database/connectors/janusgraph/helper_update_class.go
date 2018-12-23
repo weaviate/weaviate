@@ -12,11 +12,17 @@ import (
 )
 
 // map properties in thing.Schema according to the mapping.
-type expectedEdge struct {
+type edge struct {
 	PropertyName string
 	Type         string
 	Reference    string
 	Location     string
+}
+
+type edgeFromRefProp struct {
+	localEdges   []edge
+	networkEdges []edge
+	edgesToDrop  []string
 }
 
 func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, atContext string, lastUpdateTimeUnix int64, rawProperties interface{}) error {
@@ -41,7 +47,8 @@ func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID s
 
 func (j *Janusgraph) addEdgesToQuery(q *gremlin.Query, k kind.Kind, className schema.ClassName, rawProperties interface{}) (*gremlin.Query, error) {
 
-	var expectedEdges []expectedEdge
+	var localEdges []edge
+	var networkEdges []edge
 	var dropTheseEdgeTypes []string
 
 	properties, ok := rawProperties.(map[string]interface{})
@@ -77,8 +84,9 @@ func (j *Janusgraph) addEdgesToQuery(q *gremlin.Query, k kind.Kind, className sc
 				return q, err
 			}
 
-			expectedEdges = append(expectedEdges, result.expectedEdge...)
-			dropTheseEdgeTypes = append(dropTheseEdgeTypes, result.edgeToDrop...)
+			localEdges = append(localEdges, result.localEdges...)
+			networkEdges = append(networkEdges, result.networkEdges...)
+			dropTheseEdgeTypes = append(dropTheseEdgeTypes, result.edgesToDrop...)
 		}
 	}
 
@@ -88,7 +96,7 @@ func (j *Janusgraph) addEdgesToQuery(q *gremlin.Query, k kind.Kind, className sc
 	}
 
 	// Re-Add edges to all referened things.
-	for _, edge := range expectedEdges {
+	for _, edge := range localEdges {
 		q = q.AddE(edge.PropertyName).
 			FromRef("class").
 			ToQuery(gremlin.G.V().HasString(PROP_UUID, edge.Reference)).
@@ -178,65 +186,19 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 	return q, nil
 }
 
-type edgeFromRefProp struct {
-	expectedEdge []expectedEdge
-	edgeToDrop   []string
-}
-
 func (j *Janusgraph) edgesFromReferenceProp(property *models.SemanticSchemaClassProperty,
 	value interface{}, propType schema.PropertyDataType, janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
 	result := edgeFromRefProp{}
 
 	switch schema.CardinalityOfProperty(property) {
 	case schema.CardinalityAtMostOne:
-		switch t := value.(type) {
-		case *models.SingleRef:
-			var refClassName schema.ClassName
-			switch t.Type {
-			case "NetworkThing", "NetworkAction":
-				refClassName = "something"
-				// simply jump over this entire property for now
-				// so import works again
-				return result, nil
-
-			case "Action":
-				var singleRefValue models.ActionGetResponse
-				err := j.GetAction(nil, t.NrDollarCref, &singleRefValue)
-				if err != nil {
-					return result, fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", t.NrDollarCref.String(), err)
-				}
-				refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
-			case "Thing":
-				var singleRefValue models.ThingGetResponse
-				err := j.GetThing(nil, t.NrDollarCref, &singleRefValue)
-				if err != nil {
-					return result, fmt.Errorf("Illegal value for property %s; could not resolve thing with UUID: %v", t.NrDollarCref.String(), err)
-				}
-				refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
-			default:
-				return result, fmt.Errorf("illegal value for property %s; only Thing or Action supported", t.Type)
-			}
-
-			// Verify the cross reference
-			if !propType.ContainsClass(refClassName) {
-				return result, fmt.Errorf("Illegal value for property %s; cannot point to %s", sanitizedPropertyName, t.Type)
-			}
-			result.expectedEdge = []expectedEdge{{
-				PropertyName: janusPropertyName,
-				Reference:    t.NrDollarCref.String(),
-				Type:         t.Type,
-				Location:     *t.LocationURL,
-			}}
-			return result, nil
-		default:
-			return result, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
-		}
+		return j.singleRef(value, propType, janusPropertyName, sanitizedPropertyName)
 	case schema.CardinalityMany:
-		result.edgeToDrop = []string{janusPropertyName}
+		result.edgesToDrop = []string{janusPropertyName}
 		switch t := value.(type) {
 		case *models.MultipleRef:
 			for _, ref := range *t {
-				result.expectedEdge = append(result.expectedEdge, expectedEdge{
+				result.localEdges = append(result.localEdges, edge{
 					PropertyName: janusPropertyName,
 					Reference:    ref.NrDollarCref.String(),
 					Type:         ref.Type,
@@ -250,7 +212,7 @@ func (j *Janusgraph) edgesFromReferenceProp(property *models.SemanticSchemaClass
 				if !ok {
 					return result, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
 				}
-				result.expectedEdge = append(result.expectedEdge, expectedEdge{
+				result.localEdges = append(result.localEdges, edge{
 					PropertyName: janusPropertyName,
 					Reference:    ref.NrDollarCref.String(),
 					Type:         ref.Type,
@@ -262,6 +224,80 @@ func (j *Janusgraph) edgesFromReferenceProp(property *models.SemanticSchemaClass
 			return result, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
 		}
 	default:
-		panic(fmt.Sprintf("Unexpected cardinality %v", schema.CardinalityOfProperty(property)))
+		return result, fmt.Errorf("Unexpected cardinality %v",
+			schema.CardinalityOfProperty(property))
 	}
+}
+
+func (j *Janusgraph) singleRef(value interface{}, propType schema.PropertyDataType,
+	janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
+	result := edgeFromRefProp{}
+	switch ref := value.(type) {
+	case *models.SingleRef:
+		switch ref.Type {
+		case "NetworkThing", "NetworkAction":
+			return j.singleNetworkRef(ref, janusPropertyName)
+		case "Action", "Thing":
+			return j.singleLocalRef(ref, propType, janusPropertyName, sanitizedPropertyName)
+		default:
+			return result, fmt.Errorf(
+				"illegal value for property %s; only Thing or Action supported", ref.Type)
+		}
+
+	default:
+		return result, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+	}
+}
+
+func (j *Janusgraph) singleNetworkRef(ref *models.SingleRef, janusPropertyName string,
+) (edgeFromRefProp, error) {
+	result := edgeFromRefProp{}
+	// We can't do any business-validation in here (such as does this
+	// NetworkThing/Action really exist on that particular network instance?), as
+	// we are in a (local) database connector.  Network validations are not our
+	// concern. We must trust that a previous layer has verified the correctness.
+
+	result.networkEdges = []edge{{
+		PropertyName: janusPropertyName,
+		Reference:    ref.NrDollarCref.String(),
+		Type:         ref.Type,
+		Location:     *ref.LocationURL,
+	}}
+	return result, nil
+}
+
+func (j *Janusgraph) singleLocalRef(ref *models.SingleRef, propType schema.PropertyDataType,
+	janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
+	var refClassName schema.ClassName
+	result := edgeFromRefProp{}
+
+	switch ref.Type {
+	case "Action":
+		var singleRefValue models.ActionGetResponse
+		err := j.GetAction(nil, ref.NrDollarCref, &singleRefValue)
+		if err != nil {
+			return result, fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", ref.NrDollarCref.String(), err)
+		}
+		refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
+	case "Thing":
+		var singleRefValue models.ThingGetResponse
+		err := j.GetThing(nil, ref.NrDollarCref, &singleRefValue)
+		if err != nil {
+			return result, fmt.Errorf("Illegal value for property %s; could not resolve thing with UUID: %v", ref.NrDollarCref.String(), err)
+		}
+		refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
+	}
+
+	// Verify the cross reference
+	if !propType.ContainsClass(refClassName) {
+		return result, fmt.Errorf("Illegal value for property %s; cannot point to %s", sanitizedPropertyName, ref.Type)
+	}
+	result.localEdges = []edge{{
+		PropertyName: janusPropertyName,
+		Reference:    ref.NrDollarCref.String(),
+		Type:         ref.Type,
+		Location:     *ref.LocationURL,
+	}}
+
+	return result, nil
 }
