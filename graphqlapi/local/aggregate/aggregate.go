@@ -114,7 +114,7 @@ func buildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema 
 func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, kindName string, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object) (*graphql.Field, error) {
 	classObject := graphql.NewObject(graphql.ObjectConfig{
 
-		Name: fmt.Sprintf("Aggregate%s", class.Class),
+		Name: fmt.Sprintf("LocalAggregate%s", class.Class),
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 
 			classProperties := graphql.Fields{}
@@ -288,7 +288,7 @@ func generateNumericPropertyFields(dbSchema *schema.Schema, class *models.Semant
 	}
 
 	classPropertiesObj := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("Aggregate%s%sObj", class.Class, strings.Title(method)),
+		Name:        fmt.Sprintf("LocalAggregate%s%sObj", class.Class, strings.Title(method)),
 		Fields:      classProperties,
 		Description: fmt.Sprintf(descriptions.LocalAggregateNumericObj, method),
 	})
@@ -313,7 +313,7 @@ func generateCountPropertyFields(dbSchema *schema.Schema, class *models.Semantic
 	}
 
 	classPropertiesObj := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("Aggregate%s%sObj", class.Class, strings.Title(method)),
+		Name:        fmt.Sprintf("LocalAggregate%s%sObj", class.Class, strings.Title(method)),
 		Fields:      classProperties,
 		Description: descriptions.LocalAggregateCountObj,
 	})
@@ -341,7 +341,7 @@ func generateGroupedByPropertyFields(dbSchema *schema.Schema, class *models.Sema
 	}
 
 	classPropertiesObj := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("Aggregate%s%sObj", class.Class, strings.Title(method)),
+		Name:        fmt.Sprintf("LocalAggregate%s%sObj", class.Class, strings.Title(method)),
 		Fields:      classProperties,
 		Description: descriptions.LocalAggregateGroupedByObjDesc,
 	})
