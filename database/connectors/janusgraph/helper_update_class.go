@@ -95,11 +95,28 @@ func (j *Janusgraph) addEdgesToQuery(q *gremlin.Query, k kind.Kind, className sc
 		q = q.Optional(gremlin.Current().OutEWithLabel(edgeLabel).HasString(PROP_REF_ID, edgeLabel).Drop())
 	}
 
-	// Re-Add edges to all referened things.
+	// (Re-)Add edges to all local refs
 	for _, edge := range localEdges {
 		q = q.AddE(edge.PropertyName).
 			FromRef("class").
 			ToQuery(gremlin.G.V().HasString(PROP_UUID, edge.Reference)).
+			StringProperty(PROP_REF_ID, edge.PropertyName).
+			StringProperty(PROP_REF_EDGE_CREF, edge.Reference).
+			StringProperty(PROP_REF_EDGE_TYPE, edge.Type).
+			StringProperty(PROP_REF_EDGE_LOCATION, edge.Location)
+	}
+
+	// (Re-)Add edges to all network refs
+	for _, edge := range networkEdges {
+		q = q.AddE(edge.PropertyName).
+			FromRef("class").
+			ToQuery(
+				gremlin.G.V().HasString(PROP_UUID, edge.Reference).
+					Fold().
+					Coalesce(gremlin.RawQuery(
+						fmt.Sprintf("unfold(), addV().property(\"uuid\", \"%s\")", edge.Reference),
+					)),
+			).
 			StringProperty(PROP_REF_ID, edge.PropertyName).
 			StringProperty(PROP_REF_EDGE_CREF, edge.Reference).
 			StringProperty(PROP_REF_EDGE_TYPE, edge.Type).
