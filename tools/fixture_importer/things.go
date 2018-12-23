@@ -168,12 +168,11 @@ func fixupThings() {
 				Op:   &op,
 				Path: &path,
 				Value: map[string]interface{}{
-					"$cref":       idMap[fixup.toId],
+					"$cref":       fixup.toId,
 					"locationUrl": fmt.Sprintf("http://%s", fixup.location),
 					"type":        "NetworkThing", // hard-code thing for now
 				},
 			}
-
 		}
 
 		assertPatchThing(idMap[fixup.fromId], patch)

@@ -9,7 +9,7 @@
 		"inCountry": {
 			"location": "WeaviateB",
 			"class": "Continent",
-			"uuid": "remote-uuid"
+			"uuid": "0bac326d-b17f-49fd-91ba-d5f1d528c34f"
 		}
 	}, {
 		"class": "City",
