@@ -64,6 +64,7 @@ type fixupAddRef struct {
 
 var idMap map[string]string
 var thingFixups []fixupAddRef
+var thingManyFixups [][]fixupAddRef // for cardinality many where a single thing can require several fixups
 var actionFixups []fixupAddRef
 
 var classKinds map[string]string
