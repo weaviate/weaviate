@@ -157,28 +157,28 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 		case float64:
 			q = q.Int64Property(janusPropertyName, int64(t))
 		default:
-			return q, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
 		}
 	case schema.DataTypeString:
 		switch t := value.(type) {
 		case string:
 			q = q.StringProperty(janusPropertyName, t)
 		default:
-			return q, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
 		}
 	case schema.DataTypeText:
 		switch t := value.(type) {
 		case string:
 			q = q.StringProperty(janusPropertyName, t)
 		default:
-			return q, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
 		}
 	case schema.DataTypeBoolean:
 		switch t := value.(type) {
 		case bool:
 			q = q.BoolProperty(janusPropertyName, t)
 		default:
-			return q, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
 		}
 	case schema.DataTypeNumber:
 		switch t := value.(type) {
@@ -187,14 +187,14 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 		case float64:
 			q = q.Float64Property(janusPropertyName, t)
 		default:
-			return q, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
 		}
 	case schema.DataTypeDate:
 		switch t := value.(type) {
 		case time.Time:
 			q = q.StringProperty(janusPropertyName, t.Format(time.RFC3339))
 		default:
-			return q, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
 		}
 	default:
 		panic(fmt.Sprintf("Unkown primitive datatype %s", propType.AsPrimitive()))
@@ -211,35 +211,7 @@ func (j *Janusgraph) edgesFromReferenceProp(property *models.SemanticSchemaClass
 	case schema.CardinalityAtMostOne:
 		return j.singleRef(value, propType, janusPropertyName, sanitizedPropertyName)
 	case schema.CardinalityMany:
-		result.edgesToDrop = []string{janusPropertyName}
-		switch t := value.(type) {
-		case *models.MultipleRef:
-			for _, ref := range *t {
-				result.localEdges = append(result.localEdges, edge{
-					PropertyName: janusPropertyName,
-					Reference:    ref.NrDollarCref.String(),
-					Type:         ref.Type,
-					Location:     *ref.LocationURL,
-				})
-			}
-			return result, nil
-		case []interface{}:
-			for _, ref_ := range t {
-				ref, ok := ref_.(*models.SingleRef)
-				if !ok {
-					return result, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
-				}
-				result.localEdges = append(result.localEdges, edge{
-					PropertyName: janusPropertyName,
-					Reference:    ref.NrDollarCref.String(),
-					Type:         ref.Type,
-					Location:     *ref.LocationURL,
-				})
-			}
-			return result, nil
-		default:
-			return result, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
-		}
+		return j.multipleRefs(value, propType, janusPropertyName, sanitizedPropertyName)
 	default:
 		return result, fmt.Errorf("Unexpected cardinality %v",
 			schema.CardinalityOfProperty(property))
@@ -317,4 +289,41 @@ func (j *Janusgraph) singleLocalRef(ref *models.SingleRef, propType schema.Prope
 	}}
 
 	return result, nil
+}
+
+func (j *Janusgraph) multipleRefs(value interface{}, propType schema.PropertyDataType,
+	janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
+	result := edgeFromRefProp{}
+	result.edgesToDrop = []string{janusPropertyName}
+	switch t := value.(type) {
+	case models.MultipleRef:
+		for _, ref := range t {
+			singleRef, err := j.singleRef(ref, propType, janusPropertyName, sanitizedPropertyName)
+			if err != nil {
+				return result, err
+			}
+			result.localEdges = append(result.localEdges, singleRef.localEdges...)
+			result.networkEdges = append(result.networkEdges, singleRef.networkEdges...)
+		}
+		return result, nil
+	case []interface{}:
+		for _, ref := range t {
+			ref, ok := ref.(*models.SingleRef)
+			if !ok {
+				return result, fmt.Errorf(
+					"illegal value for property %s: expected a list of single refs, but current item is %#v",
+					sanitizedPropertyName, ref)
+			}
+			singleRef, err := j.singleRef(ref, propType, janusPropertyName, sanitizedPropertyName)
+			if err != nil {
+				return result, err
+			}
+			result.localEdges = append(result.localEdges, singleRef.localEdges...)
+			result.networkEdges = append(result.networkEdges, singleRef.networkEdges...)
+		}
+		return result, nil
+	default:
+		return result, fmt.Errorf("illegal value for property %s, expected *models.MultipleRef, but got %#v",
+			sanitizedPropertyName, value)
+	}
 }
