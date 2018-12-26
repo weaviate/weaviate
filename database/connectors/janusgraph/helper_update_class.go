@@ -296,8 +296,9 @@ func (j *Janusgraph) multipleRefs(value interface{}, propType schema.PropertyDat
 	result := edgeFromRefProp{}
 	result.edgesToDrop = []string{janusPropertyName}
 	switch t := value.(type) {
-	case models.MultipleRef:
-		for _, ref := range t {
+	case models.MultipleRef, *models.MultipleRef:
+		refs := derefMultipleRefsIfNeeded(t)
+		for _, ref := range refs {
 			singleRef, err := j.singleRef(ref, propType, janusPropertyName, sanitizedPropertyName)
 			if err != nil {
 				return result, err
@@ -325,5 +326,19 @@ func (j *Janusgraph) multipleRefs(value interface{}, propType schema.PropertyDat
 	default:
 		return result, fmt.Errorf("illegal value for property %s, expected *models.MultipleRef, but got %#v",
 			sanitizedPropertyName, value)
+	}
+}
+
+func derefMultipleRefsIfNeeded(t interface{}) models.MultipleRef {
+	switch typed := t.(type) {
+	case models.MultipleRef:
+		// during a patch we don't get a pointer type
+		return typed
+	case *models.MultipleRef:
+		// during a put we get a pointer type
+		return *typed
+	default:
+		// impossible to reach since it's only used after previous type assertion
+		panic("neither *models.MultipleRef nor models.MultipleRef received")
 	}
 }
