@@ -1,727 +1,171 @@
 {
-
-    "@context": "",
-
-    "version": "0.0.1",
-
+    "@context": "http://example.org",
     "type": "thing",
-
-    "name": "weaviate demo things schema",
-
-    "maintainer": "yourfriends@weaviate.com",
-
+    "version": "1.0.0",
+    "name": "example.org - Thing Test",
+    "maintainer": "hello@creativesoftwarefdn.org",
     "classes": [
-
         {
-
-            "class": "Airport",
-
-            "description": "An airport",
-
+            "class": "TestThing",
+            "description": "This is a Test",
             "properties": [
-
                 {
-
-                    "name": "code",
-
-                    "@dataType": [
-
-                        "string"
-
-                    ],
-
-                    "description": "identifier for an airport",
-
+                    "name": "testString",
                     "keywords": [
-
-                        {
-
-                            "keyword": "code",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "identifier",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "airport",
-
-                            "weight": 0.25
-
-                        }
-
-                    ]
-
-                },
-
-                {
-
-                    "name": "place",
-
-                    "@dataType": [
-
-                        "string"
-
+                      { "keyword": "test", "weight": 2.0 },
+                      { "keyword": "word", "weight": 1.0 },
+                      { "keyword": "list", "weight": 1.5 }
                     ],
-
-                    "description": "City where the airport lies.",
-
-                    "keywords": [
-
-                        {
-
-                            "keyword": "in",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "city",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "city",
-
-                            "weight": 0.5
-
-                        },
-
-                        {
-
-                            "keyword": "city",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "airport",
-
-                            "weight": 0.25
-
-                        }
-
-                    ]
-
-                },
-
-                {
-
-                    "name": "label",
-
                     "@dataType": [
-
                         "string"
-
                     ],
-
-                    "description": "Label for the airport",
-
-                    "keywords": [
-
-                        {
-
-                            "keyword": "label",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "airport",
-
-                            "weight": 0.25
-
-                        }
-
-                    ]
-
-                }
-
-            ],
-
-            "keywords": [
-
-                {
-
-                    "keyword": "airport",
-
-                    "weight": 1.0
-
+                    "description": "Value of testString."
                 },
-
                 {
-
-                    "keyword": "airport",
-
-                    "weight": 0.25
-
-                }
-
-            ]
-
-        },
-
-        {
-
-            "class": "Airline",
-
-            "description": "An organization that provides flights for passengers",
-
-            "properties": [
-
-                {
-
-                    "name": "code",
-
+                   "name": "testText",
                     "@dataType": [
-
-                        "string"
-
+                        "text"
                     ],
-
-                    "description": "identifier for an airport",
-
-                    "keywords": [
-
-                        {
-
-                            "keyword": "code",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "identifier",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "airport",
-
-                            "weight": 0.25
-
-                        }
-
-                    ]
-
+                    "description": "Value of testText."
                 },
-
                 {
-
-                    "name": "label",
-
-                    "@dataType": [
-
-                        "string"
-
+                    "name": "testInt",
+                    "keywords": [
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "number", "weight": 1.0 }
                     ],
-
-                    "description": "Label for the airline",
-
-                    "keywords": [
-
-                        {
-
-                            "keyword": "label",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "label",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "airline",
-
-                            "weight": 0.25
-
-                        }
-
-                    ]
-
-                },
-
-                {
-
-                    "name": "hasNumberOfPlanes",
-
                     "@dataType": [
-
                         "int"
-
                     ],
-
-                    "description": "Number of airplanes the airline owns",
-
+                    "description": "Value of testInt."
+                },
+                {
+                    "name": "testBoolean",
                     "keywords": [
-
-                        {
-
-                            "keyword": "has",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "number",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "of",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "planes",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "number",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "airplanes",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "airline",
-
-                            "weight": 0.25
-
-                        }
-
-                    ]
-
-                }
-
-            ],
-
-            "keywords": [
-
-                {
-
-                    "keyword": "airline",
-
-                    "weight": 1.0
-
-                },
-
-                {
-
-                    "keyword": "organization",
-
-                    "weight": 0.25
-
-                },
-
-                {
-
-                    "keyword": "flights",
-
-                    "weight": 0.25
-
-                },
-
-                {
-
-                    "keyword": "passengers",
-
-                    "weight": 0.25
-
-                }
-
-            ]
-
-        },
-
-        {
-
-            "class": "Plane",
-
-            "description": "An airplane",
-
-            "properties": [
-
-                {
-
-                    "name": "code",
-
-                    "@dataType": [
-
-                        "string"
-
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "truth", "weight": 1.0 },
+                      { "keyword": "value", "weight": 1.0 }
                     ],
-
-                    "description": "identifier for the plane",
-
-                    "keywords": [
-
-                        {
-
-                            "keyword": "code",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "identifier",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "plane",
-
-                            "weight": 0.25
-
-                        }
-
-                    ]
-
-                },
-
-                {
-
-                    "name": "aircraft",
-
                     "@dataType": [
-
-                        "Aircraft"
-
+                        "boolean"
                     ],
-
-                    "description": "the kind of aircraft",
-
-                    "keywords": [
-
-                        {
-
-                            "keyword": "aircraft",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "aircraft",
-
-                            "weight": 0.5
-
-                        },
-
-                        {
-
-                            "keyword": "kind",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "aircraft",
-
-                            "weight": 0.25
-
-                        }
-
-                    ]
-
+                    "description": "Value of testBoolean."
                 },
-
                 {
-
-                    "name": "ofAirline",
-
+                    "name": "testNumber",
                     "@dataType": [
-
-                        "Airline"
-
-                    ],
-
-                    "description": "Airline the plane is owned by",
-
-                    "keywords": [
-
-                        {
-
-                            "keyword": "of",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "airline",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "airline",
-
-                            "weight": 0.5
-
-                        },
-
-                        {
-
-                            "keyword": "airline",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "plane",
-
-                            "weight": 0.25
-
-                        }
-
-                    ]
-
-                }
-
-            ],
-
-            "keywords": [
-
-                {
-
-                    "keyword": "plane",
-
-                    "weight": 1.0
-
-                },
-
-                {
-
-                    "keyword": "airplane",
-
-                    "weight": 0.25
-
-                }
-
-            ]
-
-        },
-
-        {
-
-            "class": "Aircraft",
-
-            "description": "The kind of aircraft (e.g., \"Boeing 747\")",
-
-            "properties": [
-
-                {
-
-                    "name": "label",
-
-                    "@dataType": [
-
-                        "string"
-
-                    ],
-
-                    "description": "label of the aircraft",
-
-                    "keywords": [
-
-                        {
-
-                            "keyword": "label",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "label",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "aircraft",
-
-                            "weight": 0.25
-
-                        }
-
-                    ]
-
-                },
-
-                {
-
-                    "name": "numberOfSeats",
-
-                    "@dataType": [
-
                         "number"
-
                     ],
-
-                    "description": "number of seats available in the aircraft.",
-
+                    "description": "Value of testNumber."
+                },
+                {
+                    "name": "testDateTime",
+                    "@dataType": [
+                        "date"
+                    ],
+                    "description": "Value of testDateTime."
+                },
+                {
+                    "name": "testCref",
                     "keywords": [
-
-                        {
-
-                            "keyword": "number",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "of",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "seats",
-
-                            "weight": 1.0
-
-                        },
-
-                        {
-
-                            "keyword": "number",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "seats",
-
-                            "weight": 0.25
-
-                        },
-
-                        {
-
-                            "keyword": "aircraft",
-
-                            "weight": 0.25
-
-                        }
-
-                    ]
-
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "reference", "weight": 1.0 }
+                    ],
+                    "@dataType": [
+                        "TestThingTwo"
+                    ],
+                    "description": "Value of testCref."
+                }, {
+                    "name": "testRandomType",
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Same name, different datatypes."
                 }
-
-            ],
-
-            "keywords": [
-
-                {
-
-                    "keyword": "aircraft",
-
-                    "weight": 1.0
-
-                },
-
-                {
-
-                    "keyword": "kind",
-
-                    "weight": 0.25
-
-                },
-
-                {
-
-                    "keyword": "aircraft",
-
-                    "weight": 0.25
-
-                },
-
-                {
-
-                    "keyword": "boeing",
-
-                    "weight": 0.25
-
-                }
-
             ]
-
-        }
-
+        },
+        {
+            "class": "TestThingTwo",
+            "keywords": [
+              { "keyword": "test", "weight": 1.0 },
+              { "keyword": "thing", "weight": 0.9 }
+            ],
+            "description": "This is a Test",
+            "properties": [
+                {
+                    "name": "testString",
+                    "keywords": [
+                      { "keyword": "test", "weight": 2.0 },
+                      { "keyword": "word", "weight": 1.0 },
+                      { "keyword": "list", "weight": 1.5 }
+                    ],
+                    "@dataType": [
+                        "string"
+                    ],
+                    "description": "Value of testString."
+                },
+                {
+                   "name": "testText",
+                    "@dataType": [
+                        "text"
+                    ],
+                    "description": "Value of testText."
+                },
+                {
+                    "name": "testInt",
+                    "keywords": [
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "number", "weight": 1.0 }
+                    ],
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Value of testInt."
+                },
+                {
+                    "name": "testBoolean",
+                    "keywords": [
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "truth", "weight": 1.0 },
+                      { "keyword": "value", "weight": 1.0 }
+                    ],
+                    "@dataType": [
+                        "boolean"
+                    ],
+                    "description": "Value of testBoolean."
+                },
+                {
+                    "name": "testNumber",
+                    "@dataType": [
+                        "number"
+                    ],
+                    "description": "Value of testNumber."
+                },
+                {
+                    "name": "testDateTime",
+                    "@dataType": [
+                        "date"
+                    ],
+                    "description": "Value of testDateTime."
+                },
+                {
+                    "name": "testCref",
+                    "keywords": [
+                      { "keyword": "test", "weight": 1.0 },
+                      { "keyword": "reference", "weight": 1.0 }
+                    ],
+                    "@dataType": [
+                        "TestThing"
+                    ],
+                    "description": "Value of testCref."
+                }, {
+                    "name": "testRandomType",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Same name, different datatypes."
+                }
+            ]
+        }   
     ]
-
 }
