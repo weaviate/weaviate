@@ -29,13 +29,21 @@ func TestGetKindWithoutPeers(t *testing.T) {
 		err.Error(), "should fail with a good error message")
 }
 
-func TestGetKindHappyPath(t *testing.T) {
+func TestGetKindHappyPathWithThings(t *testing.T) {
 	server := newFakeServer(t)
 	peers := Peers{
 		Peer{
-			Name:   "WeaviateB",
-			Schema: schema.Schema{},
-			URI:    strfmt.URI(server.server.URL),
+			Name: "WeaviateB",
+			Schema: schema.Schema{
+				Things: &models.SemanticSchema{
+					Classes: []*models.SemanticSchemaClass{
+						&models.SemanticSchemaClass{
+							Class: "Instrument",
+						},
+					},
+				},
+			},
+			URI: strfmt.URI(server.server.URL),
 		},
 	}
 	thing := crossrefs.NetworkKind{
@@ -67,7 +75,7 @@ func TestGetKindHappyPath(t *testing.T) {
 	t.Run("matches the specified schema", func(t *testing.T) {
 		server.matchers = []http.HandlerFunc{happyPathHandler}
 		result, _ := peers.RemoteKind(thing)
-		assert.Equal(t, "Instrument", result.AtClass, "found thing's schema should match")
+		assert.Equal(t, "Instrument", result.(models.Thing).AtClass, "found thing's schema should match")
 	})
 
 	t.Run("queries the correct path", func(t *testing.T) {
@@ -78,6 +86,136 @@ func TestGetKindHappyPath(t *testing.T) {
 					"should match the right path")
 			}, happyPathHandler}
 		peers.RemoteKind(thing)
+	})
+}
+
+func TestGetKindHappyPathWithActions(t *testing.T) {
+	server := newFakeServer(t)
+	peers := Peers{
+		Peer{
+			Name: "WeaviateB",
+			Schema: schema.Schema{
+				Actions: &models.SemanticSchema{
+					Classes: []*models.SemanticSchemaClass{
+						&models.SemanticSchemaClass{
+							Class: "Recital",
+						},
+					},
+				},
+			},
+			URI: strfmt.URI(server.server.URL),
+		},
+	}
+	action := crossrefs.NetworkKind{
+		Kind:     kind.ACTION_KIND,
+		PeerName: "WeaviateB",
+		ID:       "best-uuid-2",
+	}
+
+	happyPathHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		body := models.ActionGetResponse{
+			ActionID: "best-uuid-2",
+			Action: models.Action{
+				ActionCreate: models.ActionCreate{
+					AtClass: "Recital",
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(body)
+	}
+
+	t.Run("returns no error", func(t *testing.T) {
+		server.matchers = []http.HandlerFunc{happyPathHandler}
+		_, err := peers.RemoteKind(action)
+		assert.Equal(t, nil, err, "should not error")
+	})
+
+	t.Run("matches the specified schema", func(t *testing.T) {
+		server.matchers = []http.HandlerFunc{happyPathHandler}
+		result, _ := peers.RemoteKind(action)
+		assert.Equal(t, "Recital", result.(models.Action).AtClass, "found action's schema should match")
+	})
+
+	t.Run("queries the correct path", func(t *testing.T) {
+		server.matchers = []http.HandlerFunc{
+			func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "GET", r.Method, "should be a GET request")
+				assert.Equal(t, "/weaviate/v1/actions/best-uuid-2", r.URL.String(),
+					"should match the right path")
+			}, happyPathHandler}
+		peers.RemoteKind(action)
+	})
+}
+
+func TestGetKindSchemaMismatch(t *testing.T) {
+	server := newFakeServer(t)
+	peers := Peers{
+		Peer{
+			Name: "WeaviateB",
+			Schema: schema.Schema{
+				Actions: &models.SemanticSchema{
+					Classes: []*models.SemanticSchemaClass{
+						&models.SemanticSchemaClass{
+							Class: "Flight",
+						},
+					},
+				},
+			},
+			URI: strfmt.URI(server.server.URL),
+		},
+	}
+	action := crossrefs.NetworkKind{
+		Kind:     kind.ACTION_KIND,
+		PeerName: "WeaviateB",
+		ID:       "best-uuid-2",
+	}
+
+	happyPathHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		body := models.ActionGetResponse{
+			ActionID: "best-uuid-2",
+			Action: models.Action{
+				ActionCreate: models.ActionCreate{
+					AtClass: "Recital",
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(body)
+	}
+
+	t.Run("returns an error", func(t *testing.T) {
+		server.matchers = []http.HandlerFunc{happyPathHandler}
+		_, err := peers.RemoteKind(action)
+		assert.NotEqual(t, nil, err, "should error")
+	})
+}
+
+func TestGetKindNotFound(t *testing.T) {
+	server := newFakeServer(t)
+	peers := Peers{
+		Peer{
+			Name:   "WeaviateB",
+			Schema: schema.Schema{},
+			URI:    strfmt.URI(server.server.URL),
+		},
+	}
+	action := crossrefs.NetworkKind{
+		Kind:     kind.ACTION_KIND,
+		PeerName: "WeaviateB",
+		ID:       "best-uuid-2",
+	}
+
+	notFoundHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}
+
+	t.Run("returns an error", func(t *testing.T) {
+		server.matchers = []http.HandlerFunc{notFoundHandler}
+		_, err := peers.RemoteKind(action)
+		assert.NotEqual(t, nil, err, "should error")
 	})
 }
 

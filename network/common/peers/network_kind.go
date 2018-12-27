@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/creativesoftwarefdn/weaviate/client"
+	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/client/things"
+	libkind "github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 )
@@ -13,7 +16,7 @@ import (
 // specified remote peer. It fails if the peer is not in the network, does not
 // have the requested resource or if the resource can be queried but it doesn't
 // fit into our cached copy of the peers schema.
-func (p Peers) RemoteKind(kind crossrefs.NetworkKind) (models.Thing, error) {
+func (p Peers) RemoteKind(kind crossrefs.NetworkKind) (interface{}, error) {
 	result := models.Thing{}
 	peer, err := p.ByName(kind.PeerName)
 	if err != nil {
@@ -27,14 +30,48 @@ func (p Peers) RemoteKind(kind crossrefs.NetworkKind) (models.Thing, error) {
 			"could not get remote kind, because could not create client: %s", err)
 	}
 
-	params := things.NewWeaviateThingsGetParams().
-		WithTimeout(1 * time.Second).
-		WithThingID(kind.ID)
-	ok, err := client.Things.WeaviateThingsGet(params, nil)
-	if err != nil {
-		return result, fmt.Errorf(
-			"could not get remote kind: could not GET things from peer: %s", err)
-	}
+	return p.getRemoteThingOrAction(kind, client)
+}
 
-	return ok.Payload.Thing, nil
+func (p Peers) getRemoteThingOrAction(kind crossrefs.NetworkKind,
+	client *client.WeaviateDecentralisedKnowledgeGraph) (interface{}, error) {
+	result := models.Thing{}
+	switch kind.Kind {
+	case libkind.THING_KIND:
+		params := things.NewWeaviateThingsGetParams().
+			WithTimeout(1 * time.Second).
+			WithThingID(kind.ID)
+		ok, err := client.Things.WeaviateThingsGet(params, nil)
+		if err != nil {
+			return result, fmt.Errorf(
+				"could not get remote kind: could not GET things from peer: %s", err)
+		}
+
+		_, err = p.HasClass(crossrefs.NetworkClass{ClassName: ok.Payload.Thing.AtClass, PeerName: kind.PeerName})
+		if err != nil {
+			return result, fmt.Errorf(
+				"schema mismatch: class of remote kind (%s) is not in the cached remote schema", ok.Payload.Thing.AtClass)
+		}
+
+		return ok.Payload.Thing, nil
+	case libkind.ACTION_KIND:
+		params := actions.NewWeaviateActionsGetParams().
+			WithTimeout(1 * time.Second).
+			WithActionID(kind.ID)
+		ok, err := client.Actions.WeaviateActionsGet(params, nil)
+		if err != nil {
+			return result, fmt.Errorf(
+				"could not get remote kind: could not GET things from peer: %s", err)
+		}
+
+		_, err = p.HasClass(crossrefs.NetworkClass{ClassName: ok.Payload.Action.AtClass, PeerName: kind.PeerName})
+		if err != nil {
+			return result, fmt.Errorf(
+				"schema mismatch: class of remote kind (%s) is not in the cached remote schema", ok.Payload.Action.AtClass)
+		}
+
+		return ok.Payload.Action, nil
+	default:
+		return result, fmt.Errorf("could not get remote kind: unknown kind '%s'", kind.Kind)
+	}
 }
