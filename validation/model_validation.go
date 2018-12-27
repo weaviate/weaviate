@@ -22,6 +22,7 @@ import (
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network"
 )
 
 const (
@@ -58,7 +59,9 @@ const (
 )
 
 // ValidateThingBody Validates a thing body using the 'ThingCreate' object.
-func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseSchema schema.WeaviateSchema,
+	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig,
+	keyToken *models.KeyTokenGetResponse) error {
 	// Validate the body
 	bve := validateBody(thing.AtClass, thing.AtContext)
 
@@ -68,13 +71,16 @@ func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseS
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(ctx, databaseSchema.ThingSchema.Schema, thing, connutils.RefTypeThing, dbConnector, serverConfig, keyToken)
+	sve := ValidateSchemaInBody(ctx, databaseSchema.ThingSchema.Schema, thing, connutils.RefTypeThing,
+		dbConnector, network, serverConfig, keyToken)
 
 	return sve
 }
 
 // ValidateActionBody Validates a action body using the 'ActionCreate' object.
-func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databaseSchema schema.WeaviateSchema,
+	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig,
+	keyToken *models.KeyTokenGetResponse) error {
 	// Validate the body
 	bve := validateBody(action.AtClass, action.AtContext)
 
@@ -84,7 +90,8 @@ func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databa
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(ctx, databaseSchema.ActionSchema.Schema, action, connutils.RefTypeAction, dbConnector, serverConfig, keyToken)
+	sve := ValidateSchemaInBody(ctx, databaseSchema.ActionSchema.Schema, action, connutils.RefTypeAction,
+		dbConnector, network, serverConfig, keyToken)
 
 	return sve
 }
@@ -115,7 +122,7 @@ func validateRefType(s connutils.RefType) bool {
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
-func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, errorVal string, keyToken *models.KeyTokenGetResponse) error {
+func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, network network.Network, errorVal string, keyToken *models.KeyTokenGetResponse) error {
 	// Init reftype
 	refType := connutils.RefType(cref.Type)
 
@@ -169,13 +176,15 @@ func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
 	return nil
 }
 
-func ValidateMultipleRef(ctx context.Context, serverConfig *config.WeaviateConfig, refs *models.MultipleRef, dbConnector dbconnector.DatabaseConnector, errorVal string, keyToken *models.KeyTokenGetResponse) error {
+func ValidateMultipleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
+	refs *models.MultipleRef, dbConnector dbconnector.DatabaseConnector, network network.Network,
+	errorVal string, keyToken *models.KeyTokenGetResponse) error {
 	if refs == nil {
 		return nil
 	}
 
 	for _, ref := range *refs {
-		err := ValidateSingleRef(ctx, serverConfig, ref, dbConnector, errorVal, keyToken)
+		err := ValidateSingleRef(ctx, serverConfig, ref, dbConnector, network, errorVal, keyToken)
 		if err != nil {
 			return err
 		}

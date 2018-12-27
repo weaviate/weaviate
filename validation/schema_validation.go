@@ -26,6 +26,7 @@ import (
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network"
 )
 
 const (
@@ -58,7 +59,9 @@ const (
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
-func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{}, refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{},
+	refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, network network.Network,
+	serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
 	// Initialize class object
 	var isp interface{}
 	var className string
@@ -161,7 +164,8 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 				locationURL := pvcr["locationUrl"].(string)
 				cref.LocationURL = &locationURL
 				cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
-				err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
+				err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, network,
+					fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
 				if err != nil {
 					return err
 				}
@@ -226,7 +230,8 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 					locationURL := pvcr["locationUrl"].(string)
 					cref.LocationURL = &locationURL
 					cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
-					err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
+					err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, network,
+						fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
 					if err != nil {
 						return err
 					}

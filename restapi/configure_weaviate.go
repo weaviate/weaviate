@@ -412,7 +412,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Validate schema made after patching with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &action.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &action.ActionCreate,
+			databaseSchema, dbConnector, network, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -503,7 +504,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Look up the single ref.
-		err = validation.ValidateSingleRef(ctx, serverConfig, params.Body, dbConnector, "reference not found", principal.(*models.KeyTokenGetResponse))
+		err = validation.ValidateSingleRef(ctx, serverConfig, params.Body, dbConnector, network,
+			"reference not found", principal.(*models.KeyTokenGetResponse))
 		if err != nil {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(err.Error()))
@@ -702,7 +704,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Look up the single ref.
-		err = validation.ValidateMultipleRef(ctx, serverConfig, &params.Body, dbConnector, "reference not found", principal.(*models.KeyTokenGetResponse))
+		err = validation.ValidateMultipleRef(ctx, serverConfig, &params.Body, dbConnector, network,
+			"reference not found", principal.(*models.KeyTokenGetResponse))
 		if err != nil {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(err.Error()))
@@ -762,7 +765,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &params.Body.ActionCreate,
+			databaseSchema, dbConnector, network, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -807,7 +811,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateActionBody(ctx, &params.Body.ActionCreate, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+		validatedErr := validation.ValidateActionBody(ctx, &params.Body.ActionCreate, databaseSchema,
+			dbConnector, network, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -833,7 +838,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), params.Body.Action, databaseSchema, dbConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), params.Body.Action,
+			databaseSchema, dbConnector, network, serverConfig, principal.(*models.KeyTokenGetResponse))
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1195,7 +1201,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body.Thing, databaseSchema, dbConnector, serverConfig, keyToken)
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body.Thing, databaseSchema,
+			dbConnector, network, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1460,7 +1467,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Validate schema made after patching with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &thing.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &thing.ThingCreate,
+			databaseSchema, dbConnector, network, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1550,7 +1558,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Look up the single ref.
-		err = validation.ValidateSingleRef(ctx, serverConfig, params.Body, dbConnector, "reference not found", principal.(*models.KeyTokenGetResponse))
+		err = validation.ValidateSingleRef(ctx, serverConfig, params.Body, dbConnector, network,
+			"reference not found", principal.(*models.KeyTokenGetResponse))
 		if err != nil {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(err.Error()))
@@ -1749,7 +1758,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		// Look up the single ref.
-		err = validation.ValidateMultipleRef(ctx, serverConfig, &params.Body, dbConnector, "reference not found", principal.(*models.KeyTokenGetResponse))
+		err = validation.ValidateMultipleRef(ctx, serverConfig, &params.Body, dbConnector, network,
+			"reference not found", principal.(*models.KeyTokenGetResponse))
 		if err != nil {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(err.Error()))
@@ -1813,7 +1823,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &params.Body.ThingCreate, databaseSchema, dbConnector, serverConfig, keyToken)
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &params.Body.ThingCreate,
+			databaseSchema, dbConnector, network, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -1857,7 +1868,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema, dbConnector, serverConfig, keyToken)
+		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema,
+			dbConnector, network, serverConfig, keyToken)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -2294,7 +2306,8 @@ func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, 
 
 	resultStatus := models.ActionsGetResponseAO1ResultStatusSUCCESS
 
-	validatedErr := validation.ValidateActionBody(ctx, batchedRequest, databaseSchema, requestLocks.DBConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+	validatedErr := validation.ValidateActionBody(ctx, batchedRequest, databaseSchema, requestLocks.DBConnector,
+		network, serverConfig, principal.(*models.KeyTokenGetResponse))
 
 	if validatedErr != nil {
 		// Edit request result status
@@ -2389,7 +2402,8 @@ func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, b
 
 	resultStatus := models.ThingsGetResponseAO1ResultStatusSUCCESS
 
-	validatedErr := validation.ValidateThingBody(ctx, batchedRequest, databaseSchema, requestLocks.DBConnector, serverConfig, principal.(*models.KeyTokenGetResponse))
+	validatedErr := validation.ValidateThingBody(ctx, batchedRequest, databaseSchema, requestLocks.DBConnector,
+		network, serverConfig, principal.(*models.KeyTokenGetResponse))
 
 	if validatedErr != nil {
 		// Edit request result status
