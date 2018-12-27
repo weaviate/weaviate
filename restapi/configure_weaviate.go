@@ -1473,6 +1473,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
+		go func() {
+			schemaLock := db.SchemaLock()
+			defer schemaLock.Unlock()
+
+			err := newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, thing.AtClass, kind.THING_KIND).
+				addNetworkDataTypes(thing.Schema)
+			if err != nil {
+				messaging.DebugMessage(fmt.Sprintf("Async network ref update failed: %s", err.Error()))
+			}
+		}()
+
 		if params.Async != nil && *params.Async == true {
 			// Move the current properties to the history
 			delayedLock.IncSteps()
