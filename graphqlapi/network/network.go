@@ -281,6 +281,14 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 				return nil, fmt.Errorf("not supported")
 			},
 		},
+		"Aggregate": &graphql.Field{
+			Name:        "WeaviateNetworkAggregate",
+			Type:        graphQLNetworkFieldContents.NetworkAggregateObject,
+			Description: descriptions.NetworkAggregateDesc,
+			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				return nil, fmt.Errorf("not supported")
+			},
+		},
 	}
 
 	weaviateNetworkObject := &graphql.ObjectConfig{
