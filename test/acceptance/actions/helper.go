@@ -13,12 +13,14 @@
 package test
 
 import (
+	"testing"
+
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
+	"github.com/creativesoftwarefdn/weaviate/client/schema"
 	"github.com/creativesoftwarefdn/weaviate/client/things"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/go-openapi/strfmt"
-	"testing"
 )
 
 const fakeActionId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
@@ -77,4 +79,36 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 	})
 
 	return thingID
+}
+
+func assertGetSchema(t *testing.T) *schema.WeaviateSchemaDumpOKBody {
+	getResp, err := helper.Client(t).Schema.WeaviateSchemaDump(schema.NewWeaviateSchemaDumpParams(), helper.RootAuth)
+	var schema *schema.WeaviateSchemaDumpOKBody
+	helper.AssertRequestOk(t, getResp, err, func() {
+		schema = getResp.Payload
+	})
+
+	return schema
+}
+
+func assertClassInSchema(t *testing.T, schema *models.SemanticSchema, className string) *models.SemanticSchemaClass {
+	for _, class := range schema.Classes {
+		if class.Class == className {
+			return class
+		}
+	}
+
+	t.Fatalf("class %s not found in schema", className)
+	return nil
+}
+
+func assertPropertyInClass(t *testing.T, class *models.SemanticSchemaClass, propertyName string) *models.SemanticSchemaClassProperty {
+	for _, prop := range class.Properties {
+		if prop.Name == propertyName {
+			return prop
+		}
+	}
+
+	t.Fatalf("property %s not found in class", propertyName)
+	return nil
 }
