@@ -181,7 +181,7 @@ func fixupThings() {
 				Path: &path,
 				Value: map[string]interface{}{
 					"$cref":       idMap[fixup.toId],
-					"locationUrl": "http://localhost:8080",
+					"locationUrl": "http://localhost",
 					"type":        kind,
 				},
 			}
@@ -223,7 +223,7 @@ func fixupThings() {
 
 				patch.Value = append(patch.Value.([]map[string]interface{}), map[string]interface{}{
 					"$cref":       idMap[fixup.toId],
-					"locationUrl": "http://localhost:8080",
+					"locationUrl": "http://localhost",
 					"type":        kind,
 				})
 			} else {
