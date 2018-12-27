@@ -1,157 +1,356 @@
 {
-    "@context": "http://example.org",
+    "@context": "",
+    "version": "0.0.1",
     "type": "action",
-    "version": "1.0.0",
-    "name": "example.org - Action Test",
-    "maintainer": "hello@creativesoftwarefdn.org",
+    "name": "weaviate demo actions schema",
+    "maintainer": "yourfriends@weaviate.com",
     "classes": [
         {
-            "class": "TestAction",
-            "description": "This is a Test",
+            "class": "Flight",
+            "description": "An airline flight",
             "properties": [
                 {
-                   "name": "testString",
+                    "name": "aircraft",
+                    "@dataType": [
+                        "Aircraft"
+                    ],
+                    "description": "The kind of aircraft",
+                    "keywords": [
+                        {
+                            "keyword": "aircraft",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "aircraft",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "kind",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "aircraft",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "arrivalAirport",
+                    "@dataType": [
+                        "Airport"
+                    ],
+                    "description": "The airport where the flight terminates",
+                    "keywords": [
+                        {
+                            "keyword": "arrival",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "airport",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "airport",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "airport",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "flight",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "departureAirport",
+                    "@dataType": [
+                        "Airport"
+                    ],
+                    "description": "The airport where the flight originates.",
+                    "keywords": [
+                        {
+                            "keyword": "departure",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "airport",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "airport",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "airport",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "flight",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "flightNumber",
                     "@dataType": [
                         "string"
                     ],
-                    "description": "Value of testString."
-                },
-                {
-                   "name": "testText",
-                    "@dataType": [
-                        "text"
-                    ],
-                    "description": "Value of testText."
-                },
-                {
-                    "name": "testInt",
+                    "description": "The unique identifier for a flight",
                     "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "number", "weight": 1.0 }
-                    ],
-                    "@dataType": [
-                        "int"
-                    ],
-                    "description": "Value of testInt."
+                        {
+                            "keyword": "flight",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "number",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "identifier",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "flight",
+                            "weight": 0.25
+                        }
+                    ]
                 },
                 {
-                    "name": "testBoolean",
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "truth", "weight": 1.0 },
-                      { "keyword": "value", "weight": 1.0 }
-                    ],
-                    "@dataType": [
-                        "boolean"
-                    ],
-                    "description": "Value of testBoolean."
-                },
-                {
-                    "name": "testNumber",
-                    "@dataType": [
-                        "number"
-                    ],
-                    "description": "Value of testNumber."
-                },
-                {
-                    "name": "testDateTime",
+                    "name": "date",
                     "@dataType": [
                         "date"
                     ],
-                    "description": "Value of testDateTime."
+                    "description": "The date the person is moving",
+                    "keywords": [
+                        {
+                            "keyword": "date",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "date",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
                 },
                 {
-                    "name": "testCref",
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "reference", "weight": 1.0 }
-                    ],
+                    "name": "estimatedFlightDuration",
                     "@dataType": [
-                        "TestThing"
+                        "number"
                     ],
-                    "description": "Value of testCref."
+                    "description": "The estimated time in minutes the flight will take",
+                    "keywords": [
+                        {
+                            "keyword": "estimated",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "flight",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "duration",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "time",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "minutes",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "flight",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "numberOfPassengers",
+                    "@dataType": [
+                        "int"
+                    ],
+                    "description": "Total number of passengers",
+                    "keywords": [
+                        {
+                            "keyword": "number",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "of",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "passengers",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "number",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "passengers",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "isDelayed",
+                    "@dataType": [
+                        "boolean"
+                    ],
+                    "description": "True if the flight is delayed",
+                    "keywords": [
+                        {
+                            "keyword": "is",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "delayed",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "flight",
+                            "weight": 0.25
+                        }
+                    ]
+                }
+            ],
+            "keywords": [
+                {
+                    "keyword": "flight",
+                    "weight": 1.0
+                },
+                {
+                    "keyword": "airline",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "flight",
+                    "weight": 0.25
                 }
             ]
         },
         {
-            "class": "TestActionTwo",
-            "description": "This is a Test",
+            "class": "BuyAction",
+            "description": "An agent buys an object, product, or service from a seller for a price.",
             "properties": [
                 {
-                    "name": "testString",
+                    "name": "seller",
                     "@dataType": [
-                        "string"
+                        "Airline",
+                        "Person"
                     ],
-                    "description": "Value of testString."
-                },
-                {
-                   "name": "testText",
-                    "@dataType": [
-                        "text"
-                    ],
-                    "description": "Value of testText."
-                },
-                {
-                    "name": "testInt",
-                    "@dataType": [
-                        "int"
-                    ],
+                    "description": "The seller of the thing",
                     "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "number", "weight": 1.0 }
-                    ],
-                    "description": "Value of testInt."
+                        {
+                            "keyword": "seller",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "airline",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "seller",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "thing",
+                            "weight": 0.25
+                        }
+                    ]
                 },
                 {
-                    "name": "testBoolean",
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "truth", "weight": 1.0 },
-                      { "keyword": "value", "weight": 1.0 }
-                    ],
-                    "@dataType": [
-                        "boolean"
-                    ],
-                    "description": "Value of testBoolean."
-                },
-                {
-                    "name": "testNumber",
+                    "name": "price",
                     "@dataType": [
                         "number"
                     ],
-                    "description": "Value of testNumber."
+                    "description": "The offer price of a product",
+                    "keywords": [
+                        {
+                            "keyword": "price",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "offer",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "price",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "product",
+                            "weight": 0.25
+                        }
+                    ]
                 },
                 {
-                    "name": "testDateTime",
+                    "name": "buyer",
                     "@dataType": [
-                        "date"
+                        "Person"
                     ],
-                    "description": "Value of testDateTime."
+                    "description": "The buyer of the good",
+                    "keywords": [
+                        {
+                            "keyword": "buyer",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "buyer",
+                            "weight": 0.25
+                        }
+                    ]
+                }
+            ],
+            "keywords": [
+                {
+                    "keyword": "buy",
+                    "weight": 1.0
                 },
                 {
-                    "name": "testCref",
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "reference", "weight": 1.0 }
-                    ],
-                    "@dataType": [
-                        "TestAction"
-                    ],
-                    "description": "Value of testCref."
+                    "keyword": "action",
+                    "weight": 1.0
                 },
-		{
-                    "name": "testCrefs",
-                    "cardinality": "many",
-                    "keywords": [
-                      { "keyword": "test", "weight": 1.0 },
-                      { "keyword": "reference", "weight": 1.0 }
-                    ],
-                    "@dataType": [
-                        "TestAction"
-                    ],
-                    "description": "Value of testCref."
-		}
-
+                {
+                    "keyword": "agent",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "object",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "product",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "service",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "seller",
+                    "weight": 0.25
+                },
+                {
+                    "keyword": "price",
+                    "weight": 0.25
+                }
             ]
         }
     ]
