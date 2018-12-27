@@ -108,7 +108,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 		Path: &path,
 		Value: map[string]interface{}{
 			"$cref":       thingToRefID,
-			"locationUrl": "http://localhost:8080",
+			"locationUrl": "http://localhost",
 			"type":        "Thing",
 		},
 	}
