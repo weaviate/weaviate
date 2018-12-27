@@ -56,8 +56,8 @@ import (
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
@@ -238,6 +238,10 @@ func (f *Foobar) AddProperty(kind kind.Kind, className string, prop *models.Sema
 }
 
 func (f *Foobar) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+	return errors_.New("Not supported")
+}
+
+func (j *Foobar) UpdatePropertyAddDataType(kind kind.Kind, className string, propName string, newDataType string) error {
 	return errors_.New("Not supported")
 }
 
