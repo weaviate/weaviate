@@ -15,12 +15,13 @@ package test
 // Acceptance tests for actions
 
 import (
+	"testing"
+
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestCanCreateAction(t *testing.T) {
@@ -111,7 +112,7 @@ func TestCanAddSingleRefAction(t *testing.T) {
 		"testString": "stringy",
 		"testCref": map[string]interface{}{
 			"type":        "Action",
-			"locationUrl": helper.GetWeaviateURL(),
+			"locationUrl": "http://localhost",
 			"$cref":       firstActionId,
 		},
 	})

@@ -181,7 +181,7 @@ var invalidThingTestCases = []struct {
 				AtContext: "http://example.org",
 				Schema: map[string]interface{}{
 					"testCref": map[string]interface{}{
-						"locationUrl": helper.GetWeaviateURL(),
+						"locationUrl": "http://localhost",
 						"type":        "Thing",
 					},
 				},
@@ -240,7 +240,7 @@ var invalidThingTestCases = []struct {
 				Schema: map[string]interface{}{
 					"testCref": map[string]interface{}{
 						"$cref":       fakeThingId,
-						"locationUrl": helper.GetWeaviateURL(),
+						"locationUrl": "http://localhost",
 						"type":        "invalid type",
 					},
 				},

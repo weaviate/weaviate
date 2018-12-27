@@ -15,11 +15,12 @@ package test
 // Acceptance tests for actions
 
 import (
+	"testing"
+
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestCanAddAPropertyIndividually(t *testing.T) {
@@ -35,7 +36,7 @@ func TestCanAddAPropertyIndividually(t *testing.T) {
 	assert.Nil(t, updatedSchema["testCrefs"])
 
 	// Append a property reference
-	wurl := helper.GetWeaviateURL()
+	wurl := "http://localhost"
 	params := actions.NewWeaviateActionsPropertiesCreateParams().
 		WithActionID(uuid).
 		WithPropertyName("testCrefs").
@@ -60,7 +61,7 @@ func TestCanReplaceAllProperties(t *testing.T) {
 	toPointToUuidFirst := assertCreateAction(t, "TestAction", map[string]interface{}{})
 	toPointToUuidLater := assertCreateAction(t, "TestAction", map[string]interface{}{})
 
-	wurl := helper.GetWeaviateURL()
+	wurl := "http://localhost"
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
 		"testCrefs": &models.MultipleRef{
 			&models.SingleRef{
@@ -102,7 +103,7 @@ func TestRemovePropertyIndividually(t *testing.T) {
 
 	toPointToUuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
 
-	wurl := helper.GetWeaviateURL()
+	wurl := "http://localhost"
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
 		"testCrefs": &models.MultipleRef{
 			&models.SingleRef{
