@@ -16,13 +16,16 @@ package validation
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 )
 
 const (
@@ -125,33 +128,35 @@ func validateRefType(s connutils.RefType) bool {
 func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, network network.Network, errorVal string, keyToken *models.KeyTokenGetResponse) error {
 	// Init reftype
 	refType := connutils.RefType(cref.Type)
+	url, err := url.Parse(*cref.LocationURL)
+	if err != nil {
+		return fmt.Errorf("could not parse location url (%s): %s", *cref.LocationURL, err)
+	}
 
-	// Check existence of Object, external or internal
-	if serverConfig.GetHostAddress() != *cref.LocationURL {
-		// don't do any validation on here
+	// Per convention a local ref must point to host 'localhost', regardless of
+	// how the local instance is identified via a host alias or FQDN.
+	if url.Host != "localhost" {
+		peers, err := network.ListPeers()
+		if err != nil {
+			return fmt.Errorf("could not validate network reference: could not list network peers: %s", err)
+		}
 
-		// // Search for key-information for resolving this part. Dont validate if not exists
-		// instance, err := serverConfig.GetInstance(*cref.LocationURL, keyToken)
-		// if err != nil {
-		// 	return fmt.Errorf(ErrorNoExternalCredentials, *cref.LocationURL, errorVal)
-		// }
+		var k kind.Kind
+		switch refType {
+		case connutils.RefTypeNetworkThing:
+			k = kind.THING_KIND
+		case connutils.RefTypeNetworkAction:
+			k = kind.ACTION_KIND
+		default:
+			return fmt.Errorf("unrecognized network reference type '%s' for cref %#v at %s, "+
+				"must be one of: %s, %s", refType, cref, url.String(), connutils.RefTypeNetworkThing,
+				connutils.RefTypeNetworkAction)
+		}
 
-		// // Set endpoint
-		// endpoint := ""
-
-		// if refType == connutils.RefTypeThing {
-		// 	endpoint = "things"
-		// } else if refType == connutils.RefTypeAction {
-		// 	endpoint = "actions"
-		// } else if refType == connutils.RefTypeKey {
-		// 	endpoint = "keys"
-		// }
-
-		// // Check wheter the Object's location URL is pointing to a existing Weaviate instance
-		// response, err := connutils.DoExternalRequest(instance, endpoint, cref.NrDollarCref)
-		// if err != nil {
-		// 	return fmt.Errorf(ErrorExternalNotFound, *cref.LocationURL, response.StatusCode, errorVal)
-		// }
+		_, err = peers.RemoteKind(crossrefs.NetworkKind{Kind: k, ID: cref.NrDollarCref, PeerName: url.Host})
+		if err != nil {
+			return fmt.Errorf("invalid network reference: %s", err)
+		}
 	} else {
 		// Check whether the given Object exists in the DB
 		var err error
