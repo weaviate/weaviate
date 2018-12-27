@@ -47,6 +47,9 @@ const LocalAggregateGroupedByGroupedByValueDesc string = "The value of the group
 // NETWORK
 const NetworkAggregateWeaviateObjDesc string = "An object containing Get Things and Actions fields for network Weaviate instance: "
 
+const NetworkAggregateObjDesc string = "An object allowing Aggregation of Things and Actions"
+const NetworkAggregateDesc string = "Perform Aggregation of Things and Actions"
+
 const NetworkAggregateThingsDesc string = "Aggregate Things on a network Weaviate"
 const NetworkAggregateActionsDesc string = "Aggregate Things on a network Weaviate"
 
