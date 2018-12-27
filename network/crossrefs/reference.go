@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/go-openapi/strfmt"
 )
 
 // NetworkClass references one class in a remote peer
@@ -12,6 +15,14 @@ import (
 type NetworkClass struct {
 	PeerName  string
 	ClassName string
+}
+
+// NetworkKind is one particular kind (i.e. thing or action) of a peer
+// identified by its UUID
+type NetworkKind struct {
+	Kind     kind.Kind
+	PeerName string
+	ID       strfmt.UUID
 }
 
 var networkClassRegexp = regexp.MustCompile(`^([A-Za-z]+)+/([A-Z][a-z]+)+$`)

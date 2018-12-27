@@ -1448,7 +1448,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		if applyErr != nil {
 			fmt.Printf("patch attempt on %#v failed. Patch: %#v", thingUpdateJSON, patchObject)
-			panic("NOPE")
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(applyErr.Error()))
 		}
 
