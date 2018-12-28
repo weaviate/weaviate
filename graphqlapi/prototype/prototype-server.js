@@ -271,11 +271,9 @@ function createArgs(item, location, groupBy, where){
       return getDesc("afterFilter")},
   }
 
-  console.log(location)
-
   if(where == true){
     propsForArgs[item.class]["where"] = { 
-      name: "Weaviate" + location + item.class + "Where",
+      name: item.class + "Where",
       description: "Where filter to filter the class " + item.class + " on",
       type: new GraphQLInputObjectType({
         name: "Weaviate" + location + item.class + "WhereInpObj",
@@ -303,10 +301,7 @@ function createArgs(item, location, groupBy, where){
  * Create the subclasses of a Thing or Action in the Local function
  */
 function createAggregateSubClasses(ontologyThings, weaviate){
-  if (weaviate !== "Local") {
-    var location = "Network";
-  } else {
-    var location = "Local";
+  if (weaviate == "Local") {
     var weaviate = ""
   }
 
@@ -316,7 +311,7 @@ function createAggregateSubClasses(ontologyThings, weaviate){
 
     // create recursive sub classes
     subClasses[singleClass.class] = new GraphQLObjectType({
-      name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class,
+      name: "Aggregate" + weaviate + singleClass.class,
       description: singleClass.description,
       fields: function(){
         // declare props that should be returned
@@ -324,11 +319,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
 
         // add count as field
         returnFields["count"] = {
-          name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "Count",
+          name: "Aggregate" + weaviate + singleClass.class + "Count",
           description: function() {
             return getDesc("AggregateSubClassCount")},
           type: new GraphQLObjectType({
-            name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "CountObj",
+            name: "Aggregate" + weaviate + singleClass.class + "CountObj",
             description: function() {
               return getDesc("AggregateSubClassCountObj")},
             fields: function(){
@@ -337,7 +332,7 @@ function createAggregateSubClasses(ontologyThings, weaviate){
               singleClass.properties.forEach(singleClassProperty => {
                 singleClassProperty["@dataType"].forEach(singleClassPropertyDatatype => {
                   returnProps[singleClassProperty.name] = {
-                    name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + singleClassProperty.name,
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name,
                     description: singleClassProperty.description,
                     type: GraphQLInt
                   }
@@ -361,11 +356,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
         if (numericProps.length > 0) {
           // add numeric aggregations as field
           returnFields["minimum"] = {
-            name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "Minimum",
+            name: "Aggregate" + weaviate + singleClass.class + "Minimum",
             description: function() {
               return getDesc("AggregateSubClassMinimum")},
             type: new GraphQLObjectType({
-              name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "MinimumObj",
+              name: "Aggregate" + weaviate + singleClass.class + "MinimumObj",
               description: function() {
                 return getDesc("AggregateSubClassMinimumObj")},
               fields: function(){
@@ -375,13 +370,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -393,11 +388,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
             })
           },
           returnFields["maximum"] = {
-            name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "Maximum",
+            name: "Aggregate" + weaviate + singleClass.class + "Maximum",
             description: function() {
               return getDesc("AggregateSubClassMaximum")},
             type: new GraphQLObjectType({
-              name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "MaximumObj",
+              name: "Aggregate" + weaviate + singleClass.class + "MaximumObj",
               description: function() {
                 return getDesc("AggregateSubClassMaximumObj")},
               fields: function(){
@@ -407,13 +402,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -425,11 +420,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
             })
           },
           returnFields["mode"] = {
-            name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "Mode",
+            name: "Aggregate" + weaviate + singleClass.class + "Mode",
             description: function() {
               return getDesc("AggregateSubClassMode")},
             type: new GraphQLObjectType({
-              name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "ModeObj",
+              name: "Aggregate" + weaviate + singleClass.class + "ModeObj",
               description: function() {
                 return getDesc("AggregateSubClassModeObj")},
               fields: function(){
@@ -439,13 +434,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -457,11 +452,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
             })
           },
           returnFields["median"] = {
-            name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "Median",
+            name: "Aggregate" + weaviate + singleClass.class + "Median",
             description: function() {
               return getDesc("AggregateSubClassMedian")},
             type: new GraphQLObjectType({
-              name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "MedianObj",
+              name: "Aggregate" + weaviate + singleClass.class + "MedianObj",
               description: function() {
                 return getDesc("AggregateSubClassMedianObj")},
               fields: function(){
@@ -471,13 +466,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -489,11 +484,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
             })
           },
           returnFields["sum"] = {
-            name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "Sum",
+            name: "Aggregate" + weaviate + singleClass.class + "Sum",
             description: function() {
               return getDesc("AggregateSubClassSum")},
             type: new GraphQLObjectType({
-              name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "SumObj",
+              name: "Aggregate" + weaviate + singleClass.class + "SumObj",
               description: function() {
                 return getDesc("AggregateSubClassSumObj")},
               fields: function(){
@@ -503,13 +498,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -521,11 +516,11 @@ function createAggregateSubClasses(ontologyThings, weaviate){
             })
           }, 
           returnFields["mean"] = {
-            name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "Mean",
+            name: "Aggregate" + weaviate + singleClass.class + "Mean",
             description: function() {
               return getDesc("AggregateSubClassMean")},
             type: new GraphQLObjectType({
-              name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "MeanObj",
+              name: "Aggregate" + weaviate + singleClass.class + "MeanObj",
               description: function() {
                 return getDesc("AggregateSubClassMeanObj")},
               fields: function(){
@@ -535,13 +530,13 @@ function createAggregateSubClasses(ontologyThings, weaviate){
                   numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
                     if(singleClassPropertyDatatype === "int") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLInt
                       }
                     } else if(singleClassPropertyDatatype === "number") {
                       returnProps[numericProps.name] = {
-                        name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + numericProps.name,
+                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
                         description: numericProps.description,
                         type: GraphQLFloat
                       }
@@ -556,22 +551,22 @@ function createAggregateSubClasses(ontologyThings, weaviate){
 
         // add groupedBy as field
         returnFields["groupedBy"] = { // should actually be the property where there is grouped on
-          name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "GroupedByObj",
+          name: "Aggregate" + weaviate + singleClass.class + "GroupedByObj",
           description: function() {
           return getDesc("AggregateSubClassGrouped")},
           type: new GraphQLObjectType({
-            name: "Weaviate" + location + "Aggregate" + weaviate + singleClass.class + "GroupedByObj",
+            name: "Aggregate" + weaviate + singleClass.class + "GroupedByObj",
             description: function() {
               return getDesc("AggregateSubClassGroupedObj")},
             fields: {
               path: {
-                name: "Weaviate" + location + "AggregateSubClassGroupedPath",
+                name: "AggregateSubClassGroupedPath",
                 description: function() {
                   return getDesc("AggregateSubClassGroupedPath")},
                 type: new GraphQLList(GraphQLString)
               }, 
               value: {
-                name: "Weaviate" + location + "AggregateSubClassGroupedValue",
+                name: "AggregateSubClassGroupedValue",
                 description: function() {
                   return getDesc("AggregateSubClassGroupedValue")},
                 type: GraphQLString
