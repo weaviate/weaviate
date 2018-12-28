@@ -114,7 +114,7 @@ func buildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema 
 func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, kindName string, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object) (*graphql.Field, error) {
 	classObject := graphql.NewObject(graphql.ObjectConfig{
 
-		Name: fmt.Sprintf("LocalAggregate%s", class.Class),
+		Name: fmt.Sprintf("Aggregate%s", class.Class),
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 
 			classProperties := graphql.Fields{}
