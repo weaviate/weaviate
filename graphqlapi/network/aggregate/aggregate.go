@@ -148,7 +148,7 @@ func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, class *models.Sem
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        fmt.Sprintf("WeaviateNetworkAggregate%s%ss%sWhereInpObj", weaviate, kindName, class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalAggregate%s%ss%s", weaviate, kindName, class.Class)),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkAggregate%s%ss%s", weaviate, kindName, class.Class)),
 						Description: descriptions.NetworkAggregateWhereInpObjDesc,
 					},
 				),
