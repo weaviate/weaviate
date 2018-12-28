@@ -6801,7 +6801,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "LocalAggregateTestThing",
+                  "name": "AggregateTestThing",
                   "ofType": null
                 }
               },
@@ -6866,7 +6866,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "LocalAggregateTestThingTwo",
+                  "name": "AggregateTestThingTwo",
                   "ofType": null
                 }
               },
@@ -7164,7 +7164,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThing",
+          "name": "AggregateTestThing",
           "description": "This is a Test",
           "fields": [
             {
@@ -7173,7 +7173,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingCountObj",
+                "name": "AggregateTestThingCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7185,7 +7185,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingMinimumObj",
+                "name": "AggregateTestThingMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7197,7 +7197,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingMaximumObj",
+                "name": "AggregateTestThingMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7209,7 +7209,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingModeObj",
+                "name": "AggregateTestThingModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7221,7 +7221,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingMedianObj",
+                "name": "AggregateTestThingMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7233,7 +7233,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingSumObj",
+                "name": "AggregateTestThingSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7245,7 +7245,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingMeanObj",
+                "name": "AggregateTestThingMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7257,7 +7257,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingGroupedByObj",
+                "name": "AggregateTestThingGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7271,7 +7271,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingCountObj",
+          "name": "AggregateTestThingCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -7378,7 +7378,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingMinimumObj",
+          "name": "AggregateTestThingMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -7413,7 +7413,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingMaximumObj",
+          "name": "AggregateTestThingMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -7448,7 +7448,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingModeObj",
+          "name": "AggregateTestThingModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -7483,7 +7483,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingMedianObj",
+          "name": "AggregateTestThingMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -7518,7 +7518,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingSumObj",
+          "name": "AggregateTestThingSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -7553,7 +7553,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingMeanObj",
+          "name": "AggregateTestThingMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -7588,7 +7588,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingGroupedByObj",
+          "name": "AggregateTestThingGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -7910,7 +7910,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingTwo",
+          "name": "AggregateTestThingTwo",
           "description": "This is a Test",
           "fields": [
             {
@@ -7919,7 +7919,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingTwoCountObj",
+                "name": "AggregateTestThingTwoCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7931,7 +7931,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingTwoMinimumObj",
+                "name": "AggregateTestThingTwoMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7943,7 +7943,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingTwoMaximumObj",
+                "name": "AggregateTestThingTwoMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7955,7 +7955,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingTwoModeObj",
+                "name": "AggregateTestThingTwoModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7967,7 +7967,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingTwoMedianObj",
+                "name": "AggregateTestThingTwoMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7979,7 +7979,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingTwoSumObj",
+                "name": "AggregateTestThingTwoSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -7991,7 +7991,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingTwoMeanObj",
+                "name": "AggregateTestThingTwoMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -8003,7 +8003,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestThingTwoGroupedByObj",
+                "name": "AggregateTestThingTwoGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -8017,7 +8017,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingTwoCountObj",
+          "name": "AggregateTestThingTwoCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -8124,7 +8124,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingTwoMinimumObj",
+          "name": "AggregateTestThingTwoMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -8171,7 +8171,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingTwoMaximumObj",
+          "name": "AggregateTestThingTwoMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -8218,7 +8218,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingTwoModeObj",
+          "name": "AggregateTestThingTwoModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -8265,7 +8265,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingTwoMedianObj",
+          "name": "AggregateTestThingTwoMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -8312,7 +8312,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingTwoSumObj",
+          "name": "AggregateTestThingTwoSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -8359,7 +8359,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingTwoMeanObj",
+          "name": "AggregateTestThingTwoMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -8406,7 +8406,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestThingTwoGroupedByObj",
+          "name": "AggregateTestThingTwoGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -8506,7 +8506,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "LocalAggregateTestAction",
+                  "name": "AggregateTestAction",
                   "ofType": null
                 }
               },
@@ -8571,7 +8571,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "LocalAggregateTestActionTwo",
+                  "name": "AggregateTestActionTwo",
                   "ofType": null
                 }
               },
@@ -8869,7 +8869,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestAction",
+          "name": "AggregateTestAction",
           "description": "This is a Test",
           "fields": [
             {
@@ -8878,7 +8878,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionCountObj",
+                "name": "AggregateTestActionCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -8890,7 +8890,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionMinimumObj",
+                "name": "AggregateTestActionMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -8902,7 +8902,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionMaximumObj",
+                "name": "AggregateTestActionMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -8914,7 +8914,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionModeObj",
+                "name": "AggregateTestActionModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -8926,7 +8926,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionMedianObj",
+                "name": "AggregateTestActionMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -8938,7 +8938,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionSumObj",
+                "name": "AggregateTestActionSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -8950,7 +8950,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionMeanObj",
+                "name": "AggregateTestActionMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -8962,7 +8962,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionGroupedByObj",
+                "name": "AggregateTestActionGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -8976,7 +8976,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionCountObj",
+          "name": "AggregateTestActionCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -9071,7 +9071,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionMinimumObj",
+          "name": "AggregateTestActionMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -9106,7 +9106,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionMaximumObj",
+          "name": "AggregateTestActionMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -9141,7 +9141,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionModeObj",
+          "name": "AggregateTestActionModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -9176,7 +9176,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionMedianObj",
+          "name": "AggregateTestActionMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -9211,7 +9211,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionSumObj",
+          "name": "AggregateTestActionSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -9246,7 +9246,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionMeanObj",
+          "name": "AggregateTestActionMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -9281,7 +9281,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionGroupedByObj",
+          "name": "AggregateTestActionGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -9603,7 +9603,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionTwo",
+          "name": "AggregateTestActionTwo",
           "description": "This is a Test",
           "fields": [
             {
@@ -9612,7 +9612,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionTwoCountObj",
+                "name": "AggregateTestActionTwoCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -9624,7 +9624,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionTwoMinimumObj",
+                "name": "AggregateTestActionTwoMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -9636,7 +9636,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionTwoMaximumObj",
+                "name": "AggregateTestActionTwoMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -9648,7 +9648,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionTwoModeObj",
+                "name": "AggregateTestActionTwoModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -9660,7 +9660,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionTwoMedianObj",
+                "name": "AggregateTestActionTwoMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -9672,7 +9672,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionTwoSumObj",
+                "name": "AggregateTestActionTwoSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -9684,7 +9684,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionTwoMeanObj",
+                "name": "AggregateTestActionTwoMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -9696,7 +9696,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "LocalAggregateTestActionTwoGroupedByObj",
+                "name": "AggregateTestActionTwoGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -9710,7 +9710,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionTwoCountObj",
+          "name": "AggregateTestActionTwoCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -9817,7 +9817,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionTwoMinimumObj",
+          "name": "AggregateTestActionTwoMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -9852,7 +9852,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionTwoMaximumObj",
+          "name": "AggregateTestActionTwoMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -9887,7 +9887,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionTwoModeObj",
+          "name": "AggregateTestActionTwoModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -9922,7 +9922,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionTwoMedianObj",
+          "name": "AggregateTestActionTwoMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -9957,7 +9957,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionTwoSumObj",
+          "name": "AggregateTestActionTwoSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -9992,7 +9992,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionTwoMeanObj",
+          "name": "AggregateTestActionTwoMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -10027,7 +10027,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "LocalAggregateTestActionTwoGroupedByObj",
+          "name": "AggregateTestActionTwoGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -24496,7 +24496,7 @@
                   "description": "Where filter to filter the class TestThing on",
                   "type": {
                     "kind": "INPUT_OBJECT",
-                    "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingWhereInpObj",
+                    "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingWhereInpObj",
                     "ofType": null
                   },
                   "defaultValue": null
@@ -24525,7 +24525,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "WeaviateBAggregateTestThing",
+                  "name": "AggregateWeaviateBTestThing",
                   "ofType": null
                 }
               },
@@ -24561,7 +24561,7 @@
                   "description": "Where filter to filter the class TestThingTwo on",
                   "type": {
                     "kind": "INPUT_OBJECT",
-                    "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingTwoWhereInpObj",
+                    "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingTwoWhereInpObj",
                     "ofType": null
                   },
                   "defaultValue": null
@@ -24590,7 +24590,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "WeaviateBAggregateTestThingTwo",
+                  "name": "AggregateWeaviateBTestThingTwo",
                   "ofType": null
                 }
               },
@@ -24605,7 +24605,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingWhereInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingWhereInpObj",
           "description": "Input fields for the where filter to filter the class TestThing on",
           "fields": null,
           "inputFields": [
@@ -24614,7 +24614,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -24627,7 +24627,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -24714,7 +24714,7 @@
         },
         {
           "kind": "ENUM",
-          "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingWhereOperatorEnum",
+          "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingWhereOperatorEnum",
           "description": "Enumeration object for the 'where' filter",
           "fields": null,
           "inputFields": null,
@@ -24779,7 +24779,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingWhereOperandsInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingWhereOperandsInpObj",
           "description": "Operands in the 'where' filter field, is a list of objects",
           "fields": null,
           "inputFields": [
@@ -24788,7 +24788,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -24801,7 +24801,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -24888,7 +24888,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThing",
+          "name": "AggregateWeaviateBTestThing",
           "description": "This is a Test",
           "fields": [
             {
@@ -24897,7 +24897,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingCountObj",
+                "name": "AggregateWeaviateBTestThingCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -24909,7 +24909,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingMinimumObj",
+                "name": "AggregateWeaviateBTestThingMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -24921,7 +24921,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingMaximumObj",
+                "name": "AggregateWeaviateBTestThingMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -24933,7 +24933,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingModeObj",
+                "name": "AggregateWeaviateBTestThingModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -24945,7 +24945,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingMedianObj",
+                "name": "AggregateWeaviateBTestThingMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -24957,7 +24957,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingSumObj",
+                "name": "AggregateWeaviateBTestThingSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -24969,7 +24969,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingMeanObj",
+                "name": "AggregateWeaviateBTestThingMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -24981,7 +24981,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingGroupedByObj",
+                "name": "AggregateWeaviateBTestThingGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -24995,7 +24995,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingCountObj",
+          "name": "AggregateWeaviateBTestThingCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -25102,7 +25102,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingMinimumObj",
+          "name": "AggregateWeaviateBTestThingMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -25137,7 +25137,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingMaximumObj",
+          "name": "AggregateWeaviateBTestThingMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -25172,7 +25172,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingModeObj",
+          "name": "AggregateWeaviateBTestThingModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -25207,7 +25207,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingMedianObj",
+          "name": "AggregateWeaviateBTestThingMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -25242,7 +25242,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingSumObj",
+          "name": "AggregateWeaviateBTestThingSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -25277,7 +25277,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingMeanObj",
+          "name": "AggregateWeaviateBTestThingMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -25312,7 +25312,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingGroupedByObj",
+          "name": "AggregateWeaviateBTestThingGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -25351,7 +25351,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingTwoWhereInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingTwoWhereInpObj",
           "description": "Input fields for the where filter to filter the class TestThingTwo on",
           "fields": null,
           "inputFields": [
@@ -25360,7 +25360,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingTwoWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingTwoWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -25373,7 +25373,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingTwoWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingTwoWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -25460,7 +25460,7 @@
         },
         {
           "kind": "ENUM",
-          "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingTwoWhereOperatorEnum",
+          "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingTwoWhereOperatorEnum",
           "description": "Enumeration object for the 'where' filter",
           "fields": null,
           "inputFields": null,
@@ -25525,7 +25525,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingTwoWhereOperandsInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingTwoWhereOperandsInpObj",
           "description": "Operands in the 'where' filter field, is a list of objects",
           "fields": null,
           "inputFields": [
@@ -25534,7 +25534,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingTwoWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingTwoWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -25547,7 +25547,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateThingsWeaviateBTestThingTwoWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateBThingsTestThingTwoWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -25634,7 +25634,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingTwo",
+          "name": "AggregateWeaviateBTestThingTwo",
           "description": "This is a Test",
           "fields": [
             {
@@ -25643,7 +25643,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingTwoCountObj",
+                "name": "AggregateWeaviateBTestThingTwoCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -25655,7 +25655,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingTwoMinimumObj",
+                "name": "AggregateWeaviateBTestThingTwoMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -25667,7 +25667,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingTwoMaximumObj",
+                "name": "AggregateWeaviateBTestThingTwoMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -25679,7 +25679,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingTwoModeObj",
+                "name": "AggregateWeaviateBTestThingTwoModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -25691,7 +25691,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingTwoMedianObj",
+                "name": "AggregateWeaviateBTestThingTwoMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -25703,7 +25703,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingTwoSumObj",
+                "name": "AggregateWeaviateBTestThingTwoSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -25715,7 +25715,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingTwoMeanObj",
+                "name": "AggregateWeaviateBTestThingTwoMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -25727,7 +25727,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestThingTwoGroupedByObj",
+                "name": "AggregateWeaviateBTestThingTwoGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -25741,7 +25741,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingTwoCountObj",
+          "name": "AggregateWeaviateBTestThingTwoCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -25848,7 +25848,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingTwoMinimumObj",
+          "name": "AggregateWeaviateBTestThingTwoMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -25895,7 +25895,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingTwoMaximumObj",
+          "name": "AggregateWeaviateBTestThingTwoMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -25942,7 +25942,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingTwoModeObj",
+          "name": "AggregateWeaviateBTestThingTwoModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -25989,7 +25989,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingTwoMedianObj",
+          "name": "AggregateWeaviateBTestThingTwoMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -26036,7 +26036,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingTwoSumObj",
+          "name": "AggregateWeaviateBTestThingTwoSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -26083,7 +26083,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingTwoMeanObj",
+          "name": "AggregateWeaviateBTestThingTwoMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -26130,7 +26130,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestThingTwoGroupedByObj",
+          "name": "AggregateWeaviateBTestThingTwoGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -26201,7 +26201,7 @@
                   "description": "Where filter to filter the class TestAction on",
                   "type": {
                     "kind": "INPUT_OBJECT",
-                    "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionWhereInpObj",
+                    "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionWhereInpObj",
                     "ofType": null
                   },
                   "defaultValue": null
@@ -26230,7 +26230,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "WeaviateBAggregateTestAction",
+                  "name": "AggregateWeaviateBTestAction",
                   "ofType": null
                 }
               },
@@ -26266,7 +26266,7 @@
                   "description": "Where filter to filter the class TestActionTwo on",
                   "type": {
                     "kind": "INPUT_OBJECT",
-                    "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionTwoWhereInpObj",
+                    "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionTwoWhereInpObj",
                     "ofType": null
                   },
                   "defaultValue": null
@@ -26295,7 +26295,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "WeaviateBAggregateTestActionTwo",
+                  "name": "AggregateWeaviateBTestActionTwo",
                   "ofType": null
                 }
               },
@@ -26310,7 +26310,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionWhereInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionWhereInpObj",
           "description": "Input fields for the where filter to filter the class TestAction on",
           "fields": null,
           "inputFields": [
@@ -26319,7 +26319,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -26332,7 +26332,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -26419,7 +26419,7 @@
         },
         {
           "kind": "ENUM",
-          "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionWhereOperatorEnum",
+          "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionWhereOperatorEnum",
           "description": "Enumeration object for the 'where' filter",
           "fields": null,
           "inputFields": null,
@@ -26484,7 +26484,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionWhereOperandsInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionWhereOperandsInpObj",
           "description": "Operands in the 'where' filter field, is a list of objects",
           "fields": null,
           "inputFields": [
@@ -26493,7 +26493,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -26506,7 +26506,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -26593,7 +26593,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestAction",
+          "name": "AggregateWeaviateBTestAction",
           "description": "This is a Test",
           "fields": [
             {
@@ -26602,7 +26602,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionCountObj",
+                "name": "AggregateWeaviateBTestActionCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -26614,7 +26614,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionMinimumObj",
+                "name": "AggregateWeaviateBTestActionMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -26626,7 +26626,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionMaximumObj",
+                "name": "AggregateWeaviateBTestActionMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -26638,7 +26638,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionModeObj",
+                "name": "AggregateWeaviateBTestActionModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -26650,7 +26650,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionMedianObj",
+                "name": "AggregateWeaviateBTestActionMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -26662,7 +26662,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionSumObj",
+                "name": "AggregateWeaviateBTestActionSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -26674,7 +26674,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionMeanObj",
+                "name": "AggregateWeaviateBTestActionMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -26686,7 +26686,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionGroupedByObj",
+                "name": "AggregateWeaviateBTestActionGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -26700,7 +26700,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionCountObj",
+          "name": "AggregateWeaviateBTestActionCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -26795,7 +26795,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionMinimumObj",
+          "name": "AggregateWeaviateBTestActionMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -26830,7 +26830,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionMaximumObj",
+          "name": "AggregateWeaviateBTestActionMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -26865,7 +26865,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionModeObj",
+          "name": "AggregateWeaviateBTestActionModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -26900,7 +26900,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionMedianObj",
+          "name": "AggregateWeaviateBTestActionMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -26935,7 +26935,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionSumObj",
+          "name": "AggregateWeaviateBTestActionSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -26970,7 +26970,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionMeanObj",
+          "name": "AggregateWeaviateBTestActionMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -27005,7 +27005,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionGroupedByObj",
+          "name": "AggregateWeaviateBTestActionGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -27044,7 +27044,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionTwoWhereInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionTwoWhereInpObj",
           "description": "Input fields for the where filter to filter the class TestActionTwo on",
           "fields": null,
           "inputFields": [
@@ -27053,7 +27053,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionTwoWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionTwoWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -27066,7 +27066,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionTwoWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionTwoWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -27153,7 +27153,7 @@
         },
         {
           "kind": "ENUM",
-          "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionTwoWhereOperatorEnum",
+          "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionTwoWhereOperatorEnum",
           "description": "Enumeration object for the 'where' filter",
           "fields": null,
           "inputFields": null,
@@ -27218,7 +27218,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionTwoWhereOperandsInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionTwoWhereOperandsInpObj",
           "description": "Operands in the 'where' filter field, is a list of objects",
           "fields": null,
           "inputFields": [
@@ -27227,7 +27227,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionTwoWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionTwoWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -27240,7 +27240,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateActionsWeaviateBTestActionTwoWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateBActionsTestActionTwoWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -27327,7 +27327,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionTwo",
+          "name": "AggregateWeaviateBTestActionTwo",
           "description": "This is a Test",
           "fields": [
             {
@@ -27336,7 +27336,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionTwoCountObj",
+                "name": "AggregateWeaviateBTestActionTwoCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -27348,7 +27348,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionTwoMinimumObj",
+                "name": "AggregateWeaviateBTestActionTwoMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -27360,7 +27360,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionTwoMaximumObj",
+                "name": "AggregateWeaviateBTestActionTwoMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -27372,7 +27372,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionTwoModeObj",
+                "name": "AggregateWeaviateBTestActionTwoModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -27384,7 +27384,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionTwoMedianObj",
+                "name": "AggregateWeaviateBTestActionTwoMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -27396,7 +27396,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionTwoSumObj",
+                "name": "AggregateWeaviateBTestActionTwoSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -27408,7 +27408,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionTwoMeanObj",
+                "name": "AggregateWeaviateBTestActionTwoMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -27420,7 +27420,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateBAggregateTestActionTwoGroupedByObj",
+                "name": "AggregateWeaviateBTestActionTwoGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -27434,7 +27434,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionTwoCountObj",
+          "name": "AggregateWeaviateBTestActionTwoCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -27541,7 +27541,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionTwoMinimumObj",
+          "name": "AggregateWeaviateBTestActionTwoMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -27576,7 +27576,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionTwoMaximumObj",
+          "name": "AggregateWeaviateBTestActionTwoMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -27611,7 +27611,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionTwoModeObj",
+          "name": "AggregateWeaviateBTestActionTwoModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -27646,7 +27646,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionTwoMedianObj",
+          "name": "AggregateWeaviateBTestActionTwoMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -27681,7 +27681,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionTwoSumObj",
+          "name": "AggregateWeaviateBTestActionTwoSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -27716,7 +27716,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionTwoMeanObj",
+          "name": "AggregateWeaviateBTestActionTwoMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -27751,7 +27751,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateBAggregateTestActionTwoGroupedByObj",
+          "name": "AggregateWeaviateBTestActionTwoGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -27857,7 +27857,7 @@
                   "description": "Where filter to filter the class TestThing on",
                   "type": {
                     "kind": "INPUT_OBJECT",
-                    "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingWhereInpObj",
+                    "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingWhereInpObj",
                     "ofType": null
                   },
                   "defaultValue": null
@@ -27886,7 +27886,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "WeaviateCAggregateTestThing",
+                  "name": "AggregateWeaviateCTestThing",
                   "ofType": null
                 }
               },
@@ -27922,7 +27922,7 @@
                   "description": "Where filter to filter the class TestThingTwo on",
                   "type": {
                     "kind": "INPUT_OBJECT",
-                    "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingTwoWhereInpObj",
+                    "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingTwoWhereInpObj",
                     "ofType": null
                   },
                   "defaultValue": null
@@ -27951,7 +27951,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "WeaviateCAggregateTestThingTwo",
+                  "name": "AggregateWeaviateCTestThingTwo",
                   "ofType": null
                 }
               },
@@ -27966,7 +27966,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingWhereInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingWhereInpObj",
           "description": "Input fields for the where filter to filter the class TestThing on",
           "fields": null,
           "inputFields": [
@@ -27975,7 +27975,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -27988,7 +27988,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -28075,7 +28075,7 @@
         },
         {
           "kind": "ENUM",
-          "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingWhereOperatorEnum",
+          "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingWhereOperatorEnum",
           "description": "Enumeration object for the 'where' filter",
           "fields": null,
           "inputFields": null,
@@ -28140,7 +28140,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingWhereOperandsInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingWhereOperandsInpObj",
           "description": "Operands in the 'where' filter field, is a list of objects",
           "fields": null,
           "inputFields": [
@@ -28149,7 +28149,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -28162,7 +28162,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -28249,7 +28249,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThing",
+          "name": "AggregateWeaviateCTestThing",
           "description": "This is a Test",
           "fields": [
             {
@@ -28258,7 +28258,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingCountObj",
+                "name": "AggregateWeaviateCTestThingCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -28270,7 +28270,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingMinimumObj",
+                "name": "AggregateWeaviateCTestThingMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -28282,7 +28282,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingMaximumObj",
+                "name": "AggregateWeaviateCTestThingMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -28294,7 +28294,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingModeObj",
+                "name": "AggregateWeaviateCTestThingModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -28306,7 +28306,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingMedianObj",
+                "name": "AggregateWeaviateCTestThingMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -28318,7 +28318,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingSumObj",
+                "name": "AggregateWeaviateCTestThingSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -28330,7 +28330,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingMeanObj",
+                "name": "AggregateWeaviateCTestThingMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -28342,7 +28342,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingGroupedByObj",
+                "name": "AggregateWeaviateCTestThingGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -28356,7 +28356,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingCountObj",
+          "name": "AggregateWeaviateCTestThingCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -28463,7 +28463,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingMinimumObj",
+          "name": "AggregateWeaviateCTestThingMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -28498,7 +28498,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingMaximumObj",
+          "name": "AggregateWeaviateCTestThingMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -28533,7 +28533,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingModeObj",
+          "name": "AggregateWeaviateCTestThingModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -28568,7 +28568,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingMedianObj",
+          "name": "AggregateWeaviateCTestThingMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -28603,7 +28603,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingSumObj",
+          "name": "AggregateWeaviateCTestThingSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -28638,7 +28638,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingMeanObj",
+          "name": "AggregateWeaviateCTestThingMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -28673,7 +28673,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingGroupedByObj",
+          "name": "AggregateWeaviateCTestThingGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -28712,7 +28712,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingTwoWhereInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingTwoWhereInpObj",
           "description": "Input fields for the where filter to filter the class TestThingTwo on",
           "fields": null,
           "inputFields": [
@@ -28721,7 +28721,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingTwoWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingTwoWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -28734,7 +28734,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingTwoWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingTwoWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -28821,7 +28821,7 @@
         },
         {
           "kind": "ENUM",
-          "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingTwoWhereOperatorEnum",
+          "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingTwoWhereOperatorEnum",
           "description": "Enumeration object for the 'where' filter",
           "fields": null,
           "inputFields": null,
@@ -28886,7 +28886,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingTwoWhereOperandsInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingTwoWhereOperandsInpObj",
           "description": "Operands in the 'where' filter field, is a list of objects",
           "fields": null,
           "inputFields": [
@@ -28895,7 +28895,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingTwoWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingTwoWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -28908,7 +28908,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateThingsWeaviateCTestThingTwoWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateCThingsTestThingTwoWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -28995,7 +28995,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingTwo",
+          "name": "AggregateWeaviateCTestThingTwo",
           "description": "This is a Test",
           "fields": [
             {
@@ -29004,7 +29004,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingTwoCountObj",
+                "name": "AggregateWeaviateCTestThingTwoCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -29016,7 +29016,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingTwoMinimumObj",
+                "name": "AggregateWeaviateCTestThingTwoMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -29028,7 +29028,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingTwoMaximumObj",
+                "name": "AggregateWeaviateCTestThingTwoMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -29040,7 +29040,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingTwoModeObj",
+                "name": "AggregateWeaviateCTestThingTwoModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -29052,7 +29052,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingTwoMedianObj",
+                "name": "AggregateWeaviateCTestThingTwoMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -29064,7 +29064,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingTwoSumObj",
+                "name": "AggregateWeaviateCTestThingTwoSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -29076,7 +29076,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingTwoMeanObj",
+                "name": "AggregateWeaviateCTestThingTwoMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -29088,7 +29088,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestThingTwoGroupedByObj",
+                "name": "AggregateWeaviateCTestThingTwoGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -29102,7 +29102,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingTwoCountObj",
+          "name": "AggregateWeaviateCTestThingTwoCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -29209,7 +29209,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingTwoMinimumObj",
+          "name": "AggregateWeaviateCTestThingTwoMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -29256,7 +29256,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingTwoMaximumObj",
+          "name": "AggregateWeaviateCTestThingTwoMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -29303,7 +29303,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingTwoModeObj",
+          "name": "AggregateWeaviateCTestThingTwoModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -29350,7 +29350,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingTwoMedianObj",
+          "name": "AggregateWeaviateCTestThingTwoMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -29397,7 +29397,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingTwoSumObj",
+          "name": "AggregateWeaviateCTestThingTwoSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -29444,7 +29444,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingTwoMeanObj",
+          "name": "AggregateWeaviateCTestThingTwoMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -29491,7 +29491,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestThingTwoGroupedByObj",
+          "name": "AggregateWeaviateCTestThingTwoGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -29562,7 +29562,7 @@
                   "description": "Where filter to filter the class TestAction on",
                   "type": {
                     "kind": "INPUT_OBJECT",
-                    "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionWhereInpObj",
+                    "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionWhereInpObj",
                     "ofType": null
                   },
                   "defaultValue": null
@@ -29591,7 +29591,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "WeaviateCAggregateTestAction",
+                  "name": "AggregateWeaviateCTestAction",
                   "ofType": null
                 }
               },
@@ -29627,7 +29627,7 @@
                   "description": "Where filter to filter the class TestActionTwo on",
                   "type": {
                     "kind": "INPUT_OBJECT",
-                    "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionTwoWhereInpObj",
+                    "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionTwoWhereInpObj",
                     "ofType": null
                   },
                   "defaultValue": null
@@ -29656,7 +29656,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "OBJECT",
-                  "name": "WeaviateCAggregateTestActionTwo",
+                  "name": "AggregateWeaviateCTestActionTwo",
                   "ofType": null
                 }
               },
@@ -29671,7 +29671,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionWhereInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionWhereInpObj",
           "description": "Input fields for the where filter to filter the class TestAction on",
           "fields": null,
           "inputFields": [
@@ -29680,7 +29680,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -29693,7 +29693,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -29780,7 +29780,7 @@
         },
         {
           "kind": "ENUM",
-          "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionWhereOperatorEnum",
+          "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionWhereOperatorEnum",
           "description": "Enumeration object for the 'where' filter",
           "fields": null,
           "inputFields": null,
@@ -29845,7 +29845,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionWhereOperandsInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionWhereOperandsInpObj",
           "description": "Operands in the 'where' filter field, is a list of objects",
           "fields": null,
           "inputFields": [
@@ -29854,7 +29854,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -29867,7 +29867,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -29954,7 +29954,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestAction",
+          "name": "AggregateWeaviateCTestAction",
           "description": "This is a Test",
           "fields": [
             {
@@ -29963,7 +29963,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionCountObj",
+                "name": "AggregateWeaviateCTestActionCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -29975,7 +29975,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionMinimumObj",
+                "name": "AggregateWeaviateCTestActionMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -29987,7 +29987,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionMaximumObj",
+                "name": "AggregateWeaviateCTestActionMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -29999,7 +29999,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionModeObj",
+                "name": "AggregateWeaviateCTestActionModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30011,7 +30011,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionMedianObj",
+                "name": "AggregateWeaviateCTestActionMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30023,7 +30023,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionSumObj",
+                "name": "AggregateWeaviateCTestActionSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30035,7 +30035,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionMeanObj",
+                "name": "AggregateWeaviateCTestActionMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30047,7 +30047,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionGroupedByObj",
+                "name": "AggregateWeaviateCTestActionGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30061,7 +30061,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionCountObj",
+          "name": "AggregateWeaviateCTestActionCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -30156,7 +30156,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionMinimumObj",
+          "name": "AggregateWeaviateCTestActionMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -30191,7 +30191,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionMaximumObj",
+          "name": "AggregateWeaviateCTestActionMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -30226,7 +30226,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionModeObj",
+          "name": "AggregateWeaviateCTestActionModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -30261,7 +30261,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionMedianObj",
+          "name": "AggregateWeaviateCTestActionMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -30296,7 +30296,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionSumObj",
+          "name": "AggregateWeaviateCTestActionSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -30331,7 +30331,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionMeanObj",
+          "name": "AggregateWeaviateCTestActionMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -30366,7 +30366,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionGroupedByObj",
+          "name": "AggregateWeaviateCTestActionGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
@@ -30405,7 +30405,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionTwoWhereInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionTwoWhereInpObj",
           "description": "Input fields for the where filter to filter the class TestActionTwo on",
           "fields": null,
           "inputFields": [
@@ -30414,7 +30414,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionTwoWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionTwoWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -30427,7 +30427,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionTwoWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionTwoWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -30514,7 +30514,7 @@
         },
         {
           "kind": "ENUM",
-          "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionTwoWhereOperatorEnum",
+          "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionTwoWhereOperatorEnum",
           "description": "Enumeration object for the 'where' filter",
           "fields": null,
           "inputFields": null,
@@ -30579,7 +30579,7 @@
         },
         {
           "kind": "INPUT_OBJECT",
-          "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionTwoWhereOperandsInpObj",
+          "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionTwoWhereOperandsInpObj",
           "description": "Operands in the 'where' filter field, is a list of objects",
           "fields": null,
           "inputFields": [
@@ -30588,7 +30588,7 @@
               "description": "Operator in the 'where' filter field, value is one of the 'WhereOperatorEnum' object",
               "type": {
                 "kind": "ENUM",
-                "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionTwoWhereOperatorEnum",
+                "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionTwoWhereOperatorEnum",
                 "ofType": null
               },
               "defaultValue": null
@@ -30601,7 +30601,7 @@
                 "name": null,
                 "ofType": {
                   "kind": "INPUT_OBJECT",
-                  "name": "WeaviateNetworkAggregateActionsWeaviateCTestActionTwoWhereOperandsInpObj",
+                  "name": "WeaviateNetworkAggregateWeaviateCActionsTestActionTwoWhereOperandsInpObj",
                   "ofType": null
                 }
               },
@@ -30688,7 +30688,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionTwo",
+          "name": "AggregateWeaviateCTestActionTwo",
           "description": "This is a Test",
           "fields": [
             {
@@ -30697,7 +30697,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionTwoCountObj",
+                "name": "AggregateWeaviateCTestActionTwoCountObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30709,7 +30709,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionTwoMinimumObj",
+                "name": "AggregateWeaviateCTestActionTwoMinimumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30721,7 +30721,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionTwoMaximumObj",
+                "name": "AggregateWeaviateCTestActionTwoMaximumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30733,7 +30733,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionTwoModeObj",
+                "name": "AggregateWeaviateCTestActionTwoModeObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30745,7 +30745,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionTwoMedianObj",
+                "name": "AggregateWeaviateCTestActionTwoMedianObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30757,7 +30757,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionTwoSumObj",
+                "name": "AggregateWeaviateCTestActionTwoSumObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30769,7 +30769,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionTwoMeanObj",
+                "name": "AggregateWeaviateCTestActionTwoMeanObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30781,7 +30781,7 @@
               "args": [],
               "type": {
                 "kind": "OBJECT",
-                "name": "WeaviateCAggregateTestActionTwoGroupedByObj",
+                "name": "AggregateWeaviateCTestActionTwoGroupedByObj",
                 "ofType": null
               },
               "isDeprecated": false,
@@ -30795,7 +30795,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionTwoCountObj",
+          "name": "AggregateWeaviateCTestActionTwoCountObj",
           "description": "What properties should be counted",
           "fields": [
             {
@@ -30902,7 +30902,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionTwoMinimumObj",
+          "name": "AggregateWeaviateCTestActionTwoMinimumObj",
           "description": "Properties to get minimum of",
           "fields": [
             {
@@ -30937,7 +30937,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionTwoMaximumObj",
+          "name": "AggregateWeaviateCTestActionTwoMaximumObj",
           "description": "Properties to get maximum of",
           "fields": [
             {
@@ -30972,7 +30972,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionTwoModeObj",
+          "name": "AggregateWeaviateCTestActionTwoModeObj",
           "description": "Properties to get mode of",
           "fields": [
             {
@@ -31007,7 +31007,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionTwoMedianObj",
+          "name": "AggregateWeaviateCTestActionTwoMedianObj",
           "description": "Properties to get median of",
           "fields": [
             {
@@ -31042,7 +31042,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionTwoSumObj",
+          "name": "AggregateWeaviateCTestActionTwoSumObj",
           "description": "Properties to get sum of",
           "fields": [
             {
@@ -31077,7 +31077,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionTwoMeanObj",
+          "name": "AggregateWeaviateCTestActionTwoMeanObj",
           "description": "Properties to get mean of",
           "fields": [
             {
@@ -31112,7 +31112,7 @@
         },
         {
           "kind": "OBJECT",
-          "name": "WeaviateCAggregateTestActionTwoGroupedByObj",
+          "name": "AggregateWeaviateCTestActionTwoGroupedByObj",
           "description": "Show the key path and value of the group",
           "fields": [
             {
