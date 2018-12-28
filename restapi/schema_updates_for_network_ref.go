@@ -95,13 +95,15 @@ func (u *referenceSchemaUpdater) updateSchema(remoteKind interface{}, peerName s
 		remoteClass := fmt.Sprintf("%s/%s", peerName, thingOrAction.AtClass)
 		err := u.schemaManager.UpdatePropertyAddDataType(u.kind, u.fromClass, propName, remoteClass)
 		if err != nil {
-			return fmt.Errorf("could not add network thing class %s to %s.%s", remoteClass, u.fromClass, propName)
+			return fmt.Errorf("could not add network thing class %s to %s.%s: %s",
+				remoteClass, u.fromClass, propName, err)
 		}
 	case models.Action:
 		remoteClass := fmt.Sprintf("%s/%s", peerName, thingOrAction.AtClass)
 		err := u.schemaManager.UpdatePropertyAddDataType(u.kind, u.fromClass, propName, remoteClass)
 		if err != nil {
-			return fmt.Errorf("could not add network action class %s to %s.%s", remoteClass, u.fromClass, propName)
+			return fmt.Errorf("could not add network action class %s to %s.%s: %s",
+				remoteClass, u.fromClass, propName, err)
 		}
 	default:
 		return fmt.Errorf("unrecognized kind from remote peer for %s from %s", prop.NrDollarCref, peerName)

@@ -10,6 +10,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCanAddSingleNetworkRef(t *testing.T) {
+	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
+	thingID := assertCreateThing(t, "TestThing", map[string]interface{}{
+		"testCref": map[string]interface{}{
+			"locationUrl": "http://RemoteWeaviateForAcceptanceTest",
+			"type":        "NetworkThing",
+			"$cref":       networkRefID,
+		},
+	})
+
+	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
+		thing := assertGetThing(t, thingID)
+		rawCref := thing.Schema.(map[string]interface{})["testCref"]
+		require.NotNil(t, rawCref, "cross-ref is present")
+		cref := rawCref.(map[string]interface{})
+		assert.Equal(t, cref["type"], "NetworkThing")
+		assert.Equal(t, cref["$cref"], networkRefID)
+	})
+
+	t.Run("an implicit schema update has happened, we now include the network ref's class", func(t *testing.T) {
+		schema := assertGetSchema(t)
+		require.NotNil(t, schema.Things)
+		class := assertClassInSchema(t, schema.Things, "TestThing")
+		prop := assertPropertyInClass(t, class, "testCref")
+		expectedDataType := []string{"TestThingTwo", "RemoteWeaviateForAcceptanceTest/Instruments"}
+		assert.Equal(t, expectedDataType, prop.AtDataType, "prop should have old and newly added dataTypes")
+	})
+}
+
 func TestCanPatchNetworkRef(t *testing.T) {
 	t.Parallel()
 
