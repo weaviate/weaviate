@@ -27,17 +27,19 @@ func newReferenceSchemaUpdater(schemaManager database.SchemaManager, network lib
 // make sure this only ever called AFTER validtion as it skips
 // validation checks itself
 func (u *referenceSchemaUpdater) addNetworkDataTypes(schema interface{}) error {
+	if schema == nil {
+		return nil
+	}
+
 	for propName, prop := range schema.(map[string]interface{}) {
 		switch propTyped := prop.(type) {
 		case *models.SingleRef:
-			fmt.Printf("\n\n\n\n\n found a single ref for prop %s: %#v \n\n\n\n\n", propName, propTyped)
 			err := u.singleRef(propTyped, propName)
 			if err != nil {
 				return err
 			}
 
 		case models.MultipleRef:
-			fmt.Printf("\n\n\n\n\n found a multi ref for prop %s: %#v \n\n\n\n\n", propName, propTyped)
 			for _, single := range propTyped {
 				err := u.singleRef(single, propName)
 				if err != nil {
@@ -47,7 +49,6 @@ func (u *referenceSchemaUpdater) addNetworkDataTypes(schema interface{}) error {
 
 		default:
 			// primitive prop, skip
-			fmt.Printf("--- skiped a prop %s %#v", propName, propTyped)
 			continue
 		}
 	}
