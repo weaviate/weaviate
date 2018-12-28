@@ -4,22 +4,29 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/creativesoftwarefdn/weaviate/database"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 )
 
+type peersLister interface {
+	ListPeers() (peers.Peers, error)
+}
+
+type schemaManager interface {
+	UpdatePropertyAddDataType(kind.Kind, string, string, string) error
+}
+
 type referenceSchemaUpdater struct {
-	schemaManager database.SchemaManager
-	network       libnetwork.Network
+	schemaManager schemaManager
+	network       peersLister
 	fromClass     string
 	kind          kind.Kind
 }
 
-func newReferenceSchemaUpdater(schemaManager database.SchemaManager, network libnetwork.Network,
+func newReferenceSchemaUpdater(schemaManager schemaManager, network peersLister,
 	fromClass string, kind kind.Kind) *referenceSchemaUpdater {
 	return &referenceSchemaUpdater{schemaManager, network, fromClass, kind}
 }
