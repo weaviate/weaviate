@@ -1229,6 +1229,17 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
+		go func() {
+			schemaLock := db.SchemaLock()
+			defer schemaLock.Unlock()
+
+			err := newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, params.Body.Thing.AtClass, kind.THING_KIND).
+				addNetworkDataTypes(params.Body.Thing.Schema)
+			if err != nil {
+				messaging.DebugMessage(fmt.Sprintf("Async network ref update failed: %s", err.Error()))
+			}
+		}()
+
 		// Create Key-ref-Object
 		url := serverConfig.GetHostAddress()
 		keyRef := &models.SingleRef{
