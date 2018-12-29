@@ -22,13 +22,14 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get/refclasses"
+	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/graphql-go/graphql"
 )
 
 // Build the Local.Get part of the graphql tree
-func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
+func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messaging) (*graphql.Field, error) {
 	getKinds := graphql.Fields{}
 
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
@@ -39,8 +40,11 @@ func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 	networkRefs := extractNetworkRefClassNames(dbSchema)
 	knownRefClasses, err := refclasses.FromPeers(peers, networkRefs)
 	if err != nil {
-		// TODO: log error better
-		fmt.Printf("\n\nerror: %s\n\n", err)
+		msg := fmt.Sprintf("an error occured while trying to build known network ref classes, "+
+			"this kind of error won't block the graphql api, but it does mean that the mentioned refs "+
+			"will not be available. This error is expected when the network is not ready yet. If so, "+
+			"it should not reappear after a peer update: %s", err)
+		logger.ErrorMessage(msg)
 	}
 
 	if len(dbSchema.Actions.Classes) > 0 {
