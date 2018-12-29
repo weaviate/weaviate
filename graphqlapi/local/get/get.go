@@ -21,12 +21,14 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/graphql-go/graphql"
 )
 
 // Build the Local.Get part of the graphql tree
-func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
+func Build(dbSchema *schema.Schema, peers peers.Peers) (*graphql.Field, error) {
 	getKinds := graphql.Fields{}
 
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
@@ -34,9 +36,15 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	}
 
 	knownClasses := map[string]*graphql.Object{}
+	networkRefs := extractNetworkRefClassNames(dbSchema)
+	knownRefClasses, err := refclasses.FromPeers(peers, networkRefs)
+	if err != nil {
+		// TODO: log error better
+		fmt.Printf("\n\nerror: %s\n\n", err)
+	}
 
 	if len(dbSchema.Actions.Classes) > 0 {
-		localGetActions, err := buildGetClasses(dbSchema, kind.ACTION_KIND, dbSchema.Actions, &knownClasses)
+		localGetActions, err := buildGetClasses(dbSchema, kind.ACTION_KIND, dbSchema.Actions, &knownClasses, knownRefClasses)
 		if err != nil {
 			return nil, err
 		}
@@ -54,7 +62,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	}
 
 	if len(dbSchema.Things.Classes) > 0 {
-		localGetThings, err := buildGetClasses(dbSchema, kind.THING_KIND, dbSchema.Things, &knownClasses)
+		localGetThings, err := buildGetClasses(dbSchema, kind.THING_KIND, dbSchema.Things, &knownClasses, knownRefClasses)
 		if err != nil {
 			return nil, err
 		}
@@ -99,12 +107,13 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 }
 
 // Builds the classes below a Local -> Get -> (k kind.Kind)
-func buildGetClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *models.SemanticSchema, knownClasses *map[string]*graphql.Object) (*graphql.Object, error) {
+func buildGetClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *models.SemanticSchema,
+	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass) (*graphql.Object, error) {
 	classFields := graphql.Fields{}
 	kindName := strings.Title(k.Name())
 
 	for _, class := range semanticSchema.Classes {
-		classField, err := buildGetClass(dbSchema, k, class, knownClasses)
+		classField, err := buildGetClass(dbSchema, k, class, knownClasses, knownRefClasses)
 		if err != nil {
 			return nil, fmt.Errorf("Could not build class for %s", class.Class)
 		}

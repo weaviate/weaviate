@@ -9,6 +9,7 @@ import (
 	common "github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 	"github.com/graphql-go/graphql"
@@ -16,15 +17,16 @@ import (
 )
 
 // Build a single class in Local -> Get -> (k kind.Kind) -> (models.SemanticSchemaClass)
-func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object) (*graphql.Field, error) {
-	classObject := buildGetClassObject(k.Name(), class, dbSchema, knownClasses)
+func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass,
+	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass) (*graphql.Field, error) {
+	classObject := buildGetClassObject(k.Name(), class, dbSchema, knownClasses, knownRefClasses)
 	(*knownClasses)[class.Class] = classObject
 	classField := buildGetClassField(classObject, k, class)
 	return &classField, nil
 }
 
 func buildGetClassObject(kindName string, class *models.SemanticSchemaClass, dbSchema *schema.Schema,
-	knownClasses *map[string]*graphql.Object) *graphql.Object {
+	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
@@ -51,7 +53,7 @@ func buildGetClassObject(kindName string, class *models.SemanticSchemaClass, dbS
 				} else {
 					// uppercase key because it's a reference
 					fieldName = strings.Title(property.Name)
-					field = buildReferenceField(propertyType, property, kindName, class.Class, knownClasses)
+					field = buildReferenceField(propertyType, property, kindName, class.Class, knownClasses, knownRefClasses)
 				}
 				classProperties[fieldName] = field
 			}
@@ -109,26 +111,43 @@ func buildPrimitiveField(propertyType schema.PropertyDataType,
 
 func buildReferenceField(propertyType schema.PropertyDataType,
 	property *models.SemanticSchemaClassProperty, kindName, className string,
-	knownClasses *map[string]*graphql.Object) *graphql.Field {
+	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass) *graphql.Field {
 	refClasses := propertyType.Classes()
 	propertyName := strings.Title(property.Name)
 	dataTypeClasses := []*graphql.Object{}
 
 	for _, refClassName := range refClasses {
-		if crossrefs.ValidClassName(string(refClassName)) {
-			// simply ignore all network cross-refs for now
-			// fmt.Printf("\n\n\nhave nttwork ref %s\n\n\n", string(refClassName))
-			// spew.Dump(knownClasses)
-			continue
-		}
+		if desiredRefClass, err := crossrefs.ParseClass(string(refClassName)); err == nil {
+			// is a network ref
+			refClass, ok := knownRefClasses[desiredRefClass]
+			if !ok {
+				// we seem to have referenced a network class that doesn't exist
+				// (anymore). This is unfortunate, but there are many good reasons for
+				// this to happen. For example a peer could have left the network. We
+				// therefore simply skip this refprop, so we don't destroy the entire
+				// graphql api every time a peer leaves unexpectedly
+				continue
+			}
 
-		refClass, ok := (*knownClasses)[string(refClassName)]
-		if !ok {
-			panic(fmt.Sprintf("buildGetClass: unknown referenced class type for %s.%s.%s; %s",
-				kindName, className, property.Name, refClassName))
-		}
+			dataTypeClasses = append(dataTypeClasses, refClass)
+		} else {
+			// is a local ref
+			refClass, ok := (*knownClasses)[string(refClassName)]
+			if !ok {
+				panic(fmt.Sprintf("buildGetClass: unknown referenced class type for %s.%s.%s; %s",
+					kindName, className, property.Name, refClassName))
+			}
 
-		dataTypeClasses = append(dataTypeClasses, refClass)
+			dataTypeClasses = append(dataTypeClasses, refClass)
+		}
+	}
+
+	if (len(dataTypeClasses)) == 0 {
+		// this could be the case when we only have network-refs, but all network
+		// refs were invalid (e.g. because the peers are gone). In this case we
+		// must return (nil) early, otherwise graphql will error because it has a
+		// union field with an empty list of unions.
+		return nil
 	}
 
 	classUnion := graphql.NewUnion(graphql.UnionConfig{
@@ -250,9 +269,15 @@ func extractProperties(selections *ast.SelectionSet) ([]SelectProperty, error) {
 
 				var className schema.ClassName
 				var err error
-				err, className = schema.ValidateClassName(fragment.TypeCondition.Name.Value)
-				if err != nil {
-					return nil, fmt.Errorf("the inline fragment type name '%s' is not a valid class name", fragment.TypeCondition.Name.Value)
+				if strings.Contains(fragment.TypeCondition.Name.Value, "__") {
+					// is a helper type for a network ref
+					// don't validate anything as of now
+					className = schema.ClassName(fragment.TypeCondition.Name.Value)
+				} else {
+					err, className = schema.ValidateClassName(fragment.TypeCondition.Name.Value)
+					if err != nil {
+						return nil, fmt.Errorf("the inline fragment type name '%s' is not a valid class name", fragment.TypeCondition.Name.Value)
+					}
 				}
 
 				subProperties, err := extractProperties(fragment.SelectionSet)

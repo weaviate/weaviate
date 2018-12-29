@@ -43,16 +43,17 @@ func FromPeers(peers peers.Peers, classes []crossrefs.NetworkClass) (ByNetworkCl
 				desiredClass.String(), peer.Name)
 		}
 
-		result[desiredClass] = graphqlObjectFromClass(desiredClass.String(), class, &peer.Schema)
+		name := fmt.Sprintf("%s__%s", desiredClass.PeerName, desiredClass.ClassName)
+		result[desiredClass] = graphqlObjectFromClass(name, desiredClass.String(), class, &peer.Schema)
 	}
 
 	return result, nil
 }
 
-func graphqlObjectFromClass(networkClassName string, class *models.SemanticSchemaClass,
+func graphqlObjectFromClass(name string, networkClassName string, class *models.SemanticSchemaClass,
 	dbSchema *schema.Schema) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
-		Name: class.Class,
+		Name: name,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			classProperties := graphql.Fields{}
 

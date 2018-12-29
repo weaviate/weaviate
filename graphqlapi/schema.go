@@ -57,14 +57,10 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 		panic("Empty resolver provider")
 	}
 
-	fmt.Print("\n\n--- debug 1\n\n")
 	resolver := g.resolverProvider.GetResolver()
-	fmt.Print("\n\n--- debug 2\n\n")
 	networkResolver := g.resolverProvider.GetNetworkResolver()
-	fmt.Print("\n\n--- debug 3\n\n")
 	defer resolver.Close()
 
-	fmt.Print("\n\n--- debug 4\n\n")
 	return graphql.Do(graphql.Params{
 		Schema: g.schema,
 		RootObject: map[string]interface{}{
@@ -80,7 +76,7 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 }
 
 func buildGraphqlSchema(dbSchema *schema.Schema, peers peers.Peers) (graphql.Schema, error) {
-	localSchema, err := local.Build(dbSchema)
+	localSchema, err := local.Build(dbSchema, peers)
 	if err != nil {
 		return graphql.Schema{}, err
 	}

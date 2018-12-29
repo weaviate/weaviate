@@ -82,7 +82,7 @@ func TestWithClassWithPrimitiveProp(t *testing.T) {
 	require.Nil(t, err, "should not error")
 	obj := result[expectedKey]
 	require.NotNil(t, obj, "should contain the class")
-	assert.Equal(t, "BestClass", obj.Name(), "should have the right name")
+	assert.Equal(t, "BestPeer__BestClass", obj.Name(), "should have the right name")
 	fields := obj.Fields()
 	require.Len(t, fields, 2)
 	require.NotNil(t, fields, "uuid")
