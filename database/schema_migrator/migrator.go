@@ -35,6 +35,9 @@ type Migrator interface {
 	// If both updates are specified, either both updates succeed, or none do.
 	UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error
 
+	// Update a given property. Idempotently add a dataType to the list of dataTypes
+	UpdatePropertyAddDataType(kind kind.Kind, className string, propName string, newDataType string) error
+
 	// Drop the given property from the schema
 	DropProperty(kind kind.Kind, className string, propName string) error
 }

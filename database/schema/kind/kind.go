@@ -21,6 +21,8 @@ type Kind string
 
 const THING_KIND Kind = "thing"
 const ACTION_KIND Kind = "action"
+const NETWORK_THING_KIND Kind = "network_thing"
+const NETWORK_ACTION_KIND Kind = "network_action"
 
 func (k *Kind) Name() string {
 	return string(*k)

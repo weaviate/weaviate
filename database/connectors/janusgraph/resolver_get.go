@@ -14,14 +14,15 @@ package janusgraph
 
 import (
 	"fmt"
+	"runtime/debug"
+	"strings"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	graphql_local_common_filters "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/go-openapi/strfmt"
-	"runtime/debug"
-	"strings"
 )
 
 type resolveResult struct {
@@ -155,26 +156,41 @@ func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className sch
 					lookupClassKind = kind.THING_KIND
 				case "Action":
 					lookupClassKind = kind.ACTION_KIND
+				case "NetworkRefThing":
+					lookupClassKind = kind.NETWORK_THING_KIND
+				case "NetworkRefAction":
+					lookupClassKind = kind.NETWORK_ACTION_KIND
 				default:
-					panic("unsupported kind in reference")
+					panic(fmt.Sprintf("unsupported kind in reference: %s", refType))
 				}
 
-				err := j.getClass(lookupClassKind, refId, &refAtClass, nil, nil, nil, nil, &refPropertiesSchema, nil)
-				if err != nil {
-					// Skipping broken links for now.
-					continue
-				}
-
-				// Determine if this is one of the classes that we want to have.
-				refClass := schema.AssertValidClassName(refAtClass)
-				if sc := selectProperty.FindSelectClass(refClass); sc != nil {
-					refResult := j.doLocalGetClassResolveOneClass(lookupClassKind, refClass, refId, sc.RefProperties, refPropertiesSchema)
-
-					if selectProperty.IncludeTypeName {
-						refResult["__typename"] = refAtClass
+				if lookupClassKind == kind.THING_KIND || lookupClassKind == kind.ACTION_KIND {
+					err := j.getClass(lookupClassKind, refId, &refAtClass, nil, nil, nil, nil, &refPropertiesSchema, nil)
+					if err != nil {
+						// Skipping broken links for now.
+						continue
 					}
 
-					refResults = append(refResults, refResult)
+					// Determine if this is one of the classes that we want to have.
+					refClass := schema.AssertValidClassName(refAtClass)
+					if sc := selectProperty.FindSelectClass(refClass); sc != nil {
+						refResult := j.doLocalGetClassResolveOneClass(lookupClassKind, refClass, refId, sc.RefProperties, refPropertiesSchema)
+
+						if selectProperty.IncludeTypeName {
+							refResult["__typename"] = refAtClass
+						}
+
+						refResults = append(refResults, refResult)
+					}
+				}
+
+				if lookupClassKind == kind.NETWORK_THING_KIND || lookupClassKind == kind.NETWORK_ACTION_KIND {
+					networkRef := map[string]interface{}{
+						"message": "we want to resolve a network ref:",
+						"rawRef":  rawRef,
+					}
+
+					refResults = append(refResults, networkRef)
 				}
 			}
 

@@ -1,17 +1,29 @@
 {
 	"Things": [{
 		"class": "City",
+		"uuid": "021",
+		"name": "San Francisco",
+		"coordinates": "N52, E004",
+		"population": "1800000",
+		"isCapital": true,
+		"inCountry": [{
+			"location": "WeaviateB",
+			"class": "Country",
+			"uuid": "0bac326d-b17f-49fd-91ba-d5f1d528c34f"
+		}]
+	}, {
+		"class": "City",
 		"uuid": "001",
 		"name": "Amsterdam",
 		"coordinates": "N52, E004",
 		"population": "1800000",
 		"isCapital": true,
-		"inCountry": {
+		"inCountry": [{
 			"class": "Country",
 			"uuid": "005",
 			"name": "Netherlands",
 			"population": "17000000"
-			}
+			}]
 	}, {
 		"class": "City",
 		"uuid": "002",
@@ -19,12 +31,12 @@
 		"coordinates": "N50, E004",
 		"population": "1800000",
 		"isCapital": false,
-		"inCountry": {
+		"inCountry": [{
 			"class": "Country",
 			"uuid": "005",
 			"name": "Netherlands",
 			"population": "17000000"
-			}
+			}]
 	}, {
 		"class": "City",
 		"uuid": "003",
@@ -32,12 +44,12 @@
 		"coordinates": "N52, E007",
 		"population": "3470000",
 		"isCapital": true,
-		"inCountry": {
+		"inCountry": [{
 			"class": "Country",
 			"uuid": "006",
 			"name": "Germany",
 			"population": "83000000"
-			}
+			}]
 	}, {
 		"class": "City",
 		"uuid": "004",
@@ -45,12 +57,12 @@
 		"coordinates": "N48, E005",
 		"population": "600000",
 		"isCapital": false,
-		"inCountry": {
+		"inCountry": [{
 			"class": "Country",
 			"uuid": "006",
 			"name": "Germany",
 			"population": "83000000"
-			}
+			}]
 	}, {
 		"class": "Country",
 		"uuid": "005",

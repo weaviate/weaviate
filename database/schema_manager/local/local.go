@@ -25,6 +25,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -51,6 +52,9 @@ type localSchemaManager struct {
 
 	// Contextionary
 	contextionary libcontextionary.Contextionary
+
+	// Network to validate cross-refs
+	network network.Network
 }
 
 // The state that will be serialized to/from disk.
@@ -67,16 +71,17 @@ func (l *localSchemaState) SchemaFor(k kind.Kind) *models.SemanticSchema {
 	case kind.ACTION_KIND:
 		return l.ActionSchema
 	default:
-		log.Fatalf("Passed wrong neither thing nor kind, but %v", k)
+		log.Fatalf("Passed wrong neither thing nor action, but %v", k)
 		return nil
 	}
 }
 
-func New(stateDirName string, connectorMigrator schema_migrator.Migrator) (database.SchemaManager, error) {
+func New(stateDirName string, connectorMigrator schema_migrator.Migrator, network network.Network) (database.SchemaManager, error) {
 	manager := &localSchemaManager{
 		stateDir:          stateDirName,
 		schemaState:       localSchemaState{},
 		connectorMigrator: connectorMigrator,
+		network:           network,
 	}
 
 	err := manager.loadOrInitializeSchema()
