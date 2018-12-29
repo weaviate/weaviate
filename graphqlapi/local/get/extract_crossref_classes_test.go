@@ -10,7 +10,7 @@ import (
 )
 
 func TestExtractEmptySchema(t *testing.T) {
-	schema := schema.Schema{
+	schema := &schema.Schema{
 		Actions: nil,
 		Things:  nil,
 	}
@@ -20,7 +20,7 @@ func TestExtractEmptySchema(t *testing.T) {
 }
 
 func TestExtractSchemaWithPrimitiveActions(t *testing.T) {
-	schema := schema.Schema{
+	schema := &schema.Schema{
 		Actions: &models.SemanticSchema{
 			Classes: []*models.SemanticSchemaClass{
 				&models.SemanticSchemaClass{
@@ -41,7 +41,7 @@ func TestExtractSchemaWithPrimitiveActions(t *testing.T) {
 }
 
 func TestExtractSchemaWithPrimitiveThings(t *testing.T) {
-	schema := schema.Schema{
+	schema := &schema.Schema{
 		Things: &models.SemanticSchema{
 			Classes: []*models.SemanticSchemaClass{
 				&models.SemanticSchemaClass{
@@ -62,7 +62,7 @@ func TestExtractSchemaWithPrimitiveThings(t *testing.T) {
 }
 
 func TestExtractSchemaWithThingsWithLocalRefs(t *testing.T) {
-	schema := schema.Schema{
+	schema := &schema.Schema{
 		Things: &models.SemanticSchema{
 			Classes: []*models.SemanticSchemaClass{
 				&models.SemanticSchemaClass{
@@ -83,7 +83,7 @@ func TestExtractSchemaWithThingsWithLocalRefs(t *testing.T) {
 }
 
 func TestExtractSchemaWithThingsWithNetworkRefs(t *testing.T) {
-	schema := schema.Schema{
+	schema := &schema.Schema{
 		Things: &models.SemanticSchema{
 			Classes: []*models.SemanticSchemaClass{
 				&models.SemanticSchemaClass{
@@ -122,7 +122,7 @@ func TestExtractSchemaWithThingsWithNetworkRefs(t *testing.T) {
 }
 
 func TestExtractSchemaWithActionsWithNetworkRefs(t *testing.T) {
-	schema := schema.Schema{
+	schema := &schema.Schema{
 		Actions: &models.SemanticSchema{
 			Classes: []*models.SemanticSchemaClass{
 				&models.SemanticSchemaClass{
@@ -161,7 +161,7 @@ func TestExtractSchemaWithActionsWithNetworkRefs(t *testing.T) {
 }
 
 func TestExtractSchemaWithDuplicates(t *testing.T) {
-	schema := schema.Schema{
+	schema := &schema.Schema{
 		Actions: &models.SemanticSchema{
 			Classes: []*models.SemanticSchemaClass{
 				&models.SemanticSchemaClass{

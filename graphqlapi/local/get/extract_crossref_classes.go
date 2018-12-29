@@ -6,7 +6,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 )
 
-func extractNetworkRefClassNames(schema schema.Schema) []crossrefs.NetworkClass {
+func extractNetworkRefClassNames(schema *schema.Schema) []crossrefs.NetworkClass {
 	var result = []crossrefs.NetworkClass{}
 
 	if schema.Actions != nil {
