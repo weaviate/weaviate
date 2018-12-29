@@ -49,6 +49,14 @@ func (q *Query) Count() *Query {
 	return extend_query(q, ".count()")
 }
 
+func (q *Query) Fold() *Query {
+	return extend_query(q, ".fold()")
+}
+
+func (q *Query) Unfold() *Query {
+	return extend_query(q, ".unfold()")
+}
+
 func (q *Query) Properties(names []string) *Query {
 	sanitized := make([]string, 0)
 
@@ -178,6 +186,11 @@ func (q *Query) FromRef(reference string) *Query {
 
 func (q *Query) ToQuery(query *Query) *Query {
 	return extend_query(q, `.to(%s)`, query.String())
+}
+
+// Coalesce can be used in Upsert or GetOrCreate scenarios
+func (q *Query) Coalesce(query *Query) *Query {
+	return extend_query(q, `.coalesce(%s)`, query.String())
 }
 
 func (q *Query) Optional(query *Query) *Query {

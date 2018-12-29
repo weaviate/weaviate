@@ -13,10 +13,11 @@
 package local
 
 import (
-	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"os"
 	"testing"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,6 +49,9 @@ func (n *NilMigrator) AddProperty(kind kind.Kind, className string, prop *models
 func (n *NilMigrator) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	return nil
 }
+func (n *NilMigrator) UpdatePropertyAddDataType(kind kind.Kind, className string, propName string, newDataType string) error {
+	return nil
+}
 
 func (n *NilMigrator) DropProperty(kind kind.Kind, className string, propName string) error {
 	return nil
@@ -72,6 +76,8 @@ var schemaTests = []struct {
 	{name: "UpdatePropertyName", fn: testUpdatePropertyName},
 	{name: "UpdatePropertyNameCollision", fn: testUpdatePropertyNameCollision},
 	{name: "UpdatePropertyKeywords", fn: testUpdatePropertyKeywords},
+	{name: "UpdatePropertyAddDataTypeNew", fn: testUpdatePropertyAddDataTypeNew},
+	{name: "UpdatePropertyAddDataTypeExisting", fn: testUpdatePropertyAddDataTypeExisting},
 }
 
 func testUpdateMeta(t *testing.T, lsm database.SchemaManager) {
@@ -403,6 +409,61 @@ func testUpdatePropertyKeywords(t *testing.T, lsm database.SchemaManager) {
 	assert.Equal(t, float32(0.1), thingClasses[0].Properties[0].Keywords[1].Weight)
 }
 
+func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm database.SchemaManager) {
+	t.Parallel()
+
+	// Create a class & property
+	var properties = []*models.SemanticSchemaClassProperty{
+		{Name: "madeBy", AtDataType: []string{"RemoteInstance/Manufacturer"}},
+	}
+
+	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+		Class:      "Car",
+		Properties: properties,
+	})
+	assert.Nil(t, err)
+
+	// Add a new datatype
+	err = lsm.UpdatePropertyAddDataType(kind.THING_KIND, "Car", "madeBy", "RemoteInstance/Builder")
+	assert.Nil(t, err)
+
+	// Check that the name is updated
+	thingClasses := testGetClasses(lsm, kind.THING_KIND)
+	assert.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses[0].Properties, 1)
+	assert.Equal(t, thingClasses[0].Properties[0].Name, "madeBy")
+	require.Len(t, thingClasses[0].Properties[0].AtDataType, 2)
+	assert.Equal(t, thingClasses[0].Properties[0].AtDataType[0], "RemoteInstance/Manufacturer")
+	assert.Equal(t, thingClasses[0].Properties[0].AtDataType[1], "RemoteInstance/Builder")
+}
+
+func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm database.SchemaManager) {
+	t.Parallel()
+
+	// Create a class & property
+	var properties = []*models.SemanticSchemaClassProperty{
+		{Name: "madeBy", AtDataType: []string{"RemoteInstance/Manufacturer"}},
+	}
+
+	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+		Class:      "Car",
+		Properties: properties,
+	})
+	assert.Nil(t, err)
+
+	// Add a new datatype
+	err = lsm.UpdatePropertyAddDataType(kind.THING_KIND, "Car", "madeBy", "RemoteInstance/Manufacturer")
+	assert.Nil(t, err)
+
+	// Check that the name is updated
+	thingClasses := testGetClasses(lsm, kind.THING_KIND)
+	assert.Len(t, thingClasses, 1)
+	require.Len(t, thingClasses[0].Properties, 1)
+	assert.Equal(t, thingClasses[0].Properties[0].Name, "madeBy")
+	require.Len(t, thingClasses[0].Properties[0].AtDataType, 1)
+	assert.Equal(t, thingClasses[0].Properties[0].AtDataType[0], "RemoteInstance/Manufacturer")
+}
+
 // This grant parent test setups up the temporary directory needed for the tests.
 func TestSchema(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "test-schema-manager")
@@ -434,7 +495,7 @@ func newLSM(baseTempDir string) database.SchemaManager {
 		log.Fatalf("Could not initialize temporary directory: %v\n", err)
 	}
 
-	lsm, err := New(tempDir, &NilMigrator{})
+	lsm, err := New(tempDir, &NilMigrator{}, nil)
 	if err != nil {
 		panic(err)
 	}

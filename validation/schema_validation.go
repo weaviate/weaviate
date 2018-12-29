@@ -17,14 +17,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/go-openapi/strfmt"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+
 	"github.com/creativesoftwarefdn/weaviate/config"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network"
 )
 
 const (
@@ -37,7 +39,7 @@ const (
 	// ErrorMissingSingleRefType message
 	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
 	// ErrorInvalidClassType message
-	ErrorInvalidClassType string = "class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s' or '%s'"
+	ErrorInvalidClassType string = "class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s', '%s', '%s' or '%s'"
 	// ErrorInvalidString message
 	ErrorInvalidString string = "class '%s' with property '%s' requires a string. The given value is '%v'"
 	// ErrorInvalidText message
@@ -57,7 +59,9 @@ const (
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
-func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{}, refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{},
+	refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, network network.Network,
+	serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
 	// Initialize class object
 	var isp interface{}
 	var className string
@@ -149,6 +153,8 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 						connutils.RefTypeAction,
 						connutils.RefTypeThing,
 						connutils.RefTypeKey,
+						connutils.RefTypeNetworkAction,
+						connutils.RefTypeNetworkThing,
 					)
 				}
 
@@ -158,7 +164,8 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 				locationURL := pvcr["locationUrl"].(string)
 				cref.LocationURL = &locationURL
 				cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
-				err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
+				err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, network,
+					fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
 				if err != nil {
 					return err
 				}
@@ -212,6 +219,8 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 							connutils.RefTypeAction,
 							connutils.RefTypeThing,
 							connutils.RefTypeKey,
+							connutils.RefTypeNetworkAction,
+							connutils.RefTypeNetworkThing,
 						)
 					}
 
@@ -221,7 +230,8 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 					locationURL := pvcr["locationUrl"].(string)
 					cref.LocationURL = &locationURL
 					cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
-					err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
+					err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, network,
+						fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
 					if err != nil {
 						return err
 					}

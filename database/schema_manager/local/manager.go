@@ -151,7 +151,6 @@ func (l *localSchemaManager) AddProperty(kind kind.Kind, className string, prop 
 func (l *localSchemaManager) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
-
 	if err != nil {
 		return err
 	}
@@ -191,6 +190,41 @@ func (l *localSchemaManager) UpdateProperty(kind kind.Kind, className string, pr
 	}
 
 	return l.connectorMigrator.UpdateProperty(kind, className, propName, newName, newKeywords)
+}
+
+func (l *localSchemaManager) UpdatePropertyAddDataType(kind kind.Kind, className string, propName string, newDataType string) error {
+	semanticSchema := l.schemaState.SchemaFor(kind)
+	class, err := schema.GetClassByName(semanticSchema, className)
+	if err != nil {
+		return err
+	}
+
+	prop, err := schema.GetPropertyByName(class, propName)
+	if err != nil {
+		return err
+	}
+
+	if dataTypeAlreadyContained(prop.AtDataType, newDataType) {
+		return nil
+	}
+
+	prop.AtDataType = append(prop.AtDataType, newDataType)
+	err = l.saveToDisk()
+
+	if err != nil {
+		return nil
+	}
+
+	return l.connectorMigrator.UpdatePropertyAddDataType(kind, className, propName, newDataType)
+}
+
+func dataTypeAlreadyContained(haystack []string, needle string) bool {
+	for _, hay := range haystack {
+		if hay == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *localSchemaManager) DropProperty(kind kind.Kind, className string, propName string) error {

@@ -15,11 +15,12 @@ package test
 // Acceptance tests for actions
 
 import (
+	"testing"
+
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestCanUpdateActionSetNumber(t *testing.T) {
@@ -107,7 +108,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 		Path: &path,
 		Value: map[string]interface{}{
 			"$cref":       thingToRefID,
-			"locationUrl": "http://localhost:8080",
+			"locationUrl": "http://localhost",
 			"type":        "Thing",
 		},
 	}

@@ -21,6 +21,8 @@ import (
 	"strings"
 )
 
+var thingID = "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
+
 func main() {
 	http.HandleFunc("/weaviate/v1/graphql", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method != "POST" {
@@ -55,7 +57,7 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, "%s", happyPathResponse)
+		fmt.Fprintf(w, "%s", graphQLhappyPathResponse)
 	})
 
 	http.HandleFunc("/weaviate/v1/schema", func(w http.ResponseWriter, req *http.Request) {
@@ -69,10 +71,21 @@ func main() {
 		fmt.Fprintf(w, "%s", schemaResponse)
 	})
 
+	http.HandleFunc(fmt.Sprintf("/weaviate/v1/things/%s", thingID), func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != "GET" {
+			w.WriteHeader(405)
+			w.Write([]byte("only GET allowed"))
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, "%s", restThingHappyPathResponse)
+	})
+
 	log.Fatal(http.ListenAndServe(":8081", nil))
 }
 
-var happyPathResponse = `{
+var graphQLhappyPathResponse = `{
   "data": {
     "Local": {
       "Get": {
@@ -96,6 +109,15 @@ var happyPathResponse = `{
     }
   }
 }`
+
+var restThingHappyPathResponse = fmt.Sprintf(`{
+  "@class": "Instruments",
+	"schema": {
+		"name": "Talkbox"
+	},
+  "@context": "string",
+  "thingId": "%s"
+}`, thingID)
 
 var schemaResponse = `{
   "actions": {

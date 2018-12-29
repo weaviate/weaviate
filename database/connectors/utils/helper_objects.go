@@ -27,6 +27,10 @@ const (
 	RefTypeKey RefType = "Key"
 	// RefTypeThing used for things in DB and requests
 	RefTypeThing RefType = "Thing"
+	// RefTypeNetworkAction used for actions in DB and requests
+	RefTypeNetworkAction RefType = "NetworkAction"
+	// RefTypeNetworkThing used for things in DB and requests
+	RefTypeNetworkThing RefType = "NetworkThing"
 
 	// Equal represents an operator for an operation to be equal
 	Equal Operator = 1 << iota
