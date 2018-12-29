@@ -20,7 +20,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -92,16 +91,9 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 			Description: descriptions.LocalGetObjDesc,
 		}),
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			fmt.Printf("- LocalGet (extract resolver from source, parse filters )\n")
 			resolver := p.Source.(map[string]interface{})["Resolver"].(Resolver)
-			filters, err := common_filters.ExtractFilters(p.Args)
-
-			if err != nil {
-				return nil, err
-			}
 
 			return &filtersAndResolver{
-				filters:  filters,
 				resolver: resolver,
 			}, nil
 		},

@@ -15,20 +15,21 @@ package common_filters
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"strings"
 	"time"
+
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
 )
 
 // Extract the filters from the arguments of a Local->Get or Local->GetMeta query.
-func ExtractFilters(args map[string]interface{}) (*LocalFilter, error) {
+func ExtractFilters(args map[string]interface{}, rootClass string) (*LocalFilter, error) {
 	where, wherePresent := args["where"]
 	if !wherePresent {
 		// No filters; all is fine!
 		return nil, nil
 	} else {
 		whereMap := where.(map[string]interface{}) // guaranteed by GraphQL to be a map.
-		rootClause, err := parseClause(whereMap)
+		rootClause, err := parseClause(whereMap, rootClass)
 		if err != nil {
 			return nil, err
 		} else {
@@ -38,7 +39,7 @@ func ExtractFilters(args map[string]interface{}) (*LocalFilter, error) {
 }
 
 // Parse a single clause
-func parseClause(args map[string]interface{}) (*Clause, error) {
+func parseClause(args map[string]interface{}, rootClass string) (*Clause, error) {
 	operator, operatorOk := args["operator"]
 	if !operatorOk {
 		return nil, fmt.Errorf("operand is missing in clause %s", jsonify(args))
@@ -49,23 +50,23 @@ func parseClause(args map[string]interface{}) (*Clause, error) {
 
 	switch operator {
 	case "And":
-		clause, err = parseOperandsOp(args, OperatorAnd)
+		clause, err = parseOperandsOp(args, OperatorAnd, rootClass)
 	case "Or":
-		clause, err = parseOperandsOp(args, OperatorOr)
+		clause, err = parseOperandsOp(args, OperatorOr, rootClass)
 	case "Not":
-		clause, err = parseOperandsOp(args, OperatorOr)
+		clause, err = parseOperandsOp(args, OperatorOr, rootClass)
 	case "Equal":
-		clause, err = parseCompareOp(args, OperatorEqual)
+		clause, err = parseCompareOp(args, OperatorEqual, rootClass)
 	case "NotEqual":
-		clause, err = parseCompareOp(args, OperatorNotEqual)
+		clause, err = parseCompareOp(args, OperatorNotEqual, rootClass)
 	case "GreaterThan":
-		clause, err = parseCompareOp(args, OperatorGreaterThan)
+		clause, err = parseCompareOp(args, OperatorGreaterThan, rootClass)
 	case "GreaterThanEqual":
-		clause, err = parseCompareOp(args, OperatorGreaterThanEqual)
+		clause, err = parseCompareOp(args, OperatorGreaterThanEqual, rootClass)
 	case "LessThan":
-		clause, err = parseCompareOp(args, OperatorLessThan)
+		clause, err = parseCompareOp(args, OperatorLessThan, rootClass)
 	case "LessThanEqual":
-		clause, err = parseCompareOp(args, OperatorLessThanEqual)
+		clause, err = parseCompareOp(args, OperatorLessThanEqual, rootClass)
 	default:
 		err = fmt.Errorf("Unknown operator '%s' in clause %s", operator, jsonify(args))
 	}
@@ -78,14 +79,14 @@ func parseClause(args map[string]interface{}) (*Clause, error) {
 // 1. The operator applied (e.g. Equal, LessThanEqual)
 // 2. A value (valueString, valueDate)
 // 3. The path ["SomeAction", "color"]
-func parseCompareOp(args map[string]interface{}, operator Operator) (*Clause, error) {
+func parseCompareOp(args map[string]interface{}, operator Operator, rootClass string) (*Clause, error) {
 	_, operandsPresent := args["operands"]
 
 	if operandsPresent {
 		return nil, fmt.Errorf("a 'operands' is given in clause '%s'; this is not allowed for a %s clause", jsonify(args), operator.Name())
 	}
 
-	path, err := parsePath(args)
+	path, err := parsePath(args, rootClass)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +108,7 @@ func parseCompareOp(args map[string]interface{}, operator Operator) (*Clause, er
 // 1. The operator appied (e.g. And, Or)
 // 2. The operands (e.g. a list of operands)
 //    Each operand will be parsed as a new clause.
-func parseOperandsOp(args map[string]interface{}, operator Operator) (*Clause, error) {
+func parseOperandsOp(args map[string]interface{}, operator Operator, rootClass string) (*Clause, error) {
 	_, pathPresent := args["path"]
 
 	if pathPresent {
@@ -132,7 +133,7 @@ func parseOperandsOp(args map[string]interface{}, operator Operator) (*Clause, e
 			return nil, fmt.Errorf("The operand '%s' is not valid", jsonify(rawOperand))
 		}
 
-		operand, err := parseClause(rawOperandMap)
+		operand, err := parseClause(rawOperandMap, rootClass)
 
 		if err != nil {
 			return nil, err
@@ -155,7 +156,7 @@ func parseOperandsOp(args map[string]interface{}, operator Operator) (*Clause, e
 // It parses an array of strings in this format
 // [0] ClassName -> The root class name we're drilling down from
 // [1] propertyName -> The property name we're interested in.
-func parsePath(args map[string]interface{}) (*Path, error) {
+func parsePath(args map[string]interface{}, rootClass string) (*Path, error) {
 	rawPath, ok := args["path"]
 	if !ok {
 		return nil, fmt.Errorf("Missing the 'path' field for the filter '%s'", jsonify(args))
@@ -166,8 +167,9 @@ func parsePath(args map[string]interface{}) (*Path, error) {
 		return nil, fmt.Errorf("The 'path' field for the filter '%s' is not a list of strings", jsonify(args))
 	}
 
-	if len(pathElements) < 2 {
-		return nil, fmt.Errorf("The 'path' field for the filter '%s' is empty! You need to specify at least a class and a property name", jsonify(args))
+	if len(pathElements) == 1 {
+		// we need to manually insert the root class, as that is omitted from the user
+		pathElements = append([]interface{}{rootClass}, pathElements...)
 	}
 
 	// The sentinel is used to bootstrap the inlined recursion.

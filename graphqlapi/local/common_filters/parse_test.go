@@ -10,12 +10,14 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
+
 package common_filters
 
 import (
+	"testing"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	test_helper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
-	"testing"
 )
 
 // Basic test on filter
@@ -45,7 +47,7 @@ func TestExtractFilterToplevelField(t *testing.T) {
 	resolver.On("ReportFilters", expectedParams).
 		Return(test_helper.EmptyListThunk(), nil).Once()
 
-	query := `{ FakeGet(where: { path: ["SomeAction", "intField"], operator: Equal, valueInt: 42}) }`
+	query := `{ SomeAction(where: { path: ["intField"], operator: Equal, valueInt: 42}) }`
 	resolver.AssertResolve(t, query)
 }
 
@@ -73,7 +75,7 @@ func TestExtractFilterNestedField(t *testing.T) {
 	resolver.On("ReportFilters", expectedParams).
 		Return(test_helper.EmptyListThunk(), nil).Once()
 
-	query := `{ FakeGet(where: { path: ["SomeAction", "HasAction", "SomeAction", "intField"], operator: Equal, valueInt: 42}) }`
+	query := `{ SomeAction(where: { path: ["SomeAction", "HasAction", "SomeAction", "intField"], operator: Equal, valueInt: 42}) }`
 	resolver.AssertResolve(t, query)
 }
 
@@ -115,7 +117,7 @@ func TestExtractOperand(t *testing.T) {
 	resolver.On("ReportFilters", expectedParams).
 		Return(test_helper.EmptyListThunk(), nil).Once()
 
-	query := `{ FakeGet(where: { operator: And, operands: [
+	query := `{ SomeAction(where: { operator: And, operands: [
       { operator: Equal, valueInt: 42,   path: ["SomeAction", "intField"]},
       { operator: Equal, valueInt: 4242, path: ["SomeAction", "HasAction", "SomeAction", "intField"] }
     ]}) }`
@@ -127,7 +129,7 @@ func TestExtractCompareOpFailsIfOperandPresent(t *testing.T) {
 
 	resolver := newMockResolver()
 
-	query := `{ FakeGet(where: { operator: Equal, operands: []}) }`
+	query := `{ SomeAction(where: { operator: Equal, operands: []}) }`
 	resolver.AssertFailToResolve(t, query)
 }
 
@@ -136,6 +138,6 @@ func TestExtractOperandFailsIfPathPresent(t *testing.T) {
 
 	resolver := newMockResolver()
 
-	query := `{ FakeGet(where: { path:["should", "not", "be", "present"], operator: And  })}`
+	query := `{ SomeAction(where: { path:["should", "not", "be", "present"], operator: And  })}`
 	resolver.AssertFailToResolve(t, query)
 }
