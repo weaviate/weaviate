@@ -5,6 +5,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,7 +16,7 @@ func TestExtractEmptySchema(t *testing.T) {
 	}
 
 	result := extractNetworkRefClassNames(schema)
-	assert.Equal(t, []string{}, result, "should be an empty list")
+	assert.Equal(t, []crossrefs.NetworkClass{}, result, "should be an empty list")
 }
 
 func TestExtractSchemaWithPrimitiveActions(t *testing.T) {
@@ -36,7 +37,7 @@ func TestExtractSchemaWithPrimitiveActions(t *testing.T) {
 	}
 
 	result := extractNetworkRefClassNames(schema)
-	assert.Equal(t, []string{}, result, "should be an empty list")
+	assert.Equal(t, []crossrefs.NetworkClass{}, result, "should be an empty list")
 }
 
 func TestExtractSchemaWithPrimitiveThings(t *testing.T) {
@@ -57,7 +58,7 @@ func TestExtractSchemaWithPrimitiveThings(t *testing.T) {
 	}
 
 	result := extractNetworkRefClassNames(schema)
-	assert.Equal(t, []string{}, result, "should be an empty list")
+	assert.Equal(t, []crossrefs.NetworkClass{}, result, "should be an empty list")
 }
 
 func TestExtractSchemaWithThingsWithLocalRefs(t *testing.T) {
@@ -78,7 +79,7 @@ func TestExtractSchemaWithThingsWithLocalRefs(t *testing.T) {
 	}
 
 	result := extractNetworkRefClassNames(schema)
-	assert.Equal(t, []string{}, result, "should be an empty list")
+	assert.Equal(t, []crossrefs.NetworkClass{}, result, "should be an empty list")
 }
 
 func TestExtractSchemaWithThingsWithNetworkRefs(t *testing.T) {
@@ -113,8 +114,11 @@ func TestExtractSchemaWithThingsWithNetworkRefs(t *testing.T) {
 	}
 
 	result := extractNetworkRefClassNames(schema)
-	assert.Equal(t, []string{"OtherInstance/TheBestThing", "OtherInstance/TheWorstThing",
-		"OtherInstance/TheMediocreThing"}, result, "should find the network classes")
+	assert.Equal(t, []crossrefs.NetworkClass{
+		{PeerName: "OtherInstance", ClassName: "TheBestThing"},
+		{PeerName: "OtherInstance", ClassName: "TheWorstThing"},
+		{PeerName: "OtherInstance", ClassName: "TheMediocreThing"},
+	}, result, "should find the network classes")
 }
 
 func TestExtractSchemaWithActionsWithNetworkRefs(t *testing.T) {
@@ -149,8 +153,11 @@ func TestExtractSchemaWithActionsWithNetworkRefs(t *testing.T) {
 	}
 
 	result := extractNetworkRefClassNames(schema)
-	assert.Equal(t, []string{"OtherInstance/TheBestThing", "OtherInstance/TheWorstThing",
-		"OtherInstance/TheMediocreThing"}, result, "should find the network classes")
+	assert.Equal(t, []crossrefs.NetworkClass{
+		{PeerName: "OtherInstance", ClassName: "TheBestThing"},
+		{PeerName: "OtherInstance", ClassName: "TheWorstThing"},
+		{PeerName: "OtherInstance", ClassName: "TheMediocreThing"},
+	}, result, "should find the network classes")
 }
 
 func TestExtractSchemaWithDuplicates(t *testing.T) {
@@ -210,5 +217,7 @@ func TestExtractSchemaWithDuplicates(t *testing.T) {
 	}
 
 	result := extractNetworkRefClassNames(schema)
-	assert.Equal(t, []string{"OtherInstance/TheBestThing"}, result, "should remove duplicates")
+	assert.Equal(t,
+		[]crossrefs.NetworkClass{{PeerName: "OtherInstance", ClassName: "TheBestThing"}},
+		result, "should remove duplicates")
 }

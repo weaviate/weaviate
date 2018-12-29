@@ -6,8 +6,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 )
 
-func extractNetworkRefClassNames(schema schema.Schema) []string {
-	var result = []string{}
+func extractNetworkRefClassNames(schema schema.Schema) []crossrefs.NetworkClass {
+	var result = []crossrefs.NetworkClass{}
 
 	if schema.Actions != nil {
 		result = append(result, extractFromClasses(schema.Actions.Classes)...)
@@ -20,8 +20,8 @@ func extractNetworkRefClassNames(schema schema.Schema) []string {
 	return removeDuplicates(result)
 }
 
-func extractFromClasses(classes []*models.SemanticSchemaClass) []string {
-	var result = []string{}
+func extractFromClasses(classes []*models.SemanticSchemaClass) []crossrefs.NetworkClass {
+	var result = []crossrefs.NetworkClass{}
 	for _, class := range classes {
 		result = append(result, extractFromProperties(class.Properties)...)
 	}
@@ -29,8 +29,8 @@ func extractFromClasses(classes []*models.SemanticSchemaClass) []string {
 	return result
 }
 
-func extractFromProperties(props []*models.SemanticSchemaClassProperty) []string {
-	var result = []string{}
+func extractFromProperties(props []*models.SemanticSchemaClassProperty) []crossrefs.NetworkClass {
+	var result = []crossrefs.NetworkClass{}
 	for _, prop := range props {
 		result = append(result, extractFromDataTypes(prop.AtDataType)...)
 	}
@@ -38,20 +38,20 @@ func extractFromProperties(props []*models.SemanticSchemaClassProperty) []string
 	return result
 }
 
-func extractFromDataTypes(types []string) []string {
-	var result = []string{}
+func extractFromDataTypes(types []string) []crossrefs.NetworkClass {
+	var result = []crossrefs.NetworkClass{}
 	for _, t := range types {
-		if _, err := crossrefs.ParseClass(t); err == nil {
-			result = append(result, t)
+		if class, err := crossrefs.ParseClass(t); err == nil {
+			result = append(result, class)
 		}
 	}
 
 	return result
 }
 
-func removeDuplicates(a []string) []string {
-	result := []string{}
-	seen := map[string]string{}
+func removeDuplicates(a []crossrefs.NetworkClass) []crossrefs.NetworkClass {
+	result := []crossrefs.NetworkClass{}
+	seen := map[crossrefs.NetworkClass]crossrefs.NetworkClass{}
 	for _, val := range a {
 		if _, ok := seen[val]; !ok {
 			result = append(result, val)
