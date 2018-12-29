@@ -222,9 +222,13 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		// fmt.Print("\n\n\n\n\n")
 		// spew.Dump(properties)
 		// fmt.Print("\n\n\n\n\n")
+		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
+		if err != nil {
+			return nil, fmt.Errorf("could not extract filters: %s", err)
+		}
 
 		params := LocalGetClassParams{
-			Filters:    filtersAndResolver.filters,
+			Filters:    filters,
 			Kind:       k,
 			ClassName:  className,
 			Pagination: pagination,
