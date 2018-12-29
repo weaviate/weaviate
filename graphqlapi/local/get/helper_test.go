@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	test_helper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
+	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 )
 
@@ -24,7 +25,7 @@ type mockResolver struct {
 }
 
 func newMockResolver(peers peers.Peers) *mockResolver {
-	field, err := Build(&test_helper.SimpleSchema, peers)
+	field, err := Build(&test_helper.SimpleSchema, peers, &messages.Messaging{})
 	if err != nil {
 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
 	}
@@ -34,6 +35,7 @@ func newMockResolver(peers peers.Peers) *mockResolver {
 	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker)}
 	return mocker
 }
+
 func (m *mockResolver) LocalGetClass(params *LocalGetClassParams) (func() interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0).(func() interface{}), args.Error(1)
