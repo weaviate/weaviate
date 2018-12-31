@@ -360,23 +360,12 @@ func buildGetAndGetMeta(weaviatesWithGetFields map[string]*graphql.Object,
 }
 
 func passThroughFiltersAndResolvers(p graphql.ResolveParams) (interface{}, error) {
-	peers, ok := p.Source.(map[string]interface{})["NetworkPeers"].(peers.Peers)
-	if !ok {
-		return nil, fmt.Errorf("source does not contain NetworkPeers, but \n%#v", p.Source)
-	}
-
-	filters, err := network_get.FiltersForNetworkInstances(p.Args, peers.Names())
-	if err != nil {
-		return nil, err
-	}
-
 	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_get.Resolver)
 	if !ok {
 		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
 	}
 
 	return network_get.FiltersAndResolver{
-		Filters:  filters,
 		Resolver: resolver,
 	}, nil
 }
