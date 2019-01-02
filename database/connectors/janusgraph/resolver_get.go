@@ -14,6 +14,7 @@ package janusgraph
 
 import (
 	"fmt"
+	"net/url"
 	"runtime/debug"
 	"strings"
 
@@ -22,6 +23,7 @@ import (
 	graphql_local_common_filters "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -143,7 +145,8 @@ func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className sch
 			// Loop over the raw results
 			for _, rawRef := range rawRefs {
 				refType := rawRef["type"].(string)
-				refId := strfmt.UUID(rawRef["$cref"].(string))
+				refID := strfmt.UUID(rawRef["$cref"].(string))
+				refLocation := strfmt.UUID(rawRef["locationUrl"].(string))
 
 				var refAtClass string
 				var refPropertiesSchema models.Schema
@@ -163,7 +166,7 @@ func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className sch
 				}
 
 				if lookupClassKind == kind.THING_KIND || lookupClassKind == kind.ACTION_KIND {
-					err := j.getClass(lookupClassKind, refId, &refAtClass, nil, nil, nil, nil, &refPropertiesSchema, nil)
+					err := j.getClass(lookupClassKind, refID, &refAtClass, nil, nil, nil, nil, &refPropertiesSchema, nil)
 					if err != nil {
 						// Skipping broken links for now.
 						continue
@@ -172,7 +175,7 @@ func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className sch
 					// Determine if this is one of the classes that we want to have.
 					refClass := schema.AssertValidClassName(refAtClass)
 					if sc := selectProperty.FindSelectClass(refClass); sc != nil {
-						localRef := j.doLocalGetClassResolveOneClass(lookupClassKind, refClass, refId, sc.RefProperties, refPropertiesSchema)
+						localRef := j.doLocalGetClassResolveOneClass(lookupClassKind, refClass, refID, sc.RefProperties, refPropertiesSchema)
 
 						if selectProperty.IncludeTypeName {
 							localRef["__typename"] = refAtClass
@@ -186,9 +189,28 @@ func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className sch
 				}
 
 				if lookupClassKind == kind.NETWORK_THING_KIND || lookupClassKind == kind.NETWORK_ACTION_KIND {
+					// from our perspective we are talking about network kinds, but from the
+					// peers persepective those are local kinds, so we need to rewrite them:
+					var localKind kind.Kind
+					switch lookupClassKind {
+					case kind.NETWORK_THING_KIND:
+						localKind = kind.THING_KIND
+					case kind.NETWORK_ACTION_KIND:
+						localKind = kind.ACTION_KIND
+					}
+
+					locationParsed, err := url.Parse(string(refLocation))
+					if err != nil {
+						panic(fmt.Errorf("could not parse location (%s) for %s with id '%s': %s", refLocation,
+							localKind.TitleizedName(), refID, err))
+					}
+
 					networkRef := graphql_local_get.NetworkRef{
-						AtClass: refAtClass,
-						RawRef:  rawRef,
+						NetworkKind: crossrefs.NetworkKind{
+							PeerName: locationParsed.Host,
+							ID:       refID,
+							Kind:     localKind,
+						},
 					}
 
 					refResults = append(refResults, networkRef)

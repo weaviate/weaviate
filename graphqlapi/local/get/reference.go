@@ -5,16 +5,17 @@ import (
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 	"github.com/graphql-go/graphql"
 )
 
 // NetworkRef is a WIP, it will most likely change
 type NetworkRef struct {
-	AtClass string
-	RawRef  map[string]interface{}
+	crossrefs.NetworkKind
 }
 
 // LocalRef to be filled by the database connector to indicate that the
@@ -27,7 +28,8 @@ type LocalRef struct {
 
 func buildReferenceField(propertyType schema.PropertyDataType,
 	property *models.SemanticSchemaClassProperty, kindName, className string,
-	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass) *graphql.Field {
+	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
+	peers peers.Peers) *graphql.Field {
 	refClasses := propertyType.Classes()
 	propertyName := strings.Title(property.Name)
 	dataTypeClasses := []*graphql.Object{}
@@ -76,34 +78,7 @@ func buildReferenceField(propertyType schema.PropertyDataType,
 	return &graphql.Field{
 		Type:        graphql.NewList(classUnion),
 		Description: property.Description,
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			items := p.Source.(map[string]interface{})[p.Info.FieldName].([]interface{})
-			results := make([]interface{}, len(items), len(items))
-			for i, item := range items {
-				switch v := item.(type) {
-				case LocalRef:
-					localRef := v.Fields
-					localRef["__refClassType"] = "local"
-					localRef["__refClassName"] = v.AtClass
-					results[i] = localRef
-
-				case NetworkRef:
-					networkRef := func() (interface{}, error) {
-						return map[string]interface{}{
-							"__refClassType":     "network",
-							"__refClassName":     "Country",
-							"__refClassPeerName": "WeaviateB",
-							"name":               "hard-coded, but should be network resolved",
-						}, nil
-					}
-					results[i] = networkRef
-
-				default:
-					return nil, fmt.Errorf("unsupported type %t", v)
-				}
-			}
-			return results, nil
-		},
+		Resolve:     makeResolveRefField(peers),
 	}
 }
 
@@ -115,13 +90,104 @@ func makeResolveClassUnionType(knownClasses *map[string]*graphql.Object,
 		switch refType {
 		case "local":
 			className := valueMap["__refClassName"].(string)
-			return (*knownClasses)[className]
+			classObj, ok := (*knownClasses)[className]
+			if !ok {
+				panic(fmt.Errorf(
+					"local ref refers to class '%s', but no such kind exists in the peer network", className))
+			}
+			return classObj
+
 		case "network":
 			className := valueMap["__refClassName"].(string)
 			peerName := valueMap["__refClassPeerName"].(string)
-			return knownRefClasses[crossrefs.NetworkClass{ClassName: className, PeerName: peerName}]
+			remoteKind := crossrefs.NetworkClass{ClassName: className, PeerName: peerName}
+			classObj, ok := knownRefClasses[remoteKind]
+			if !ok {
+				panic(fmt.Errorf(
+					"network ref refers to remote kind %v, but no such kind exists in the peer network",
+					remoteKind))
+			}
+
+			return classObj
+
 		default:
 			panic(fmt.Sprintf("unknown ref type %#v", refType))
 		}
+	}
+}
+
+func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
+	return func(p graphql.ResolveParams) (interface{}, error) {
+		items := p.Source.(map[string]interface{})[p.Info.FieldName].([]interface{})
+		results := make([]interface{}, len(items), len(items))
+		for i, item := range items {
+			switch v := item.(type) {
+			case LocalRef:
+				// inject some meta data so the ResolveType can determine the type
+				localRef := v.Fields
+				localRef["__refClassType"] = "local"
+				localRef["__refClassName"] = v.AtClass
+				results[i] = localRef
+
+			case NetworkRef:
+				networkRef := func() (interface{}, error) {
+					result, err := peers.RemoteKind(v.NetworkKind)
+					if err != nil {
+						return nil, fmt.Errorf("could not get remote kind for '%v': %s", v, err)
+					}
+
+					var schema map[string]interface{}
+					schema, err = extractSchemaFromKind(v, result)
+					if err != nil {
+						return nil, err
+					}
+
+					// inject some meta data so the ResolveType can determine the type
+					schema["__refClassType"] = "network"
+					schema["__refClassPeerName"] = v.PeerName
+					schema["uuid"] = v.ID
+					return schema, nil
+				}
+				results[i] = networkRef
+
+			default:
+				return nil, fmt.Errorf("unsupported type %t", v)
+			}
+		}
+		return results, nil
+	}
+}
+func extractSchemaFromKind(v NetworkRef, result interface{}) (map[string]interface{}, error) {
+	switch v.Kind {
+	case kind.THING_KIND:
+		thing, ok := result.(models.Thing)
+		if !ok {
+			return nil, fmt.Errorf("expected a models.Thing, but remote instance returned %#v", result)
+		}
+
+		schema, ok := thing.Schema.(map[string]interface{})
+		if !ok {
+			fmt.Printf("expected schema of '%v', to be a map, but is: %#v", v, schema)
+			return nil, fmt.Errorf("expected schema of '%v', to be a map, but is: %#v", v, schema)
+		}
+		schema["__refClassName"] = thing.AtClass
+
+		return schema, nil
+	case kind.ACTION_KIND:
+		action, ok := result.(models.Action)
+		if !ok {
+			return nil, fmt.Errorf("expected a models.Action, but remote instance returned %#v", result)
+		}
+
+		schema, ok := action.Schema.(map[string]interface{})
+		if !ok {
+			fmt.Printf("expected schema of '%v', to be a map, but is: %#v", v, schema)
+			return nil, fmt.Errorf("expected schema of '%v', to be a map, but is: %#v", v, schema)
+		}
+		schema["__refClassName"] = action.AtClass
+		return schema, nil
+
+	default:
+		return nil, fmt.Errorf("not a known kind: %s", v.Kind)
 	}
 }
