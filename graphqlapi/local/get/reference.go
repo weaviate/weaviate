@@ -88,11 +88,13 @@ func buildReferenceField(propertyType schema.PropertyDataType,
 					results[i] = localRef
 
 				case NetworkRef:
-					networkRef := map[string]interface{}{
-						"__refClassType":     "network",
-						"__refClassName":     "Country",
-						"__refClassPeerName": "WeaviateB",
-						"name":               "hard-coded, but should be network resolved",
+					networkRef := func() (interface{}, error) {
+						return map[string]interface{}{
+							"__refClassType":     "network",
+							"__refClassName":     "Country",
+							"__refClassPeerName": "WeaviateB",
+							"name":               "hard-coded, but should be network resolved",
+						}, nil
 					}
 					results[i] = networkRef
 
