@@ -20,7 +20,7 @@ import (
 )
 
 type Resolver interface {
-	LocalGetClass(info *LocalGetClassParams) (func() interface{}, error)
+	LocalGetClass(info *LocalGetClassParams) (interface{}, error)
 }
 
 type LocalGetClassParams struct {

@@ -25,7 +25,7 @@ func (dbcr *dbClosingResolver) Close() {
 	dbcr.connectorLock.Unlock()
 }
 
-func (dbcr *dbClosingResolver) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (func() interface{}, error) {
+func (dbcr *dbClosingResolver) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (interface{}, error) {
 	connector := dbcr.connectorLock.Connector()
 	thunk, err := connector.LocalGetClass(info)
 	return thunk, err

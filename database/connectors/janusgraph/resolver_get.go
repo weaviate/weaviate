@@ -31,7 +31,7 @@ type resolveResult struct {
 }
 
 // Implement the Local->Get->KIND->CLASS lookup.
-func (j *Janusgraph) LocalGetClass(params *graphql_local_get.LocalGetClassParams) (func() interface{}, error) {
+func (j *Janusgraph) LocalGetClass(params *graphql_local_get.LocalGetClassParams) (interface{}, error) {
 	first := 100
 	offset := 0
 
@@ -60,14 +60,12 @@ func (j *Janusgraph) LocalGetClass(params *graphql_local_get.LocalGetClassParams
 		}
 	}()
 
-	return func() interface{} {
-		result := <-ch
-		if result.err != nil {
-			fmt.Printf("Paniced %#v\n", result.err)
-			panic(result.err)
-		}
-		return result.results
-	}, nil
+	result := <-ch
+	if result.err != nil {
+		fmt.Printf("Paniced %#v\n", result.err)
+		return nil, result.err
+	}
+	return result.results, nil
 }
 
 func (j *Janusgraph) doLocalGetClass(first, offset int, params *graphql_local_get.LocalGetClassParams) ([]interface{}, error) {
@@ -156,9 +154,9 @@ func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className sch
 					lookupClassKind = kind.THING_KIND
 				case "Action":
 					lookupClassKind = kind.ACTION_KIND
-				case "NetworkRefThing":
+				case "NetworkThing":
 					lookupClassKind = kind.NETWORK_THING_KIND
-				case "NetworkRefAction":
+				case "NetworkAction":
 					lookupClassKind = kind.NETWORK_ACTION_KIND
 				default:
 					panic(fmt.Sprintf("unsupported kind in reference: %s", refType))
@@ -174,20 +172,23 @@ func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className sch
 					// Determine if this is one of the classes that we want to have.
 					refClass := schema.AssertValidClassName(refAtClass)
 					if sc := selectProperty.FindSelectClass(refClass); sc != nil {
-						refResult := j.doLocalGetClassResolveOneClass(lookupClassKind, refClass, refId, sc.RefProperties, refPropertiesSchema)
+						localRef := j.doLocalGetClassResolveOneClass(lookupClassKind, refClass, refId, sc.RefProperties, refPropertiesSchema)
 
 						if selectProperty.IncludeTypeName {
-							refResult["__typename"] = refAtClass
+							localRef["__typename"] = refAtClass
 						}
 
-						refResults = append(refResults, refResult)
+						refResults = append(refResults, graphql_local_get.LocalRef{
+							Fields:  localRef,
+							AtClass: refAtClass,
+						})
 					}
 				}
 
 				if lookupClassKind == kind.NETWORK_THING_KIND || lookupClassKind == kind.NETWORK_ACTION_KIND {
-					networkRef := map[string]interface{}{
-						"message": "we want to resolve a network ref:",
-						"rawRef":  rawRef,
+					networkRef := graphql_local_get.NetworkRef{
+						AtClass: refAtClass,
+						RawRef:  rawRef,
 					}
 
 					refResults = append(refResults, networkRef)

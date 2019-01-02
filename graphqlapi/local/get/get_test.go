@@ -33,7 +33,7 @@ func TestSimpleFieldParamsOK(t *testing.T) {
 	}
 
 	resolver.On("LocalGetClass", expectedParams).
-		Return(test_helper.EmptyListThunk(), nil).Once()
+		Return(test_helper.EmptyList(), nil).Once()
 
 	resolver.AssertResolve(t, "{ Get { Actions { SomeAction { intField } } } }")
 }
@@ -50,7 +50,7 @@ func TestExtractIntField(t *testing.T) {
 	}
 
 	resolver.On("LocalGetClass", expectedParams).
-		Return(test_helper.EmptyListThunk(), nil).Once()
+		Return(test_helper.EmptyList(), nil).Once()
 
 	query := "{ Get { Actions { SomeAction { intField } } } }"
 	resolver.AssertResolve(t, query)
@@ -72,7 +72,7 @@ func TestExtractPagination(t *testing.T) {
 	}
 
 	resolver.On("LocalGetClass", expectedParams).
-		Return(test_helper.EmptyListThunk(), nil).Once()
+		Return(test_helper.EmptyList(), nil).Once()
 
 	query := "{ Get { Actions { SomeAction(first:10, after: 20) { intField } } } }"
 	resolver.AssertResolve(t, query)
@@ -121,7 +121,7 @@ func TestGetRelation(t *testing.T) {
 	}
 
 	resolver.On("LocalGetClass", expectedParams).
-		Return(test_helper.EmptyListThunk(), nil).Once()
+		Return(test_helper.EmptyList(), nil).Once()
 
 	query := "{ Get { Actions { SomeAction { HasAction { ... on SomeAction { intField, HasAction { ... on SomeAction { intField } } } } } } } }"
 	resolver.AssertResolve(t, query)
