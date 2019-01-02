@@ -45,7 +45,7 @@ func TestExtractFilterToplevelField(t *testing.T) {
 	}}
 
 	resolver.On("ReportFilters", expectedParams).
-		Return(test_helper.EmptyListThunk(), nil).Once()
+		Return(test_helper.EmptyList(), nil).Once()
 
 	query := `{ SomeAction(where: { path: ["intField"], operator: Equal, valueInt: 42}) }`
 	resolver.AssertResolve(t, query)
@@ -73,7 +73,7 @@ func TestExtractFilterNestedField(t *testing.T) {
 	}}
 
 	resolver.On("ReportFilters", expectedParams).
-		Return(test_helper.EmptyListThunk(), nil).Once()
+		Return(test_helper.EmptyList(), nil).Once()
 
 	query := `{ SomeAction(where: { path: ["SomeAction", "HasAction", "SomeAction", "intField"], operator: Equal, valueInt: 42}) }`
 	resolver.AssertResolve(t, query)
@@ -115,7 +115,7 @@ func TestExtractOperand(t *testing.T) {
 		}}}
 
 	resolver.On("ReportFilters", expectedParams).
-		Return(test_helper.EmptyListThunk(), nil).Once()
+		Return(test_helper.EmptyList(), nil).Once()
 
 	query := `{ SomeAction(where: { operator: And, operands: [
       { operator: Equal, valueInt: 42,   path: ["SomeAction", "intField"]},
