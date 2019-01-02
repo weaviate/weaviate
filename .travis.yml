@@ -27,6 +27,7 @@ branches:
   only: 
     - master
     - develop
+    - feature/network_cross_refs_resolve
 dist: xenial
 go: 
   - "1.11"

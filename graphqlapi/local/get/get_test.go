@@ -14,16 +14,17 @@
 package local_get
 
 import (
+	"testing"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
 	test_helper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
-	"testing"
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(emptyPeers())
 
 	expectedParams := &LocalGetClassParams{
 		Kind:       kind.ACTION_KIND,
@@ -40,7 +41,7 @@ func TestSimpleFieldParamsOK(t *testing.T) {
 func TestExtractIntField(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(emptyPeers())
 
 	expectedParams := &LocalGetClassParams{
 		Kind:       kind.ACTION_KIND,
@@ -58,7 +59,7 @@ func TestExtractIntField(t *testing.T) {
 func TestExtractPagination(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(emptyPeers())
 
 	expectedParams := &LocalGetClassParams{
 		Kind:       kind.ACTION_KIND,
@@ -80,7 +81,7 @@ func TestExtractPagination(t *testing.T) {
 func TestGetRelation(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
+	resolver := newMockResolver(emptyPeers())
 
 	expectedParams := &LocalGetClassParams{
 		Kind:      kind.ACTION_KIND,
