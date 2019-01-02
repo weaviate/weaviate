@@ -1,3 +1,15 @@
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
+ */
 package local_get
 
 import (
@@ -11,21 +23,24 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get/refclasses"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 )
 
 // Build a single class in Local -> Get -> (k kind.Kind) -> (models.SemanticSchemaClass)
 func buildGetClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass,
-	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass) (*graphql.Field, error) {
-	classObject := buildGetClassObject(k.Name(), class, dbSchema, knownClasses, knownRefClasses)
+	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
+	peers peers.Peers) (*graphql.Field, error) {
+	classObject := buildGetClassObject(k.Name(), class, dbSchema, knownClasses, knownRefClasses, peers)
 	(*knownClasses)[class.Class] = classObject
 	classField := buildGetClassField(classObject, k, class)
 	return &classField, nil
 }
 
 func buildGetClassObject(kindName string, class *models.SemanticSchemaClass, dbSchema *schema.Schema,
-	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass) *graphql.Object {
+	knownClasses *map[string]*graphql.Object, knownRefClasses refclasses.ByNetworkClass,
+	peers peers.Peers) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name: class.Class,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
@@ -52,7 +67,7 @@ func buildGetClassObject(kindName string, class *models.SemanticSchemaClass, dbS
 				} else {
 					// uppercase key because it's a reference
 					fieldName = strings.Title(property.Name)
-					field = buildReferenceField(propertyType, property, kindName, class.Class, knownClasses, knownRefClasses)
+					field = buildReferenceField(propertyType, property, kindName, class.Class, knownClasses, knownRefClasses, peers)
 				}
 				classProperties[fieldName] = field
 			}
