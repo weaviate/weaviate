@@ -97,6 +97,9 @@ $ git clone https://github.com/creativesoftwarefdn/weaviate
 # Select the correct branch, 
 ```
 
+- You can set the environment variable `SCHEME` to override the default (`http`) E.g. `SCHEME=https docker-compose up -d`
+- You can set the environment variables `HOST` and `PORT` to override the defaults. E.g. `HOST=0.0.0.0 PORT=1337 docker-compose up -d`
+
 ## Getting ROOTKEY and ROOTTOKEN using Docker-compose
 
 To authenticate, you will need the `ROOTKEY` and `ROOTTOKEN`. When using Docker-compose, you'll be able to find them in the log files.

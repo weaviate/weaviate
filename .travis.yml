@@ -27,7 +27,6 @@ branches:
   only: 
     - master
     - develop
-    - feature/network_cross_refs_graphql_schema
 dist: xenial
 go: 
   - "1.11"
