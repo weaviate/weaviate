@@ -13,10 +13,12 @@
 package test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/client/things"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	graphql "github.com/creativesoftwarefdn/weaviate/test/acceptance/graphql_resolvers"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,6 +50,13 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 		prop := assertPropertyInClass(t, class, "testCref")
 		expectedDataType := []string{"TestThingTwo", "RemoteWeaviateForAcceptanceTest/Instruments"}
 		assert.Equal(t, expectedDataType, prop.AtDataType, "prop should have old and newly added dataTypes")
+	})
+
+	t.Run("it can query the reference through the graphql api", func(t *testing.T) {
+		result := graphql.AssertGraphQL(t, helper.RootAuth,
+			"{ Local { Get { Things { TestThing { TestCref { ... on RemoteWeaviateForAcceptanceTest__Instruments { name } } } } } } }")
+		things := result.Get("Local", "Get", "Things", "TestThing").AsSlice()
+		assert.Contains(t, things, parseJSONObj(`{"TestCref":[{"name": "Talkbox"}]}`))
 	})
 }
 
@@ -95,4 +104,15 @@ func TestCanPatchNetworkRef(t *testing.T) {
 		expectedDataType := []string{"TestThingTwo", "RemoteWeaviateForAcceptanceTest/Instruments"}
 		assert.Equal(t, expectedDataType, prop.AtDataType, "prop should have old and newly added dataTypes")
 	})
+}
+
+func parseJSONObj(text string) interface{} {
+	var result interface{}
+	err := json.Unmarshal([]byte(text), &result)
+
+	if err != nil {
+		panic(err)
+	}
+
+	return result
 }
