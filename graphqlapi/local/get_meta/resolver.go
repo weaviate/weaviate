@@ -20,7 +20,7 @@ import (
 )
 
 type Resolver interface {
-	LocalGetMeta(info *LocalGetMetaParams) (func() interface{}, error)
+	LocalGetMeta(info *LocalGetMetaParams) (interface{}, error)
 }
 
 type LocalGetMetaParams struct {
