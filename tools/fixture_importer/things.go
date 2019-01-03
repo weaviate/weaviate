@@ -63,10 +63,14 @@ func createThings() {
 					if !ok {
 						location = ""
 					}
+					toClass, ok := singleRefMap["class"].(string)
+					if !ok {
+						toClass = ""
+					}
 					multiFixUps = append(thingFixups, fixupAddRef{
 						fromId:       uuid,
 						fromProperty: key,
-						toClass:      singleRefMap["class"].(string),
+						toClass:      toClass,
 						toId:         singleRefMap["uuid"].(string),
 						location:     location,
 					})
