@@ -143,7 +143,20 @@ func (j *Janusgraph) doLocalGetClassResolveRefClassProp(knd kind.Kind, className
 	// Normalize the refs to a list
 	var rawRefs []map[string]interface{}
 	if cardinality == schema.CardinalityAtMostOne {
-		propAsMap := propertiesMap[string(propertyName)].(map[string]interface{})
+		prop, ok := propertiesMap[string(propertyName)]
+		if !ok {
+			// the desired property is not present on this instance,
+			// simply skip over it
+			return []interface{}{}
+		}
+
+		propAsMap, ok := prop.(map[string]interface{})
+		if !ok {
+			panic(fmt.Sprintf(
+				"property for %s should be a map, but is %t, the entire propertyMap is \n%#v",
+				string(propertyName), propertiesMap[string(propertyName)], propertiesMap))
+		}
+
 		rawRefs = append(rawRefs, propAsMap)
 	} else {
 		for _, rpropAsMap := range propertiesMap[string(propertyName)].([]interface{}) {
