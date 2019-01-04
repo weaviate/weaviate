@@ -154,6 +154,10 @@ var solveMetaRootClass = function(nodes_in_class, className, args) {
 				metadata[key]["topOccurrences"] = []
 			}
 		}
+		else {
+			metadata[key]["type"] = "string"
+			metadata[key]["topOccurrences"] = []
+		}
 	}
 
 	for (var node in nodes_in_class) {
