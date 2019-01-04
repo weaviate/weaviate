@@ -32,6 +32,9 @@ const NetworkGetWhereInpObjDesc string = "An object containing filter options fo
 const NetworkGetMetaWhereDesc string = "Filter options for a network GetMeta query, used to convert the result to the specified filters"
 const NetworkGetMetaWhereInpObjDesc string = "An object containing filter options for a network GetMeta query, used to convert the result to the specified filters"
 
+const NetworkAggregateWhereDesc string = "Filter options for a network Aggregate query, used to convert the result to the specified filters"
+const NetworkAggregateWhereInpObjDesc string = "An object containing filter options for a network Aggregate query, used to convert the result to the specified filters"
+
 const WhereOperandsDesc string = "Contains the Operands that can be applied to a 'where' filter"
 const WhereOperandsInpObjDesc string = "An object containing the Operands that can be applied to a 'where' filter"
 

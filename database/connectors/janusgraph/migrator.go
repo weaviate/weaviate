@@ -14,6 +14,7 @@ package janusgraph
 
 import (
 	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
@@ -202,6 +203,10 @@ func (j *Janusgraph) UpdateProperty(kind kind.Kind, className string, propName s
 		j.state.renameProperty(sanitizedClassName, oldName, newName)
 		j.UpdateStateInStateManager()
 	}
+	return nil
+}
+
+func (j *Janusgraph) UpdatePropertyAddDataType(kind kind.Kind, className string, propName string, newDataType string) error {
 	return nil
 }
 

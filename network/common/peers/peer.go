@@ -63,3 +63,15 @@ func (p Peers) Names() []string {
 	}
 	return names
 }
+
+// ByName retrieves the peer which matches the specified
+// name or errors
+func (p Peers) ByName(name string) (Peer, error) {
+	for _, peer := range p {
+		if peer.Name == name {
+			return peer, nil
+		}
+	}
+
+	return Peer{}, fmt.Errorf("no peer '%s' in the network", name)
+}
