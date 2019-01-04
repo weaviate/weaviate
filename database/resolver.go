@@ -25,14 +25,13 @@ func (dbcr *dbClosingResolver) Close() {
 	dbcr.connectorLock.Unlock()
 }
 
-func (dbcr *dbClosingResolver) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (func() interface{}, error) {
+func (dbcr *dbClosingResolver) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (interface{}, error) {
 	connector := dbcr.connectorLock.Connector()
 	thunk, err := connector.LocalGetClass(info)
 	return thunk, err
 }
 
-func (dbcr *dbClosingResolver) LocalGetMeta(info *graphql_local_get_meta.LocalGetMetaParams) (func() interface{}, error) {
+func (dbcr *dbClosingResolver) LocalGetMeta(info *graphql_local_get_meta.LocalGetMetaParams) (interface{}, error) {
 	connector := dbcr.connectorLock.Connector()
-	thunk, err := connector.LocalGetMeta(info)
-	return thunk, err
+	return connector.LocalGetMeta(info)
 }

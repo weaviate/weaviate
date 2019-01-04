@@ -1,18 +1,6 @@
 {
 	"Things": [{
 		"class": "City",
-		"uuid": "021",
-		"name": "San Francisco",
-		"coordinates": "N52, E004",
-		"population": "1800000",
-		"isCapital": true,
-		"inCountry": [{
-			"location": "WeaviateB",
-			"class": "Country",
-			"uuid": "0bac326d-b17f-49fd-91ba-d5f1d528c34f"
-		}]
-	}, {
-		"class": "City",
 		"uuid": "001",
 		"name": "Amsterdam",
 		"coordinates": "N52, E004",

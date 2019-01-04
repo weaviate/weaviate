@@ -14,6 +14,9 @@ package local_get
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"testing"
 
 	test_helper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -36,11 +39,29 @@ func newMockResolver(peers peers.Peers) *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) LocalGetClass(params *LocalGetClassParams) (func() interface{}, error) {
+func (m *mockResolver) LocalGetClass(params *LocalGetClassParams) (interface{}, error) {
 	args := m.Called(params)
-	return args.Get(0).(func() interface{}), args.Error(1)
+	return args.Get(0), args.Error(1)
 }
 
 func emptyPeers() peers.Peers {
 	return peers.Peers{}
+}
+
+func newFakePeerServer(t *testing.T) *fakePeerServer {
+	server := &fakePeerServer{t: t}
+	server.server = httptest.NewServer(http.HandlerFunc(server.handle))
+	return server
+}
+
+type fakePeerServer struct {
+	t        *testing.T
+	server   *httptest.Server
+	matchers []http.HandlerFunc
+}
+
+func (f *fakePeerServer) handle(w http.ResponseWriter, r *http.Request) {
+	for _, matcher := range f.matchers {
+		matcher(w, r)
+	}
 }

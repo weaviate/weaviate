@@ -58,7 +58,7 @@ func newMockResolver() *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) ReportFilters(filter *LocalFilter) (func() interface{}, error) {
+func (m *mockResolver) ReportFilters(filter *LocalFilter) (interface{}, error) {
 	args := m.Called(filter)
-	return args.Get(0).(func() interface{}), args.Error(1)
+	return args.Get(0), args.Error(1)
 }
