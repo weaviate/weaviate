@@ -440,10 +440,10 @@ func (f *Foobar) SetState(state json.RawMessage) {
 func (f *Foobar) SetStateManager(manager connector_state.StateManager) {
 }
 
-func (f *Foobar) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (func() interface{}, error) {
-	return func() interface{} { return nil }, nil
+func (f *Foobar) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (interface{}, error) {
+	return nil, nil
 }
 
-func (f *Foobar) LocalGetMeta(info *graphql_local_get_meta.LocalGetMetaParams) (func() interface{}, error) {
-	return func() interface{} { return nil }, nil
+func (f *Foobar) LocalGetMeta(info *graphql_local_get_meta.LocalGetMetaParams) (interface{}, error) {
+	return nil, nil
 }

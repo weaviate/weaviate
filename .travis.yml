@@ -33,7 +33,7 @@ go:
 env:
   matrix:
   # Force using modules.
-  - GO111MODULE=on
+  - GO111MODULE=on GRAPHQL_TESTS=skip
   global:
   # location of the open-api specs
   - WEAVIATESCHEMAFILE=openapi-specs/schema.json

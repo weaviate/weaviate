@@ -31,6 +31,10 @@ func EmptyListThunk() func() interface{} {
 	}
 }
 
+func EmptyList() interface{} {
+	return []interface{}{}
+}
+
 func SingletonThunk(x interface{}) func() interface{} {
 	return func() interface{} {
 		return interface{}(x)

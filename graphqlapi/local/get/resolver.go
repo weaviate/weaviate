@@ -13,6 +13,9 @@
 package local_get
 
 import (
+	"fmt"
+	"regexp"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	common "github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
@@ -20,7 +23,7 @@ import (
 )
 
 type Resolver interface {
-	LocalGetClass(info *LocalGetClassParams) (func() interface{}, error)
+	LocalGetClass(info *LocalGetClassParams) (interface{}, error)
 }
 
 type LocalGetClassParams struct {
@@ -54,6 +57,7 @@ type filtersAndResolver struct {
 	resolver Resolver
 }
 
+// FindSelectClass by specifying the exact class name
 func (sp SelectProperty) FindSelectClass(className schema.ClassName) *SelectClass {
 	for _, selectClass := range sp.Refs {
 		if selectClass.ClassName == string(className) {
@@ -62,4 +66,17 @@ func (sp SelectProperty) FindSelectClass(className schema.ClassName) *SelectClas
 	}
 
 	return nil
+}
+
+// HasPeer returns true if any of the referenced classes are from the specified
+// peer
+func (sp SelectProperty) HasPeer(peerName string) bool {
+	r := regexp.MustCompile(fmt.Sprintf("^%s__", peerName))
+	for _, selectClass := range sp.Refs {
+		if r.MatchString(selectClass.ClassName) {
+			return true
+		}
+	}
+
+	return false
 }

@@ -50,7 +50,8 @@ func (n *network) ProxyGetInstance(params networkGet.ProxyGetInstanceParams) (*m
 func postToPeer(client *client.WeaviateDecentralisedKnowledgeGraph, subQuery networkGet.SubQuery,
 	principal *models.KeyTokenGetResponse) (*graphql.WeaviateGraphqlPostOK, error) {
 	localContext := context.Background()
-	localContext, _ = context.WithTimeout(localContext, 1*time.Second)
+	localContext, cancel := context.WithTimeout(localContext, 1*time.Second)
+	defer cancel()
 	requestParams := &graphql.WeaviateGraphqlPostParams{
 		Body:       &models.GraphQLQuery{Query: subQuery.WrapInLocalQuery()},
 		Context:    localContext,

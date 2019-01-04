@@ -23,7 +23,7 @@ require (
 	github.com/golang/snappy v0.0.0-20170215233205-553a64147049 // indirect
 	github.com/google/pprof v0.0.0-20181206194817-3ea8567a2e57 // indirect
 	github.com/gorilla/websocket v1.2.0
-	github.com/graphql-go/graphql v0.7.5
+	github.com/graphql-go/graphql v0.7.7
 	github.com/hpcloud/tail v1.0.0 // indirect
 	github.com/ianlancetaylor/demangle v0.0.0-20181102032728-5e5cf60278f6 // indirect
 	github.com/jessevdk/go-flags v1.4.0
