@@ -16,12 +16,16 @@ package validation
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network"
+	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 )
 
 const (
@@ -58,7 +62,9 @@ const (
 )
 
 // ValidateThingBody Validates a thing body using the 'ThingCreate' object.
-func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseSchema schema.WeaviateSchema,
+	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig,
+	keyToken *models.KeyTokenGetResponse) error {
 	// Validate the body
 	bve := validateBody(thing.AtClass, thing.AtContext)
 
@@ -68,13 +74,16 @@ func ValidateThingBody(ctx context.Context, thing *models.ThingCreate, databaseS
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(ctx, databaseSchema.ThingSchema.Schema, thing, connutils.RefTypeThing, dbConnector, serverConfig, keyToken)
+	sve := ValidateSchemaInBody(ctx, databaseSchema.ThingSchema.Schema, thing, connutils.RefTypeThing,
+		dbConnector, network, serverConfig, keyToken)
 
 	return sve
 }
 
 // ValidateActionBody Validates a action body using the 'ActionCreate' object.
-func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databaseSchema schema.WeaviateSchema, dbConnector dbconnector.DatabaseConnector, serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databaseSchema schema.WeaviateSchema,
+	dbConnector dbconnector.DatabaseConnector, network network.Network, serverConfig *config.WeaviateConfig,
+	keyToken *models.KeyTokenGetResponse) error {
 	// Validate the body
 	bve := validateBody(action.AtClass, action.AtContext)
 
@@ -84,7 +93,8 @@ func ValidateActionBody(ctx context.Context, action *models.ActionCreate, databa
 	}
 
 	// Return the schema validation error
-	sve := ValidateSchemaInBody(ctx, databaseSchema.ActionSchema.Schema, action, connutils.RefTypeAction, dbConnector, serverConfig, keyToken)
+	sve := ValidateSchemaInBody(ctx, databaseSchema.ActionSchema.Schema, action, connutils.RefTypeAction,
+		dbConnector, network, serverConfig, keyToken)
 
 	return sve
 }
@@ -107,37 +117,45 @@ func validateBody(class string, context string) error {
 
 // validateRefType validates the reference type with one of the existing reference types
 func validateRefType(s connutils.RefType) bool {
-	return (s == connutils.RefTypeAction || s == connutils.RefTypeThing || s == connutils.RefTypeKey)
+	return (s == connutils.RefTypeAction ||
+		s == connutils.RefTypeThing ||
+		s == connutils.RefTypeKey ||
+		s == connutils.RefTypeNetworkThing ||
+		s == connutils.RefTypeNetworkAction)
 }
 
 // ValidateSingleRef validates a single ref based on location URL and existence of the object in the database
-func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, errorVal string, keyToken *models.KeyTokenGetResponse) error {
+func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig, cref *models.SingleRef, dbConnector dbconnector.DatabaseConnector, network network.Network, errorVal string, keyToken *models.KeyTokenGetResponse) error {
 	// Init reftype
 	refType := connutils.RefType(cref.Type)
+	url, err := url.Parse(*cref.LocationURL)
+	if err != nil {
+		return fmt.Errorf("could not parse location url (%s): %s", *cref.LocationURL, err)
+	}
 
-	// Check existence of Object, external or internal
-	if serverConfig.GetHostAddress() != *cref.LocationURL {
-		// Search for key-information for resolving this part. Dont validate if not exists
-		instance, err := serverConfig.GetInstance(*cref.LocationURL, keyToken)
+	// Per convention a local ref must point to host 'localhost', regardless of
+	// how the local instance is identified via a host alias or FQDN.
+	if url.Host != "localhost" {
+		peers, err := network.ListPeers()
 		if err != nil {
-			return fmt.Errorf(ErrorNoExternalCredentials, *cref.LocationURL, errorVal)
+			return fmt.Errorf("could not validate network reference: could not list network peers: %s", err)
 		}
 
-		// Set endpoint
-		endpoint := ""
-
-		if refType == connutils.RefTypeThing {
-			endpoint = "things"
-		} else if refType == connutils.RefTypeAction {
-			endpoint = "actions"
-		} else if refType == connutils.RefTypeKey {
-			endpoint = "keys"
+		var k kind.Kind
+		switch refType {
+		case connutils.RefTypeNetworkThing:
+			k = kind.THING_KIND
+		case connutils.RefTypeNetworkAction:
+			k = kind.ACTION_KIND
+		default:
+			return fmt.Errorf("unrecognized network reference type '%s' for cref %#v at %s, "+
+				"must be one of: %s, %s", refType, cref, url.String(), connutils.RefTypeNetworkThing,
+				connutils.RefTypeNetworkAction)
 		}
 
-		// Check wheter the Object's location URL is pointing to a existing Weaviate instance
-		response, err := connutils.DoExternalRequest(instance, endpoint, cref.NrDollarCref)
+		_, err = peers.RemoteKind(crossrefs.NetworkKind{Kind: k, ID: cref.NrDollarCref, PeerName: url.Host})
 		if err != nil {
-			return fmt.Errorf(ErrorExternalNotFound, *cref.LocationURL, response.StatusCode, errorVal)
+			return fmt.Errorf("invalid network reference: %s", err)
 		}
 	} else {
 		// Check whether the given Object exists in the DB
@@ -163,13 +181,15 @@ func ValidateSingleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
 	return nil
 }
 
-func ValidateMultipleRef(ctx context.Context, serverConfig *config.WeaviateConfig, refs *models.MultipleRef, dbConnector dbconnector.DatabaseConnector, errorVal string, keyToken *models.KeyTokenGetResponse) error {
+func ValidateMultipleRef(ctx context.Context, serverConfig *config.WeaviateConfig,
+	refs *models.MultipleRef, dbConnector dbconnector.DatabaseConnector, network network.Network,
+	errorVal string, keyToken *models.KeyTokenGetResponse) error {
 	if refs == nil {
 		return nil
 	}
 
 	for _, ref := range *refs {
-		err := ValidateSingleRef(ctx, serverConfig, ref, dbConnector, errorVal, keyToken)
+		err := ValidateSingleRef(ctx, serverConfig, ref, dbConnector, network, errorVal, keyToken)
 		if err != nil {
 			return err
 		}

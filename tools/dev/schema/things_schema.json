@@ -31,7 +31,8 @@
                     "@dataType": [
                         "Country"
                     ],
-                    "description": "The country the city lies in"
+                    "description": "The country the city lies in",
+                    "cardinality": "many"
                 },
                 {
                     "name": "population",

@@ -14,12 +14,13 @@ package main
 
 import (
 	"fmt"
+	"strconv"
+	"time"
+
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	spew "github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
-	"strconv"
-	"time"
 )
 
 func createActions() {
@@ -141,7 +142,7 @@ func fixupActions() {
 			Path: &path,
 			Value: map[string]interface{}{
 				"$cref":       idMap[fixup.toId],
-				"locationUrl": "http://localhost:8080",
+				"locationUrl": "http://localhost",
 				"type":        kind,
 			},
 		}

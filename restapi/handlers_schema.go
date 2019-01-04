@@ -13,8 +13,11 @@
 package restapi
 
 import (
+	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/schema"
+	"github.com/davecgh/go-spew/spew"
 	middleware "github.com/go-openapi/runtime/middleware"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
@@ -225,6 +228,9 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 			return schema.NewWeaviateSchemaThingsPropertiesAddOK()
 		} else {
 			errorResponse := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{&models.ErrorResponseErrorItems0{Message: err.Error()}}}
+			fmt.Print("\n\n\n\n\n\n\n")
+			spew.Dump(errorResponse)
+			fmt.Print("\n\n\n\n\n\n\n")
 			return schema.NewWeaviateSchemaThingsPropertiesAddUnprocessableEntity().WithPayload(&errorResponse)
 		}
 	})

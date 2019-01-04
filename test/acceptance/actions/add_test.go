@@ -15,12 +15,13 @@ package test
 // Acceptance tests for actions
 
 import (
+	"testing"
+
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestCanCreateAction(t *testing.T) {
@@ -77,7 +78,7 @@ func TestCanCreateAndGetAction(t *testing.T) {
 	actionTestNumber := 1.337
 	actionTestDate := "2017-10-06T08:15:30+01:00"
 
-	actionId := assertCreateAction(t, "TestAction", map[string]interface{}{
+	actionID := assertCreateAction(t, "TestAction", map[string]interface{}{
 		"testString":   actionTestString,
 		"testInt":      actionTestInt,
 		"testBoolean":  actionTestBoolean,
@@ -86,7 +87,7 @@ func TestCanCreateAndGetAction(t *testing.T) {
 	})
 
 	// Now fetch the action
-	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionId), helper.RootAuth)
+	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionID), helper.RootAuth)
 
 	helper.AssertRequestOk(t, getResp, err, func() {
 		action := getResp.Payload
@@ -106,19 +107,19 @@ func TestCanCreateAndGetAction(t *testing.T) {
 }
 
 func TestCanAddSingleRefAction(t *testing.T) {
-	firstActionId := assertCreateAction(t, "TestAction", map[string]interface{}{})
-	secondActionId := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
+	firstActionID := assertCreateAction(t, "TestAction", map[string]interface{}{})
+	secondActionID := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
 		"testString": "stringy",
 		"testCref": map[string]interface{}{
 			"type":        "Action",
-			"locationUrl": helper.GetWeaviateURL(),
-			"$cref":       firstActionId,
+			"locationUrl": "http://localhost",
+			"$cref":       firstActionID,
 		},
 	})
 
-	secondAction := assertGetAction(t, secondActionId)
+	secondAction := assertGetAction(t, secondActionID)
 
 	singleRef := secondAction.Schema.(map[string]interface{})["testCref"].(map[string]interface{})
 	assert.Equal(t, singleRef["type"].(string), "Action")
-	assert.Equal(t, singleRef["$cref"].(string), string(firstActionId))
+	assert.Equal(t, singleRef["$cref"].(string), string(firstActionID))
 }

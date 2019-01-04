@@ -14,12 +14,13 @@ package main
 
 import (
 	"fmt"
+	"strconv"
+	"time"
+
 	"github.com/creativesoftwarefdn/weaviate/client/things"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	spew "github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
-	"strconv"
-	"time"
 )
 
 func createThings() {
@@ -35,19 +36,48 @@ func createThings() {
 				continue
 			}
 
-			ref, isRef := value.(map[string]interface{})
-			if isRef {
+			switch ref := value.(type) {
+			case map[string]interface{}: // a single object implies a single reference
+				var location string
+				location, ok := ref["location"].(string)
+				if !ok {
+					location = ""
+				}
 				thingFixups = append(thingFixups, fixupAddRef{
 					fromId:       uuid,
 					fromProperty: key,
 					toClass:      ref["class"].(string),
 					toId:         ref["uuid"].(string),
+					location:     location,
 				})
-			} else {
+			case []interface{}: // a list of objects implies multiple references
+				multiFixUps := []fixupAddRef{}
+				for _, singleRef := range ref {
+					singleRefMap, ok := singleRef.(map[string]interface{})
+					if !ok {
+						panic(fmt.Sprintf("have []interface{}, but items is not a ref, instead have %#v", singleRef))
+					}
+
+					var location string
+					location, ok = singleRefMap["location"].(string)
+					if !ok {
+						location = ""
+					}
+					multiFixUps = append(thingFixups, fixupAddRef{
+						fromId:       uuid,
+						fromProperty: key,
+						toClass:      singleRefMap["class"].(string),
+						toId:         singleRefMap["uuid"].(string),
+						location:     location,
+					})
+				}
+				thingManyFixups = append(thingManyFixups, multiFixUps)
+			default: // everything else must be a primitive
 				class := findClass(schema.Things, className)
 				property := findProperty(class, key)
 				if len(property.AtDataType) != 1 {
-					panic(fmt.Sprintf("Only one datatype supported for import. Failed in thing %s.%s", className, property.Name))
+					panic(fmt.Sprintf("Only one datatype supported for import. Failed in thing %s.%s with @dataTypes %#v on value %t",
+						className, property.Name, property.AtDataType, value))
 				}
 				dataType := property.AtDataType[0]
 
@@ -95,6 +125,11 @@ func fixupThings() {
 		allExist := true
 
 		for _, fixup := range thingFixups {
+			if fixup.location != "" {
+				// it's a network ref, we can't do any validation
+				continue
+			}
+
 			if !checkThingExists(idMap[fixup.fromId]) {
 				allExist = false
 				fmt.Printf("From does not exist! %v\n", idMap[fixup.fromId])
@@ -130,25 +165,78 @@ func fixupThings() {
 	// Now fix up refs
 	op := "add"
 	for _, fixup := range thingFixups {
+		var patch *models.PatchDocument
 		path := fmt.Sprintf("/schema/%s", fixup.fromProperty)
-		kind, ok := classKinds[fixup.toClass]
 
-		if !ok {
-			panic(fmt.Sprintf("Unknown class '%s'", fixup.toClass))
-		}
+		if fixup.location == "" {
+			// is local ref
+			kind, ok := classKinds[fixup.toClass]
 
-		patch := &models.PatchDocument{
-			Op:   &op,
-			Path: &path,
-			Value: map[string]interface{}{
-				"$cref":       idMap[fixup.toId],
-				"locationUrl": "http://localhost:8080",
-				"type":        kind,
-			},
+			if !ok {
+				panic(fmt.Sprintf("Unknown class '%s'", fixup.toClass))
+			}
+
+			patch = &models.PatchDocument{
+				Op:   &op,
+				Path: &path,
+				Value: map[string]interface{}{
+					"$cref":       idMap[fixup.toId],
+					"locationUrl": "http://localhost",
+					"type":        kind,
+				},
+			}
+		} else {
+			// is network ref
+			patch = &models.PatchDocument{
+				Op:   &op,
+				Path: &path,
+				Value: map[string]interface{}{
+					"$cref":       fixup.toId,
+					"locationUrl": fmt.Sprintf("http://%s", fixup.location),
+					"type":        "NetworkThing", // hard-code thing for now
+				},
+			}
 		}
 
 		assertPatchThing(idMap[fixup.fromId], patch)
 		fmt.Printf("Patched thing %s\n", idMap[fixup.fromId])
+	}
+
+	for _, fixups := range thingManyFixups {
+		var patch *models.PatchDocument
+		path := fmt.Sprintf("/schema/%s", fixups[0].fromProperty)
+
+		patch = &models.PatchDocument{
+			Op:    &op,
+			Path:  &path,
+			Value: []map[string]interface{}{},
+		}
+
+		for _, fixup := range fixups {
+			if fixup.location == "" {
+				// is local ref
+				kind, ok := classKinds[fixup.toClass]
+
+				if !ok {
+					panic(fmt.Sprintf("Unknown class '%s'", fixup.toClass))
+				}
+
+				patch.Value = append(patch.Value.([]map[string]interface{}), map[string]interface{}{
+					"$cref":       idMap[fixup.toId],
+					"locationUrl": "http://localhost",
+					"type":        kind,
+				})
+			} else {
+				patch.Value = append(patch.Value.([]map[string]interface{}), map[string]interface{}{
+					"$cref":       fixup.toId,
+					"locationUrl": fmt.Sprintf("http://%s", fixup.location),
+					"type":        "NetworkThing", // hard-code thing for now
+				})
+			}
+		}
+
+		assertPatchThing(idMap[fixups[0].fromId], patch)
+		fmt.Printf("Patched thing %s\n", idMap[fixups[0].fromId])
 	}
 }
 

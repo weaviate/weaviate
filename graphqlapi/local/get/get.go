@@ -14,15 +14,18 @@ package local_get
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	common "github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/graphql-go/graphql"
 	graphql_ast "github.com/graphql-go/graphql/language/ast"
-	"strings"
 )
 
 func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
@@ -190,16 +193,21 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, kindName string, class 
 					// This is a reference
 					refClasses := propertyType.Classes()
 					propertyName := strings.Title(property.Name)
-					dataTypeClasses := make([]*graphql.Object, len(refClasses))
+					dataTypeClasses := []*graphql.Object{}
 
-					for index, refClassName := range refClasses {
+					for _, refClassName := range refClasses {
 						refClass, ok := (*knownClasses)[string(refClassName)]
+
+						if crossrefs.ValidClassName(string(refClassName)) {
+							// simply ignore all network cross-refs for now
+							continue
+						}
 
 						if !ok {
 							panic(fmt.Sprintf("buildGetClass: unknown referenced class type for %s.%s.%s; %s", k.Name(), class.Class, property.Name, refClassName))
 						}
 
-						dataTypeClasses[index] = refClass
+						dataTypeClasses = append(dataTypeClasses, refClass)
 					}
 
 					classUnion := graphql.NewUnion(graphql.UnionConfig{
@@ -208,8 +216,6 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, kindName string, class 
 						ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
 							// TODO: inspect type of result.
 							return (*knownClasses)["City"]
-							fmt.Printf("Resolver: WHOOPTYDOO\n")
-							return nil
 						},
 						Description: property.Description,
 					})
@@ -273,6 +279,10 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, kindName string, class 
 				return nil, err
 			}
 
+			fmt.Print("\n\n\n\n\n")
+			spew.Dump(properties)
+			fmt.Print("\n\n\n\n\n")
+
 			params := LocalGetClassParams{
 				Filters:    filtersAndResolver.filters,
 				Kind:       k,
@@ -290,7 +300,7 @@ func buildGetClass(dbSchema *schema.Schema, k kind.Kind, kindName string, class 
 }
 
 func extractProperties(selections *graphql_ast.SelectionSet) ([]SelectProperty, error) {
-	//debugFieldAsts(fieldASTs)
+	// debugFieldAsts(fieldASTs)
 	var properties []SelectProperty
 
 	for _, selection := range selections.Selections {
@@ -320,7 +330,9 @@ func extractProperties(selections *graphql_ast.SelectionSet) ([]SelectProperty, 
 					return nil, fmt.Errorf("Expected a InlineFragment; you need to specify as which type you want to retrieve a reference %#v", subSelection)
 				}
 
-				err, className := schema.ValidateClassName(fragment.TypeCondition.Name.Value)
+				var className schema.ClassName
+				var err error
+				err, className = schema.ValidateClassName(fragment.TypeCondition.Name.Value)
 				if err != nil {
 					return nil, fmt.Errorf("The inline fragment type name '%s' is not a valid class name.", fragment.TypeCondition.Name.Value)
 				}

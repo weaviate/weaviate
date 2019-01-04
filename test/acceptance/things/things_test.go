@@ -181,7 +181,7 @@ var invalidThingTestCases = []struct {
 				AtContext: "http://example.org",
 				Schema: map[string]interface{}{
 					"testCref": map[string]interface{}{
-						"locationUrl": helper.GetWeaviateURL(),
+						"locationUrl": "http://localhost",
 						"type":        "Thing",
 					},
 				},
@@ -240,14 +240,24 @@ var invalidThingTestCases = []struct {
 				Schema: map[string]interface{}{
 					"testCref": map[string]interface{}{
 						"$cref":       fakeThingId,
-						"locationUrl": helper.GetWeaviateURL(),
+						"locationUrl": "http://localhost",
 						"type":        "invalid type",
 					},
 				},
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf(validation.ErrorInvalidClassType, "TestThing", "testCref", connutils.RefTypeAction, connutils.RefTypeThing, connutils.RefTypeKey), err.Error[0].Message)
+			assert.Equal(t,
+				fmt.Sprintf(
+					validation.ErrorInvalidClassType,
+					"TestThing",
+					"testCref",
+					connutils.RefTypeAction,
+					connutils.RefTypeThing,
+					connutils.RefTypeKey,
+					connutils.RefTypeNetworkAction,
+					connutils.RefTypeNetworkThing,
+				), err.Error[0].Message)
 		},
 	},
 	{
