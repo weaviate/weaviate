@@ -79,13 +79,31 @@ $ docker run creativesoftwarefdn/weaviate:$VERSION
 $ docker run creativesoftwarefdn/weaviate:unstable
 ```
 
-- Based on `tree/davelop` on Github
+- Based on `tree/develop` on Github
 - Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
 
 ## Running with Custom Contextionary
 
-More information about running Weaviate with a custom Contextionary can be found in the [`docs/en/contribute/running-weaviate.md`](docs/en/contribute/running-weaviate.md) docs.
+The contextionary files are build into the Docker image. To use a custom contextionary, you will need to build a custom Docker image. This can be done easily using the build argument `CONTEXTIONARY_LOC`. This argument can point either to a local folder or a URL. This location must contain the following three files:
+
+* contextionary.vocab
+* contextionary.knn
+* contextionary.idx
+
+This argument can be specified as shown in the examples below:
+
+```sh
+$ export CONTEXTIONARY_LOC=https://example.com/my_contextionary_location/
+$ docker build -t my-weaviate-image --build-arg CONTEXTIONARY_LOC .
+```
+
+OR
+
+```sh
+$ export CONTEXTIONARY_LOC=/home/user/custom-contextionary/
+$ docker build -t my-weaviate-image --build-arg CONTEXTIONARY_LOC .
+```
 
 ## Running with custom server configuration
 
@@ -98,7 +116,7 @@ $ git clone https://github.com/creativesoftwarefdn/weaviate
 ```
 
 - You can set the environment variable `SCHEME` to override the default (`http`) E.g. `SCHEME=https docker-compose up -d`
-- You can set the environment variables `HOST` and `PORT` to override the defaults. E.g. `HOST=0.0.0.0 PORT=1337 docker-compose up -d`
+- You can set the environment variables `HOST` and `PORT` to override the defaults. E.g. `HOST=0.0.0.0 PORT=1337 docker-compose up -d`	
 
 ## Getting ROOTKEY and ROOTTOKEN using Docker-compose
 
