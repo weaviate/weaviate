@@ -17,13 +17,19 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
-var many string = "many"
+var many = "many"
 
 var SimpleSchema = schema.Schema{
 	Things: &models.SemanticSchema{
 		Classes: []*models.SemanticSchemaClass{
 			&models.SemanticSchemaClass{
 				Class: "SomeThing",
+				Properties: []*models.SemanticSchemaClassProperty{
+					&models.SemanticSchemaClassProperty{
+						Name:       "NetworkRefField",
+						AtDataType: []string{"OtherInstance/SomeRemoteClass"},
+					},
+				},
 			},
 		},
 	},

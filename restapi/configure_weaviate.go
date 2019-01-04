@@ -908,7 +908,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 			return
 		}
 
-		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, dbAndNetwork{Database: db, Network: network})
+		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, dbAndNetwork{Database: db, Network: network}, messaging)
 		if err != nil {
 			// TODO: turn on safe mode gh-520
 			graphQL = nil

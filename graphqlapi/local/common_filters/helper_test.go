@@ -24,8 +24,8 @@ type mockResolver struct {
 func newMockResolver() *mockResolver {
 	// Build a FakeGet.
 	fakeGet := &graphql.Field{
-		Name:        "FakeGet",
-		Description: "FakeGet",
+		Name:        "SomeAction",
+		Description: "Fake Some Action",
 		Args: graphql.FieldConfigArgument{
 			"where": &graphql.ArgumentConfig{
 				Description: "Filter options for the Get search, to convert the data to the filter input",
@@ -41,7 +41,7 @@ func newMockResolver() *mockResolver {
 		Type: graphql.Int,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			resolver := p.Source.(map[string]interface{})["Resolver"].(*mockResolver)
-			filters, err := ExtractFilters(p.Args)
+			filters, err := ExtractFilters(p.Args, p.Info.FieldName)
 			if err != nil {
 				return nil, err
 			}
@@ -52,7 +52,7 @@ func newMockResolver() *mockResolver {
 	}
 
 	mocker := &mockResolver{}
-	mocker.RootFieldName = "FakeGet"
+	mocker.RootFieldName = "SomeAction"
 	mocker.RootField = fakeGet
 	mocker.RootObject = map[string]interface{}{"Resolver": mocker}
 	return mocker

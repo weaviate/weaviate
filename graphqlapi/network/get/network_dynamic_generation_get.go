@@ -218,7 +218,7 @@ func thingClassField(class *models.SemanticSchemaClass, getActionsAndThings *map
 }
 
 func thingClassPropertyFields(class *models.SemanticSchemaClass, actionsAndThings *map[string]*graphql.Object, weaviate string) (graphql.Fields, error) {
-	singleThingClassPropertyFields := graphql.Fields{}
+	fields := graphql.Fields{}
 
 	for _, property := range class.Properties {
 
@@ -254,7 +254,7 @@ func thingClassPropertyFields(class *models.SemanticSchemaClass, actionsAndThing
 
 			multipleClassDataTypesUnion := graphql.NewUnion(dataTypeUnionConf)
 
-			singleThingClassPropertyFields[capitalizedPropertyName] = &graphql.Field{
+			fields[capitalizedPropertyName] = &graphql.Field{
 				Type:        multipleClassDataTypesUnion,
 				Description: property.Description,
 				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -268,11 +268,11 @@ func thingClassPropertyFields(class *models.SemanticSchemaClass, actionsAndThing
 				return nil, err
 			}
 
-			singleThingClassPropertyFields[property.Name] = convertedDataType
+			fields[property.Name] = convertedDataType
 		}
 	}
 
-	singleThingClassPropertyFields["uuid"] = &graphql.Field{
+	fields["uuid"] = &graphql.Field{
 		Description: descriptions.NetworkGetClassUUIDDesc,
 		Type:        graphql.String,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -280,7 +280,7 @@ func thingClassPropertyFields(class *models.SemanticSchemaClass, actionsAndThing
 		},
 	}
 
-	return singleThingClassPropertyFields, nil
+	return fields, nil
 }
 
 func handleNetworkGetNonObjectDataTypes(dataType schema.DataType, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
