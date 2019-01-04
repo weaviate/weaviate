@@ -20,12 +20,14 @@ import (
 	local_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
 	local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
+	"github.com/creativesoftwarefdn/weaviate/messages"
+	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/graphql-go/graphql"
 )
 
 // Build the local queries from the database schema.
-func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
-	getField, err := local_get.Build(dbSchema)
+func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messaging) (*graphql.Field, error) {
+	getField, err := local_get.Build(dbSchema, peers, logger)
 	if err != nil {
 		return nil, err
 	}

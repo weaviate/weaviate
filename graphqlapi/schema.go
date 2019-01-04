@@ -21,6 +21,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
+	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/graphql-go/graphql"
 )
@@ -38,8 +39,8 @@ type graphQL struct {
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.
-func Build(dbSchema *schema.Schema, peers peers.Peers, resolverProvider ResolverProvider) (GraphQL, error) {
-	graphqlSchema, err := buildGraphqlSchema(dbSchema, peers)
+func Build(dbSchema *schema.Schema, peers peers.Peers, resolverProvider ResolverProvider, logger *messages.Messaging) (GraphQL, error) {
+	graphqlSchema, err := buildGraphqlSchema(dbSchema, peers, logger)
 
 	if err != nil {
 		return nil, err
@@ -57,14 +58,10 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 		panic("Empty resolver provider")
 	}
 
-	fmt.Print("\n\n--- debug 1\n\n")
 	resolver := g.resolverProvider.GetResolver()
-	fmt.Print("\n\n--- debug 2\n\n")
 	networkResolver := g.resolverProvider.GetNetworkResolver()
-	fmt.Print("\n\n--- debug 3\n\n")
 	defer resolver.Close()
 
-	fmt.Print("\n\n--- debug 4\n\n")
 	return graphql.Do(graphql.Params{
 		Schema: g.schema,
 		RootObject: map[string]interface{}{
@@ -79,8 +76,8 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 	})
 }
 
-func buildGraphqlSchema(dbSchema *schema.Schema, peers peers.Peers) (graphql.Schema, error) {
-	localSchema, err := local.Build(dbSchema)
+func buildGraphqlSchema(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messaging) (graphql.Schema, error) {
+	localSchema, err := local.Build(dbSchema, peers, logger)
 	if err != nil {
 		return graphql.Schema{}, err
 	}
