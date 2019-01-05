@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Version of go-swagger to use.
-version=0.16.0
+version=v0.18.0
 
 # Always points to the directory of this script.
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"

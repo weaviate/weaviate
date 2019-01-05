@@ -105,7 +105,6 @@ func (o *WeaviateActionsPatchParams) BindRequest(r *http.Request, route *middlew
 					break
 				}
 			}
-
 			if len(res) == 0 {
 				o.Body = body
 			}

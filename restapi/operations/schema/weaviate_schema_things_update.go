@@ -92,7 +92,7 @@ func (o *WeaviateSchemaThingsUpdate) ServeHTTP(rw http.ResponseWriter, r *http.R
 type WeaviateSchemaThingsUpdateBody struct {
 
 	// keywords
-	Keywords models.SemanticSchemaKeywords `json:"keywords"`
+	Keywords models.SemanticSchemaKeywords `json:"keywords,omitempty"`
 
 	// The new name of the Thing.
 	NewName string `json:"newName,omitempty"`
