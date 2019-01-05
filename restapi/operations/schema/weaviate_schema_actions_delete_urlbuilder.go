@@ -50,7 +50,7 @@ func (o *WeaviateSchemaActionsDeleteURL) SetBasePath(bp string) {
 
 // Build a url path and query string
 func (o *WeaviateSchemaActionsDeleteURL) Build() (*url.URL, error) {
-	var result url.URL
+	var _result url.URL
 
 	var _path = "/schema/actions/{className}"
 
@@ -65,9 +65,9 @@ func (o *WeaviateSchemaActionsDeleteURL) Build() (*url.URL, error) {
 	if _basePath == "" {
 		_basePath = "/weaviate/v1"
 	}
-	result.Path = golangswaggerpaths.Join(_basePath, _path)
+	_result.Path = golangswaggerpaths.Join(_basePath, _path)
 
-	return &result, nil
+	return &_result, nil
 }
 
 // Must is a helper function to panic when the url builder returns an error

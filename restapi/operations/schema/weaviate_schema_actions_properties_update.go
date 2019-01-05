@@ -92,7 +92,7 @@ func (o *WeaviateSchemaActionsPropertiesUpdate) ServeHTTP(rw http.ResponseWriter
 type WeaviateSchemaActionsPropertiesUpdateBody struct {
 
 	// keywords
-	Keywords models.SemanticSchemaKeywords `json:"keywords"`
+	Keywords models.SemanticSchemaKeywords `json:"keywords,omitempty"`
 
 	// The new name of the property.
 	NewName string `json:"newName,omitempty"`

@@ -3167,8 +3167,8 @@ func init() {
   },
   "security": [
     {
-      "apiKey": [],
-      "apiToken": []
+      "apiKey": null,
+      "apiToken": null
     }
   ],
   "tags": [
