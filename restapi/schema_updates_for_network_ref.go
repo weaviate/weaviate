@@ -14,8 +14,8 @@ import (
 	"fmt"
 	"net/url"
 
-	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
