@@ -21,7 +21,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
 
-	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 )
 
 // ValidateToken validates/gets a key to the Grelmin database with the given token (=UUID)

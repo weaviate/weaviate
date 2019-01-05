@@ -12,7 +12,7 @@ package restapi
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/auth"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/keys"
