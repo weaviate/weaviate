@@ -100,6 +100,7 @@ func (o *WeaviateThingsPatchParams) BindRequest(r *http.Request, route *middlewa
 					break
 				}
 			}
+
 			if len(res) == 0 {
 				o.Body = body
 			}

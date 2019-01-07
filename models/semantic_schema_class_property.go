@@ -42,7 +42,7 @@ type SemanticSchemaClassProperty struct {
 	Description string `json:"description,omitempty"`
 
 	// keywords
-	Keywords SemanticSchemaKeywords `json:"keywords,omitempty"`
+	Keywords SemanticSchemaKeywords `json:"keywords"`
 
 	// Name of the property as URI relative to the schema URL.
 	Name string `json:"name,omitempty"`

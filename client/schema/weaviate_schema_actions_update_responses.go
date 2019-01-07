@@ -170,7 +170,7 @@ swagger:model WeaviateSchemaActionsUpdateBody
 type WeaviateSchemaActionsUpdateBody struct {
 
 	// keywords
-	Keywords models.SemanticSchemaKeywords `json:"keywords,omitempty"`
+	Keywords models.SemanticSchemaKeywords `json:"keywords"`
 
 	// The new name of the Action.
 	NewName string `json:"newName,omitempty"`

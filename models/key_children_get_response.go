@@ -29,7 +29,7 @@ import (
 type KeyChildrenGetResponse struct {
 
 	// children
-	Children MultipleRef `json:"children,omitempty"`
+	Children MultipleRef `json:"children"`
 }
 
 // Validate validates this key children get response

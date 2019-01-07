@@ -55,7 +55,7 @@ func (o *WeaviateActionsPatchURL) SetBasePath(bp string) {
 
 // Build a url path and query string
 func (o *WeaviateActionsPatchURL) Build() (*url.URL, error) {
-	var _result url.URL
+	var result url.URL
 
 	var _path = "/actions/{actionId}"
 
@@ -70,7 +70,7 @@ func (o *WeaviateActionsPatchURL) Build() (*url.URL, error) {
 	if _basePath == "" {
 		_basePath = "/weaviate/v1"
 	}
-	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+	result.Path = golangswaggerpaths.Join(_basePath, _path)
 
 	qs := make(url.Values)
 
@@ -82,9 +82,9 @@ func (o *WeaviateActionsPatchURL) Build() (*url.URL, error) {
 		qs.Set("async", async)
 	}
 
-	_result.RawQuery = qs.Encode()
+	result.RawQuery = qs.Encode()
 
-	return &_result, nil
+	return &result, nil
 }
 
 // Must is a helper function to panic when the url builder returns an error
