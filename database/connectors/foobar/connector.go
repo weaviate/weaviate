@@ -48,13 +48,14 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/gorilla/websocket"
+	"github.com/graphql-go/graphql"
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	graphql_local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -419,6 +420,11 @@ func (f *Foobar) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children 
 // UpdateKey updates the Key in the DB at the given UUID.
 func (f *Foobar) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
 	return nil
+}
+
+// GetGraph returns the result based on th graphQL request
+func (f *Foobar) GetGraph(request graphql.ResolveParams) (interface{}, error) {
+	return nil, fmt.Errorf("not supported")
 }
 
 // Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.

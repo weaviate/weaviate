@@ -14,11 +14,10 @@ import (
 	"context"
 	errors_ "errors"
 	"fmt"
-
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	"github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/go-openapi/strfmt"
