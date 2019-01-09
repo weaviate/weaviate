@@ -20,6 +20,7 @@ import (
 	"net/http"
 
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/prometheus/common/log"
 )
 
 type gremlin_http_query struct {
@@ -43,8 +44,6 @@ type gremlinResponse struct {
 
 func (c *Client) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
 	queryString := query.String()
-	log := c.logger.WithField("query", queryString)
-	log.Debugf("Sending query")
 
 	q := gremlin_http_query{
 		Gremlin: queryString,
@@ -77,7 +76,6 @@ func (c *Client) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
 	var response_data gremlinResponse
 	json.Unmarshal(buf, &response_data)
 
-	c.logger.WithField("status_code", http_response.StatusCode).Debugf("Received reply: %s", string(buf))
 	switch http_response.StatusCode {
 	case 200:
 		data := make([]gremlin.Datum, 0)
