@@ -19,7 +19,8 @@ import (
 	"github.com/go-openapi/strfmt"
 
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -66,7 +67,7 @@ func (j *Janusgraph) ListActions(ctx context.Context, first int, offset int, key
 	response.TotalResults = 0
 	response.Actions = make([]*models.ActionGetResponse, 0)
 
-	return j.listClass(kind.ACTION_KIND, nil, first, offset, keyID, wheres, func(uuid strfmt.UUID) {
+	return j.listClass(kind.ACTION_KIND, nil, first, offset, keyID, nil, func(uuid strfmt.UUID) {
 		var action_response models.ActionGetResponse
 		err := j.GetAction(ctx, uuid, &action_response)
 
