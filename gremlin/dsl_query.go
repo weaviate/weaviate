@@ -193,6 +193,17 @@ func (q *Query) Coalesce(query *Query) *Query {
 	return extend_query(q, `.coalesce(%s)`, query.String())
 }
 
+// Has can be used for arbitrary filtering on props
+//
+// Example: Has("population", EqInt(1000))
+//
+// for population == 1000
+//
+// which in turn translates to Gremlin: .has("population", eq(1000))
+func (q *Query) Has(key string, query *Query) *Query {
+	return extend_query(q, `.has("%s", %s)`, key, query.String())
+}
+
 func (q *Query) Optional(query *Query) *Query {
 	return extend_query(q, `.optional(%s)`, query.String())
 }
