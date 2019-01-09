@@ -27,6 +27,7 @@ branches:
   only: 
     - master
     - develop
+    - feature/janusgraph_native_filters
 dist: xenial
 go: 
   - "1.11"

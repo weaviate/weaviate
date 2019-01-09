@@ -20,6 +20,7 @@ import (
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/go-openapi/strfmt"
@@ -171,13 +172,17 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	return nil
 }
 
-func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, yield func(id strfmt.UUID)) error {
-	if len(wheres) > 0 {
-		return errors.New("Wheres are not supported in ListThings")
-	}
+func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, keyID strfmt.UUID, filters *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
 
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name())
+
+	if filters != nil {
+		// filter spike
+		filterProp := filters.Root.On.Property
+		filterValue := filters.Root.Value.Value
+		q = q.Raw(fmt.Sprintf(".has(\"%s\", lt(%d))", j.state.getMappedPropertyName(*className, filterProp), filterValue))
+	}
 
 	if className != nil {
 		vertexLabel := j.state.getMappedClassName(*className)
