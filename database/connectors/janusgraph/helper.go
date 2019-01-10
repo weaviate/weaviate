@@ -178,13 +178,6 @@ func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first i
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name())
 
-	if filters != nil {
-		// filter spike
-		filterProp := filters.Root.On.Property
-		filterValue := filters.Root.Value.Value
-		q = q.Raw(fmt.Sprintf(".has(\"%s\", lt(%d))", j.state.GetMappedPropertyName(*className, filterProp), filterValue))
-	}
-
 	if className != nil {
 		vertexLabel := j.state.GetMappedClassName(*className)
 		q = q.HasString(PROP_CLASS_ID, string(vertexLabel))

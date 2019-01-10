@@ -172,7 +172,48 @@ func Test_InvalidOperator(t *testing.T) {
 
 	_, err := New(filter, nil).String()
 
-	require.NotNil(t, err, "it should error due to the wrong type")
+	assert.NotNil(t, err, "it should error due to the wrong type")
+}
+
+func Test_MultipleConditions(t *testing.T) {
+	t.Run("with operator and", func(t *testing.T) {
+		filter := &cf.LocalFilter{
+			Root: &cf.Clause{
+				Operator: cf.OperatorAnd,
+				Operands: []cf.Clause{
+					cf.Clause{
+						Operator: cf.OperatorGreaterThan,
+						On: &cf.Path{
+							Class:    schema.ClassName("City"),
+							Property: schema.PropertyName("population"),
+						},
+						Value: &cf.Value{
+							Value: int64(70000),
+							Type:  schema.DataTypeInt,
+						},
+					},
+					cf.Clause{
+						Operator: cf.OperatorNotEqual,
+						On: &cf.Path{
+							Class:    schema.ClassName("City"),
+							Property: schema.PropertyName("name"),
+						},
+						Value: &cf.Value{
+							Value: "Rotterdam",
+							Type:  schema.DataTypeString,
+						},
+					},
+				},
+			},
+		}
+		expectedResult := `.and(has("population", gt(70000)), has("name", neq("Rotterdam")))`
+
+		result, err := New(filter, nil).String()
+
+		require.Nil(t, err, "should not error")
+		assert.Equal(t, expectedResult, result, "should match the gremlin query")
+	})
+
 }
 
 func buildFilter(propName string, value interface{}, operator cf.Operator, schemaType schema.DataType) *cf.LocalFilter {
