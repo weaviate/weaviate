@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	cf "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/stretchr/testify/assert"
@@ -11,7 +12,7 @@ import (
 )
 
 func Test_EmptyFilters(t *testing.T) {
-	result, err := New(nil).String()
+	result, err := New(nil, nil).String()
 
 	require.Nil(t, err, "no error should have occurred")
 	assert.Equal(t, "", result, "should return an empty string")
@@ -153,10 +154,23 @@ func Test_SingleProperties(t *testing.T) {
 	})
 }
 
+func Test_SinglePropertiesWithMappedNames(t *testing.T) {
+	tests := testCases{
+		{"'City.population == 10000'", cf.OperatorEqual, `.has("prop_20", eq(10000))`},
+		{"'City.population != 10000'", cf.OperatorNotEqual, `.has("prop_20", neq(10000))`},
+		{"'City.population < 10000'", cf.OperatorLessThan, `.has("prop_20", lt(10000))`},
+		{"'City.population <= 10000'", cf.OperatorLessThanEqual, `.has("prop_20", lte(10000))`},
+		{"'City.population > 10000'", cf.OperatorGreaterThan, `.has("prop_20", gt(10000))`},
+		{"'City.population >= 10000'", cf.OperatorGreaterThanEqual, `.has("prop_20", gte(10000))`},
+	}
+
+	tests.AssertFilterWithNameSource(t, "population", int64(10000), schema.DataTypeInt, &fakeNameSource{})
+}
+
 func Test_InvalidOperator(t *testing.T) {
 	filter := buildFilter("population", "200", cf.Operator(27), schema.DataTypeInt)
 
-	_, err := New(filter).String()
+	_, err := New(filter, nil).String()
 
 	require.NotNil(t, err, "it should error due to the wrong type")
 }
@@ -186,11 +200,15 @@ type testCase struct {
 type testCases []testCase
 
 func (tests testCases) AssertFilter(t *testing.T, propName string, propValue interface{}, propType schema.DataType) {
+	tests.AssertFilterWithNameSource(t, propName, propValue, propType, nil)
+}
+
+func (tests testCases) AssertFilterWithNameSource(t *testing.T, propName string, propValue interface{}, propType schema.DataType, nameSource nameSource) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			filter := buildFilter(propName, propValue, test.operator, propType)
 
-			result, err := New(filter).String()
+			result, err := New(filter, nameSource).String()
 
 			require.Nil(t, err, "no error should have occurred")
 			assert.Equal(t, test.expectedResult, result, "should form the right query")
@@ -203,9 +221,16 @@ func (tests testCases) AssertFilterErrors(t *testing.T, propName string, propVal
 		t.Run(test.name, func(t *testing.T) {
 			filter := buildFilter(propName, propValue, test.operator, propType)
 
-			_, err := New(filter).String()
+			_, err := New(filter, nil).String()
 
 			assert.NotNil(t, err, "should error")
 		})
 	}
+}
+
+type fakeNameSource struct{}
+
+func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
+	propName schema.PropertyName) state.MappedPropertyName {
+	return state.MappedPropertyName("prop_20")
 }

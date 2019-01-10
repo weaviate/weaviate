@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
@@ -11,13 +12,19 @@ import (
 
 // FilterQuery from filter params. Can be appended to any GremlinFilterQuery
 type FilterQuery struct {
-	filter *common_filters.LocalFilter
+	filter     *common_filters.LocalFilter
+	nameSource nameSource
+}
+
+type nameSource interface {
+	GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
 }
 
 // New FilterQuery from local filter params
-func New(filter *common_filters.LocalFilter) *FilterQuery {
+func New(filter *common_filters.LocalFilter, nameSource nameSource) *FilterQuery {
 	return &FilterQuery{
-		filter: filter,
+		filter:     filter,
+		nameSource: nameSource,
 	}
 }
 
@@ -33,7 +40,14 @@ func (f *FilterQuery) String() (string, error) {
 			f.filter.Root.Value.Value, err)
 	}
 
-	q = q.Has(string(f.filter.Root.On.Property), predicate)
+	var propName string
+	if f.nameSource == nil {
+		propName = string(f.filter.Root.On.Property)
+	} else {
+		propName = string(f.nameSource.GetMappedPropertyName(f.filter.Root.On.Class, f.filter.Root.On.Property))
+	}
+
+	q = q.Has(propName, predicate)
 	return q.String(), nil
 }
 
