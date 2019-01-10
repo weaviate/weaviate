@@ -2,6 +2,7 @@ package filters
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
@@ -28,7 +29,7 @@ func (f *FilterQuery) String() (string, error) {
 	q := &gremlin.Query{}
 	predicate, err := gremlinPredicateFromOperator(f.filter.Root.Operator, f.filter.Root.Value)
 	if err != nil {
-		return "", fmt.Errorf("operator %v with value %v: %s", f.filter.Root.Operator,
+		return "", fmt.Errorf("operator %v with value '%v': %s", f.filter.Root.Operator,
 			f.filter.Root.Value.Value, err)
 	}
 
@@ -36,7 +37,8 @@ func (f *FilterQuery) String() (string, error) {
 	return q.String(), nil
 }
 
-func gremlinPredicateFromOperator(operator common_filters.Operator, value *common_filters.Value) (*gremlin.Query, error) {
+func gremlinPredicateFromOperator(operator common_filters.Operator,
+	value *common_filters.Value) (*gremlin.Query, error) {
 	switch value.Type {
 	case schema.DataTypeInt:
 		return gremlinIntPredicateFromOperator(operator, value.Value)
@@ -46,6 +48,8 @@ func gremlinPredicateFromOperator(operator common_filters.Operator, value *commo
 		return gremlinStringPredicateFromOperator(operator, value.Value)
 	case schema.DataTypeBoolean:
 		return gremlinBoolPredicateFromOperator(operator, value.Value)
+	case schema.DataTypeDate:
+		return gremlinDatePredicateFromOperator(operator, value.Value)
 	default:
 		return nil, fmt.Errorf("unsupported value type '%v'", value.Type)
 	}
@@ -94,6 +98,30 @@ func gremlinFloatPredicateFromOperator(operator common_filters.Operator, value i
 		return gremlin.GtFloat(float64(valueTyped)), nil
 	case common_filters.OperatorGreaterThanEqual:
 		return gremlin.GteFloat(float64(valueTyped)), nil
+	default:
+		return nil, fmt.Errorf("unrecoginzed operator %v", operator)
+	}
+}
+
+func gremlinDatePredicateFromOperator(operator common_filters.Operator, value interface{}) (*gremlin.Query, error) {
+	valueTyped, ok := value.(time.Time)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be an int64, but was %t", value)
+	}
+
+	switch operator {
+	case common_filters.OperatorEqual:
+		return gremlin.EqDate(valueTyped), nil
+	case common_filters.OperatorNotEqual:
+		return gremlin.NeqDate(valueTyped), nil
+	case common_filters.OperatorLessThan:
+		return gremlin.LtDate(valueTyped), nil
+	case common_filters.OperatorLessThanEqual:
+		return gremlin.LteDate(valueTyped), nil
+	case common_filters.OperatorGreaterThan:
+		return gremlin.GtDate(valueTyped), nil
+	case common_filters.OperatorGreaterThanEqual:
+		return gremlin.GteDate(valueTyped), nil
 	default:
 		return nil, fmt.Errorf("unrecoginzed operator %v", operator)
 	}

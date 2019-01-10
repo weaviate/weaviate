@@ -3,6 +3,7 @@ package gremlin
 import (
 	"fmt"
 	"strconv"
+	"time"
 )
 
 // Int
@@ -67,6 +68,38 @@ func GtFloat(value float64) *Query {
 // GteFloat returns a testing predicate such as gte(<float64>), e.g. gte(1000)
 func GteFloat(value float64) *Query {
 	return &Query{query: fmt.Sprintf(`gte(%f)`, value)}
+}
+
+// Date
+
+// EqDate returns a testing predicate such as eq(<time.Time>), e.g. eq(1000)
+func EqDate(value time.Time) *Query {
+	return &Query{query: fmt.Sprintf(`eq("%s")`, value.Format(time.RFC3339))}
+}
+
+// NeqDate returns a testing predicate such as neq(<time.Time>), e.g. neq(1000)
+func NeqDate(value time.Time) *Query {
+	return &Query{query: fmt.Sprintf(`neq("%s")`, value.Format(time.RFC3339))}
+}
+
+// LtDate returns a testing predicate such as lt(<time.Time>), e.g. lt(1000)
+func LtDate(value time.Time) *Query {
+	return &Query{query: fmt.Sprintf(`lt("%s")`, value.Format(time.RFC3339))}
+}
+
+// LteDate returns a testing predicate such as lte(<time.Time>), e.g. lte(1000)
+func LteDate(value time.Time) *Query {
+	return &Query{query: fmt.Sprintf(`lte("%s")`, value.Format(time.RFC3339))}
+}
+
+// GtDate returns a testing predicate such as gt(<time.Time>), e.g. gt(1000)
+func GtDate(value time.Time) *Query {
+	return &Query{query: fmt.Sprintf(`gt("%s")`, value.Format(time.RFC3339))}
+}
+
+// GteDate returns a testing predicate such as gte(<time.Time>), e.g. gte(1000)
+func GteDate(value time.Time) *Query {
+	return &Query{query: fmt.Sprintf(`gte("%s")`, value.Format(time.RFC3339))}
 }
 
 // String
