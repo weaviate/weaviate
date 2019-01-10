@@ -176,10 +176,10 @@ func Test_InvalidOperator(t *testing.T) {
 }
 
 func Test_MultipleConditions(t *testing.T) {
-	t.Run("with operator and", func(t *testing.T) {
-		filter := &cf.LocalFilter{
+	buildOperandFilter := func(operator cf.Operator) *cf.LocalFilter {
+		return &cf.LocalFilter{
 			Root: &cf.Clause{
-				Operator: cf.OperatorAnd,
+				Operator: operator,
 				Operands: []cf.Clause{
 					cf.Clause{
 						Operator: cf.OperatorGreaterThan,
@@ -206,6 +206,10 @@ func Test_MultipleConditions(t *testing.T) {
 				},
 			},
 		}
+	}
+
+	t.Run("with operator and", func(t *testing.T) {
+		filter := buildOperandFilter(cf.OperatorAnd)
 		expectedResult := `.and(has("population", gt(70000)), has("name", neq("Rotterdam")))`
 
 		result, err := New(filter, nil).String()
@@ -214,6 +218,73 @@ func Test_MultipleConditions(t *testing.T) {
 		assert.Equal(t, expectedResult, result, "should match the gremlin query")
 	})
 
+	t.Run("with operator or", func(t *testing.T) {
+		filter := buildOperandFilter(cf.OperatorOr)
+		expectedResult := `.or(has("population", gt(70000)), has("name", neq("Rotterdam")))`
+
+		result, err := New(filter, nil).String()
+
+		require.Nil(t, err, "should not error")
+		assert.Equal(t, expectedResult, result, "should match the gremlin query")
+	})
+}
+
+func Test_MultipleNestedConditions(t *testing.T) {
+	buildOperandFilter := func(operator cf.Operator) *cf.LocalFilter {
+		return &cf.LocalFilter{
+			Root: &cf.Clause{
+				Operator: operator,
+				Operands: []cf.Clause{
+					cf.Clause{
+						Operator: cf.OperatorGreaterThan,
+						On: &cf.Path{
+							Class:    schema.ClassName("City"),
+							Property: schema.PropertyName("population"),
+						},
+						Value: &cf.Value{
+							Value: int64(70000),
+							Type:  schema.DataTypeInt,
+						},
+					},
+					cf.Clause{
+						Operator: cf.OperatorOr,
+						Operands: []cf.Clause{
+							cf.Clause{
+								Operator: cf.OperatorEqual,
+								On: &cf.Path{
+									Class:    schema.ClassName("City"),
+									Property: schema.PropertyName("name"),
+								},
+								Value: &cf.Value{
+									Value: "Rotterdam",
+									Type:  schema.DataTypeString,
+								},
+							},
+							cf.Clause{
+								Operator: cf.OperatorEqual,
+								On: &cf.Path{
+									Class:    schema.ClassName("City"),
+									Property: schema.PropertyName("name"),
+								},
+								Value: &cf.Value{
+									Value: "Berlin",
+									Type:  schema.DataTypeString,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	filter := buildOperandFilter(cf.OperatorAnd)
+	expectedResult := `.and(has("population", gt(70000)), or(has("name", eq("Rotterdam")), has("name", eq("Berlin"))))`
+
+	result, err := New(filter, nil).String()
+
+	require.Nil(t, err, "should not error")
+	assert.Equal(t, expectedResult, result, "should match the gremlin query")
 }
 
 func buildFilter(propName string, value interface{}, operator cf.Operator, schemaType schema.DataType) *cf.LocalFilter {

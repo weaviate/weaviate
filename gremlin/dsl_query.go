@@ -210,6 +210,14 @@ func (q *Query) Has(key string, query *Query) *Query {
 }
 
 // And can combine 0..n queries together
+//
+// If used on an existing query it will lead with a dot, e.g:
+//
+// existingQuery().and(<some joined queries>)
+//
+// Otherwise it will not lead with a dot, e.g.:
+//
+// and(<some joined queries>)
 func (q *Query) And(queries ...*Query) *Query {
 	queryStrings := make([]string, len(queries), len(queries))
 	for i, single := range queries {
@@ -222,6 +230,29 @@ func (q *Query) And(queries ...*Query) *Query {
 	}
 
 	return extend_query(q, `.and(%s)`, queryStringsConcat)
+}
+
+// Or can combine 0..n queries together
+//
+// If used on an existing query it will lead with a dot, e.g:
+//
+// existingQuery().or(<some joined queries>)
+//
+// Otherwise it will not lead with a dot, e.g.:
+//
+// or(<some joined queries>)
+func (q *Query) Or(queries ...*Query) *Query {
+	queryStrings := make([]string, len(queries), len(queries))
+	for i, single := range queries {
+		queryStrings[i] = single.String()
+	}
+
+	queryStringsConcat := strings.Join(queryStrings, ", ")
+	if q.query == "" {
+		return &Query{query: fmt.Sprintf("or(%s)", queryStringsConcat)}
+	}
+
+	return extend_query(q, `.or(%s)`, queryStringsConcat)
 }
 
 func (q *Query) Optional(query *Query) *Query {
