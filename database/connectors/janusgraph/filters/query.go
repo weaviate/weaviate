@@ -47,11 +47,12 @@ func (f *FilterQuery) buildClause(clause *common_filters.Clause) (*gremlin.Query
 		return f.buildValueClause(clause)
 	}
 
-	if clause.Operator != common_filters.OperatorAnd {
+	switch clause.Operator {
+	case common_filters.OperatorAnd, common_filters.OperatorOr:
+		return f.buildOperandClause(clause)
+	default:
 		return nil, fmt.Errorf("unknown operator '%#v'", clause.Operator)
 	}
-
-	return f.buildOperandClause(clause)
 }
 
 func (f *FilterQuery) buildValueClause(clause *common_filters.Clause) (*gremlin.Query, error) {
@@ -84,8 +85,15 @@ func (f *FilterQuery) buildOperandClause(clause *common_filters.Clause) (*gremli
 		individualQueries[i] = result
 	}
 
-	q = q.And(individualQueries...)
-	return q, nil
+	switch clause.Operator {
+	case common_filters.OperatorAnd:
+		q = q.And(individualQueries...)
+		return q, nil
+	case common_filters.OperatorOr:
+		q = q.Or(individualQueries...)
+		return q, nil
+	}
+	return nil, fmt.Errorf("unknown operator '%#v'", clause.Operator)
 }
 
 func gremlinPredicateFromOperator(operator common_filters.Operator,
