@@ -201,7 +201,27 @@ func (q *Query) Coalesce(query *Query) *Query {
 //
 // which in turn translates to Gremlin: .has("population", eq(1000))
 func (q *Query) Has(key string, query *Query) *Query {
-	return extend_query(q, `.has("%s", %s)`, key, query.String())
+	hasQuery := fmt.Sprintf(`has("%s", %s)`, key, query.String())
+	if q.query == "" {
+		return &Query{query: hasQuery}
+	}
+
+	return extend_query(q, fmt.Sprintf(".%s", hasQuery))
+}
+
+// And can combine 0..n queries together
+func (q *Query) And(queries ...*Query) *Query {
+	queryStrings := make([]string, len(queries), len(queries))
+	for i, single := range queries {
+		queryStrings[i] = single.String()
+	}
+
+	queryStringsConcat := strings.Join(queryStrings, ", ")
+	if q.query == "" {
+		return &Query{query: fmt.Sprintf("and(%s)", queryStringsConcat)}
+	}
+
+	return extend_query(q, `.and(%s)`, queryStringsConcat)
 }
 
 func (q *Query) Optional(query *Query) *Query {

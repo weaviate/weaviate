@@ -33,22 +33,59 @@ func (f *FilterQuery) String() (string, error) {
 		return "", nil
 	}
 
-	q := &gremlin.Query{}
-	predicate, err := gremlinPredicateFromOperator(f.filter.Root.Operator, f.filter.Root.Value)
+	clause := f.filter.Root
+	q, err := f.buildClause(clause)
 	if err != nil {
-		return "", fmt.Errorf("operator %v with value '%v': %s", f.filter.Root.Operator,
-			f.filter.Root.Value.Value, err)
+		return "", err
+	}
+
+	return fmt.Sprintf(".%s", q.String()), nil
+}
+
+func (f *FilterQuery) buildClause(clause *common_filters.Clause) (*gremlin.Query, error) {
+	if clause.Operator.OnValue() {
+		return f.buildValueClause(clause)
+	}
+
+	if clause.Operator != common_filters.OperatorAnd {
+		return nil, fmt.Errorf("unknown operator '%#v'", clause.Operator)
+	}
+
+	return f.buildOperandClause(clause)
+}
+
+func (f *FilterQuery) buildValueClause(clause *common_filters.Clause) (*gremlin.Query, error) {
+	q := &gremlin.Query{}
+	predicate, err := gremlinPredicateFromOperator(clause.Operator, clause.Value)
+	if err != nil {
+		return q, fmt.Errorf("operator %v with value '%v': %s", clause.Operator,
+			clause.Value.Value, err)
 	}
 
 	var propName string
 	if f.nameSource == nil {
-		propName = string(f.filter.Root.On.Property)
+		propName = string(clause.On.Property)
 	} else {
-		propName = string(f.nameSource.GetMappedPropertyName(f.filter.Root.On.Class, f.filter.Root.On.Property))
+		propName = string(f.nameSource.GetMappedPropertyName(clause.On.Class, clause.On.Property))
 	}
 
 	q = q.Has(propName, predicate)
-	return q.String(), nil
+	return q, nil
+}
+
+func (f *FilterQuery) buildOperandClause(clause *common_filters.Clause) (*gremlin.Query, error) {
+	q := &gremlin.Query{}
+	individualQueries := make([]*gremlin.Query, len(clause.Operands), len(clause.Operands))
+	for i, operand := range clause.Operands {
+		result, err := f.buildClause(&operand)
+		if err != nil {
+			return q, fmt.Errorf("build operand '%s': %s", clause.Operator.Name(), err)
+		}
+		individualQueries[i] = result
+	}
+
+	q = q.And(individualQueries...)
+	return q, nil
 }
 
 func gremlinPredicateFromOperator(operator common_filters.Operator,
