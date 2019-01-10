@@ -2,6 +2,8 @@ package gremlin
 
 import "fmt"
 
+// Int
+
 // EqInt returns a testing predicate such as eq(<int>), e.g. eq(1000)
 func EqInt(value int) *Query {
 	return &Query{query: fmt.Sprintf(`eq(%d)`, value)}
@@ -30,4 +32,36 @@ func GtInt(value int) *Query {
 // GteInt returns a testing predicate such as gte(<int>), e.g. gte(1000)
 func GteInt(value int) *Query {
 	return &Query{query: fmt.Sprintf(`gte(%d)`, value)}
+}
+
+// Float
+
+// EqFloat returns a testing predicate such as eq(<float64>), e.g. eq(1000)
+func EqFloat(value float64) *Query {
+	return &Query{query: fmt.Sprintf(`eq(%f)`, value)}
+}
+
+// NeqFloat returns a testing predicate such as neq(<float64>), e.g. neq(1000)
+func NeqFloat(value float64) *Query {
+	return &Query{query: fmt.Sprintf(`neq(%f)`, value)}
+}
+
+// LtFloat returns a testing predicate such as lt(<float64>), e.g. lt(1000)
+func LtFloat(value float64) *Query {
+	return &Query{query: fmt.Sprintf(`lt(%f)`, value)}
+}
+
+// LteFloat returns a testing predicate such as lte(<float64>), e.g. lte(1000)
+func LteFloat(value float64) *Query {
+	return &Query{query: fmt.Sprintf(`lte(%f)`, value)}
+}
+
+// GtFloat returns a testing predicate such as gt(<float64>), e.g. gt(1000)
+func GtFloat(value float64) *Query {
+	return &Query{query: fmt.Sprintf(`gt(%f)`, value)}
+}
+
+// GteFloat returns a testing predicate such as gte(<float64>), e.g. gte(1000)
+func GteFloat(value float64) *Query {
+	return &Query{query: fmt.Sprintf(`gte(%f)`, value)}
 }
