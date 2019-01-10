@@ -2,6 +2,7 @@ package filters
 
 import (
 	"testing"
+	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	cf "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
@@ -58,6 +59,38 @@ func Test_SingleProperties(t *testing.T) {
 
 			// Note the mismatch between the specified type (arg4) and the actual type (arg3)
 			tests.AssertFilterErrors(t, "energyConsumption", "200", schema.DataTypeNumber)
+		})
+	})
+
+	t.Run("with propertyType date (time.Time)", func(t *testing.T) {
+		t.Run("with various operators and valid values", func(t *testing.T) {
+			dateString := "2017-08-17T12:47:00+02:00"
+			dateTime, err := time.Parse(time.RFC3339, dateString)
+			require.Nil(t, err)
+
+			tests := testCases{
+				{`City.foundedWhen == "2017-08-17T12:47:00+02:00"`, cf.OperatorEqual,
+					`.has("foundedWhen", eq("2017-08-17T12:47:00+02:00"))`},
+				{`City.foundedWhen != "2017-08-17T12:47:00+02:00"`, cf.OperatorNotEqual,
+					`.has("foundedWhen", neq("2017-08-17T12:47:00+02:00"))`},
+				{`City.foundedWhen < "2017-08-17T12:47:00+02:00"`, cf.OperatorLessThan,
+					`.has("foundedWhen", lt("2017-08-17T12:47:00+02:00"))`},
+				{`City.foundedWhen <= "2017-08-17T12:47:00+02:00"`, cf.OperatorLessThanEqual,
+					`.has("foundedWhen", lte("2017-08-17T12:47:00+02:00"))`},
+				{`City.foundedWhen > "2017-08-17T12:47:00+02:00"`, cf.OperatorGreaterThan,
+					`.has("foundedWhen", gt("2017-08-17T12:47:00+02:00"))`},
+				{`City.foundedWhen >= "2017-08-17T12:47:00+02:00"`, cf.OperatorGreaterThanEqual,
+					`.has("foundedWhen", gte("2017-08-17T12:47:00+02:00"))`},
+			}
+
+			tests.AssertFilter(t, "foundedWhen", dateTime, schema.DataTypeDate)
+		})
+
+		t.Run("an invalid value", func(t *testing.T) {
+			tests := testCases{{"should fail with wrong type", cf.OperatorEqual, ""}}
+
+			// Note the mismatch between the specified type (arg4) and the actual type (arg3)
+			tests.AssertFilterErrors(t, "foundedWhen", "200", schema.DataTypeDate)
 		})
 	})
 
