@@ -42,6 +42,10 @@ func gremlinPredicateFromOperator(operator common_filters.Operator, value *commo
 		return gremlinIntPredicateFromOperator(operator, value.Value)
 	case schema.DataTypeNumber:
 		return gremlinFloatPredicateFromOperator(operator, value.Value)
+	case schema.DataTypeString:
+		return gremlinStringPredicateFromOperator(operator, value.Value)
+	case schema.DataTypeBoolean:
+		return gremlinBoolPredicateFromOperator(operator, value.Value)
 	default:
 		return nil, fmt.Errorf("unsupported value type '%v'", value.Type)
 	}
@@ -90,6 +94,52 @@ func gremlinFloatPredicateFromOperator(operator common_filters.Operator, value i
 		return gremlin.GtFloat(float64(valueTyped)), nil
 	case common_filters.OperatorGreaterThanEqual:
 		return gremlin.GteFloat(float64(valueTyped)), nil
+	default:
+		return nil, fmt.Errorf("unrecoginzed operator %v", operator)
+	}
+}
+
+func gremlinStringPredicateFromOperator(operator common_filters.Operator, value interface{}) (*gremlin.Query, error) {
+	valueTyped, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be an int64, but was %t", value)
+	}
+
+	switch operator {
+	case common_filters.OperatorEqual:
+		return gremlin.EqString(valueTyped), nil
+	case common_filters.OperatorNotEqual:
+		return gremlin.NeqString(valueTyped), nil
+	case common_filters.OperatorLessThan, common_filters.OperatorLessThanEqual,
+		common_filters.OperatorGreaterThan, common_filters.OperatorGreaterThanEqual:
+		// this is different from an unrecognized operator, in that we recognize
+		// the operator exists, but cannot apply it on a this type. We can safely
+		// call operator.Name() on it to improve the error message, whereas that
+		// might not be possible on an unrecoginzed operator.
+		return nil, fmt.Errorf("cannot use operator '%s' on value of type string", operator.Name())
+	default:
+		return nil, fmt.Errorf("unrecoginzed operator %v", operator)
+	}
+}
+
+func gremlinBoolPredicateFromOperator(operator common_filters.Operator, value interface{}) (*gremlin.Query, error) {
+	valueTyped, ok := value.(bool)
+	if !ok {
+		return nil, fmt.Errorf("expected value to be an int64, but was %t", value)
+	}
+
+	switch operator {
+	case common_filters.OperatorEqual:
+		return gremlin.EqBool(valueTyped), nil
+	case common_filters.OperatorNotEqual:
+		return gremlin.NeqBool(valueTyped), nil
+	case common_filters.OperatorLessThan, common_filters.OperatorLessThanEqual,
+		common_filters.OperatorGreaterThan, common_filters.OperatorGreaterThanEqual:
+		// this is different from an unrecognized operator, in that we recognize
+		// the operator exists, but cannot apply it on a this type. We can safely
+		// call operator.Name() on it to improve the error message, whereas that
+		// might not be possible on an unrecoginzed operator.
+		return nil, fmt.Errorf("cannot use operator '%s' on value of type string", operator.Name())
 	default:
 		return nil, fmt.Errorf("unrecoginzed operator %v", operator)
 	}

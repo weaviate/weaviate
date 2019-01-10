@@ -17,15 +17,9 @@ func Test_EmptyFilters(t *testing.T) {
 }
 
 func Test_SingleProperties(t *testing.T) {
-	type testCase struct {
-		name           string
-		operator       cf.Operator
-		expectedResult string
-	}
-
 	t.Run("with propertyType Int", func(t *testing.T) {
 		t.Run("with various operators and valid values", func(t *testing.T) {
-			tests := []testCase{
+			tests := testCases{
 				{"'City.population == 10000'", cf.OperatorEqual, `.has("population", eq(10000))`},
 				{"'City.population != 10000'", cf.OperatorNotEqual, `.has("population", neq(10000))`},
 				{"'City.population < 10000'", cf.OperatorLessThan, `.has("population", lt(10000))`},
@@ -34,30 +28,20 @@ func Test_SingleProperties(t *testing.T) {
 				{"'City.population >= 10000'", cf.OperatorGreaterThanEqual, `.has("population", gte(10000))`},
 			}
 
-			for _, test := range tests {
-				t.Run(test.name, func(t *testing.T) {
-					filter := buildFilter("population", int64(10000), test.operator, schema.DataTypeInt)
-
-					result, err := New(filter).String()
-
-					require.Nil(t, err, "no error should have occurred")
-					assert.Equal(t, test.expectedResult, result, "should form the right query")
-				})
-			}
+			tests.AssertFilter(t, "population", int64(10000), schema.DataTypeInt)
 		})
 
 		t.Run("an invalid value", func(t *testing.T) {
-			filter := buildFilter("population", "200", cf.OperatorEqual, schema.DataTypeInt)
+			tests := testCases{{"should fail with wrong type", cf.OperatorEqual, ""}}
 
-			_, err := New(filter).String()
-
-			require.NotNil(t, err, "it should error due to the wrong type")
+			// Note the mismatch between the specified type (arg4) and the actual type (arg3)
+			tests.AssertFilterErrors(t, "population", "200", schema.DataTypeInt)
 		})
 	})
 
 	t.Run("with propertyType Number (float)", func(t *testing.T) {
 		t.Run("with various operators and valid values", func(t *testing.T) {
-			tests := []testCase{
+			tests := testCases{
 				{"'City.energyConsumption == 953.280000'", cf.OperatorEqual, `.has("energyConsumption", eq(953.280000))`},
 				{"'City.energyConsumption != 953.280000'", cf.OperatorNotEqual, `.has("energyConsumption", neq(953.280000))`},
 				{"'City.energyConsumption < 953.280000'", cf.OperatorLessThan, `.has("energyConsumption", lt(953.280000))`},
@@ -66,24 +50,72 @@ func Test_SingleProperties(t *testing.T) {
 				{"'City.energyConsumption >= 953.280000'", cf.OperatorGreaterThanEqual, `.has("energyConsumption", gte(953.280000))`},
 			}
 
-			for _, test := range tests {
-				t.Run(test.name, func(t *testing.T) {
-					filter := buildFilter("energyConsumption", float64(953.28), test.operator, schema.DataTypeNumber)
-
-					result, err := New(filter).String()
-
-					require.Nil(t, err, "no error should have occurred")
-					assert.Equal(t, test.expectedResult, result, "should form the right query")
-				})
-			}
+			tests.AssertFilter(t, "energyConsumption", float64(953.28), schema.DataTypeNumber)
 		})
 
 		t.Run("an invalid value", func(t *testing.T) {
-			filter := buildFilter("population", "200", cf.OperatorEqual, schema.DataTypeNumber)
+			tests := testCases{{"should fail with wrong type", cf.OperatorEqual, ""}}
 
-			_, err := New(filter).String()
+			// Note the mismatch between the specified type (arg4) and the actual type (arg3)
+			tests.AssertFilterErrors(t, "energyConsumption", "200", schema.DataTypeNumber)
+		})
+	})
 
-			require.NotNil(t, err, "it should error due to the wrong type")
+	t.Run("with propertyType string", func(t *testing.T) {
+		t.Run("with various operators and valid values", func(t *testing.T) {
+			tests := testCases{
+				{`'City.name == "Berlin"'`, cf.OperatorEqual, `.has("name", eq("Berlin"))`},
+				{`'City.name != "Berlin"'`, cf.OperatorNotEqual, `.has("name", neq("Berlin"))`},
+			}
+
+			tests.AssertFilter(t, "name", "Berlin", schema.DataTypeString)
+		})
+
+		t.Run("with an operator that does not make sense for this type", func(t *testing.T) {
+			tests := testCases{
+				{`City.name < "Berlin"`, cf.OperatorLessThan, ""},
+				{`City.name <= "Berlin"`, cf.OperatorLessThanEqual, ""},
+				{`City.name > "Berlin"`, cf.OperatorGreaterThan, ""},
+				{`City.name >= "Berlin"`, cf.OperatorGreaterThanEqual, ""},
+			}
+
+			tests.AssertFilterErrors(t, "name", "Berlin", schema.DataTypeString)
+		})
+
+		t.Run("an invalid value", func(t *testing.T) {
+			tests := testCases{{"should fail with wrong type", cf.OperatorEqual, ""}}
+
+			// Note the mismatch between the specified type (arg4) and the actual type (arg3)
+			tests.AssertFilterErrors(t, "name", int(200), schema.DataTypeString)
+		})
+	})
+
+	t.Run("with propertyType bool", func(t *testing.T) {
+		t.Run("with various operators and valid values", func(t *testing.T) {
+			tests := testCases{
+				{`'City.isCapital == true'`, cf.OperatorEqual, `.has("isCapital", eq(true))`},
+				{`'City.isCapital != true'`, cf.OperatorNotEqual, `.has("isCapital", neq(true))`},
+			}
+
+			tests.AssertFilter(t, "isCapital", true, schema.DataTypeBoolean)
+		})
+
+		t.Run("with an operator that does not make sense for this type", func(t *testing.T) {
+			tests := testCases{
+				{`City.isCapital < true`, cf.OperatorLessThan, ""},
+				{`City.isCapital <= true`, cf.OperatorLessThanEqual, ""},
+				{`City.isCapital > true`, cf.OperatorGreaterThan, ""},
+				{`City.isCapital >= true`, cf.OperatorGreaterThanEqual, ""},
+			}
+
+			tests.AssertFilterErrors(t, "isCapital", true, schema.DataTypeBoolean)
+		})
+
+		t.Run("an invalid value", func(t *testing.T) {
+			tests := testCases{{"should fail with wrong type", cf.OperatorEqual, ""}}
+
+			// Note the mismatch between the specified type (arg4) and the actual type (arg3)
+			tests.AssertFilterErrors(t, "isCapital", int(200), schema.DataTypeBoolean)
 		})
 	})
 }
@@ -109,5 +141,38 @@ func buildFilter(propName string, value interface{}, operator cf.Operator, schem
 				Type:  schemaType,
 			},
 		},
+	}
+}
+
+type testCase struct {
+	name           string
+	operator       cf.Operator
+	expectedResult string
+}
+
+type testCases []testCase
+
+func (tests testCases) AssertFilter(t *testing.T, propName string, propValue interface{}, propType schema.DataType) {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			filter := buildFilter(propName, propValue, test.operator, propType)
+
+			result, err := New(filter).String()
+
+			require.Nil(t, err, "no error should have occurred")
+			assert.Equal(t, test.expectedResult, result, "should form the right query")
+		})
+	}
+}
+
+func (tests testCases) AssertFilterErrors(t *testing.T, propName string, propValue interface{}, propType schema.DataType) {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			filter := buildFilter(propName, propValue, test.operator, propType)
+
+			_, err := New(filter).String()
+
+			assert.NotNil(t, err, "should error")
+		})
 	}
 }

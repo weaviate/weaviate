@@ -1,6 +1,9 @@
 package gremlin
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 // Int
 
@@ -64,4 +67,28 @@ func GtFloat(value float64) *Query {
 // GteFloat returns a testing predicate such as gte(<float64>), e.g. gte(1000)
 func GteFloat(value float64) *Query {
 	return &Query{query: fmt.Sprintf(`gte(%f)`, value)}
+}
+
+// String
+
+// EqString returns a testing predicate such as eq(<string>), e.g. eq(1000)
+func EqString(value string) *Query {
+	return &Query{query: fmt.Sprintf(`eq("%s")`, value)}
+}
+
+// NeqString returns a testing predicate such as neq(<string>), e.g. neq(1000)
+func NeqString(value string) *Query {
+	return &Query{query: fmt.Sprintf(`neq("%s")`, value)}
+}
+
+// Bool
+
+// EqBool returns a testing predicate such as eq(<bool>), e.g. eq(1000)
+func EqBool(value bool) *Query {
+	return &Query{query: fmt.Sprintf(`eq(%s)`, strconv.FormatBool(value))}
+}
+
+// NeqBool returns a testing predicate such as neq(<bool>), e.g. neq(1000)
+func NeqBool(value bool) *Query {
+	return &Query{query: fmt.Sprintf(`neq(%s)`, strconv.FormatBool(value))}
 }
