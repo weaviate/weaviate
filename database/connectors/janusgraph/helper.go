@@ -10,6 +10,7 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
+
 package janusgraph
 
 import (
@@ -17,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/filters"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -173,7 +175,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	return nil
 }
 
-func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, keyID strfmt.UUID, filters *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
+func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, keyID strfmt.UUID, filter *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
 
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name())
@@ -182,6 +184,13 @@ func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first i
 		vertexLabel := j.state.GetMappedClassName(*className)
 		q = q.HasString(PROP_CLASS_ID, string(vertexLabel))
 	}
+
+	filterQuery, err := filters.New(filter, &j.state).String()
+	if err != nil {
+		return fmt.Errorf("could not build fiter query: %s", err)
+	}
+
+	q = q.Raw(filterQuery)
 
 	q = q.
 		Range(offset, first).

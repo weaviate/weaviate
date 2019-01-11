@@ -23,6 +23,12 @@ type Query struct {
 	query string
 }
 
+// New returns a new (empty) query. Most useful for subqueries which don't
+// start with g.V() or g.E().
+func New() *Query {
+	return &Query{}
+}
+
 // Return the string representation of this Query.
 func (q *Query) String() string {
 	return q.query
@@ -154,10 +160,16 @@ func (q *Query) InEWithLabel(label string) *Query {
 }
 
 func (q *Query) OutE() *Query {
+	if q.query == "" {
+		return extend_query(q, "outE()")
+	}
 	return extend_query(q, ".outE()")
 }
 
 func (q *Query) OutEWithLabel(label string) *Query {
+	if q.query == "" {
+		return extend_query(q, `outE("%s")`, EscapeString(label))
+	}
 	return extend_query(q, `.outE("%s")`, EscapeString(label))
 }
 
@@ -253,6 +265,29 @@ func (q *Query) Or(queries ...*Query) *Query {
 	}
 
 	return extend_query(q, `.or(%s)`, queryStringsConcat)
+}
+
+// Where can combine 0..n queries together
+//
+// If used on an existing query it will lead with a dot, e.g:
+//
+// existingQuery().where(<some joined queries>)
+//
+// Otherwise it will not lead with a dot, e.g.:
+//
+// where(<some joined queries>)
+func (q *Query) Where(queries ...*Query) *Query {
+	queryStrings := make([]string, len(queries), len(queries))
+	for i, single := range queries {
+		queryStrings[i] = single.String()
+	}
+
+	queryStringsConcat := strings.Join(queryStrings, ", ")
+	if q.query == "" {
+		return &Query{query: fmt.Sprintf("where(%s)", queryStringsConcat)}
+	}
+
+	return extend_query(q, `.where(%s)`, queryStringsConcat)
 }
 
 func (q *Query) Optional(query *Query) *Query {
