@@ -18,6 +18,7 @@ type FilterQuery struct {
 
 type nameSource interface {
 	GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
+	GetMappedClassName(className schema.ClassName) state.MappedClassName
 }
 
 // New FilterQuery from local filter params
@@ -56,6 +57,13 @@ func (f *FilterQuery) buildClause(clause *common_filters.Clause) (*gremlin.Query
 }
 
 func (f *FilterQuery) buildValueClause(clause *common_filters.Clause) (*gremlin.Query, error) {
+	if clause.On.Child == nil {
+		return f.buildPrimitiveValueClause(clause)
+	}
+	return f.buildReferenceValueClause(clause)
+}
+
+func (f *FilterQuery) buildPrimitiveValueClause(clause *common_filters.Clause) (*gremlin.Query, error) {
 	q := &gremlin.Query{}
 	predicate, err := gremlinPredicateFromOperator(clause.Operator, clause.Value)
 	if err != nil {
@@ -63,14 +71,55 @@ func (f *FilterQuery) buildValueClause(clause *common_filters.Clause) (*gremlin.
 			clause.Value.Value, err)
 	}
 
-	var propName string
+	path := clause.On.GetInnerMost()
+	propName := f.mappedPropertyName(path.Class, path.Property)
+	q = q.Has(propName, predicate)
+	return q, nil
+}
+
+func (f *FilterQuery) mappedPropertyName(className schema.ClassName,
+	propName schema.PropertyName) string {
 	if f.nameSource == nil {
-		propName = string(clause.On.Property)
-	} else {
-		propName = string(f.nameSource.GetMappedPropertyName(clause.On.Class, clause.On.Property))
+		return string(propName)
 	}
 
-	q = q.Has(propName, predicate)
+	return string(f.nameSource.GetMappedPropertyName(className, propName))
+}
+
+func (f *FilterQuery) mappedClassName(className schema.ClassName) string {
+	if f.nameSource == nil {
+		return string(className)
+	}
+
+	return string(f.nameSource.GetMappedClassName(className))
+}
+
+func (f *FilterQuery) buildReferenceValueClause(clause *common_filters.Clause) (*gremlin.Query, error) {
+	q := gremlin.New()
+
+	pathToEdge, err := f.buildEdgePath(clause)
+	if err != nil {
+		return q, fmt.Errorf("reference filter: cannot build path to edge: %s", err)
+	}
+
+	primitiveFilter, err := f.buildPrimitiveValueClause(clause)
+	if err != nil {
+		return q, fmt.Errorf("reference filter: cannot build value clause: %s", err)
+	}
+
+	q = q.Where(pathToEdge.Raw(fmt.Sprintf(".%s", primitiveFilter.String())))
+
+	return q, nil
+}
+
+func (f *FilterQuery) buildEdgePath(clause *common_filters.Clause) (*gremlin.Query, error) {
+	q := gremlin.New()
+	// for now pretend nesting is always one level deep
+	edgeLabel := f.mappedPropertyName(clause.On.Class, clause.On.Property)
+	referencedClass := f.mappedClassName(clause.On.Child.Class)
+	q = q.OutEWithLabel(edgeLabel).
+		InV().HasString("classId", referencedClass)
+
 	return q, nil
 }
 
@@ -115,24 +164,24 @@ func gremlinPredicateFromOperator(operator common_filters.Operator,
 }
 
 func gremlinIntPredicateFromOperator(operator common_filters.Operator, value interface{}) (*gremlin.Query, error) {
-	valueTyped, ok := value.(int64)
+	valueTyped, ok := value.(int)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be an int64, but was %t", value)
 	}
 
 	switch operator {
 	case common_filters.OperatorEqual:
-		return gremlin.EqInt(int(valueTyped)), nil
+		return gremlin.EqInt(valueTyped), nil
 	case common_filters.OperatorNotEqual:
-		return gremlin.NeqInt(int(valueTyped)), nil
+		return gremlin.NeqInt(valueTyped), nil
 	case common_filters.OperatorLessThan:
-		return gremlin.LtInt(int(valueTyped)), nil
+		return gremlin.LtInt(valueTyped), nil
 	case common_filters.OperatorLessThanEqual:
-		return gremlin.LteInt(int(valueTyped)), nil
+		return gremlin.LteInt(valueTyped), nil
 	case common_filters.OperatorGreaterThan:
-		return gremlin.GtInt(int(valueTyped)), nil
+		return gremlin.GtInt(valueTyped), nil
 	case common_filters.OperatorGreaterThanEqual:
-		return gremlin.GteInt(int(valueTyped)), nil
+		return gremlin.GteInt(valueTyped), nil
 	default:
 		return nil, fmt.Errorf("unrecoginzed operator %v", operator)
 	}

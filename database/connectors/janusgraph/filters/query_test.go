@@ -30,7 +30,7 @@ func Test_SingleProperties(t *testing.T) {
 				{"'City.population >= 10000'", cf.OperatorGreaterThanEqual, `.has("population", gte(10000))`},
 			}
 
-			tests.AssertFilter(t, "population", int64(10000), schema.DataTypeInt)
+			tests.AssertFilter(t, "population", int(10000), schema.DataTypeInt)
 		})
 
 		t.Run("an invalid value", func(t *testing.T) {
@@ -164,7 +164,7 @@ func Test_SinglePropertiesWithMappedNames(t *testing.T) {
 		{"'City.population >= 10000'", cf.OperatorGreaterThanEqual, `.has("prop_20", gte(10000))`},
 	}
 
-	tests.AssertFilterWithNameSource(t, "population", int64(10000), schema.DataTypeInt, &fakeNameSource{})
+	tests.AssertFilterWithNameSource(t, "population", int(10000), schema.DataTypeInt, &fakeNameSource{})
 }
 
 func Test_InvalidOperator(t *testing.T) {
@@ -188,7 +188,7 @@ func Test_MultipleConditions(t *testing.T) {
 							Property: schema.PropertyName("population"),
 						},
 						Value: &cf.Value{
-							Value: int64(70000),
+							Value: int(70000),
 							Type:  schema.DataTypeInt,
 						},
 					},
@@ -242,7 +242,7 @@ func Test_MultipleNestedConditions(t *testing.T) {
 							Property: schema.PropertyName("population"),
 						},
 						Value: &cf.Value{
-							Value: int64(70000),
+							Value: int(70000),
 							Type:  schema.DataTypeInt,
 						},
 					},
@@ -285,6 +285,68 @@ func Test_MultipleNestedConditions(t *testing.T) {
 
 	require.Nil(t, err, "should not error")
 	assert.Equal(t, expectedResult, result, "should match the gremlin query")
+}
+
+func Test_FiltersOnRefProps(t *testing.T) {
+	t.Run("one level deep", func(t *testing.T) {
+		buildOperandFilter := func() *cf.LocalFilter {
+			return &cf.LocalFilter{
+				Root: &cf.Clause{
+					Operator: cf.OperatorEqual,
+					On: &cf.Path{
+						Class:    schema.ClassName("City"),
+						Property: schema.PropertyName("inCountry"),
+						Child: &cf.Path{
+							Class:    schema.ClassName("Country"),
+							Property: schema.PropertyName("name"),
+						},
+					},
+					Value: &cf.Value{
+						Value: "Germany",
+						Type:  schema.DataTypeString,
+					},
+				},
+			}
+		}
+
+		filter := buildOperandFilter()
+		expectedResult := `.where(outE("inCountry").inV().has("classId", "Country").has("name", eq("Germany")))`
+
+		result, err := New(filter, nil).String()
+
+		require.Nil(t, err, "should not error")
+		assert.Equal(t, expectedResult, result, "should match the gremlin query")
+	})
+
+	t.Run("with mapped names", func(t *testing.T) {
+		buildOperandFilter := func() *cf.LocalFilter {
+			return &cf.LocalFilter{
+				Root: &cf.Clause{
+					Operator: cf.OperatorEqual,
+					On: &cf.Path{
+						Class:    schema.ClassName("City"),
+						Property: schema.PropertyName("inCountry"),
+						Child: &cf.Path{
+							Class:    schema.ClassName("Country"),
+							Property: schema.PropertyName("name"),
+						},
+					},
+					Value: &cf.Value{
+						Value: "Germany",
+						Type:  schema.DataTypeString,
+					},
+				},
+			}
+		}
+
+		filter := buildOperandFilter()
+		expectedResult := `.where(outE("prop_15").inV().has("classId", "class_18").has("prop_20", eq("Germany")))`
+
+		result, err := New(filter, &fakeNameSource{}).String()
+
+		require.Nil(t, err, "should not error")
+		assert.Equal(t, expectedResult, result, "should match the gremlin query")
+	})
 }
 
 func buildFilter(propName string, value interface{}, operator cf.Operator, schemaType schema.DataType) *cf.LocalFilter {
@@ -344,5 +406,13 @@ type fakeNameSource struct{}
 
 func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
 	propName schema.PropertyName) state.MappedPropertyName {
+	switch propName {
+	case schema.PropertyName("inCountry"):
+		return "prop_15"
+	}
 	return state.MappedPropertyName("prop_20")
+}
+
+func (f *fakeNameSource) GetMappedClassName(className schema.ClassName) state.MappedClassName {
+	return state.MappedClassName("class_18")
 }

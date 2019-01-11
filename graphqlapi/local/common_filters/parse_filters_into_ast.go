@@ -167,10 +167,8 @@ func parsePath(args map[string]interface{}, rootClass string) (*Path, error) {
 		return nil, fmt.Errorf("The 'path' field for the filter '%s' is not a list of strings", jsonify(args))
 	}
 
-	if len(pathElements) == 1 {
-		// we need to manually insert the root class, as that is omitted from the user
-		pathElements = append([]interface{}{rootClass}, pathElements...)
-	}
+	// we need to manually insert the root class, as that is omitted from the user
+	pathElements = append([]interface{}{rootClass}, pathElements...)
 
 	// The sentinel is used to bootstrap the inlined recursion.
 	// we return sentinal.Child at the end.
