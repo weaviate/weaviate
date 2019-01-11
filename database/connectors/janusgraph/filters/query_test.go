@@ -289,6 +289,7 @@ func Test_MultipleNestedConditions(t *testing.T) {
 
 func Test_FiltersOnRefProps(t *testing.T) {
 	t.Run("one level deep", func(t *testing.T) {
+		// city where InCountry->City->Country->name == "Germany"
 		buildOperandFilter := func() *cf.LocalFilter {
 			return &cf.LocalFilter{
 				Root: &cf.Clause{
@@ -311,6 +312,42 @@ func Test_FiltersOnRefProps(t *testing.T) {
 
 		filter := buildOperandFilter()
 		expectedResult := `.where(outE("inCountry").inV().has("classId", "Country").has("name", eq("Germany")))`
+
+		result, err := New(filter, nil).String()
+
+		require.Nil(t, err, "should not error")
+		assert.Equal(t, expectedResult, result, "should match the gremlin query")
+	})
+
+	t.Run("multiple levels deep", func(t *testing.T) {
+		// airport where InCity->City->InCountry->City->Country->name == "Germany"
+		buildOperandFilter := func() *cf.LocalFilter {
+			return &cf.LocalFilter{
+				Root: &cf.Clause{
+					Operator: cf.OperatorEqual,
+					On: &cf.Path{
+						Class:    schema.ClassName("Airport"),
+						Property: schema.PropertyName("inCity"),
+						Child: &cf.Path{
+							Class:    schema.ClassName("City"),
+							Property: schema.PropertyName("inCountry"),
+							Child: &cf.Path{
+								Class:    schema.ClassName("Country"),
+								Property: schema.PropertyName("name"),
+							},
+						},
+					},
+					Value: &cf.Value{
+						Value: "Germany",
+						Type:  schema.DataTypeString,
+					},
+				},
+			}
+		}
+
+		filter := buildOperandFilter()
+		expectedResult := `.where(outE("inCity").inV().has("classId", "City")` +
+			`.outE("inCountry").inV().has("classId", "Country").has("name", eq("Germany")))`
 
 		result, err := New(filter, nil).String()
 
