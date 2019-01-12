@@ -20,7 +20,7 @@ import (
 )
 
 func (j *Janusgraph) updateClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, atContext string, lastUpdateTimeUnix int64, rawProperties interface{}) error {
-	vertexLabel := j.state.getMappedClassName(className)
+	vertexLabel := j.state.GetMappedClassName(className)
 
 	sourceClassAlias := "classToBeUpdated"
 

@@ -15,6 +15,7 @@ package janusgraph
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
@@ -77,8 +78,8 @@ func (j *Janusgraph) ensureBasicSchema() error {
 		// Set initial version in state.
 		j.state.Version = 1
 		j.state.LastId = 0
-		j.state.ClassMap = make(map[schema.ClassName]MappedClassName)
-		j.state.PropertyMap = make(map[schema.ClassName]map[schema.PropertyName]MappedPropertyName)
+		j.state.ClassMap = make(map[schema.ClassName]state.MappedClassName)
+		j.state.PropertyMap = make(map[schema.ClassName]map[schema.PropertyName]state.MappedPropertyName)
 		j.UpdateStateInStateManager()
 	}
 	return nil
@@ -90,14 +91,14 @@ func (j *Janusgraph) AddClass(kind kind.Kind, class *models.SemanticSchemaClass)
 	// Extra sanity check
 	sanitizedClassName := schema.AssertValidClassName(class.Class)
 
-	vertexLabel := j.state.addMappedClassName(sanitizedClassName)
+	vertexLabel := j.state.AddMappedClassName(sanitizedClassName)
 
 	query := gremlin_schema_query.New()
 	query.MakeVertexLabel(string(vertexLabel))
 
 	for _, prop := range class.Properties {
 		sanitziedPropertyName := schema.AssertValidPropertyName(prop.Name)
-		janusPropertyName := j.state.addMappedPropertyName(sanitizedClassName, sanitziedPropertyName)
+		janusPropertyName := j.state.AddMappedPropertyName(sanitizedClassName, sanitziedPropertyName)
 
 		// Determine the type of the property
 		propertyDataType, err := j.schema.FindPropertyDataType(prop.AtDataType)
@@ -132,7 +133,7 @@ func (j *Janusgraph) DropClass(kind kind.Kind, name string) error {
 	log.Debugf("Removing class '%v' in JanusGraph", name)
 	sanitizedClassName := schema.AssertValidClassName(name)
 
-	vertexLabel := j.state.getMappedClassName(sanitizedClassName)
+	vertexLabel := j.state.GetMappedClassName(sanitizedClassName)
 
 	query := gremlin.G.V().HasLabel(string(vertexLabel)).HasString(PROP_CLASS_ID, string(vertexLabel)).Drop()
 
@@ -143,7 +144,7 @@ func (j *Janusgraph) DropClass(kind kind.Kind, name string) error {
 	}
 
 	// Update mapping
-	j.state.removeMappedClassName(sanitizedClassName)
+	j.state.RemoveMappedClassName(sanitizedClassName)
 	j.UpdateStateInStateManager()
 
 	return nil
@@ -153,7 +154,7 @@ func (j *Janusgraph) UpdateClass(kind kind.Kind, className string, newClassName 
 	if newClassName != nil {
 		oldName := schema.AssertValidClassName(className)
 		newName := schema.AssertValidClassName(*newClassName)
-		j.state.renameClass(oldName, newName)
+		j.state.RenameClass(oldName, newName)
 		j.UpdateStateInStateManager()
 	}
 
@@ -166,7 +167,7 @@ func (j *Janusgraph) AddProperty(kind kind.Kind, className string, prop *models.
 
 	query := gremlin_schema_query.New()
 	sanitziedPropertyName := schema.AssertValidPropertyName(prop.Name)
-	janusPropertyName := j.state.addMappedPropertyName(sanitizedClassName, sanitziedPropertyName)
+	janusPropertyName := j.state.AddMappedPropertyName(sanitizedClassName, sanitziedPropertyName)
 
 	// Determine the type of the property
 	propertyDataType, err := j.schema.FindPropertyDataType(prop.AtDataType)
@@ -200,7 +201,7 @@ func (j *Janusgraph) UpdateProperty(kind kind.Kind, className string, propName s
 		sanitizedClassName := schema.AssertValidClassName(className)
 		oldName := schema.AssertValidPropertyName(propName)
 		newName := schema.AssertValidPropertyName(*newName)
-		j.state.renameProperty(sanitizedClassName, oldName, newName)
+		j.state.RenameProperty(sanitizedClassName, oldName, newName)
 		j.UpdateStateInStateManager()
 	}
 	return nil
@@ -214,8 +215,8 @@ func (j *Janusgraph) DropProperty(kind kind.Kind, className string, propName str
 	sanitizedClassName := schema.AssertValidClassName(className)
 	sanitizedPropName := schema.AssertValidPropertyName(propName)
 
-	vertexLabel := j.state.getMappedClassName(sanitizedClassName)
-	mappedPropertyName := j.state.getMappedPropertyName(sanitizedClassName, sanitizedPropName)
+	vertexLabel := j.state.GetMappedClassName(sanitizedClassName)
+	mappedPropertyName := j.state.GetMappedPropertyName(sanitizedClassName, sanitizedPropName)
 
 	err, prop := j.schema.GetProperty(kind, sanitizedClassName, sanitizedPropName)
 	if err != nil {
@@ -249,7 +250,7 @@ func (j *Janusgraph) DropProperty(kind kind.Kind, className string, propName str
 		return fmt.Errorf("could not remove all data of the dropped class in JanusGraph")
 	}
 
-	j.state.removeMappedPropertyName(sanitizedClassName, sanitizedPropName)
+	j.state.RemoveMappedPropertyName(sanitizedClassName, sanitizedPropName)
 	j.UpdateStateInStateManager()
 	return nil
 }

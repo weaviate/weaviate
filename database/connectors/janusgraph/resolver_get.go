@@ -74,7 +74,7 @@ func (j *Janusgraph) doLocalGetClass(first, offset int, params *graphql_local_ge
 	results := []interface{}{}
 
 	className := schema.AssertValidClassName(params.ClassName)
-	err := j.listClass(params.Kind, &className, first, offset, "", nil, func(uuid strfmt.UUID) {
+	err := j.listClass(params.Kind, &className, first, offset, "", params.Filters, func(uuid strfmt.UUID) {
 		var properties models.Schema
 		err := j.getClass(params.Kind, uuid, nil, nil, nil, nil, nil, &properties, nil)
 		if err != nil {
@@ -85,9 +85,12 @@ func (j *Janusgraph) doLocalGetClass(first, offset int, params *graphql_local_ge
 
 		// nil result? Then we simply could not fetch the class; might be deleted in the mean time?
 		if result != nil {
-			if matchesFilter(result, params.Filters) {
-				results = append(results, result)
-			}
+			// fmt.Print("\n\n\n")
+			// spew.Dump(params.Filters)
+			// fmt.Print("\n\n\n")
+			// if matchesFilter(result, params.Filters) {
+			results = append(results, result)
+			// }
 		}
 	})
 

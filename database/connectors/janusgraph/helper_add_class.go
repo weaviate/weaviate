@@ -21,7 +21,7 @@ import (
 )
 
 func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, atContext string, creationTimeUnix int64, lastUpdateTimeUnix int64, key *models.SingleRef, rawProperties interface{}) error {
-	vertexLabel := j.state.getMappedClassName(className)
+	vertexLabel := j.state.GetMappedClassName(className)
 	sourceClassAlias := "classToBeAdded"
 
 	q := gremlin.G.AddV(string(vertexLabel)).
