@@ -17,12 +17,12 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	graphql_local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
+	graphql_local_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
 // LocalGetMeta based on GraphQL Query params
-func (j *Janusgraph) LocalGetMeta(params *graphql_local_get_meta.LocalGetMetaParams) (interface{}, error) {
+func (j *Janusgraph) LocalGetMeta(params *graphql_local_getmeta.LocalGetMetaParams) (interface{}, error) {
 	// hard-code to city -> population -> average
 	err, prop := j.schema.GetProperty(kind.THING_KIND, schema.ClassName("City"), schema.PropertyName("population"))
 	if err != nil {

@@ -1,4 +1,4 @@
-package get_meta
+package getmeta
 
 import (
 	"fmt"

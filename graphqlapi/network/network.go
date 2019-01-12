@@ -22,7 +22,7 @@ import (
 	network_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/aggregate"
 	network_fetch "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
 	network_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
-	network_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get_meta"
+	network_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/getmeta"
 	network_introspect "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/introspect"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/utils"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"

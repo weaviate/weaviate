@@ -19,7 +19,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	local_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
 	local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
-	local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
+	local_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/graphql-go/graphql"
@@ -31,7 +31,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 	if err != nil {
 		return nil, err
 	}
-	getMetaField, err := local_get_meta.Build(dbSchema)
+	getMetaField, err := local_getmeta.Build(dbSchema)
 	if err != nil {
 		return nil, err
 	}

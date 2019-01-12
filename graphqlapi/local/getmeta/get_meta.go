@@ -11,8 +11,8 @@
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
-// Package get_meta provides the local get meta graphql endpoint for Weaviate
-package get_meta
+// Package getmeta provides the local get meta graphql endpoint for Weaviate
+package getmeta
 
 import (
 	"fmt"

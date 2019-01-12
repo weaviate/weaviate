@@ -14,7 +14,7 @@ package database
 
 import (
 	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
-	graphql_local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
+	graphql_local_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 )
 
 type dbClosingResolver struct {
@@ -31,7 +31,7 @@ func (dbcr *dbClosingResolver) LocalGetClass(info *graphql_local_get.LocalGetCla
 	return thunk, err
 }
 
-func (dbcr *dbClosingResolver) LocalGetMeta(info *graphql_local_get_meta.LocalGetMetaParams) (interface{}, error) {
+func (dbcr *dbClosingResolver) LocalGetMeta(info *graphql_local_getmeta.LocalGetMetaParams) (interface{}, error) {
 	connector := dbcr.connectorLock.Connector()
 	return connector.LocalGetMeta(info)
 }
