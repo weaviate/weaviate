@@ -98,7 +98,17 @@ func genSingleLocalMetaClassField(kindName string, class *models.SemanticSchemaC
 			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
+			source, ok := p.Source.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("expected source to be a map, but was %t", p.Source)
+			}
+
+			resolver, ok := source["Resolver"].(Resolver)
+			if !ok {
+				return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %t", p.Source)
+			}
+
+			return resolver.LocalGetMeta(nil)
 		},
 	}
 
@@ -113,7 +123,7 @@ func genSingleLocalMetaClassPropertyFields(class *models.SemanticSchemaClass) (g
 		Description: descriptions.GetMetaMetaPropertyDesc,
 		Type:        metaPropertyObj,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
+			return nil, fmt.Errorf("not supported - class property field")
 		},
 	}
 
@@ -157,9 +167,6 @@ func handleLocalGetMetaNonObjectPropertyDataTypes(dataType schema.DataType, clas
 		return &graphql.Field{
 			Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaPropertyDesc, property.Name),
 			Type:        metaClassStringPropertyFields,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeText:
@@ -175,9 +182,6 @@ func handleLocalGetMetaNonObjectPropertyDataTypes(dataType schema.DataType, clas
 		return &graphql.Field{
 			Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaPropertyDesc, property.Name),
 			Type:        metaClassIntPropertyFields,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeNumber:
@@ -394,54 +398,36 @@ func genLocalMetaClassIntPropertyFields(class *models.SemanticSchemaClass, prope
 			Name:        fmt.Sprintf("Meta%s%sSum", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertySumDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%s%sType", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"lowest": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%s%sLowest", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyLowestDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"highest": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%s%sHighest", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyHighestDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"average": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%s%sAverage", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyAverageDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%s%sCount", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 	}
 

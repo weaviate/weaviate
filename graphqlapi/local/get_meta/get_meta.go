@@ -16,6 +16,7 @@ package get_meta
 
 import (
 	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/graphql-go/graphql"
@@ -42,7 +43,8 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			Description: descriptions.LocalGetMetaActionsDesc,
 			Type:        localGetMetaActions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				// bubble up root resolver
+				return p.Source, nil
 			},
 		}
 	}
@@ -59,7 +61,8 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			Description: descriptions.LocalGetMetaThingsDesc,
 			Type:        localGetMetaThings,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
+				// bubble up root resolver
+				return p.Source, nil
 			},
 		}
 	}
@@ -75,7 +78,8 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		Type:        getMetaObj,
 		Description: descriptions.LocalGetMetaDesc,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
+			// bubble up root resolver
+			return p.Source, nil
 		},
 	}
 

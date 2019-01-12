@@ -85,12 +85,7 @@ func (j *Janusgraph) doLocalGetClass(first, offset int, params *graphql_local_ge
 
 		// nil result? Then we simply could not fetch the class; might be deleted in the mean time?
 		if result != nil {
-			// fmt.Print("\n\n\n")
-			// spew.Dump(params.Filters)
-			// fmt.Print("\n\n\n")
-			// if matchesFilter(result, params.Filters) {
 			results = append(results, result)
-			// }
 		}
 	})
 
