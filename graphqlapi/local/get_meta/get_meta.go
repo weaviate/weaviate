@@ -33,7 +33,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 	if len(dbSchema.Actions.Classes) > 0 {
 		classParentTypeIsAction := true
-		localGetMetaActions, localGetMetaErr := genLocalMetaClassFieldsFromSchema(dbSchema.Actions.Classes, classParentTypeIsAction)
+		localGetMetaActions, localGetMetaErr := classFields(dbSchema.Actions.Classes, classParentTypeIsAction)
 		if localGetMetaErr != nil {
 			return nil, fmt.Errorf("failed to generate action fields from schema for local MetaGet because: %v", localGetMetaErr)
 		}
@@ -51,7 +51,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 	if len(dbSchema.Things.Classes) > 0 {
 		classParentTypeIsAction := false
-		localGetMetaThings, localGetMetaErr := genLocalMetaClassFieldsFromSchema(dbSchema.Things.Classes, classParentTypeIsAction)
+		localGetMetaThings, localGetMetaErr := classFields(dbSchema.Things.Classes, classParentTypeIsAction)
 		if localGetMetaErr != nil {
 			return nil, fmt.Errorf("failed to generate thing fields from schema for local MetaGet because: %v", localGetMetaErr)
 		}
