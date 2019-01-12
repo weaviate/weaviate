@@ -50,8 +50,32 @@ const (
 	// Count the occurence of this property
 	Count StatisticalAnalysis = "count"
 
+	// Sum of all the values of the prop (i.e. sum of all Ints or Numbers)
+	Sum StatisticalAnalysis = "sum"
+
 	// Average calculates the average of an Int or Number
 	Average StatisticalAnalysis = "average"
+
+	// Highest selects the highest value of an Int or Number
+	Highest StatisticalAnalysis = "highest"
+
+	// Lowest selects the highest value of an Int or Number
+	Lowest StatisticalAnalysis = "lowest"
+
+	// TotalTrue is the sum of all boolean fields, that are true
+	TotalTrue StatisticalAnalysis = "totalTrue"
+
+	// TotalFalse is the sum of all boolean fields, that are false
+	TotalFalse StatisticalAnalysis = "totalFalse"
+
+	// PercentageTrue is the percentage of all boolean fields, that are true
+	PercentageTrue StatisticalAnalysis = "percentageTrue"
+
+	// PercentageFalse is the percentage of all boolean fields, that are false
+	PercentageFalse StatisticalAnalysis = "percentageFalse"
+
+	// PointingTo is the list of all classes that this reference prop points to
+	PointingTo StatisticalAnalysis = "pointingTo"
 )
 
 // MetaProperty is any property of a class that we want to retrieve meta
@@ -132,8 +156,26 @@ func extractPropertyAnalyses(selections *ast.SelectionSet) ([]StatisticalAnalysi
 
 func parseAnalysisProp(name string) (StatisticalAnalysis, error) {
 	switch name {
-	case "average":
+	case string(Average):
 		return Average, nil
+	case string(Highest):
+		return Highest, nil
+	case string(Lowest):
+		return Lowest, nil
+	case string(Count):
+		return Count, nil
+	case string(Sum):
+		return Sum, nil
+	case string(TotalTrue):
+		return TotalTrue, nil
+	case string(TotalFalse):
+		return TotalFalse, nil
+	case string(PercentageTrue):
+		return PercentageTrue, nil
+	case string(PercentageFalse):
+		return PercentageFalse, nil
+	case string(PointingTo):
+		return PointingTo, nil
 	default:
 		return "", fmt.Errorf("unrecognized statistical prop '%s'", name)
 	}
