@@ -1,4 +1,4 @@
-package get_meta
+package getmeta
 
 import (
 	"fmt"
@@ -8,9 +8,9 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
-func textPropertyFields(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty) *graphql.Object {
-	getMetaPointingFields := graphql.Fields{
+// a duplicate of the string function, this is a separate function to account for future expansions of functionality
+func datePropertyFields(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
+	getMetaDateFields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%sType", class.Class),
 			Description: descriptions.GetMetaPropertyTypeDesc,
@@ -19,7 +19,6 @@ func textPropertyFields(class *models.SemanticSchemaClass,
 				return nil, fmt.Errorf("not supported")
 			},
 		},
-
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%sCount", class.Class),
 			Description: descriptions.GetMetaPropertyCountDesc,
@@ -28,11 +27,10 @@ func textPropertyFields(class *models.SemanticSchemaClass,
 				return nil, fmt.Errorf("not supported")
 			},
 		},
-
 		"topOccurrences": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%sTopOccurrences", class.Class),
 			Description: descriptions.GetMetaPropertyTopOccurrencesDesc,
-			Type:        graphql.NewList(textTopOccurrences(class, property)),
+			Type:        graphql.NewList(dateTopOccurrences(class, property)),
 			Args: graphql.FieldConfigArgument{
 				"first": &graphql.ArgumentConfig{
 					Description: descriptions.FirstDesc,
@@ -49,18 +47,17 @@ func textPropertyFields(class *models.SemanticSchemaClass,
 		},
 	}
 
-	getMetaTextProperty := graphql.ObjectConfig{
+	getMetaDateProperty := graphql.ObjectConfig{
 		Name:        fmt.Sprintf("Meta%s%sObj", class.Class, property.Name),
-		Fields:      getMetaPointingFields,
+		Fields:      getMetaDateFields,
 		Description: descriptions.GetMetaPropertyObjectDesc,
 	}
 
-	return graphql.NewObject(getMetaTextProperty)
+	return graphql.NewObject(getMetaDateProperty)
 }
 
-func textTopOccurrences(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty) *graphql.Object {
-	getMetaPointingFields := graphql.Fields{
+func dateTopOccurrences(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) *graphql.Object {
+	getMetaMetaPointingFields := graphql.Fields{
 		"value": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%s%sTopOccurrencesValue", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyTopOccurrencesValueDesc,
@@ -69,7 +66,6 @@ func textTopOccurrences(class *models.SemanticSchemaClass,
 				return nil, fmt.Errorf("not supported")
 			},
 		},
-
 		"occurs": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%s%sTopOccurrencesOccurs", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyTopOccurrencesOccursDesc,
@@ -80,11 +76,11 @@ func textTopOccurrences(class *models.SemanticSchemaClass,
 		},
 	}
 
-	getMetaPointing := graphql.ObjectConfig{
+	getMetaMetaPointing := graphql.ObjectConfig{
 		Name:        fmt.Sprintf("Meta%s%sTopOccurrencesObj", class.Class, property.Name),
-		Fields:      getMetaPointingFields,
+		Fields:      getMetaMetaPointingFields,
 		Description: descriptions.GetMetaPropertyTopOccurrencesDesc,
 	}
 
-	return graphql.NewObject(getMetaPointing)
+	return graphql.NewObject(getMetaMetaPointing)
 }
