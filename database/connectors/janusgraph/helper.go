@@ -10,6 +10,7 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
+
 package janusgraph
 
 import (
@@ -17,9 +18,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/filters"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/go-openapi/strfmt"
@@ -70,8 +74,8 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	}
 
 	kind := kind.KindByName(vertex.AssertPropertyValue(PROP_KIND).AssertString())
-	mappedClassName := MappedClassName(vertex.AssertPropertyValue(PROP_CLASS_ID).AssertString())
-	className := j.state.getClassNameFromMapped(mappedClassName)
+	mappedClassName := state.MappedClassName(vertex.AssertPropertyValue(PROP_CLASS_ID).AssertString())
+	className := j.state.GetClassNameFromMapped(mappedClassName)
 	class := j.schema.GetClass(kind, className)
 	if class == nil {
 		panic(fmt.Sprintf("Could not get %s class '%s' from schema", kind.Name(), className))
@@ -99,8 +103,8 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	// Just copy in the value directly. We're not doing any sanity check/casting to proper types for now.
 	for key, val := range vertex.Properties {
 		if strings.HasPrefix(key, "prop_") {
-			mappedPropertyName := MappedPropertyName(key)
-			propertyName := j.state.getPropertyNameFromMapped(className, mappedPropertyName)
+			mappedPropertyName := state.MappedPropertyName(key)
+			propertyName := j.state.GetPropertyNameFromMapped(className, mappedPropertyName)
 			err, property := j.schema.GetProperty(kind, className, propertyName)
 			if err != nil {
 				panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
@@ -124,10 +128,10 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	for _, edge := range refEdges {
 		locationUrl := edge.AssertPropertyValue(PROP_REF_EDGE_LOCATION).AssertString()
 		type_ := edge.AssertPropertyValue(PROP_REF_EDGE_TYPE).AssertString()
-		mappedPropertyName := MappedPropertyName(edge.AssertPropertyValue(PROP_REF_ID).AssertString())
+		mappedPropertyName := state.MappedPropertyName(edge.AssertPropertyValue(PROP_REF_ID).AssertString())
 		uuid := edge.AssertPropertyValue(PROP_REF_EDGE_CREF).AssertString()
 
-		propertyName := j.state.getPropertyNameFromMapped(className, mappedPropertyName)
+		propertyName := j.state.GetPropertyNameFromMapped(className, mappedPropertyName)
 		err, property := j.schema.GetProperty(kind, className, propertyName)
 		if err != nil {
 			panic(fmt.Sprintf("Could not get property '%s' in class %s ; %v", propertyName, className, err))
@@ -171,18 +175,22 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	return nil
 }
 
-func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, yield func(id strfmt.UUID)) error {
-	if len(wheres) > 0 {
-		return errors.New("Wheres are not supported in ListThings")
-	}
+func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, keyID strfmt.UUID, filter *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
 
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name())
 
 	if className != nil {
-		vertexLabel := j.state.getMappedClassName(*className)
+		vertexLabel := j.state.GetMappedClassName(*className)
 		q = q.HasString(PROP_CLASS_ID, string(vertexLabel))
 	}
+
+	filterQuery, err := filters.New(filter, &j.state).String()
+	if err != nil {
+		return fmt.Errorf("could not build fiter query: %s", err)
+	}
+
+	q = q.Raw(filterQuery)
 
 	q = q.
 		Range(offset, first).

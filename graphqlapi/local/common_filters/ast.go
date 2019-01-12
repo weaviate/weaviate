@@ -95,3 +95,13 @@ type Clause struct {
 	Value    *Value
 	Operands []Clause
 }
+
+// GetInnerMost recursively searches for child paths, only when no more
+// children can be found will the path be returned
+func (p *Path) GetInnerMost() *Path {
+	if p.Child == nil {
+		return p
+	}
+
+	return p.Child.GetInnerMost()
+}

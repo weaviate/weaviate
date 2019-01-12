@@ -16,9 +16,11 @@ import (
 	"context"
 	errors_ "errors"
 	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors"
-	"github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -40,7 +42,7 @@ type Janusgraph struct {
 	initialized  bool
 	stateManager connector_state.StateManager
 
-	state janusGraphConnectorState
+	state state.JanusGraphConnectorState
 
 	config        Config
 	serverAddress string

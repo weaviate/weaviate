@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+
+set -e
+
+# Jump to root directory
+cd "$( dirname "${BASH_SOURCE[0]}" )"/../.. || exit 1
+
+docker-compose down --remove-orphans
+
+rm -rf data connector_state.json schema_state.json
+
+docker-compose up -d index janus db genesis_fake weaviate_b_fake
+

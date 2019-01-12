@@ -167,10 +167,8 @@ func parsePath(args map[string]interface{}, rootClass string) (*Path, error) {
 		return nil, fmt.Errorf("The 'path' field for the filter '%s' is not a list of strings", jsonify(args))
 	}
 
-	if len(pathElements) == 1 {
-		// we need to manually insert the root class, as that is omitted from the user
-		pathElements = append([]interface{}{rootClass}, pathElements...)
-	}
+	// we need to manually insert the root class, as that is omitted from the user
+	pathElements = append([]interface{}{rootClass}, pathElements...)
 
 	// The sentinel is used to bootstrap the inlined recursion.
 	// we return sentinal.Child at the end.
@@ -289,12 +287,12 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 		val, ok := rawVal.(float64)
 		if !ok {
 			return nil, fmt.Errorf("the provided valueNumber is not a float")
-		} else {
-			return &Value{
-				Type:  schema.DataTypeNumber,
-				Value: val,
-			}, nil
 		}
+
+		return &Value{
+			Type:  schema.DataTypeNumber,
+			Value: val,
+		}, nil
 	},
 	// Boolean
 	func(args map[string]interface{}) (*Value, error) {
@@ -306,12 +304,12 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 		val, ok := rawVal.(bool)
 		if !ok {
 			return nil, fmt.Errorf("the provided valueBool is not a boolean")
-		} else {
-			return &Value{
-				Type:  schema.DataTypeBoolean,
-				Value: val,
-			}, nil
 		}
+
+		return &Value{
+			Type:  schema.DataTypeBoolean,
+			Value: val,
+		}, nil
 	},
 	// Strings
 	func(args map[string]interface{}) (*Value, error) {
@@ -323,12 +321,12 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 		val, ok := rawVal.(string)
 		if !ok {
 			return nil, fmt.Errorf("the provided valueString is not a string")
-		} else {
-			return &Value{
-				Type:  schema.DataTypeString,
-				Value: val,
-			}, nil
 		}
+
+		return &Value{
+			Type:  schema.DataTypeString,
+			Value: val,
+		}, nil
 	},
 	// Dates
 	func(args map[string]interface{}) (*Value, error) {
@@ -340,18 +338,18 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 		stringVal, ok := rawVal.(string)
 		if !ok {
 			return nil, fmt.Errorf("the provided valueDate is not a date string")
-		} else {
-			date, err := time.Parse(time.RFC3339, stringVal)
-
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse the value '%s' as a date in valueDate", stringVal)
-			}
-
-			return &Value{
-				Type:  schema.DataTypeString,
-				Value: date.Format(time.RFC3339),
-			}, nil
 		}
+
+		date, err := time.Parse(time.RFC3339, stringVal)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse the value '%s' as a date in valueDate", stringVal)
+		}
+
+		return &Value{
+			Type:  schema.DataTypeDate,
+			Value: date,
+		}, nil
 	},
 }
 
