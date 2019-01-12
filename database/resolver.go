@@ -31,7 +31,7 @@ func (dbcr *dbClosingResolver) LocalGetClass(info *graphql_local_get.LocalGetCla
 	return thunk, err
 }
 
-func (dbcr *dbClosingResolver) LocalGetMeta(info *graphql_local_getmeta.LocalGetMetaParams) (interface{}, error) {
+func (dbcr *dbClosingResolver) LocalGetMeta(info *graphql_local_getmeta.Params) (interface{}, error) {
 	connector := dbcr.connectorLock.Connector()
 	return connector.LocalGetMeta(info)
 }

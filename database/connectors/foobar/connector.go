@@ -444,6 +444,6 @@ func (f *Foobar) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (int
 	return nil, nil
 }
 
-func (f *Foobar) LocalGetMeta(info *graphql_local_getmeta.LocalGetMetaParams) (interface{}, error) {
+func (f *Foobar) LocalGetMeta(info *graphql_local_getmeta.Params) (interface{}, error) {
 	return nil, nil
 }

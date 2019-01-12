@@ -197,7 +197,6 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 }
 
 func extractProperties(selections *ast.SelectionSet) ([]SelectProperty, error) {
-	// debugFieldAsts(fieldASTs)
 	var properties []SelectProperty
 
 	for _, selection := range selections.Selections {

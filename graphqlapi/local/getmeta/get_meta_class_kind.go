@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -26,46 +27,51 @@ import (
 )
 
 // Build the dynamically generated GetMeta Things part of the schema
-func classFields(databaseSchema []*models.SemanticSchemaClass, classParentTypeIsAction bool) (*graphql.Object, error) {
-	classFields := graphql.Fields{}
-	kindName := "Things"
-	name := "WeaviateLocalGetMetaThingsObj"
-	description := descriptions.LocalGetMetaThingsObjDesc
-	if classParentTypeIsAction {
+func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*graphql.Object, error) {
+	fields := graphql.Fields{}
+	var (
+		name        string
+		description string
+	)
+
+	switch k {
+	case kind.THING_KIND:
+		name = "WeaviateLocalGetMetaThingsObj"
+		description = descriptions.LocalGetMetaThingsObjDesc
+	case kind.ACTION_KIND:
 		name = "WeaviateLocalGetMetaActionsObj"
 		description = descriptions.LocalGetMetaActionsObjDesc
-		kindName = "Actions"
+	default:
+		return nil, fmt.Errorf("unrecoginzed kind '%#v", k)
 	}
 
 	for _, class := range databaseSchema {
-		field, err := classField(kindName, class, class.Description)
+		field, err := classField(k, class, class.Description)
 
 		if err != nil {
 			return nil, err
 		}
 
-		classFields[class.Class] = field
+		fields[class.Class] = field
 	}
 
-	LocalGetMetaClasses := graphql.ObjectConfig{
+	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        name,
-		Fields:      classFields,
+		Fields:      fields,
 		Description: description,
-	}
-
-	return graphql.NewObject(LocalGetMetaClasses), nil
+	}), nil
 }
 
-func classField(kindName string, class *models.SemanticSchemaClass, description string) (*graphql.Field, error) {
+func classField(k kind.Kind, class *models.SemanticSchemaClass, description string) (*graphql.Field, error) {
 	metaClassName := fmt.Sprintf("Meta%s", class.Class)
 
 	fields := graphql.ObjectConfig{
 		Name: metaClassName,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			fields, err := classPropertyFields(class)
-
 			if err != nil {
-				panic("Failed to assemble single Local Meta Class field")
+				// we cannot return an error in this FieldsThunk and have to panic unfortunately
+				panic(fmt.Sprintf("Failed to assemble single Local Meta Class field: %s", err))
 			}
 
 			return fields
@@ -90,26 +96,14 @@ func classField(kindName string, class *models.SemanticSchemaClass, description 
 				Description: descriptions.LocalGetWhereDesc,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateLocalGetMeta%s%sWhereInpObj", kindName, class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGetMeta%s%s", kindName, class.Class)),
+						Name:        fmt.Sprintf("WeaviateLocalGetMeta%s%sWhereInpObj", k.Name(), class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGetMeta%s%s", k.Name(), class.Class)),
 						Description: descriptions.LocalGetWhereInpObjDesc,
 					},
 				),
 			},
 		},
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			source, ok := p.Source.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("expected source to be a map, but was %t", p.Source)
-			}
-
-			resolver, ok := source["Resolver"].(Resolver)
-			if !ok {
-				return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %t", p.Source)
-			}
-
-			return resolver.LocalGetMeta(nil)
-		},
+		Resolve: makeResolveClass(k),
 	}
 
 	return fieldsField, nil
@@ -126,7 +120,7 @@ func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, err
 	for _, property := range class.Properties {
 		propertyType, err := schema.GetPropertyDataType(class, property.Name)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s.%s: %s", class.Class, property.Name, err)
 		}
 
 		convertedDataType, err := classPropertyField(*propertyType, class, property)
