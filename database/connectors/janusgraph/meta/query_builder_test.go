@@ -10,30 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type testCase struct {
-	name          string
-	inputProps    []gm.MetaProperty
-	expectedQuery string
-}
-
-type testCases []testCase
-
-func (tests testCases) AssertQuery(t *testing.T, nameSource nameSource) {
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			params := &gm.Params{
-				Properties: test.inputProps,
-			}
-			query, err := NewQuery(params, nameSource).String()
-			require.Nil(t, err, "should not error")
-			assert.Equal(t, test.expectedQuery, query, "should match the query")
-
-		})
-
-	}
-
-}
-
 func Test_QueryBuilder(t *testing.T) {
 
 	tests := testCases{
@@ -47,6 +23,18 @@ func Test_QueryBuilder(t *testing.T) {
 			},
 			expectedQuery: `.union(` +
 				`union(has("isCapital").count().as("count").project("count").by(select("count"))).as("isCapital").project("isCapital").by(select("isCapital"))` +
+				`)`,
+		},
+		testCase{
+			name: "with only a boolean, with only totalTrue",
+			inputProps: []gm.MetaProperty{
+				gm.MetaProperty{
+					Name:                "isCapital",
+					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.TotalTrue},
+				},
+			},
+			expectedQuery: `.union(` +
+				`union(groupCount().by("isCapital").as("boolGroupCount").project("boolGroupCount").by(select("boolGroupCount"))).as("isCapital").project("isCapital").by(select("isCapital"))` +
 				`)`,
 		},
 	}
@@ -89,4 +77,28 @@ func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
 
 func (f *fakeNameSource) GetMappedClassName(className schema.ClassName) state.MappedClassName {
 	return state.MappedClassName("class_18")
+}
+
+type testCase struct {
+	name          string
+	inputProps    []gm.MetaProperty
+	expectedQuery string
+}
+
+type testCases []testCase
+
+func (tests testCases) AssertQuery(t *testing.T, nameSource nameSource) {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			params := &gm.Params{
+				Properties: test.inputProps,
+			}
+			query, err := NewQuery(params, nameSource).String()
+			require.Nil(t, err, "should not error")
+			assert.Equal(t, test.expectedQuery, query, "should match the query")
+
+		})
+
+	}
+
 }

@@ -55,6 +55,21 @@ func (q *Query) Count() *Query {
 	return extend_query(q, ".count()")
 }
 
+// GroupCount by values. Will most likely be followed by a `By()`
+func (q *Query) GroupCount() *Query {
+	if q.query == "" {
+		return &Query{query: "groupCount()"}
+	}
+
+	return extend_query(q, ".groupCount()")
+}
+
+// By filters down previous segement, most likely used after a count,
+// groupCount or select statement
+func (q *Query) By(label string) *Query {
+	return extend_query(q, `.by("%s")`, label)
+}
+
 func (q *Query) Fold() *Query {
 	return extend_query(q, ".fold()")
 }

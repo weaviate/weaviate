@@ -3,12 +3,14 @@ module github.com/creativesoftwarefdn/weaviate
 require (
 	github.com/PuerkitoBio/purell v1.1.0 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
+	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
 	github.com/asaskevich/govalidator v0.0.0-20180720115003-f9ffefc3facf // indirect
 	github.com/davecgh/go-spew v1.1.0
 	github.com/docker/go-units v0.3.3 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.1.1
 	github.com/evanphx/json-patch v3.0.0+incompatible
 	github.com/fatih/camelcase v0.0.0-20171027104257-44e46d280b43
+	github.com/fatih/color v1.7.0 // indirect
 	github.com/go-openapi/analysis v0.0.0-20180710011727-3c8fe72ed5d3 // indirect
 	github.com/go-openapi/errors v0.0.0-20180515155515-b2b2befaf267
 	github.com/go-openapi/jsonpointer v0.0.0-20180322222829-3a0015ad55fa // indirect
@@ -29,6 +31,8 @@ require (
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/magiconair/properties v1.8.0
 	github.com/mailru/easyjson v0.0.0-20180723221831-d5012789d665 // indirect
+	github.com/mattn/go-colorable v0.0.9 // indirect
+	github.com/mattn/go-isatty v0.0.4 // indirect
 	github.com/mitchellh/mapstructure v0.0.0-20180715050151-f15292f7a699
 	github.com/onsi/ginkgo v1.6.0 // indirect
 	github.com/onsi/gomega v1.4.1 // indirect

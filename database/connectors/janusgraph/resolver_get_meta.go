@@ -47,15 +47,5 @@ func (j *Janusgraph) LocalGetMeta(params *graphql_local_getmeta.Params) (interfa
 
 	q = q.Raw(metaQuery)
 
-	result, err := j.client.Execute(q)
-	if err != nil {
-		return nil, err
-	}
-
-	first, err := result.First()
-	if err != nil {
-		return nil, err
-	}
-
-	return first.Datum, nil
+	return meta.NewProcessor(j.client).Process(q)
 }

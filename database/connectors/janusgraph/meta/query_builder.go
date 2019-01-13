@@ -9,6 +9,13 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
+const (
+	// BoolGroupCount is an intermediary structure that contains counts for
+	// boolean values. However, they need to be post-processed, thus they are
+	// referenced by a constant name
+	BoolGroupCount = "boolGroupCount"
+)
+
 type Query struct {
 	params     *getmeta.Params
 	nameSource nameSource
@@ -41,16 +48,32 @@ func (b *Query) String() (string, error) {
 func (b *Query) booleanProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
-	// get only one analysis for now
-	// analysis := prop.StatisticalAnalyses[0]
-	countQuery, err := b.booleanPropCount(prop)
-	if err != nil {
-		return nil, err
+	analysisQueries := []*gremlin.Query{}
+	for _, analysis := range prop.StatisticalAnalyses {
+		analysisQuery, err := b.booleanPropAnalysis(prop, analysis)
+		if err != nil {
+			return nil, err
+		}
+
+		analysisQueries = append(analysisQueries, analysisQuery)
+
 	}
 
-	q = q.Union(countQuery).AsProjectBy(string(prop.Name))
+	q = q.Union(analysisQueries...).AsProjectBy(string(prop.Name))
 
 	return q, nil
+}
+
+func (b *Query) booleanPropAnalysis(prop getmeta.MetaProperty,
+	analysis getmeta.StatisticalAnalysis) (*gremlin.Query, error) {
+	switch analysis {
+	case getmeta.Count:
+		return b.booleanPropCount(prop)
+	case getmeta.TotalTrue:
+		return b.booleanPropTotals(prop)
+	default:
+		return nil, fmt.Errorf("unrecognized statistical analysis prop '%#v'", analysis)
+	}
 }
 
 func (b *Query) booleanPropCount(prop getmeta.MetaProperty) (*gremlin.Query, error) {
@@ -59,6 +82,15 @@ func (b *Query) booleanPropCount(prop getmeta.MetaProperty) (*gremlin.Query, err
 	q = q.HasProperty(b.mappedPropertyName(b.params.ClassName, prop.Name)).
 		Count().
 		AsProjectBy("count")
+
+	return q, nil
+}
+
+func (b *Query) booleanPropTotals(prop getmeta.MetaProperty) (*gremlin.Query, error) {
+	q := gremlin.New()
+
+	q = q.GroupCount().By(b.mappedPropertyName(b.params.ClassName, prop.Name)).
+		AsProjectBy(BoolGroupCount)
 
 	return q, nil
 }
