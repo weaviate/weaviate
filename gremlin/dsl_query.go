@@ -205,6 +205,16 @@ func (q *Query) Coalesce(query *Query) *Query {
 	return extend_query(q, `.coalesce(%s)`, query.String())
 }
 
+// Has Property checks if a property is set, regardless of its value
+func (q *Query) HasProperty(key string) *Query {
+	hasQuery := fmt.Sprintf(`has("%s")`, key)
+	if q.query == "" {
+		return &Query{query: hasQuery}
+	}
+
+	return extend_query(q, fmt.Sprintf(".%s", hasQuery))
+}
+
 // Has can be used for arbitrary filtering on props
 //
 // Example: Has("population", EqInt(1000))
@@ -296,4 +306,34 @@ func (q *Query) Optional(query *Query) *Query {
 
 func (q *Query) Drop() *Query {
 	return extend_query(q, ".drop()")
+}
+
+// Union can combine 0..n queries together
+//
+// If used on an existing query it will lead with a dot, e.g:
+//
+// existingQuery().union(<some joined queries>)
+//
+// Otherwise it will not lead with a dot, e.g.:
+//
+// union(<some joined queries>)
+func (q *Query) Union(queries ...*Query) *Query {
+	queryStrings := make([]string, len(queries), len(queries))
+	for i, single := range queries {
+		queryStrings[i] = single.String()
+	}
+
+	queryStringsConcat := strings.Join(queryStrings, ", ")
+	if q.query == "" {
+		return &Query{query: fmt.Sprintf("union(%s)", queryStringsConcat)}
+	}
+
+	return extend_query(q, `.union(%s)`, queryStringsConcat)
+}
+
+// AsProjectBy is a helper construct to wrap a result in a map, it a query like
+// so: .as("isCapital").project("isCapital").by(select("isCapital")))
+func (q *Query) AsProjectBy(label string) *Query {
+	label = EscapeString(label)
+	return extend_query(q, `.as("%s").project("%s").by(select("%s"))`, label, label, label)
 }
