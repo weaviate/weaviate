@@ -48,11 +48,25 @@ func (b *Query) String() (string, error) {
 func (b *Query) booleanProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
+	// retrieving the total true and total false values is a single operation in
+	// Gremlin, however the user can use the graphQL API to retrieve any of the
+	// for total/percentage analysis props. So if the number of those props is
+	// greater than one we want to process these props only once.
+	processedTotalsPropsYet := false
+
 	analysisQueries := []*gremlin.Query{}
 	for _, analysis := range prop.StatisticalAnalyses {
+		if isBooleanTotalsProp(analysis) && processedTotalsPropsYet {
+			continue
+		}
+
 		analysisQuery, err := b.booleanPropAnalysis(prop, analysis)
 		if err != nil {
 			return nil, err
+		}
+
+		if isBooleanTotalsProp(analysis) {
+			processedTotalsPropsYet = true
 		}
 
 		analysisQueries = append(analysisQueries, analysisQuery)
@@ -64,12 +78,21 @@ func (b *Query) booleanProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	return q, nil
 }
 
+func isBooleanTotalsProp(analysis getmeta.StatisticalAnalysis) bool {
+	switch analysis {
+	case getmeta.TotalTrue, getmeta.TotalFalse, getmeta.PercentageTrue, getmeta.PercentageFalse:
+		return true
+	default:
+		return false
+	}
+}
+
 func (b *Query) booleanPropAnalysis(prop getmeta.MetaProperty,
 	analysis getmeta.StatisticalAnalysis) (*gremlin.Query, error) {
 	switch analysis {
 	case getmeta.Count:
 		return b.booleanPropCount(prop)
-	case getmeta.TotalTrue:
+	case getmeta.TotalTrue, getmeta.TotalFalse, getmeta.PercentageTrue, getmeta.PercentageFalse:
 		return b.booleanPropTotals(prop)
 	default:
 		return nil, fmt.Errorf("unrecognized statistical analysis prop '%#v'", analysis)
