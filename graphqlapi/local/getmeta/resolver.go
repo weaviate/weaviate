@@ -82,8 +82,11 @@ const (
 	// sub-props.
 	TopOccurrences StatisticalAnalysis = "topOccurrences"
 
-	// TopOccurrencesValues is a sub-prop of TopOccurrences
-	TopOccurrencesValues StatisticalAnalysis = "values"
+	// TopOccurrencesValue is a sub-prop of TopOccurrences
+	TopOccurrencesValue StatisticalAnalysis = "value"
+
+	// TopOccurrencesOccurs is a sub-prop of TopOccurrences
+	TopOccurrencesOccurs StatisticalAnalysis = "occurs"
 )
 
 // MetaProperty is any property of a class that we want to retrieve meta
@@ -147,8 +150,8 @@ func extractMetaProperties(selections *ast.SelectionSet) ([]MetaProperty, error)
 }
 
 func extractPropertyAnalyses(selections *ast.SelectionSet) ([]StatisticalAnalysis, error) {
-	analyses := make([]StatisticalAnalysis, len(selections.Selections), len(selections.Selections))
-	for i, selection := range selections.Selections {
+	analyses := []StatisticalAnalysis{}
+	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
 		property, err := parseAnalysisProp(name)
@@ -157,16 +160,19 @@ func extractPropertyAnalyses(selections *ast.SelectionSet) ([]StatisticalAnalysi
 		}
 
 		if property == TopOccurrences {
-			// TopOccurrences is the only nested prop for now and it has exactly one
-			// option (values). Knowing this we don't actually have to parse the
-			// subprops. If either another nested prop is added at some point - or
-			// topOccurrences gets a second prop, then we actually need to start
-			// parsing them.
-			analyses[i] = TopOccurrencesValues
+			// TopOccurrences is the only nested prop for now. It does have two
+			// subprops which we predict to be computed in the same query with
+			// neglible additional cost. In this case, we can save the effort of
+			// actually parsing the subprops and just always return both subprops. If
+			// we find this to be too slow (unlikely) and find out that the user
+			// always only wants one of the two props (unlikely, as one is
+			// meaningless without the other), then we can improve this and actually
+			// parse the values.
+			analyses = append(analyses, TopOccurrencesValue, TopOccurrencesOccurs)
 			continue
 		}
 
-		analyses[i] = property
+		analyses = append(analyses, property)
 	}
 
 	return analyses, nil

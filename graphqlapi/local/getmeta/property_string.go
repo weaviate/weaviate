@@ -15,18 +15,12 @@ func stringPropertyFields(class *models.SemanticSchemaClass,
 			Name:        fmt.Sprintf("Meta%sType", class.Class),
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%sCount", class.Class),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"topOccurrences": &graphql.Field{
@@ -42,9 +36,6 @@ func stringPropertyFields(class *models.SemanticSchemaClass,
 					Description: descriptions.AfterDesc,
 					Type:        graphql.Int,
 				},
-			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
 			},
 		},
 	}
@@ -65,18 +56,12 @@ func stringTopOccurrences(class *models.SemanticSchemaClass,
 			Name:        fmt.Sprintf("Meta%s%sTopOccurrencesValue", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyTopOccurrencesValueDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"occurs": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%s%sTopOccurrencesOccurs", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyTopOccurrencesOccursDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 	}
 
