@@ -76,6 +76,14 @@ const (
 
 	// PointingTo is the list of all classes that this reference prop points to
 	PointingTo StatisticalAnalysis = "pointingTo"
+
+	// TopOccurrences of strings, selection can be made more specific with
+	// TopOccurrencesValues for now. In the future there might also be other
+	// sub-props.
+	TopOccurrences StatisticalAnalysis = "topOccurrences"
+
+	// TopOccurrencesValues is a sub-prop of TopOccurrences
+	TopOccurrencesValues StatisticalAnalysis = "values"
 )
 
 // MetaProperty is any property of a class that we want to retrieve meta
@@ -148,6 +156,16 @@ func extractPropertyAnalyses(selections *ast.SelectionSet) ([]StatisticalAnalysi
 			return nil, err
 		}
 
+		if property == TopOccurrences {
+			// TopOccurrences is the only nested prop for now and it has exactly one
+			// option (values). Knowing this we don't actually have to parse the
+			// subprops. If either another nested prop is added at some point - or
+			// topOccurrences gets a second prop, then we actually need to start
+			// parsing them.
+			analyses[i] = TopOccurrencesValues
+			continue
+		}
+
 		analyses[i] = property
 	}
 
@@ -176,6 +194,8 @@ func parseAnalysisProp(name string) (StatisticalAnalysis, error) {
 		return PercentageFalse, nil
 	case string(PointingTo):
 		return PointingTo, nil
+	case string(TopOccurrences):
+		return TopOccurrences, nil
 	default:
 		return "", fmt.Errorf("unrecognized statistical prop '%s'", name)
 	}
