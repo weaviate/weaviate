@@ -48,6 +48,26 @@ func Test_Resolve(t *testing.T) {
 		},
 
 		testCase{
+			name:  "single prop: type",
+			query: "{ GetMeta { Things { Car { horsepower { type } } } } }",
+			expectedProps: []MetaProperty{
+				{
+					Name:                "horsepower",
+					StatisticalAnalyses: []StatisticalAnalysis{Type},
+				},
+			},
+			resolverReturn: map[string]interface{}{
+				"horsepower": map[string]interface{}{
+					"type": "int",
+				},
+			},
+			expectedResults: []result{{
+				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "type"},
+				expectedValue: "int",
+			}},
+		},
+
+		testCase{
 			name:  "two props: highest, lowest, remaining int props",
 			query: "{ GetMeta { Things { Car { horsepower { highest, lowest, count, sum } } } } }",
 			expectedProps: []MetaProperty{
@@ -161,6 +181,28 @@ func Test_Resolve(t *testing.T) {
 				expectedValue: []interface{}{
 					map[string]interface{}{"value": "some-timestamp", "occurs": 3},
 					map[string]interface{}{"value": "another-timestamp", "occurs": 2},
+				},
+			}},
+		},
+
+		testCase{
+			name:  "single prop: refprop",
+			query: "{ GetMeta { Things { Car { MadeBy { pointingTo } } } } }",
+			expectedProps: []MetaProperty{
+				{
+					Name:                "MadeBy",
+					StatisticalAnalyses: []StatisticalAnalysis{PointingTo},
+				},
+			},
+			resolverReturn: map[string]interface{}{
+				"MadeBy": map[string]interface{}{
+					"pointingTo": []string{"Manufacturer"},
+				},
+			},
+			expectedResults: []result{{
+				pathToField: []string{"GetMeta", "Things", "Car", "MadeBy", "pointingTo"},
+				expectedValue: []interface{}{
+					"Manufacturer",
 				},
 			}},
 		},

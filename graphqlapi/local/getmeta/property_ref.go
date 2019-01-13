@@ -14,25 +14,16 @@ func refPropertyObj(class *models.SemanticSchemaClass, property *models.Semantic
 			Name:        fmt.Sprintf("Meta%s%sType", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%s%sCount", class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 		"pointingTo": &graphql.Field{
 			Name:        fmt.Sprintf("Meta%s%sPointingTo", class.Class, property.Name),
 			Description: descriptions.GetMetaClassPropertyPointingToDesc,
 			Type:        graphql.NewList(graphql.String),
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 	}
 
