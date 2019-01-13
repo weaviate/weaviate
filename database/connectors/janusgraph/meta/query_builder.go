@@ -10,11 +10,11 @@ import (
 )
 
 type Query struct {
-	params     getmeta.Params
+	params     *getmeta.Params
 	nameSource nameSource
 }
 
-func NewQuery(params getmeta.Params, nameSource nameSource) *Query {
+func NewQuery(params *getmeta.Params, nameSource nameSource) *Query {
 	return &Query{params: params, nameSource: nameSource}
 }
 
@@ -56,7 +56,9 @@ func (b *Query) booleanProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 func (b *Query) booleanPropCount(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	q := gremlin.New()
 
-	q = q.HasProperty(b.mappedPropertyName(b.params.ClassName, prop.Name)).Count()
+	q = q.HasProperty(b.mappedPropertyName(b.params.ClassName, prop.Name)).
+		Count().
+		AsProjectBy("count")
 
 	return q, nil
 }

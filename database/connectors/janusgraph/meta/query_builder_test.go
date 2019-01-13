@@ -21,7 +21,7 @@ type testCases []testCase
 func (tests testCases) AssertQuery(t *testing.T, nameSource nameSource) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			params := gm.Params{
+			params := &gm.Params{
 				Properties: test.inputProps,
 			}
 			query, err := NewQuery(params, nameSource).String()
@@ -46,7 +46,7 @@ func Test_QueryBuilder(t *testing.T) {
 				},
 			},
 			expectedQuery: `.union(` +
-				`union(has("isCapital").count()).as("isCapital").project("isCapital").by(select("isCapital"))` +
+				`union(has("isCapital").count().as("count").project("count").by(select("count"))).as("isCapital").project("isCapital").by(select("isCapital"))` +
 				`)`,
 		},
 	}
@@ -67,7 +67,7 @@ func Test_QueryBuilderWithNamesource(t *testing.T) {
 				},
 			},
 			expectedQuery: `.union(` +
-				`union(has("prop_20").count()).as("isCapital").project("isCapital").by(select("isCapital"))` +
+				`union(has("prop_20").count().as("count").project("count").by(select("count"))).as("isCapital").project("isCapital").by(select("isCapital"))` +
 				`)`,
 		},
 	}
