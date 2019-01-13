@@ -47,6 +47,10 @@ type Params struct {
 type StatisticalAnalysis string
 
 const (
+	// Type can be applied to any field and will return the type of the field,
+	// such as "int" or "string"
+	Type StatisticalAnalysis = "type"
+
 	// Count the occurence of this property
 	Count StatisticalAnalysis = "count"
 
@@ -180,6 +184,8 @@ func extractPropertyAnalyses(selections *ast.SelectionSet) ([]StatisticalAnalysi
 
 func parseAnalysisProp(name string) (StatisticalAnalysis, error) {
 	switch name {
+	case string(Type):
+		return Type, nil
 	case string(Average):
 		return Average, nil
 	case string(Highest):
