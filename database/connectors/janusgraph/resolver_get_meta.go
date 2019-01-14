@@ -20,7 +20,8 @@ import (
 
 // LocalGetMeta based on GraphQL Query params
 func (j *Janusgraph) LocalGetMeta(params *graphql_local_getmeta.Params) (interface{}, error) {
-	q := gremlin.New().Raw(`g.V().has("classId", "class_3")`)
+	className := j.state.GetMappedClassName(params.ClassName)
+	q := gremlin.New().Raw(`g.V()`).HasString("classId", string(className))
 	metaQuery, err := meta.NewQuery(params, &j.state, &j.schema).String()
 	if err != nil {
 		return nil, err
