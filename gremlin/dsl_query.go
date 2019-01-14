@@ -55,6 +55,12 @@ func (q *Query) Count() *Query {
 	return extend_query(q, ".count()")
 }
 
+// CountLocal is most likely used in conjuction with an aggregation query and
+// wrapped in a By() statement
+func (q *Query) CountLocal() *Query {
+	return extend_query(q, "count(local)")
+}
+
 // GroupCount by values. Will most likely be followed by a `By()`
 func (q *Query) GroupCount() *Query {
 	if q.query == "" {
@@ -68,6 +74,12 @@ func (q *Query) GroupCount() *Query {
 // groupCount or select statement
 func (q *Query) By(label string) *Query {
 	return extend_query(q, `.by("%s")`, label)
+}
+
+// ByQuery filters down previous segement, most likely used after a count,
+// groupCount or select statement. It takes a query rather than a label string
+func (q *Query) ByQuery(subquery *Query) *Query {
+	return extend_query(q, `.by(%s)`, subquery.String())
 }
 
 func (q *Query) Fold() *Query {
@@ -111,6 +123,11 @@ func (q *Query) Values(propNames []string) *Query {
 
 func (q *Query) Range(offset int, limit int) *Query {
 	return extend_query(q, ".range(%d, %d)", offset, limit)
+}
+
+// Limit results
+func (q *Query) Limit(limit int) *Query {
+	return extend_query(q, ".limit(%d)", limit)
 }
 
 func (q *Query) AddV(label string) *Query {
@@ -188,6 +205,24 @@ func (q *Query) OutEWithLabel(label string) *Query {
 	return extend_query(q, `.outE("%s")`, EscapeString(label))
 }
 
+// Aggregate results to perform analyses on them
+func (q *Query) Aggregate(label string) *Query {
+	if q.query == "" {
+		return extend_query(q, `aggregate("%s")`, EscapeString(label))
+	}
+
+	return extend_query(q, `.aggregate("%s")`, EscapeString(label))
+}
+
+// Cap runs queries up until this point
+func (q *Query) Cap(label string) *Query {
+	if q.query == "" {
+		return extend_query(q, `cap("%s")`, EscapeString(label))
+	}
+
+	return extend_query(q, `.cap("%s")`, EscapeString(label))
+}
+
 func (q *Query) InV() *Query {
 	return extend_query(q, ".inV()")
 }
@@ -202,8 +237,12 @@ func (q *Query) Path() *Query {
 }
 
 // Create a reference
-func (q *Query) As(name string) *Query {
-	return extend_query(q, `.as("%s")`, EscapeString(name))
+func (q *Query) As(names ...string) *Query {
+	quoted := make([]string, len(names), len(names))
+	for i, name := range names {
+		quoted[i] = fmt.Sprintf(`"%s"`, EscapeString(name))
+	}
+	return extend_query(q, `.as(%s)`, strings.Join(quoted, ", "))
 }
 
 // Point to a reference
@@ -348,7 +387,13 @@ func (q *Query) Union(queries ...*Query) *Query {
 
 // AsProjectBy is a helper construct to wrap a result in a map, it a query like
 // so: .as("isCapital").project("isCapital").by(select("isCapital")))
-func (q *Query) AsProjectBy(label string) *Query {
-	label = EscapeString(label)
-	return extend_query(q, `.as("%s").project("%s").by(select("%s"))`, label, label, label)
+func (q *Query) AsProjectBy(labels ...string) *Query {
+	if len(labels) <= 1 {
+		label := EscapeString(labels[0])
+		return extend_query(q, `.as("%s").project("%s").by(select("%s"))`, label, label, label)
+	}
+
+	asLabel := EscapeString(labels[0])
+	projectLabel := EscapeString(labels[1])
+	return extend_query(q, `.as("%s").project("%s").by(select("%s"))`, asLabel, projectLabel, asLabel)
 }
