@@ -85,6 +85,8 @@ func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
 		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"bool"}}
 	case "population":
 		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"int"}}
+	case "area":
+		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
 	}
 
 	return fmt.Errorf("fake type source does not have an implementation for prop '%s'", propName), nil
@@ -96,6 +98,8 @@ func (f *fakeTypeSource) FindPropertyDataType(dataType []string) (schema.Propert
 		return &fakeDataType{dataType: schema.DataTypeBoolean}, nil
 	case "int":
 		return &fakeDataType{dataType: schema.DataTypeInt}, nil
+	case "number":
+		return &fakeDataType{dataType: schema.DataTypeNumber}, nil
 	}
 
 	return nil, fmt.Errorf("fake type source does not have an implementation for dataType '%v'", dataType)
