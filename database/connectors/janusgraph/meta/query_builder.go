@@ -34,17 +34,20 @@ type typeSource interface {
 func (b *Query) String() (string, error) {
 	q := gremlin.New()
 
-	// get only one prop for now
-	prop := b.params.Properties[0]
+	props := b.params.Properties
+	propQueries := make([]*gremlin.Query, len(props), len(props))
 
-	propQuery, err := b.prop(prop)
-	if err != nil {
-		return "", fmt.Errorf("could not build get meta query for prop '%s': %s", prop.Name, err)
+	for i, prop := range props {
+		propQuery, err := b.prop(prop)
+		if err != nil {
+			return "", fmt.Errorf("could not build get meta query for prop '%s': %s", prop.Name, err)
+		}
+
+		propQueries[i] = propQuery
 	}
 
-	q = q.Union(propQuery)
+	q = q.Union(propQueries...)
 	return fmt.Sprintf(".%s", q.String()), nil
-
 }
 
 func (b *Query) prop(prop getmeta.MetaProperty) (*gremlin.Query, error) {
