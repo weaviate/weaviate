@@ -421,3 +421,10 @@ func (q *Query) AsProjectBy(labels ...string) *Query {
 	projectLabel := EscapeString(labels[1])
 	return extend_query(q, `.as("%s").project("%s").by(select("%s"))`, asLabel, projectLabel, asLabel)
 }
+
+// OrderLocalByValuesLimit is a helper construct to select the most occuring
+// items, like so if called with "decr", 3:
+// .order(local).by(values, decr).limit(local, 3)
+func (q *Query) OrderLocalByValuesLimit(order string, limit int) *Query {
+	return extend_query(q, `.order(local).by(values, %s).limit(local, %d)`, EscapeString(order), limit)
+}
