@@ -1,124 +1,21 @@
 package meta
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	gm "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func Test_QueryBuilder(t *testing.T) {
-
-	tests := testCases{
-		testCase{
-			name: "with only a boolean, with only count",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
-					Name:                "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count},
-				},
-			},
-			expectedQuery: `
-				.union(
-					union(
-						has("isCapital").count().as("count").project("count").by(select("count"))
-					)
-					.as("isCapital").project("isCapital").by(select("isCapital"))
-				)
-			`,
-		},
-
-		testCase{
-			name: "with only a boolean, with only totalTrue",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
-					Name:                "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.TotalTrue},
-				},
-			},
-			expectedQuery: `
-				.union(
-					union(
-						groupCount().by("isCapital")
-							.as("boolGroupCount").project("boolGroupCount").by(select("boolGroupCount"))
-					)
-						.as("isCapital").project("isCapital").by(select("isCapital"))
-				)
-			`,
-		},
-
-		testCase{
-			name: "with all boolean props combined",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
-					Name: "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Count, gm.TotalTrue, gm.TotalFalse, gm.PercentageTrue, gm.PercentageFalse,
-					},
-				},
-			},
-			expectedQuery: `
-				.union(
-					union(
-						has("isCapital").count()
-							.as("count").project("count").by(select("count")),
-						groupCount().by("isCapital")
-							.as("boolGroupCount").project("boolGroupCount").by(select("boolGroupCount"))
-					)
-						.as("isCapital").project("isCapital").by(select("isCapital"))
-				)
-			`,
-		},
-		testCase{
-			name: "with only a boolean, with only all true/false props",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
-					Name: "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.TotalTrue, gm.TotalFalse, gm.PercentageTrue, gm.PercentageFalse,
-					},
-				},
-			},
-			expectedQuery: `
-				.union(
-					union(
-						groupCount().by("isCapital")
-							.as("boolGroupCount").project("boolGroupCount").by(select("boolGroupCount"))
-					)
-						.as("isCapital").project("isCapital").by(select("isCapital"))
-				)
-			`,
-		},
-	}
-
-	tests.AssertQuery(t, nil)
-
-}
-
-func Test_QueryBuilderWithNamesource(t *testing.T) {
-
-	tests := testCases{
-		testCase{
-			name: "with only a boolean, with only count",
-			inputProps: []gm.MetaProperty{
-				gm.MetaProperty{
-					Name:                "isCapital",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count},
-				},
-			},
-			expectedQuery: `.union(` +
-				`union(has("prop_20").count().as("count").project("count").by(select("count"))).as("isCapital").project("isCapital").by(select("isCapital"))` +
-				`)`,
-		},
-	}
-
-	tests.AssertQuery(t, &fakeNameSource{})
-
-}
+// This file contains only helpers for other tests, please see the test files
+// for individual props.
 
 type fakeNameSource struct{}
 
@@ -135,6 +32,60 @@ func (f *fakeNameSource) GetMappedClassName(className schema.ClassName) state.Ma
 	return state.MappedClassName("class_18")
 }
 
+type fakeTypeSource struct{}
+
+func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
+	propName schema.PropertyName) (error, *models.SemanticSchemaClassProperty) {
+
+	switch propName {
+	case "isCapital":
+		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"bool"}}
+	case "population":
+		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"int"}}
+	}
+
+	return fmt.Errorf("fake type source does not have an implementation for prop '%s'", propName), nil
+}
+
+func (f *fakeTypeSource) FindPropertyDataType(dataType []string) (schema.PropertyDataType, error) {
+	switch dataType[0] {
+	case "bool":
+		return &fakeDataType{dataType: schema.DataTypeBoolean}, nil
+	case "int":
+		return &fakeDataType{dataType: schema.DataTypeInt}, nil
+	}
+
+	return nil, fmt.Errorf("fake type source does not have an implementation for dataType '%v'", dataType)
+}
+
+type fakeDataType struct {
+	dataType schema.DataType
+}
+
+func (p *fakeDataType) Kind() schema.PropertyKind {
+	panic("not implemented")
+}
+
+func (p *fakeDataType) IsPrimitive() bool {
+	return true
+}
+
+func (p *fakeDataType) AsPrimitive() schema.DataType {
+	return p.dataType
+}
+
+func (p *fakeDataType) IsReference() bool {
+	return false
+}
+
+func (p *fakeDataType) Classes() []schema.ClassName {
+	panic("not implemented")
+}
+
+func (p *fakeDataType) ContainsClass(needle schema.ClassName) bool {
+	panic("not implemented")
+}
+
 type testCase struct {
 	name          string
 	inputProps    []gm.MetaProperty
@@ -149,7 +100,7 @@ func (tests testCases) AssertQuery(t *testing.T, nameSource nameSource) {
 			params := &gm.Params{
 				Properties: test.inputProps,
 			}
-			query, err := NewQuery(params, nameSource).String()
+			query, err := NewQuery(params, nameSource, &fakeTypeSource{}).String()
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, stripAll(test.expectedQuery), stripAll(query), "should match the query")
 		})

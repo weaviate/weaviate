@@ -46,7 +46,31 @@ func Test_QueryProcessor(t *testing.T) {
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+	})
 
+	t.Run("when int count is requested", func(t *testing.T) {
+		janusResponse := &gremlin.Response{
+			Data: []gremlin.Datum{
+				gremlin.Datum{
+					Datum: map[string]interface{}{
+						"myIntProp": map[string]interface{}{
+							"count": 8,
+						},
+					},
+				},
+			},
+		}
+		executor := &fakeExecutor{result: janusResponse}
+		expectedResult := map[string]interface{}{
+			"myIntProp": map[string]interface{}{
+				"count": 8,
+			},
+		}
+
+		result, err := NewProcessor(executor).Process(gremlin.New())
+
+		require.Nil(t, err, "should not error")
+		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
 	})
 
 }

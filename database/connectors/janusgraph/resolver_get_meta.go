@@ -20,27 +20,8 @@ import (
 
 // LocalGetMeta based on GraphQL Query params
 func (j *Janusgraph) LocalGetMeta(params *graphql_local_getmeta.Params) (interface{}, error) {
-	// hard-code to city -> population -> average
-	// err, prop := j.schema.GetProperty(kind.THING_KIND, schema.ClassName("City"), schema.PropertyName("population"))
-	// if err != nil {
-	// 	return nil, fmt.Errorf("could not find property in schema: %s", err)
-	// }
-
-	// dataType, err := j.schema.FindPropertyDataType(prop.AtDataType)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("could not find data type: %s", err)
-	// }
-
-	// if !dataType.IsPrimitive() {
-	// 	return nil, fmt.Errorf("GetMeta is not supported with non primitive types in Janusgraph yet")
-	// }
-
-	// if dataType.AsPrimitive() != schema.DataTypeInt {
-	// 	return nil, fmt.Errorf("expected an int in the spike")
-	// }
-
 	q := gremlin.New().Raw(`g.V().has("classId", "class_3")`)
-	metaQuery, err := meta.NewQuery(params, &j.state).String()
+	metaQuery, err := meta.NewQuery(params, &j.state, &j.schema).String()
 	if err != nil {
 		return nil, err
 	}
