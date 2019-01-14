@@ -73,6 +73,48 @@ func Test_QueryProcessor(t *testing.T) {
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
 	})
 
+	t.Run("when string top occurrences are requested", func(t *testing.T) {
+		janusResponse := &gremlin.Response{
+			Data: []gremlin.Datum{
+				gremlin.Datum{
+					Datum: map[string]interface{}{
+						"myStringProp": map[string]interface{}{
+							"topOccurrences": map[string]interface{}{
+								"rare string":          1.0,
+								"common string":        7.0,
+								"not so common string": 3.0,
+							},
+						},
+					},
+				},
+			},
+		}
+		executor := &fakeExecutor{result: janusResponse}
+		expectedResult := map[string]interface{}{
+			"myStringProp": map[string]interface{}{
+				"topOccurrences": []interface{}{
+					map[string]interface{}{
+						"value":  "common string",
+						"occurs": 7.0,
+					},
+					map[string]interface{}{
+						"value":  "not so common string",
+						"occurs": 3.0,
+					},
+					map[string]interface{}{
+						"value":  "rare string",
+						"occurs": 1.0,
+					},
+				},
+			},
+		}
+
+		result, err := NewProcessor(executor).Process(gremlin.New())
+
+		require.Nil(t, err, "should not error")
+		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+	})
+
 }
 
 type fakeExecutor struct {

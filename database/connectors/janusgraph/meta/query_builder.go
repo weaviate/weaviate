@@ -68,6 +68,8 @@ func (b *Query) prop(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	switch dataType.AsPrimitive() {
 	case schema.DataTypeBoolean:
 		return b.booleanProp(prop)
+	case schema.DataTypeString:
+		return b.stringProp(prop)
 	case schema.DataTypeInt, schema.DataTypeNumber:
 		return b.intProp(prop)
 	default:
