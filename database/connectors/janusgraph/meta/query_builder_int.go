@@ -31,8 +31,16 @@ func (b *Query) intPropAnalysis(analysis getmeta.StatisticalAnalysis) (*intAnaly
 	switch analysis {
 	case getmeta.Count:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().CountLocal()}, nil
+	case getmeta.Average:
+		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().MeanLocal()}, nil
+	case getmeta.Sum:
+		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().SumLocal()}, nil
+	case getmeta.Highest:
+		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().MaxLocal()}, nil
+	case getmeta.Lowest:
+		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().MinLocal()}, nil
 	default:
-		return nil, fmt.Errorf("analysis '%s' not supported", analysis)
+		return nil, fmt.Errorf("analysis '%s' not supported for int prop", analysis)
 	}
 }
 

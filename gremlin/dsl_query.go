@@ -61,6 +61,30 @@ func (q *Query) CountLocal() *Query {
 	return extend_query(q, "count(local)")
 }
 
+// SumLocal is most likely used in conjuction with an aggregation query and
+// wrapped in a By() statement
+func (q *Query) SumLocal() *Query {
+	return extend_query(q, "sum(local)")
+}
+
+// MaxLocal is most likely used in conjuction with an aggregation query and
+// wrapped in a By() statement
+func (q *Query) MaxLocal() *Query {
+	return extend_query(q, "max(local)")
+}
+
+// MinLocal is most likely used in conjuction with an aggregation query and
+// wrapped in a By() statement
+func (q *Query) MinLocal() *Query {
+	return extend_query(q, "min(local)")
+}
+
+// MeanLocal is most likely used in conjuction with an aggregation query and
+// wrapped in a By() statement
+func (q *Query) MeanLocal() *Query {
+	return extend_query(q, "mean(local)")
+}
+
 // GroupCount by values. Will most likely be followed by a `By()`
 func (q *Query) GroupCount() *Query {
 	if q.query == "" {
