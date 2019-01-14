@@ -21,14 +21,13 @@ func NewProcessor(executor executor) *Processor {
 	return &Processor{executor: executor}
 }
 
-func (p *Processor) Process(query *gremlin.Query) (interface{}, error) {
-
+func (p *Processor) Process(query *gremlin.Query, typeInfo map[string]interface{}) (interface{}, error) {
 	result, err := p.executor.Execute(query)
 	if err != nil {
 		return nil, fmt.Errorf("could not process meta query: executing the query failed: %s", err)
 	}
 
-	merged, err := p.mergeResults(result)
+	merged, err := p.mergeResults(result, typeInfo)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"got a successful response from janus, but could not merge the results: %s", err)
@@ -37,7 +36,8 @@ func (p *Processor) Process(query *gremlin.Query) (interface{}, error) {
 	return merged, nil
 }
 
-func (p *Processor) mergeResults(input *gremlin.Response) (interface{}, error) {
+func (p *Processor) mergeResults(input *gremlin.Response,
+	typeInfo map[string]interface{}) (interface{}, error) {
 	result := map[string]interface{}{}
 
 	for _, datum := range input.Data {
@@ -46,6 +46,7 @@ func (p *Processor) mergeResults(input *gremlin.Response) (interface{}, error) {
 			return nil, fmt.Errorf("expected datum to be map, but was %#v", datum.Datum)
 		}
 
+		// merge datums from janus
 		for k, v := range datumAsMap {
 			vAsMap, ok := v.(map[string]interface{})
 			if !ok {
@@ -62,9 +63,24 @@ func (p *Processor) mergeResults(input *gremlin.Response) (interface{}, error) {
 				result[k] = processed
 			} else {
 				// we had this prop before let's merge them
-
 				result[k] = mergeMaps(result[k].(map[string]interface{}), processed)
 			}
+		}
+	}
+
+	// merge in type info
+	for k, v := range typeInfo {
+		if _, ok := result[k]; !ok {
+			// first time we see this prop
+			result[k] = v
+		} else {
+			typeMap, ok := v.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("type property was not a map, but %t", v)
+
+			}
+			// we had this prop before let's merge them
+			result[k] = mergeMaps(result[k].(map[string]interface{}), typeMap)
 		}
 	}
 

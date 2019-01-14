@@ -91,6 +91,8 @@ func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
 		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
 	case "dateOfFirstApperance":
 		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
+	case "inCountry":
+		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
 	}
 
 	return fmt.Errorf("fake type source does not have an implementation for prop '%s'", propName), nil
@@ -108,6 +110,8 @@ func (f *fakeTypeSource) FindPropertyDataType(dataType []string) (schema.Propert
 		return &fakeDataType{dataType: schema.DataTypeString}, nil
 	case "date":
 		return &fakeDataType{dataType: schema.DataTypeDate}, nil
+	case "Country":
+		return &fakeDataType{dataType: schema.DataTypeCRef}, nil
 	}
 
 	return nil, fmt.Errorf("fake type source does not have an implementation for dataType '%v'", dataType)
@@ -122,7 +126,7 @@ func (p *fakeDataType) Kind() schema.PropertyKind {
 }
 
 func (p *fakeDataType) IsPrimitive() bool {
-	return true
+	return p.dataType != schema.DataTypeCRef
 }
 
 func (p *fakeDataType) AsPrimitive() schema.DataType {
@@ -130,11 +134,11 @@ func (p *fakeDataType) AsPrimitive() schema.DataType {
 }
 
 func (p *fakeDataType) IsReference() bool {
-	return false
+	return p.dataType == schema.DataTypeCRef
 }
 
 func (p *fakeDataType) Classes() []schema.ClassName {
-	panic("not implemented")
+	return []schema.ClassName{"Country", "WeaviateB/Country"}
 }
 
 func (p *fakeDataType) ContainsClass(needle schema.ClassName) bool {

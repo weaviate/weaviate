@@ -42,7 +42,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New())
+		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
@@ -67,11 +67,100 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New())
+		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
 	})
+
+	t.Run("when int count is requested and there are types to be merged in from a different prop",
+		func(t *testing.T) {
+			janusResponse := &gremlin.Response{
+				Data: []gremlin.Datum{
+					gremlin.Datum{
+						Datum: map[string]interface{}{
+							"myIntProp": map[string]interface{}{
+								"count": 8,
+							},
+						},
+					},
+				},
+			}
+			executor := &fakeExecutor{result: janusResponse}
+			typeInput := map[string]interface{}{
+				"MyRefProp": map[string]interface{}{
+					"pointingTo": []interface{}{"ClassA", "ClassB"},
+				},
+			}
+			expectedResult := map[string]interface{}{
+				"myIntProp": map[string]interface{}{
+					"count": 8,
+				},
+				"MyRefProp": map[string]interface{}{
+					"pointingTo": []interface{}{"ClassA", "ClassB"},
+				},
+			}
+
+			result, err := NewProcessor(executor).Process(gremlin.New(), typeInput)
+
+			require.Nil(t, err, "should not error")
+			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+		})
+
+	t.Run("when int count is requested and there are types to be merged in from the same int prop",
+		func(t *testing.T) {
+			janusResponse := &gremlin.Response{
+				Data: []gremlin.Datum{
+					gremlin.Datum{
+						Datum: map[string]interface{}{
+							"myIntProp": map[string]interface{}{
+								"count": 8,
+							},
+						},
+					},
+				},
+			}
+			executor := &fakeExecutor{result: janusResponse}
+			typeInput := map[string]interface{}{
+				"myIntProp": map[string]interface{}{
+					"type": "int",
+				},
+			}
+			expectedResult := map[string]interface{}{
+				"myIntProp": map[string]interface{}{
+					"count": 8,
+					"type":  "int",
+				},
+			}
+
+			result, err := NewProcessor(executor).Process(gremlin.New(), typeInput)
+
+			require.Nil(t, err, "should not error")
+			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+		})
+
+	t.Run("when int count is requested and there are only types, but nothing else",
+		func(t *testing.T) {
+			janusResponse := &gremlin.Response{
+				Data: nil,
+			}
+			executor := &fakeExecutor{result: janusResponse}
+			typeInput := map[string]interface{}{
+				"myIntProp": map[string]interface{}{
+					"type": "int",
+				},
+			}
+			expectedResult := map[string]interface{}{
+				"myIntProp": map[string]interface{}{
+					"type": "int",
+				},
+			}
+
+			result, err := NewProcessor(executor).Process(gremlin.New(), typeInput)
+
+			require.Nil(t, err, "should not error")
+			assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+		})
 
 	t.Run("when string top occurrences are requested", func(t *testing.T) {
 		janusResponse := &gremlin.Response{
@@ -109,7 +198,7 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 
-		result, err := NewProcessor(executor).Process(gremlin.New())
+		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
 
 		require.Nil(t, err, "should not error")
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")

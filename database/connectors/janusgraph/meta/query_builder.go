@@ -2,6 +2,7 @@ package meta
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -35,15 +36,17 @@ func (b *Query) String() (string, error) {
 	q := gremlin.New()
 
 	props := b.params.Properties
-	propQueries := make([]*gremlin.Query, len(props), len(props))
+	propQueries := []*gremlin.Query{}
 
-	for i, prop := range props {
+	for _, prop := range props {
 		propQuery, err := b.prop(prop)
 		if err != nil {
 			return "", fmt.Errorf("could not build get meta query for prop '%s': %s", prop.Name, err)
 		}
 
-		propQueries[i] = propQuery
+		if propQuery != nil {
+			propQueries = append(propQueries, propQuery)
+		}
 	}
 
 	q = q.Union(propQueries...)
@@ -51,7 +54,7 @@ func (b *Query) String() (string, error) {
 }
 
 func (b *Query) prop(prop getmeta.MetaProperty) (*gremlin.Query, error) {
-	err, parsed := b.typeSource.GetProperty(b.params.Kind, b.params.ClassName, prop.Name)
+	err, parsed := b.typeSource.GetProperty(b.params.Kind, b.params.ClassName, untitle(prop.Name))
 	if err != nil {
 		return nil, fmt.Errorf("could not find property '%s' in schema: %s", prop.Name, err)
 	}
@@ -62,7 +65,8 @@ func (b *Query) prop(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	}
 
 	if !dataType.IsPrimitive() {
-		return nil, fmt.Errorf("GetMeta is not supported with non-primitive types in Janusgraph yet")
+		// skip, as we can get all info for ref-props from the TypeInspector
+		return nil, nil
 	}
 
 	switch dataType.AsPrimitive() {
@@ -84,4 +88,9 @@ func (b *Query) mappedPropertyName(className schema.ClassName,
 	}
 
 	return string(b.nameSource.GetMappedPropertyName(className, propName))
+}
+
+func untitle(propName schema.PropertyName) schema.PropertyName {
+	asString := string(propName)
+	return schema.PropertyName(strings.ToLower(string(asString[0])) + asString[1:])
 }
