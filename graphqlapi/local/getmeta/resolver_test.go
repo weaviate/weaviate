@@ -206,6 +206,26 @@ func Test_Resolve(t *testing.T) {
 				},
 			}},
 		},
+
+		testCase{
+			name:  "single prop: meta",
+			query: "{ GetMeta { Things { Car { meta { count } } } } }",
+			expectedProps: []MetaProperty{
+				{
+					Name:                "meta",
+					StatisticalAnalyses: []StatisticalAnalysis{Count},
+				},
+			},
+			resolverReturn: map[string]interface{}{
+				"meta": map[string]interface{}{
+					"count": 4,
+				},
+			},
+			expectedResults: []result{{
+				pathToField:   []string{"GetMeta", "Things", "Car", "meta", "count"},
+				expectedValue: 4,
+			}},
+		},
 	}
 
 	tests.AssertExtraction(t, kind.THING_KIND, "Car")

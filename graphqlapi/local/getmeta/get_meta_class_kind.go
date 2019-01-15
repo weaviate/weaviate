@@ -174,9 +174,6 @@ func metaPropertyField(class *models.SemanticSchemaClass) (*graphql.Field, error
 	return &graphql.Field{
 		Description: descriptions.GetMetaMetaPropertyDesc,
 		Type:        metaPropertyObj(class),
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported - class property field")
-		},
 	}, nil
 }
 
@@ -186,9 +183,6 @@ func metaPropertyObj(class *models.SemanticSchemaClass) *graphql.Object {
 			Name:        fmt.Sprintf("Meta%sMetaCount", class.Class),
 			Description: descriptions.GetMetaClassMetaCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 	}
 

@@ -10,7 +10,6 @@ import (
 )
 
 func Test_TypeInspector_WithReferenceProp(t *testing.T) {
-
 	t.Run("when the user askes for 'pointingTo'", func(t *testing.T) {
 		input := gm.Params{
 			ClassName: schema.ClassName("City"),
@@ -141,7 +140,26 @@ func Test_TypeInspector_WithoutProperties(t *testing.T) {
 	result, err := NewTypeInspector(&fakeTypeSource{}).Process(&input)
 	require.Nil(t, err, "should not error")
 
-	assert.Equal(t, expectedOutput, result, "should extract the types correctly")
+	assert.Equal(t, expectedOutput, result, "should produce an empty map, but also not error")
+}
+
+func Test_TypeInspector_WithMetaProperties(t *testing.T) {
+	input := gm.Params{
+		ClassName: schema.ClassName("City"),
+		Properties: []gm.MetaProperty{
+			gm.MetaProperty{
+				Name:                "meta",
+				StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count},
+			},
+		},
+	}
+
+	expectedOutput := map[string]interface{}{}
+
+	result, err := NewTypeInspector(&fakeTypeSource{}).Process(&input)
+	require.Nil(t, err, "should not error")
+
+	assert.Equal(t, expectedOutput, result, "should produce an empty map, but also not error")
 }
 
 func Test_TypeInspector_WithPrimitiveProps(t *testing.T) {
