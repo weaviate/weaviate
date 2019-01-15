@@ -54,6 +54,10 @@ func (b *Query) String() (string, error) {
 }
 
 func (b *Query) prop(prop getmeta.MetaProperty) (*gremlin.Query, error) {
+	if prop.Name == MetaProp {
+		return b.metaProp(prop)
+	}
+
 	err, parsed := b.typeSource.GetProperty(b.params.Kind, b.params.ClassName, untitle(prop.Name))
 	if err != nil {
 		return nil, fmt.Errorf("could not find property '%s' in schema: %s", prop.Name, err)

@@ -52,6 +52,10 @@ func (q *Query) E() *Query {
 
 // Count how many vertices or edges are selected by the previous query.
 func (q *Query) Count() *Query {
+	if q.query == "" {
+		return &Query{query: "count()"}
+	}
+
 	return extend_query(q, ".count()")
 }
 

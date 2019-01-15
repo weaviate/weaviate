@@ -22,6 +22,13 @@ func NewTypeInspector(typeSource typeSource) *TypeInspector {
 func (t *TypeInspector) Process(params *getmeta.Params) (map[string]interface{}, error) {
 	result := map[string]interface{}{}
 	for _, prop := range params.Properties {
+		if prop.Name == MetaProp {
+			// no typing is possible on the generic "meta" prop, skip! If we didn't
+			// skip we might incorrectly error later on trying to look up the type of
+			// this prop (which doesn't exist on the schema as it's a helper
+			// construct that can be applied to any class.
+			continue
+		}
 
 		propResult, err := t.analyzeAll(params, prop)
 		if err != nil {
@@ -38,7 +45,6 @@ func (t *TypeInspector) Process(params *getmeta.Params) (map[string]interface{},
 
 func (t *TypeInspector) analyzeAll(params *getmeta.Params,
 	prop getmeta.MetaProperty) (map[string]interface{}, error) {
-
 	results := []map[string]interface{}{}
 	for _, analysis := range prop.StatisticalAnalyses {
 		result, err := t.analyze(params, prop, analysis)
