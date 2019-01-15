@@ -48,6 +48,90 @@ func Test_QueryProcessor(t *testing.T) {
 		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
 	})
 
+	t.Run("when bool groupCount but all results are 'true'", func(t *testing.T) {
+		// this happens either when the user specifies a filter or when every
+		// single vertices has the same value for a boolean prop. We have to make
+		// sure that we don't error because of the missing counter prop, i.e. true
+		// for false, or false for true.
+		janusResponse := &gremlin.Response{
+			Data: []gremlin.Datum{
+				gremlin.Datum{
+					Datum: map[string]interface{}{
+						"myBoolProp": map[string]interface{}{
+							"count": 8,
+						},
+					},
+				},
+				gremlin.Datum{
+					Datum: map[string]interface{}{
+						"myBoolProp": map[string]interface{}{
+							BoolGroupCount: map[string]interface{}{
+								"true": 8.0,
+							},
+						},
+					},
+				},
+			},
+		}
+		executor := &fakeExecutor{result: janusResponse}
+		expectedResult := map[string]interface{}{
+			"myBoolProp": map[string]interface{}{
+				"count":           8,
+				"totalTrue":       8.0,
+				"totalFalse":      0.0,
+				"percentageTrue":  1.0,
+				"percentageFalse": 0.0,
+			},
+		}
+
+		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+
+		require.Nil(t, err, "should not error")
+		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+	})
+
+	t.Run("when bool groupCount but all results are 'false'", func(t *testing.T) {
+		// this happens either when the user specifies a filter or when every
+		// single vertices has the same value for a boolean prop. We have to make
+		// sure that we don't error because of the missing counter prop, i.e. true
+		// for false, or false for true.
+		janusResponse := &gremlin.Response{
+			Data: []gremlin.Datum{
+				gremlin.Datum{
+					Datum: map[string]interface{}{
+						"myBoolProp": map[string]interface{}{
+							"count": 8,
+						},
+					},
+				},
+				gremlin.Datum{
+					Datum: map[string]interface{}{
+						"myBoolProp": map[string]interface{}{
+							BoolGroupCount: map[string]interface{}{
+								"false": 8.0,
+							},
+						},
+					},
+				},
+			},
+		}
+		executor := &fakeExecutor{result: janusResponse}
+		expectedResult := map[string]interface{}{
+			"myBoolProp": map[string]interface{}{
+				"count":           8,
+				"totalFalse":      8.0,
+				"totalTrue":       0.0,
+				"percentageFalse": 1.0,
+				"percentageTrue":  0.0,
+			},
+		}
+
+		result, err := NewProcessor(executor).Process(gremlin.New(), nil)
+
+		require.Nil(t, err, "should not error")
+		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+	})
+
 	t.Run("when int count is requested", func(t *testing.T) {
 		janusResponse := &gremlin.Response{
 			Data: []gremlin.Datum{

@@ -13,36 +13,38 @@ func (p *Processor) postProcessBoolGroupCount(m map[string]interface{}) (map[str
 			"could not post-process boolean totals, expected result to be a map, but was '%#v'", boolProps)
 	}
 
-	totalTrue, ok := boolPropsMap["true"]
-	if !ok {
-		return nil, fmt.Errorf(
-			"boolProps did not contain any info about no of props which are 'true', got '%#v'", boolProps)
+	totalTrue, err := getTotal(boolPropsMap, "true")
+	if err != nil {
+		return nil, err
 	}
 
-	totalTrueInt, ok := totalTrue.(float64)
-	if !ok {
-		return nil, fmt.Errorf(
-			"total true must be an float64, but we got '%t'", totalTrue)
+	totalFalse, err := getTotal(boolPropsMap, "false")
+	if err != nil {
+		return nil, err
 	}
 
-	totalFalse, ok := boolPropsMap["false"]
-	if !ok {
-		return nil, fmt.Errorf(
-			"boolProps did not contain any info about no of props which are 'false', got '%#v'", boolProps)
-	}
-
-	totalFalseInt, ok := totalFalse.(float64)
-	if !ok {
-		return nil, fmt.Errorf(
-			"total true must be an float64, but we got '%t'", totalFalse)
-	}
-
-	total := totalTrueInt + totalFalseInt
+	total := totalTrue + totalFalse
 
 	return map[string]interface{}{
 		"totalTrue":       totalTrue,
 		"totalFalse":      totalFalse,
-		"percentageTrue":  totalTrueInt / total,
-		"percentageFalse": totalFalseInt / total,
+		"percentageTrue":  totalTrue / total,
+		"percentageFalse": totalFalse / total,
 	}, nil
+}
+
+func getTotal(m map[string]interface{}, key string) (float64, error) {
+	total, ok := m[key]
+	if !ok {
+		// this would happen if every single prop is "false"
+		total = float64(0)
+	}
+
+	totalFloat, ok := total.(float64)
+	if !ok {
+		return 0.0, fmt.Errorf(
+			"total %s must be an float64, but we got '%t'", key, total)
+	}
+
+	return totalFloat, nil
 }
