@@ -38,6 +38,10 @@ func (b *Query) stringProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 			processedCountPropsYet = true
 		}
 
+		if analysisQuery == nil {
+			continue
+		}
+
 		analysisQueries = append(analysisQueries, analysisQuery)
 
 	}
@@ -63,6 +67,9 @@ func (b *Query) stringPropAnalysis(prop getmeta.MetaProperty,
 		return b.stringPropCount(prop)
 	case getmeta.TopOccurrencesValue, getmeta.TopOccurrencesOccurs:
 		return b.stringPropTopOccurrences(prop)
+	case getmeta.Type:
+		// skip because type is handled by the type inspector
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("unrecognized statistical analysis prop '%#v'", analysis)
 	}

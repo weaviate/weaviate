@@ -52,8 +52,9 @@ func Test_QueryBuilder_DateProps(t *testing.T) {
 			name: "with only a string, with all possible props",
 			inputProps: []gm.MetaProperty{
 				gm.MetaProperty{
-					Name:                "dateOfFirstApperance",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count, gm.TopOccurrencesValue, gm.TopOccurrencesOccurs},
+					Name: "dateOfFirstApperance",
+					StatisticalAnalyses: []gm.StatisticalAnalysis{
+						gm.Count, gm.Type, gm.TopOccurrencesValue, gm.TopOccurrencesOccurs},
 				},
 			},
 			expectedQuery: `

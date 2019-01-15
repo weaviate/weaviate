@@ -53,7 +53,7 @@ func Test_QueryBuilder_StringProps(t *testing.T) {
 			inputProps: []gm.MetaProperty{
 				gm.MetaProperty{
 					Name:                "name",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count, gm.TopOccurrencesValue, gm.TopOccurrencesOccurs},
+					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Type, gm.Count, gm.TopOccurrencesValue, gm.TopOccurrencesOccurs},
 				},
 			},
 			expectedQuery: `

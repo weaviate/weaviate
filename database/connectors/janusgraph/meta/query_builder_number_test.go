@@ -34,7 +34,7 @@ func Test_QueryBuilder_NumberProps(t *testing.T) {
 				gm.MetaProperty{
 					Name: "area",
 					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Average, gm.Sum, gm.Highest, gm.Lowest, gm.Count,
+						gm.Average, gm.Sum, gm.Highest, gm.Lowest, gm.Count, gm.Type,
 					},
 				},
 			},
