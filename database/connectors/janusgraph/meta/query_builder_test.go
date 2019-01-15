@@ -57,6 +57,51 @@ func Test_QueryBuilder_MultipleProps(t *testing.T) {
 	}
 
 	tests.AssertQuery(t, nil)
+}
+
+func Test_QueryBuilder_MultiplePropsWithFilter(t *testing.T) {
+	tests := testCases{
+		testCase{
+			name: "with multiple props",
+			inputProps: []gm.MetaProperty{
+				gm.MetaProperty{
+					Name: "isCapital",
+					StatisticalAnalyses: []gm.StatisticalAnalysis{
+						gm.Count, gm.TotalTrue, gm.TotalFalse, gm.PercentageTrue, gm.PercentageFalse,
+					},
+				},
+				gm.MetaProperty{
+					Name: "population",
+					StatisticalAnalyses: []gm.StatisticalAnalysis{
+						gm.Average, gm.Sum, gm.Highest, gm.Lowest, gm.Count,
+					},
+				},
+			},
+			expectedQuery: `
+			  .has("foo", eq("bar"))
+				.union(
+					union(
+						has("isCapital").count()
+							.as("count").project("count").by(select("count")),
+						groupCount().by("isCapital")
+							.as("boolGroupCount").project("boolGroupCount").by(select("boolGroupCount"))
+					)
+						.as("isCapital").project("isCapital").by(select("isCapital")),
+					aggregate("aggregation").by("population").cap("aggregation").limit(1)
+						.as("average", "sum", "highest", "lowest", "count")
+						.select("average", "sum", "highest", "lowest", "count")
+						.by(mean(local)).by(sum(local)).by(max(local)).by(min(local)).by(count(local))
+						.as("population").project("population").by(select("population"))
+				)
+			`,
+		},
+	}
+
+	filter := &fakeFilterSource{
+		queryToReturn: `.has("foo", eq("bar"))`,
+	}
+
+	tests.AssertQueryWithFilterSource(t, nil, filter)
 
 }
 
@@ -145,6 +190,14 @@ func (p *fakeDataType) ContainsClass(needle schema.ClassName) bool {
 	panic("not implemented")
 }
 
+type fakeFilterSource struct {
+	queryToReturn string
+}
+
+func (s *fakeFilterSource) String() (string, error) {
+	return s.queryToReturn, nil
+}
+
 type testCase struct {
 	name          string
 	inputProps    []gm.MetaProperty
@@ -154,12 +207,18 @@ type testCase struct {
 type testCases []testCase
 
 func (tests testCases) AssertQuery(t *testing.T, nameSource nameSource) {
+	filter := &fakeFilterSource{}
+	tests.AssertQueryWithFilterSource(t, nameSource, filter)
+}
+
+func (tests testCases) AssertQueryWithFilterSource(t *testing.T, nameSource nameSource,
+	filterSource filterSource) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			params := &gm.Params{
 				Properties: test.inputProps,
 			}
-			query, err := NewQuery(params, nameSource, &fakeTypeSource{}).String()
+			query, err := NewQuery(params, nameSource, &fakeTypeSource{}, filterSource).String()
 			require.Nil(t, err, "should not error")
 			assert.Equal(t, stripAll(test.expectedQuery), stripAll(query), "should match the query")
 		})
