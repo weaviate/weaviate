@@ -124,9 +124,14 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract properties for class '%s': %s", className, err)
 		}
 
+		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
+		if err != nil {
+			return nil, fmt.Errorf("could not extract filters: %s", err)
+		}
+
 		params := &Params{
 			Kind:       kind,
-			Filters:    nil,
+			Filters:    filters,
 			ClassName:  className,
 			Properties: properties,
 		}

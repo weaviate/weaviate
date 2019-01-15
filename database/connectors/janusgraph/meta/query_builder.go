@@ -13,13 +13,20 @@ import (
 )
 
 type Query struct {
-	params     *getmeta.Params
-	nameSource nameSource
-	typeSource typeSource
+	params       *getmeta.Params
+	nameSource   nameSource
+	typeSource   typeSource
+	filterSource filterSource
 }
 
-func NewQuery(params *getmeta.Params, nameSource nameSource, typeSource typeSource) *Query {
-	return &Query{params: params, nameSource: nameSource, typeSource: typeSource}
+func NewQuery(params *getmeta.Params, nameSource nameSource, typeSource typeSource,
+	filterSource filterSource) *Query {
+	return &Query{
+		params:       params,
+		nameSource:   nameSource,
+		typeSource:   typeSource,
+		filterSource: filterSource,
+	}
 }
 
 type nameSource interface {
@@ -30,6 +37,10 @@ type typeSource interface {
 	GetProperty(kind kind.Kind, className schema.ClassName,
 		propName schema.PropertyName) (error, *models.SemanticSchemaClassProperty)
 	FindPropertyDataType(dataType []string) (schema.PropertyDataType, error)
+}
+
+type filterSource interface {
+	String() (string, error)
 }
 
 func (b *Query) String() (string, error) {
@@ -49,8 +60,23 @@ func (b *Query) String() (string, error) {
 		}
 	}
 
+	filterQuery, err := b.filterSource.String()
+	if err != nil {
+		return "", fmt.Errorf("could not extract filters from GetMeta query: %s", err)
+	}
+
+	q = q.Raw(filterQuery)
 	q = q.Union(propQueries...)
-	return fmt.Sprintf(".%s", q.String()), nil
+	return idempotentLeadWithDot(q), nil
+}
+
+func idempotentLeadWithDot(q *gremlin.Query) string {
+	stringified := q.String()
+	if string(stringified[0]) == "." {
+		return stringified
+	}
+
+	return fmt.Sprintf(".%s", stringified)
 }
 
 func (b *Query) prop(prop getmeta.MetaProperty) (*gremlin.Query, error) {
