@@ -27,6 +27,24 @@ func Test_QueryBuilder_BoolProps(t *testing.T) {
 		},
 
 		testCase{
+			name: "with count and type",
+			inputProps: []gm.MetaProperty{
+				gm.MetaProperty{
+					Name:                "isCapital",
+					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Count, gm.Type},
+				},
+			},
+			expectedQuery: `
+				.union(
+					union(
+						has("isCapital").count().as("count").project("count").by(select("count"))
+					)
+					.as("isCapital").project("isCapital").by(select("isCapital"))
+				)
+			`,
+		},
+
+		testCase{
 			name: "with only a boolean, with only totalTrue",
 			inputProps: []gm.MetaProperty{
 				gm.MetaProperty{

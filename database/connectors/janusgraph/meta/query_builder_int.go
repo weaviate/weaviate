@@ -21,6 +21,10 @@ func (b *Query) intProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 			return nil, fmt.Errorf("cannot build query for analysis prop '%s': %s", analysis, err)
 		}
 
+		if newAnalysis == nil {
+			continue
+		}
+
 		analyses = append(analyses, newAnalysis)
 	}
 
@@ -39,6 +43,9 @@ func (b *Query) intPropAnalysis(analysis getmeta.StatisticalAnalysis) (*intAnaly
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().MaxLocal()}, nil
 	case getmeta.Lowest:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().MinLocal()}, nil
+	case getmeta.Type:
+		// skip type as it's handled by the type inspector
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("analysis '%s' not supported for int prop", analysis)
 	}

@@ -34,7 +34,7 @@ func Test_QueryBuilder_IntProps(t *testing.T) {
 				gm.MetaProperty{
 					Name: "population",
 					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Average, gm.Sum, gm.Highest, gm.Lowest, gm.Count,
+						gm.Average, gm.Type, gm.Sum, gm.Highest, gm.Lowest, gm.Count,
 					},
 				},
 			},

@@ -38,6 +38,10 @@ func (b *Query) booleanProp(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 			processedTotalsPropsYet = true
 		}
 
+		if analysisQuery == nil {
+			continue
+		}
+
 		analysisQueries = append(analysisQueries, analysisQuery)
 
 	}
@@ -63,6 +67,9 @@ func (b *Query) booleanPropAnalysis(prop getmeta.MetaProperty,
 		return b.booleanPropCount(prop)
 	case getmeta.TotalTrue, getmeta.TotalFalse, getmeta.PercentageTrue, getmeta.PercentageFalse:
 		return b.booleanPropTotals(prop)
+	case getmeta.Type:
+		// type is handled by the type inspector, not coming from the db
+		return nil, nil
 	default:
 		return nil, fmt.Errorf("unrecognized statistical analysis prop '%#v'", analysis)
 	}
