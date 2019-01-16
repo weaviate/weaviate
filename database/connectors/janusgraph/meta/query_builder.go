@@ -95,8 +95,7 @@ func (b *Query) prop(prop getmeta.MetaProperty) (*gremlin.Query, error) {
 	}
 
 	if !dataType.IsPrimitive() {
-		// skip, as we can get all info for ref-props from the TypeInspector
-		return nil, nil
+		return b.crefProp(prop)
 	}
 
 	switch dataType.AsPrimitive() {
