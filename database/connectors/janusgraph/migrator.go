@@ -43,6 +43,10 @@ func (j *Janusgraph) ensureBasicSchema() error {
 		query.MakePropertyKey(PROP_CREATION_TIME_UNIX, gremlin_schema_query.DATATYPE_LONG, gremlin_schema_query.CARDINALITY_SINGLE)
 		query.MakePropertyKey(PROP_LAST_UPDATE_TIME_UNIX, gremlin_schema_query.DATATYPE_LONG, gremlin_schema_query.CARDINALITY_SINGLE)
 
+		query.MakePropertyKey(PROP_REF_EDGE_CREF, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
+		query.MakePropertyKey(PROP_REF_EDGE_LOCATION, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
+		query.MakePropertyKey(PROP_REF_EDGE_TYPE, gremlin_schema_query.DATATYPE_STRING, gremlin_schema_query.CARDINALITY_SINGLE)
+
 		query.MakeVertexLabel(KEY_VERTEX_LABEL)
 
 		// Keys
