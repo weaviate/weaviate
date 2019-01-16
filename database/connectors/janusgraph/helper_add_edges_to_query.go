@@ -13,6 +13,7 @@
 package janusgraph
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -149,28 +150,28 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 		case float64:
 			q = q.Int64Property(janusPropertyName, int64(t))
 		default:
-			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s, value is %#v", sanitizedPropertyName, t)
 		}
 	case schema.DataTypeString:
 		switch t := value.(type) {
 		case string:
 			q = q.StringProperty(janusPropertyName, t)
 		default:
-			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s, value is %#v", sanitizedPropertyName, t)
 		}
 	case schema.DataTypeText:
 		switch t := value.(type) {
 		case string:
 			q = q.StringProperty(janusPropertyName, t)
 		default:
-			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s, value is %#v", sanitizedPropertyName, t)
 		}
 	case schema.DataTypeBoolean:
 		switch t := value.(type) {
 		case bool:
 			q = q.BoolProperty(janusPropertyName, t)
 		default:
-			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s, value is %#v", sanitizedPropertyName, t)
 		}
 	case schema.DataTypeNumber:
 		switch t := value.(type) {
@@ -178,15 +179,22 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 			q = q.Float64Property(janusPropertyName, float64(t))
 		case float64:
 			q = q.Float64Property(janusPropertyName, t)
+		case json.Number:
+			asFloat, err := t.Float64()
+			if err != nil {
+				return q, fmt.Errorf("Illegal json.Number value for property %s, could not be converted to float64: %s", sanitizedPropertyName, err)
+			}
+
+			q = q.Float64Property(janusPropertyName, asFloat)
 		default:
-			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s, value is %#v", sanitizedPropertyName, t)
 		}
 	case schema.DataTypeDate:
 		switch t := value.(type) {
 		case time.Time:
 			q = q.StringProperty(janusPropertyName, t.Format(time.RFC3339))
 		default:
-			return q, fmt.Errorf("Illegal primitive value for property %s", sanitizedPropertyName)
+			return q, fmt.Errorf("Illegal primitive value for property %s, value is %#v", sanitizedPropertyName, t)
 		}
 	default:
 		panic(fmt.Sprintf("Unkown primitive datatype %s", propType.AsPrimitive()))
