@@ -52,6 +52,8 @@ services:
      - "8184:8184"
     environment:
      - DEV_MODE=true
+    volumes:
+      - ./janusgraph.properties:/janusgraph-config/janusgraph.properties
   db:
     image: scylladb/scylla:2.0.1
     ports:
