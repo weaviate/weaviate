@@ -154,7 +154,7 @@ var solveMetaRootClass = function(nodes_in_class, className, args) {
 				metadata[key]["topOccurrences"] = []
 			}
 		}
-		else {
+		else if (type == "string") {
 			metadata[key]["type"] = "string"
 			metadata[key]["topOccurrences"] = []
 		}
@@ -164,6 +164,9 @@ var solveMetaRootClass = function(nodes_in_class, className, args) {
 		for (var key in nodes_in_class[node]) {
 			if (key == "class" || key == "uuid") {
 				continue
+			}			
+			if (typeof(nodes_in_class[node][key]) == "object") {
+				key = key[0].toUpperCase() + key.substring(1)
 			}
 			metadata[key]["count"] += 1;
 			var type = typeof(nodes_in_class[node][key])
@@ -191,10 +194,10 @@ var solveMetaRootClass = function(nodes_in_class, className, args) {
 					metadata[key]["sum"] += value
 					metadata[key]["average"] = (metadata[key]["sum"] / metadata[key]["count"])
 				}
-				else {
-					metadata[key]["type"] = "string"
-					metadata[key]["topOccurrences"].push({"value": nodes_in_class[node][key], "occurs": 1}) // currently doesn't count occurrences
-				}
+			}
+			else if (type == "string") {
+				metadata[key]["type"] = "string"
+				metadata[key]["topOccurrences"].push({"value": nodes_in_class[node][key], "occurs": 1}) // currently doesn't count occurrences
 			}
 		}
 	}
