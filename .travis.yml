@@ -27,6 +27,7 @@ branches:
   only: 
     - master
     - develop
+    - remove_key_auth
 dist: xenial
 go: 
   - "1.11"
