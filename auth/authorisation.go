@@ -15,12 +15,11 @@ package auth
 
 import (
 	"context"
-	errors_ "errors"
 	"strings"
 
 	"github.com/go-openapi/strfmt"
 
-	"github.com/creativesoftwarefdn/weaviate/database/connectors"
+	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
@@ -53,55 +52,7 @@ func IsOwnKeyOrLowerInTree(ctx context.Context, currentKey *models.KeyTokenGetRe
 
 // ActionsAllowed returns information whether an action is allowed based on given several input vars.
 func ActionsAllowed(ctx context.Context, actions []string, validateObject interface{}, databaseConnector dbconnector.DatabaseConnector, objectOwnerUUID interface{}) (bool, error) {
-	// Get the user by the given principal
-	keyObject := validateObject.(*models.KeyTokenGetResponse)
-
-	// Check whether the given owner of the object is in the children, if the ownerID is given
-	correctChild := false
-	if objectOwnerUUID != nil {
-		correctChild = IsOwnKeyOrLowerInTree(ctx, keyObject, objectOwnerUUID.(strfmt.UUID), databaseConnector)
-	} else {
-		correctChild = true
-	}
-
-	// Return false if the object's owner is not the logged in user or one of its childs.
-	if !correctChild {
-		return false, errors_.New("the object does not belong to the given token or to one of the token's children")
-	}
-
-	// All possible actions in a map to check it more easily
-	actionsToCheck := map[string]bool{
-		"read":    false,
-		"write":   false,
-		"execute": false,
-		"delete":  false,
-	}
-
-	// Add 'true' if an action has to be checked on its rights.
-	for _, action := range actions {
-		actionsToCheck[action] = true
-	}
-
-	// Check every action on its rights, if rights are needed and the key has not that kind of rights, return false.
-	if actionsToCheck["read"] && !keyObject.Read {
-		return false, errors_.New("read rights are needed to perform this action")
-	}
-
-	// Idem
-	if actionsToCheck["write"] && !keyObject.Write {
-		return false, errors_.New("write rights are needed to perform this action")
-	}
-
-	// Idem
-	if actionsToCheck["delete"] && !keyObject.Delete {
-		return false, errors_.New("delete rights are needed to perform this action")
-	}
-
-	// Idem
-	if actionsToCheck["execute"] && !keyObject.Execute {
-		return false, errors_.New("execute rights are needed to perform this action")
-	}
-
+	// Mocked out as key auth is being removed shortly
 	return true, nil
 }
 

@@ -37,10 +37,7 @@ func fillKeyResponseFromVertex(vertex *gremlin.Vertex, keyResponse *models.KeyGe
 
 // Build a reference to a key (used to link actions and things to a key), from a path from the action or thing, to the key.
 func newKeySingleRefFromKeyPath(path *gremlin.Path) *models.SingleRef {
-	location := path.Segments[0].AssertEdge().AssertPropertyValue("locationUrl").AssertString()
 	return &models.SingleRef{
-		NrDollarCref: strfmt.UUID(path.Segments[1].AssertVertex().AssertPropertyValue("uuid").AssertString()),
-		Type:         "Key",
-		LocationURL:  &location,
+		NrDollarCref: strfmt.URI(path.Segments[1].AssertVertex().AssertPropertyValue("uuid").AssertString()),
 	}
 }

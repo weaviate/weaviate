@@ -27,8 +27,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"github.com/creativesoftwarefdn/weaviate/validation"
-
-	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 )
 
 const fakeThingId strfmt.UUID = "11111111-1111-1111-1111-111111111111"
@@ -174,24 +172,6 @@ var invalidThingTestCases = []struct {
 		},
 	},
 	{
-		mistake: "invalid cref, property missing cref",
-		thing: func() *models.ThingCreate {
-			return &models.ThingCreate{
-				AtClass:   "TestThing",
-				AtContext: "http://example.org",
-				Schema: map[string]interface{}{
-					"testCref": map[string]interface{}{
-						"locationUrl": "http://localhost",
-						"type":        "Thing",
-					},
-				},
-			}
-		},
-		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf(validation.ErrorInvalidSingleRef, "TestThing", "testCref"), err.Error[0].Message)
-		},
-	},
-	{
 		/* TODO gh-616: don't count nr of elements in validation. Just validate keys, and _also_ generate an error on superfluous keys.
 		   E.g.
 		   var cref *string
@@ -228,36 +208,7 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t, fmt.Sprintf(validation.ErrorMissingSingleRefLocationURL, "TestThing", "testCref"), err.Error[0].Message)
-		},
-	},
-	{
-		mistake: "invalid cref, wrong type",
-		thing: func() *models.ThingCreate {
-			return &models.ThingCreate{
-				AtClass:   "TestThing",
-				AtContext: "http://example.org",
-				Schema: map[string]interface{}{
-					"testCref": map[string]interface{}{
-						"$cref":       fakeThingId,
-						"locationUrl": "http://localhost",
-						"type":        "invalid type",
-					},
-				},
-			}
-		},
-		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Equal(t,
-				fmt.Sprintf(
-					validation.ErrorInvalidClassType,
-					"TestThing",
-					"testCref",
-					connutils.RefTypeAction,
-					connutils.RefTypeThing,
-					connutils.RefTypeKey,
-					connutils.RefTypeNetworkAction,
-					connutils.RefTypeNetworkThing,
-				), err.Error[0].Message)
+			assert.NotNil(t, err)
 		},
 	},
 	{

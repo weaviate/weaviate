@@ -2824,24 +2824,9 @@ func init() {
     "SingleRef": {
       "properties": {
         "$cref": {
-          "description": "Location of the cross reference.",
+          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
-          "format": "uuid"
-        },
-        "locationUrl": {
-          "description": "Url of location. Http://localhost means this database. This option can be used to refer to other databases.",
-          "type": "string",
-          "format": "url",
-          "default": "http://localhost/"
-        },
-        "type": {
-          "description": "Type should be Thing, Action or Key.",
-          "type": "string",
-          "enum": [
-            "Thing",
-            "Action",
-            "Key"
-          ]
+          "format": "uri"
         }
       }
     },
@@ -6017,24 +6002,9 @@ func init() {
     "SingleRef": {
       "properties": {
         "$cref": {
-          "description": "Location of the cross reference.",
+          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/\u003cuuid\u003e for the example of a local cross-ref to a thing",
           "type": "string",
-          "format": "uuid"
-        },
-        "locationUrl": {
-          "description": "Url of location. Http://localhost means this database. This option can be used to refer to other databases.",
-          "type": "string",
-          "format": "url",
-          "default": "http://localhost/"
-        },
-        "type": {
-          "description": "Type should be Thing, Action or Key.",
-          "type": "string",
-          "enum": [
-            "Thing",
-            "Action",
-            "Key"
-          ]
+          "format": "uri"
         }
       }
     },

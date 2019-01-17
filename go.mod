@@ -23,12 +23,15 @@ require (
 	github.com/go-openapi/swag v0.0.0-20180715190254-becd2f08beaf
 	github.com/go-openapi/validate v0.0.0-20180703152151-9a6e517cddf1
 	github.com/golang/snappy v0.0.0-20170215233205-553a64147049 // indirect
+	github.com/google/pprof v0.0.0-20190109223431-e84dfd68c163 // indirect
 	github.com/gorilla/websocket v1.2.0
 	github.com/graphql-go/graphql v0.7.7
 	github.com/hokaccha/go-prettyjson v0.0.0-20180920040306-f579f869bbfe // indirect
 	github.com/hpcloud/tail v1.0.0 // indirect
+	github.com/ianlancetaylor/demangle v0.0.0-20181102032728-5e5cf60278f6 // indirect
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/kr/pretty v0.1.0 // indirect
+	github.com/magiconair/properties v1.8.0
 	github.com/mailru/easyjson v0.0.0-20180723221831-d5012789d665 // indirect
 	github.com/mattn/go-colorable v0.0.9 // indirect
 	github.com/mattn/go-isatty v0.0.4 // indirect
@@ -36,12 +39,14 @@ require (
 	github.com/onsi/ginkgo v1.6.0 // indirect
 	github.com/onsi/gomega v1.4.1 // indirect
 	github.com/pborman/uuid v0.0.0-20180122190007-c65b2f87fee3 // indirect
+	github.com/pmezard/licenses v0.0.0-20160314180953-1117911df3df // indirect
 	github.com/prometheus/common v0.0.0-20190107103113-2998b132700a
 	github.com/rs/cors v1.5.0
 	github.com/satori/go.uuid v0.0.0-20180103174451-36e9d2ebbde5
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.2.2
 	github.com/syndtr/goleveldb v0.0.0-20180708030551-c4c61651e9e3
+	golang.org/x/arch v0.0.0-20181203225421-5a4828bb7045 // indirect
 	golang.org/x/crypto v0.0.0-20180904163835-0709b304e793
 	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
 	golang.org/x/text v0.3.0 // indirect

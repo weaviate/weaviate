@@ -28,9 +28,7 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 	thingID := assertCreateThing(t, "TestThing", map[string]interface{}{
 		"testCref": map[string]interface{}{
-			"locationUrl": "http://RemoteWeaviateForAcceptanceTest",
-			"type":        "NetworkThing",
-			"$cref":       networkRefID,
+			"$cref": "weaviate://RemoteWeaviateForAcceptanceTest/things/" + networkRefID,
 		},
 	})
 
@@ -39,8 +37,7 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 		rawCref := thing.Schema.(map[string]interface{})["testCref"]
 		require.NotNil(t, rawCref, "cross-ref is present")
 		cref := rawCref.(map[string]interface{})
-		assert.Equal(t, cref["type"], "NetworkThing")
-		assert.Equal(t, cref["$cref"], networkRefID)
+		assert.Equal(t, cref["$cref"], "weaviate://RemoteWeaviateForAcceptanceTest/things/"+networkRefID)
 	})
 
 	t.Run("an implicit schema update has happened, we now include the network ref's class", func(t *testing.T) {
@@ -73,9 +70,7 @@ func TestCanPatchNetworkRef(t *testing.T) {
 		Op:   &op,
 		Path: &path,
 		Value: map[string]interface{}{
-			"$cref":       networkRefID,
-			"locationUrl": "http://RemoteWeaviateForAcceptanceTest",
-			"type":        "NetworkThing",
+			"$cref": "weaviate://RemoteWeaviateForAcceptanceTest/things/" + networkRefID,
 		},
 	}
 
@@ -92,8 +87,7 @@ func TestCanPatchNetworkRef(t *testing.T) {
 		rawCref := patchedThing.Schema.(map[string]interface{})["testCref"]
 		require.NotNil(t, rawCref, "cross-ref is present")
 		cref := rawCref.(map[string]interface{})
-		assert.Equal(t, cref["type"], "NetworkThing")
-		assert.Equal(t, cref["$cref"], networkRefID)
+		assert.Equal(t, cref["$cref"], "weaviate://RemoteWeaviateForAcceptanceTest/things/"+networkRefID)
 	})
 
 	t.Run("an implicit schema update has happened, we now include the network ref's class", func(t *testing.T) {

@@ -586,23 +586,8 @@
     "SingleRef": {
       "properties": {
         "$cref": {
-          "description": "Location of the cross reference.",
-          "format": "uuid",
-          "type": "string"
-        },
-        "locationUrl": {
-          "default": "http://localhost/",
-          "description": "Url of location. Http://localhost means this database. This option can be used to refer to other databases.",
-          "format": "url",
-          "type": "string"
-        },
-        "type": {
-          "description": "Type should be Thing, Action or Key.",
-          "enum": [
-            "Thing",
-            "Action",
-            "Key"
-          ],
+          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing",
+          "format": "uri",
           "type": "string"
         }
       }

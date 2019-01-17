@@ -14,9 +14,8 @@ package restapi
 
 import (
 	"fmt"
-	"net/url"
 
-	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
@@ -75,12 +74,12 @@ func (u *referenceSchemaUpdater) addNetworkDataTypes(schema interface{}) error {
 }
 
 func (u *referenceSchemaUpdater) singleRef(prop *models.SingleRef, propName string) error {
-	parsed, err := url.Parse(*prop.LocationURL)
+	parsed, err := crossref.ParseSingleRef(prop)
 	if err != nil {
 		return err
 	}
 
-	if parsed.Host == "localhost" {
+	if parsed.Local {
 		// local ref, nothign to do
 		return nil
 	}
@@ -90,21 +89,16 @@ func (u *referenceSchemaUpdater) singleRef(prop *models.SingleRef, propName stri
 		return fmt.Errorf("could not list network peers: %s", err)
 	}
 
-	networkResourceKind, err := kindOfNetworResource(prop, parsed.Host)
-	if err != nil {
-		return err
-	}
-
 	remoteKind, err := peers.RemoteKind(crossrefs.NetworkKind{
-		Kind:     networkResourceKind,
-		ID:       prop.NrDollarCref,
-		PeerName: parsed.Host,
+		Kind:     parsed.Kind,
+		ID:       parsed.TargetID,
+		PeerName: parsed.PeerName,
 	})
 	if err != nil {
 		return fmt.Errorf("invalid network reference: %s", err)
 	}
 
-	return u.updateSchema(remoteKind, parsed.Host, prop, propName)
+	return u.updateSchema(remoteKind, parsed.PeerName, prop, propName)
 }
 
 func (u *referenceSchemaUpdater) updateSchema(remoteKind interface{}, peerName string, prop *models.SingleRef,
@@ -129,20 +123,4 @@ func (u *referenceSchemaUpdater) updateSchema(remoteKind interface{}, peerName s
 	}
 
 	return nil
-}
-
-func kindOfNetworResource(prop *models.SingleRef, peerName string) (kind.Kind, error) {
-	var k kind.Kind
-	switch connutils.RefType(prop.Type) {
-	case connutils.RefTypeNetworkThing:
-		k = kind.THING_KIND
-	case connutils.RefTypeNetworkAction:
-		k = kind.ACTION_KIND
-	default:
-		return kind.Kind(""), fmt.Errorf("unrecognized network reference type '%s' for cref %#v at %s, "+
-			"must be one of: %s, %s", prop.Type, prop, peerName, connutils.RefTypeNetworkThing,
-			connutils.RefTypeNetworkAction)
-	}
-
-	return k, nil
 }

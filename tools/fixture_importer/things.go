@@ -174,8 +174,7 @@ func fixupThings() {
 
 		if fixup.location == "" {
 			// is local ref
-			kind, ok := classKinds[fixup.toClass]
-
+			_, ok := classKinds[fixup.toClass]
 			if !ok {
 				panic(fmt.Sprintf("Unknown class '%s'", fixup.toClass))
 			}
@@ -184,9 +183,7 @@ func fixupThings() {
 				Op:   &op,
 				Path: &path,
 				Value: map[string]interface{}{
-					"$cref":       idMap[fixup.toId],
-					"locationUrl": "http://localhost",
-					"type":        kind,
+					"$cref": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
 				},
 			}
 		} else {
@@ -195,9 +192,7 @@ func fixupThings() {
 				Op:   &op,
 				Path: &path,
 				Value: map[string]interface{}{
-					"$cref":       fixup.toId,
-					"locationUrl": fmt.Sprintf("http://%s", fixup.location),
-					"type":        "NetworkThing", // hard-code thing for now
+					"$cref": fmt.Sprintf("weaviate://%s/things/%s", fixup.location, fixup.toId),
 				},
 			}
 		}
@@ -219,22 +214,17 @@ func fixupThings() {
 		for _, fixup := range fixups {
 			if fixup.location == "" {
 				// is local ref
-				kind, ok := classKinds[fixup.toClass]
-
+				_, ok := classKinds[fixup.toClass]
 				if !ok {
 					panic(fmt.Sprintf("Unknown class '%s'", fixup.toClass))
 				}
 
 				patch.Value = append(patch.Value.([]map[string]interface{}), map[string]interface{}{
-					"$cref":       idMap[fixup.toId],
-					"locationUrl": "http://localhost",
-					"type":        kind,
+					"$cref": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
 				})
 			} else {
 				patch.Value = append(patch.Value.([]map[string]interface{}), map[string]interface{}{
-					"$cref":       fixup.toId,
-					"locationUrl": fmt.Sprintf("http://%s", fixup.location),
-					"type":        "NetworkThing", // hard-code thing for now
+					"$cref": fmt.Sprintf("weaviate://%s/things/%s", fixup.location, fixup.toId),
 				})
 			}
 		}

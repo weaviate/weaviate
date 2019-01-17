@@ -32,14 +32,11 @@ func setupKeysHandlers(api *operations.WeaviateAPI) {
 		key := principal.(*models.KeyTokenGetResponse)
 
 		// Fill the new User object
-		url := serverConfig.GetHostAddress()
 		newKey := &models.KeyTokenGetResponse{}
 		newKey.KeyID = connutils.GenerateUUID()
 		newKey.Token = connutils.GenerateUUID()
 		newKey.Parent = &models.SingleRef{
-			LocationURL:  &url,
-			NrDollarCref: principal.(*models.KeyTokenGetResponse).KeyID,
-			Type:         string(connutils.RefTypeKey),
+			NrDollarCref: strfmt.URI(principal.(*models.KeyTokenGetResponse).KeyID),
 		}
 		newKey.KeyCreate = *params.Body
 
