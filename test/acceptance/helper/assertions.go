@@ -25,7 +25,7 @@ func AssertRequestOk(t *testing.T, response interface{}, err error, check_fn fun
 	if err != nil {
 		response_json, _ := json.MarshalIndent(response, "", "  ")
 		errorPayload, _ := json.MarshalIndent(err, "", " ")
-		t.Fatalf("Failed to perform request! Error: %s %s. Response: %s", getType(err), errorPayload, response_json)
+		t.Fatalf("Failed to perform request! Error: %s %s (Original error %s). Response: %s", getType(err), errorPayload, err, response_json)
 	} else {
 		if check_fn != nil {
 			check_fn()

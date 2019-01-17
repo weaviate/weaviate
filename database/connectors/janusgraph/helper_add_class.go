@@ -41,8 +41,8 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 	// Link to key
 	q = q.AddE(KEY_VERTEX_LABEL).
 		StringProperty(PROP_REF_EDGE_CREF, string(key.NrDollarCref)).
-		StringProperty(PROP_REF_EDGE_TYPE, key.Type).
-		StringProperty(PROP_REF_EDGE_LOCATION, *key.LocationURL)
+		StringProperty(PROP_REF_EDGE_TYPE, "Key").
+		StringProperty(PROP_REF_EDGE_LOCATION, "localhost")
 
 	q = q.FromRef(sourceClassAlias).
 		ToQuery(gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).HasString(PROP_UUID, key.NrDollarCref.String()))

@@ -18,8 +18,6 @@ package models
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"encoding/json"
-
 	strfmt "github.com/go-openapi/strfmt"
 
 	"github.com/go-openapi/errors"
@@ -31,16 +29,9 @@ import (
 // swagger:model SingleRef
 type SingleRef struct {
 
-	// Location of the cross reference.
-	// Format: uuid
-	NrDollarCref strfmt.UUID `json:"$cref,omitempty"`
-
-	// Url of location. Http://localhost means this database. This option can be used to refer to other databases.
-	LocationURL *string `json:"locationUrl,omitempty"`
-
-	// Type should be Thing, Action or Key.
-	// Enum: [Thing Action Key]
-	Type string `json:"type,omitempty"`
+	// URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing
+	// Format: uri
+	NrDollarCref strfmt.URI `json:"$cref,omitempty"`
 }
 
 // Validate validates this single ref
@@ -48,10 +39,6 @@ func (m *SingleRef) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateNrDollarCref(formats); err != nil {
-		res = append(res, err)
-	}
-
-	if err := m.validateType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -67,53 +54,7 @@ func (m *SingleRef) validateNrDollarCref(formats strfmt.Registry) error {
 		return nil
 	}
 
-	if err := validate.FormatOf("$cref", "body", "uuid", m.NrDollarCref.String(), formats); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-var singleRefTypeTypePropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["Thing","Action","Key"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		singleRefTypeTypePropEnum = append(singleRefTypeTypePropEnum, v)
-	}
-}
-
-const (
-
-	// SingleRefTypeThing captures enum value "Thing"
-	SingleRefTypeThing string = "Thing"
-
-	// SingleRefTypeAction captures enum value "Action"
-	SingleRefTypeAction string = "Action"
-
-	// SingleRefTypeKey captures enum value "Key"
-	SingleRefTypeKey string = "Key"
-)
-
-// prop value enum
-func (m *SingleRef) validateTypeEnum(path, location string, value string) error {
-	if err := validate.Enum(path, location, value, singleRefTypeTypePropEnum); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (m *SingleRef) validateType(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Type) { // not required
-		return nil
-	}
-
-	// value enum
-	if err := m.validateTypeEnum("type", "body", m.Type); err != nil {
+	if err := validate.FormatOf("$cref", "body", "uri", m.NrDollarCref.String(), formats); err != nil {
 		return err
 	}
 

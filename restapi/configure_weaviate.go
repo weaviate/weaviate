@@ -137,15 +137,10 @@ func generateMultipleRefObject(keyIDs []strfmt.UUID) models.MultipleRef {
 	// Init the response
 	refs := models.MultipleRef{}
 
-	// Init localhost
-	url := serverConfig.GetHostAddress()
-
 	// Generate SingleRefs
 	for _, keyID := range keyIDs {
 		refs = append(refs, &models.SingleRef{
-			LocationURL:  &url,
-			NrDollarCref: keyID,
-			Type:         string(connutils.RefTypeKey),
+			NrDollarCref: strfmt.URI(keyID),
 		})
 	}
 
@@ -638,11 +633,8 @@ func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, 
 	databaseSchema := schema.HackFromDatabaseSchema(requestLocks.DBLock.GetSchema())
 
 	// Create Key-ref object
-	url := serverConfig.GetHostAddress()
 	keyRef := &models.SingleRef{
-		LocationURL:  &url,
-		NrDollarCref: principal.(*models.KeyTokenGetResponse).KeyID,
-		Type:         string(connutils.RefTypeKey),
+		NrDollarCref: strfmt.URI(principal.(*models.KeyTokenGetResponse).KeyID),
 	}
 
 	// Create Action object
@@ -733,11 +725,8 @@ func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, b
 	databaseSchema := schema.HackFromDatabaseSchema(requestLocks.DBLock.GetSchema())
 
 	// Create Key-ref object
-	url := serverConfig.GetHostAddress()
 	keyRef := &models.SingleRef{
-		LocationURL:  &url,
-		NrDollarCref: principal.(*models.KeyTokenGetResponse).KeyID,
-		Type:         string(connutils.RefTypeKey),
+		NrDollarCref: strfmt.URI(principal.(*models.KeyTokenGetResponse).KeyID),
 	}
 
 	// Create Thing object

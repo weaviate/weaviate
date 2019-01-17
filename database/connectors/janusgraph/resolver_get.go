@@ -14,11 +14,11 @@ package janusgraph
 
 import (
 	"fmt"
-	"net/url"
 	"runtime/debug"
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	graphql_local_common_filters "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
@@ -166,18 +166,17 @@ func (j *Janusgraph) doLocalGetClassResolveRefClassProp(knd kind.Kind, className
 	// Loop over the raw results
 	refResults := []interface{}{}
 	for _, rawRef := range rawRefs {
-		refType := rawRef["type"].(string)
-		refID := strfmt.UUID(rawRef["$cref"].(string))
-		refLocation := rawRef["locationUrl"].(string)
-
-		lookupClassKind := classKindFromRefType(refType)
-		if lookupClassKind == kind.THING_KIND || lookupClassKind == kind.ACTION_KIND {
-			localRef := j.doLocalGetClassResolveLocalRef(selectProperty, lookupClassKind, refID)
-			refResults = append(refResults, localRef...)
+		refString := rawRef["$cref"].(string)
+		ref, err := crossref.Parse(refString)
+		if err != nil {
+			panic(fmt.Sprintf("janusgraph.LocalGetClass: could not parse crossref '%s': %s", refString, err))
 		}
 
-		if lookupClassKind == kind.NETWORK_THING_KIND || lookupClassKind == kind.NETWORK_ACTION_KIND {
-			networkRef := extractNetworkRef(lookupClassKind, refID, refLocation, selectProperty)
+		if ref.Local {
+			localRef := j.doLocalGetClassResolveLocalRef(selectProperty, ref.Kind, ref.TargetID)
+			refResults = append(refResults, localRef...)
+		} else {
+			networkRef := extractNetworkRef(ref.Kind, ref.TargetID, ref.PeerName, selectProperty)
 			refResults = append(refResults, networkRef...)
 		}
 	}
@@ -215,23 +214,8 @@ func (j *Janusgraph) doLocalGetClassResolveLocalRef(selectProperty graphql_local
 		}}
 }
 
-func extractNetworkRef(lookupClassKind kind.Kind, refID strfmt.UUID, refLocation string,
+func extractNetworkRef(k kind.Kind, refID strfmt.UUID, peerName string,
 	selectProperty graphql_local_get.SelectProperty) []interface{} {
-	// from our perspective we are talking about network kinds, but from the
-	// peers persepective those are local kinds, so we need to rewrite them:
-	var localKind kind.Kind
-	switch lookupClassKind {
-	case kind.NETWORK_THING_KIND:
-		localKind = kind.THING_KIND
-	case kind.NETWORK_ACTION_KIND:
-		localKind = kind.ACTION_KIND
-	}
-
-	locationParsed, err := url.Parse(string(refLocation))
-	if err != nil {
-		panic(fmt.Errorf("could not parse location (%s) for %s with id '%s': %s", refLocation,
-			localKind.TitleizedName(), refID, err))
-	}
 
 	// We cannot do an exact check of whether the user specified that
 	// they wanted this class as part of their SelectProperties because
@@ -245,155 +229,19 @@ func extractNetworkRef(lookupClassKind kind.Kind, refID strfmt.UUID, refLocation
 	// So instead, we can at least check if the user asked about any
 	// classes from this particular peer. If not we can safely determine
 	// that this particular network ref is not desired.
-	if !selectProperty.HasPeer(locationParsed.Host) {
+	if !selectProperty.HasPeer(peerName) {
 		return []interface{}{}
 	}
 
 	return []interface{}{
 		graphql_local_get.NetworkRef{
 			NetworkKind: crossrefs.NetworkKind{
-				PeerName: locationParsed.Host,
+				PeerName: peerName,
 				ID:       refID,
-				Kind:     localKind,
+				Kind:     k,
 			},
 		},
 	}
-}
-
-func matchesFilter(result interface{}, filter *graphql_local_common_filters.LocalFilter) bool {
-	if filter == nil {
-		return true
-	} else {
-		return matchesClause(result, filter.Root)
-	}
-}
-
-func matchesClause(result interface{}, clause *graphql_local_common_filters.Clause) bool {
-	if clause == nil {
-		return true
-	}
-
-	if clause.Operator.OnValue() {
-		rawFound := resolvePathInResult(result, clause.On)
-
-		switch clause.Value.Type {
-		case schema.DataTypeString:
-			found := rawFound.(string)
-			expected := clause.Value.Value.(string)
-			switch clause.Operator {
-			case graphql_local_common_filters.OperatorEqual:
-				return found == expected
-			case graphql_local_common_filters.OperatorNotEqual:
-				return found != expected
-			case graphql_local_common_filters.OperatorGreaterThan:
-				return found > expected
-			case graphql_local_common_filters.OperatorGreaterThanEqual:
-				return found >= expected
-			case graphql_local_common_filters.OperatorLessThan:
-				return found < expected
-			case graphql_local_common_filters.OperatorLessThanEqual:
-				return found <= expected
-			}
-		case schema.DataTypeText:
-			found := rawFound.(string)
-			expected := clause.Value.Value.(string)
-			switch clause.Operator {
-			case graphql_local_common_filters.OperatorEqual:
-				return found == expected
-			case graphql_local_common_filters.OperatorNotEqual:
-				return found != expected
-			case graphql_local_common_filters.OperatorGreaterThan:
-				return found > expected
-			case graphql_local_common_filters.OperatorGreaterThanEqual:
-				return found >= expected
-			case graphql_local_common_filters.OperatorLessThan:
-				return found < expected
-			case graphql_local_common_filters.OperatorLessThanEqual:
-				return found <= expected
-			}
-		case schema.DataTypeInt:
-			found := rawFound.(int)
-			expected := clause.Value.Value.(int)
-			switch clause.Operator {
-			case graphql_local_common_filters.OperatorEqual:
-				return found == expected
-			case graphql_local_common_filters.OperatorNotEqual:
-				return found != expected
-			case graphql_local_common_filters.OperatorGreaterThan:
-				return found > expected
-			case graphql_local_common_filters.OperatorGreaterThanEqual:
-				return found >= expected
-			case graphql_local_common_filters.OperatorLessThan:
-				return found < expected
-			case graphql_local_common_filters.OperatorLessThanEqual:
-				return found <= expected
-			}
-		case schema.DataTypeNumber:
-			found := rawFound.(float64)
-			expected := clause.Value.Value.(float64)
-			switch clause.Operator {
-			case graphql_local_common_filters.OperatorEqual:
-				return found == expected
-			case graphql_local_common_filters.OperatorNotEqual:
-				return found != expected
-			case graphql_local_common_filters.OperatorGreaterThan:
-				return found > expected
-			case graphql_local_common_filters.OperatorGreaterThanEqual:
-				return found >= expected
-			case graphql_local_common_filters.OperatorLessThan:
-				return found < expected
-			case graphql_local_common_filters.OperatorLessThanEqual:
-				return found <= expected
-			}
-		case schema.DataTypeBoolean:
-			found := rawFound.(bool)
-			expected := clause.Value.Value.(bool)
-			switch clause.Operator {
-			case graphql_local_common_filters.OperatorEqual:
-				return found == expected
-			case graphql_local_common_filters.OperatorNotEqual:
-				return found != expected
-			case graphql_local_common_filters.OperatorGreaterThan:
-				panic("not supported")
-			case graphql_local_common_filters.OperatorGreaterThanEqual:
-				panic("not supported")
-			case graphql_local_common_filters.OperatorLessThan:
-				panic("not supported")
-			case graphql_local_common_filters.OperatorLessThanEqual:
-				panic("not supported")
-			}
-		default:
-			panic("not supported")
-		}
-	} else {
-		switch clause.Operator {
-		case graphql_local_common_filters.OperatorAnd:
-			for _, operand := range clause.Operands {
-				if !matchesClause(result, &operand) {
-					return false
-				}
-			}
-			return true
-		case graphql_local_common_filters.OperatorOr:
-			for _, operand := range clause.Operands {
-				if matchesClause(result, &operand) {
-					return true
-				}
-			}
-			return false
-		case graphql_local_common_filters.OperatorNot:
-			for _, operand := range clause.Operands {
-				if matchesClause(result, &operand) {
-					return false
-				}
-			}
-			return true
-		default:
-			panic("Unknown operator")
-		}
-	}
-
-	panic("should be unreachable")
 }
 
 func resolvePathInResult(result interface{}, path *graphql_local_common_filters.Path) interface{} {
@@ -413,21 +261,4 @@ func resolvePathInResult(result interface{}, path *graphql_local_common_filters.
 	} else {
 		return resolvePathInResult(resultAsMap[strings.Title(path.Property.String())], path.Child)
 	}
-}
-
-func classKindFromRefType(refType string) kind.Kind {
-	var result kind.Kind
-	switch refType {
-	case "Thing":
-		result = kind.THING_KIND
-	case "Action":
-		result = kind.ACTION_KIND
-	case "NetworkThing":
-		result = kind.NETWORK_THING_KIND
-	case "NetworkAction":
-		result = kind.NETWORK_ACTION_KIND
-	default:
-		panic(fmt.Sprintf("unsupported kind in reference: %s", refType))
-	}
-	return result
 }

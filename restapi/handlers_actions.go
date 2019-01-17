@@ -386,22 +386,12 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		}
 
 		crefStr := string(params.Body.NrDollarCref)
-		locationUrl := string(*params.Body.LocationURL)
-		bodyType := string(params.Body.Type)
 
 		// Remove if this reference is found.
 		for idx, schemaPropItem := range schemaPropList {
 			schemaRef := schemaPropItem.(map[string]interface{})
 
 			if schemaRef["$cref"].(string) != crefStr {
-				continue
-			}
-
-			if schemaRef["locationUrl"].(string) != locationUrl {
-				continue
-			}
-
-			if schemaRef["type"].(string) != bodyType {
 				continue
 			}
 
@@ -476,7 +466,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			"reference not found", principal.(*models.KeyTokenGetResponse))
 		if err != nil {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
-				WithPayload(createErrorResponseObject(err.Error()))
+				WithPayload(createErrorResponseObject(fmt.Sprintf("validation failed: %s", err.Error())))
 		}
 
 		if class.Action.Schema == nil {
@@ -494,7 +484,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		err = dbConnector.UpdateAction(ctx, &(class.Action), UUID)
 		if err != nil {
-			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
+				WithPayload(createErrorResponseObject(fmt.Sprintf("could not perform db update query: %s", err.Error())))
 		}
 
 		// Returns accepted so a Go routine can process in the background
@@ -624,11 +615,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		}()
 
 		// Create Key-ref-Object
-		url := serverConfig.GetHostAddress()
 		keyRef := &models.SingleRef{
-			LocationURL:  &url,
-			NrDollarCref: principal.(*models.KeyTokenGetResponse).KeyID,
-			Type:         string(connutils.RefTypeKey),
+			NrDollarCref: strfmt.URI(principal.(*models.KeyTokenGetResponse).KeyID),
 		}
 
 		// Make Action-Object

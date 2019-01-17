@@ -15,6 +15,7 @@ package test
 // Acceptance tests for actions
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
@@ -107,9 +108,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 		Op:   &op,
 		Path: &path,
 		Value: map[string]interface{}{
-			"$cref":       thingToRefID,
-			"locationUrl": "http://localhost",
-			"type":        "Thing",
+			"$cref": fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID),
 		},
 	}
 
@@ -127,6 +126,5 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	rawCref := patchedAction.Schema.(map[string]interface{})["testCref"]
 	cref := rawCref.(map[string]interface{})
 
-	assert.Equal(t, cref["type"], "Thing")
-	assert.Equal(t, cref["$cref"], string(thingToRefID))
+	assert.Equal(t, fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID), cref["$cref"])
 }

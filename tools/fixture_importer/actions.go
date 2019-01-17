@@ -131,7 +131,7 @@ func fixupActions() {
 	op := "add"
 	for _, fixup := range actionFixups {
 		path := fmt.Sprintf("/schema/%s", fixup.fromProperty)
-		kind, ok := classKinds[fixup.toClass]
+		_, ok := classKinds[fixup.toClass]
 
 		if !ok {
 			panic(fmt.Sprintf("Unknown class '%s'", fixup.toClass))
@@ -141,9 +141,7 @@ func fixupActions() {
 			Op:   &op,
 			Path: &path,
 			Value: map[string]interface{}{
-				"$cref":       idMap[fixup.toId],
-				"locationUrl": "http://localhost",
-				"type":        kind,
+				"$cref": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
 			},
 		}
 
