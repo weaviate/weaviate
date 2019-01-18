@@ -13,21 +13,16 @@
 package janusgraph
 
 import (
-	"context"
 	errors_ "errors"
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/messages"
-	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/go-openapi/strfmt"
 	"github.com/mitchellh/mapstructure"
 
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/gremlin/http_client"
 
 	"github.com/sirupsen/logrus"
@@ -56,9 +51,7 @@ type Janusgraph struct {
 // }
 // Notice that the port is the GRPC-port.
 type Config struct {
-	Url          string
-	InitialKey   *string
-	InitialToken *string
+	Url string
 }
 
 func New(config interface{}) (error, dbconnector.DatabaseConnector) {
@@ -128,56 +121,7 @@ func (f *Janusgraph) Init() error {
 		return err
 	}
 
-	err = f.ensureRootKeyExists()
-	if err != nil {
-		return err
-	}
-
 	f.initialized = true
-
-	return nil
-}
-
-func (j *Janusgraph) ensureRootKeyExists() error {
-	q := gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).HasBool(PROP_KEY_IS_ROOT, true).Count()
-
-	result, err := j.client.Execute(q)
-	if err != nil {
-		return err
-	}
-
-	i, err := result.OneInt()
-	if err != nil {
-		return err
-	}
-
-	if i == 0 {
-		j.messaging.InfoMessage("No root key is found, a new one will be generated - RENEW DIRECTLY AFTER RECEIVING THIS MESSAGE")
-
-		// Create new object and fill it
-		keyObject := models.Key{}
-
-		var hashedToken string
-		var UUID strfmt.UUID
-
-		if j.config.InitialKey != nil && j.config.InitialToken != nil {
-			j.messaging.InfoMessage("Using the initial root key & token as specfied in the configuration")
-			UUID = strfmt.UUID(*j.config.InitialKey)
-			hashedToken = connutils.CreateRootKeyObjectFromTokenAndUUID(&keyObject, UUID, strfmt.UUID(*j.config.InitialToken))
-		} else {
-			hashedToken, UUID = connutils.CreateRootKeyObject(&keyObject)
-		}
-
-		// Add the root-key to the database
-		ctx := context.Background()
-		err = j.AddKey(ctx, &keyObject, UUID, hashedToken)
-
-		if err != nil {
-			return err
-		}
-	} else {
-		j.messaging.InfoMessage("Keys are set and a rootkey is available")
-	}
 
 	return nil
 }

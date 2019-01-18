@@ -20,27 +20,19 @@ import (
 	"testing"
 
 	graphqlnetworkGet "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/go-openapi/strfmt"
 )
 
 func TestProxyGetInstance(t *testing.T) {
 	var (
-		subject   *network
-		remote    *httptest.Server
-		principal *models.KeyTokenGetResponse
-		err       error
+		subject *network
+		remote  *httptest.Server
+		err     error
 	)
 
 	arrange := func(matchers ...requestMatcher) {
 		remote = fakeRemoteInstanceWithGraphQL(t, matchers...)
-		principal = &models.KeyTokenGetResponse{
-			Token: strfmt.UUID("stand-in-for-token-uuid"),
-			KeyGetResponse: models.KeyGetResponse{
-				KeyID: strfmt.UUID("stand-in-for-key-id-uuid"),
-			},
-		}
 		subject = &network{
 			peers: []peers.Peer{{
 				Name: "best-instance",
@@ -54,7 +46,6 @@ func TestProxyGetInstance(t *testing.T) {
 		_, err = subject.ProxyGetInstance(graphqlnetworkGet.ProxyGetInstanceParams{
 			SubQuery:       graphqlnetworkGet.SubQuery(`Get { Things { City { name } } }`),
 			TargetInstance: "best-instance",
-			Principal:      principal,
 		})
 	}
 

@@ -44,7 +44,6 @@ func (s SubQuery) WrapInLocalQuery() string {
 type ProxyGetInstanceParams struct {
 	SubQuery       SubQuery
 	TargetInstance string
-	Principal      *models.KeyTokenGetResponse
 }
 
 type Resolver interface {
