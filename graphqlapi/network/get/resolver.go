@@ -17,37 +17,20 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
 
-// SubQuery is an extracted query from the Network Query,
-// it is intended for exactly one target instance and is
-// formatted in a way where it can easily be transformed
-// into a Local Query to be used with the remote instance's
-// GraphQL API
-type SubQuery string
-
-// ParseSubQuery from a []byte
-func ParseSubQuery(subQuery []byte) SubQuery {
-	return SubQuery(string(subQuery))
-}
-
-// WrapInLocalQuery assumes the subquery can be sent as part of a
-// Local-Query, i.e. it should start with `Get{ ... }`
-func (s SubQuery) WrapInLocalQuery() string {
-	return fmt.Sprintf("{ Local { %s } }", s)
-}
-
-// ProxyGetInstanceParams ties a SubQuery and a single instance
+// Params ties a SubQuery and a single instance
 // together
-type ProxyGetInstanceParams struct {
-	SubQuery       SubQuery
+type Params struct {
+	SubQuery       common.SubQuery
 	TargetInstance string
 }
 
 type Resolver interface {
-	ProxyGetInstance(info ProxyGetInstanceParams) (*models.GraphQLResponse, error)
+	ProxyGetInstance(info Params) (*models.GraphQLResponse, error)
 }
 
 // FiltersAndResolver is a helper tuple to bubble data through the resolvers.
@@ -70,8 +53,8 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 		return nil, fmt.Errorf("could not replace instance name in sub-query: %s", err)
 	}
 
-	params := ProxyGetInstanceParams{
-		SubQuery:       ParseSubQuery(subQueryWithoutInstance),
+	params := Params{
+		SubQuery:       common.ParseSubQuery(subQueryWithoutInstance),
 		TargetInstance: p.Info.FieldName,
 	}
 
