@@ -33,7 +33,6 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
-	"github.com/creativesoftwarefdn/weaviate/restapi/operations/keys"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/knowledge_tools"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
@@ -102,27 +101,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		GraphqlWeaviateGraphqlPostHandler: graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams) middleware.Responder {
 			return middleware.NotImplemented("operation GraphqlWeaviateGraphqlPost has not yet been implemented")
-		}),
-		KeysWeaviateKeyCreateHandler: keys.WeaviateKeyCreateHandlerFunc(func(params keys.WeaviateKeyCreateParams) middleware.Responder {
-			return middleware.NotImplemented("operation KeysWeaviateKeyCreate has not yet been implemented")
-		}),
-		KeysWeaviateKeysChildrenGetHandler: keys.WeaviateKeysChildrenGetHandlerFunc(func(params keys.WeaviateKeysChildrenGetParams) middleware.Responder {
-			return middleware.NotImplemented("operation KeysWeaviateKeysChildrenGet has not yet been implemented")
-		}),
-		KeysWeaviateKeysDeleteHandler: keys.WeaviateKeysDeleteHandlerFunc(func(params keys.WeaviateKeysDeleteParams) middleware.Responder {
-			return middleware.NotImplemented("operation KeysWeaviateKeysDelete has not yet been implemented")
-		}),
-		KeysWeaviateKeysGetHandler: keys.WeaviateKeysGetHandlerFunc(func(params keys.WeaviateKeysGetParams) middleware.Responder {
-			return middleware.NotImplemented("operation KeysWeaviateKeysGet has not yet been implemented")
-		}),
-		KeysWeaviateKeysMeChildrenGetHandler: keys.WeaviateKeysMeChildrenGetHandlerFunc(func(params keys.WeaviateKeysMeChildrenGetParams) middleware.Responder {
-			return middleware.NotImplemented("operation KeysWeaviateKeysMeChildrenGet has not yet been implemented")
-		}),
-		KeysWeaviateKeysMeGetHandler: keys.WeaviateKeysMeGetHandlerFunc(func(params keys.WeaviateKeysMeGetParams) middleware.Responder {
-			return middleware.NotImplemented("operation KeysWeaviateKeysMeGet has not yet been implemented")
-		}),
-		KeysWeaviateKeysRenewTokenHandler: keys.WeaviateKeysRenewTokenHandlerFunc(func(params keys.WeaviateKeysRenewTokenParams) middleware.Responder {
-			return middleware.NotImplemented("operation KeysWeaviateKeysRenewToken has not yet been implemented")
 		}),
 		MetaWeaviateMetaGetHandler: meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams) middleware.Responder {
 			return middleware.NotImplemented("operation MetaWeaviateMetaGet has not yet been implemented")
@@ -269,20 +247,6 @@ type WeaviateAPI struct {
 	GraphqlWeaviateGraphqlBatchHandler graphql.WeaviateGraphqlBatchHandler
 	// GraphqlWeaviateGraphqlPostHandler sets the operation handler for the weaviate graphql post operation
 	GraphqlWeaviateGraphqlPostHandler graphql.WeaviateGraphqlPostHandler
-	// KeysWeaviateKeyCreateHandler sets the operation handler for the weaviate key create operation
-	KeysWeaviateKeyCreateHandler keys.WeaviateKeyCreateHandler
-	// KeysWeaviateKeysChildrenGetHandler sets the operation handler for the weaviate keys children get operation
-	KeysWeaviateKeysChildrenGetHandler keys.WeaviateKeysChildrenGetHandler
-	// KeysWeaviateKeysDeleteHandler sets the operation handler for the weaviate keys delete operation
-	KeysWeaviateKeysDeleteHandler keys.WeaviateKeysDeleteHandler
-	// KeysWeaviateKeysGetHandler sets the operation handler for the weaviate keys get operation
-	KeysWeaviateKeysGetHandler keys.WeaviateKeysGetHandler
-	// KeysWeaviateKeysMeChildrenGetHandler sets the operation handler for the weaviate keys me children get operation
-	KeysWeaviateKeysMeChildrenGetHandler keys.WeaviateKeysMeChildrenGetHandler
-	// KeysWeaviateKeysMeGetHandler sets the operation handler for the weaviate keys me get operation
-	KeysWeaviateKeysMeGetHandler keys.WeaviateKeysMeGetHandler
-	// KeysWeaviateKeysRenewTokenHandler sets the operation handler for the weaviate keys renew token operation
-	KeysWeaviateKeysRenewTokenHandler keys.WeaviateKeysRenewTokenHandler
 	// MetaWeaviateMetaGetHandler sets the operation handler for the weaviate meta get operation
 	MetaWeaviateMetaGetHandler meta.WeaviateMetaGetHandler
 	// P2PWeaviateP2pGenesisUpdateHandler sets the operation handler for the weaviate p2p genesis update operation
@@ -460,34 +424,6 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.GraphqlWeaviateGraphqlPostHandler == nil {
 		unregistered = append(unregistered, "graphql.WeaviateGraphqlPostHandler")
-	}
-
-	if o.KeysWeaviateKeyCreateHandler == nil {
-		unregistered = append(unregistered, "keys.WeaviateKeyCreateHandler")
-	}
-
-	if o.KeysWeaviateKeysChildrenGetHandler == nil {
-		unregistered = append(unregistered, "keys.WeaviateKeysChildrenGetHandler")
-	}
-
-	if o.KeysWeaviateKeysDeleteHandler == nil {
-		unregistered = append(unregistered, "keys.WeaviateKeysDeleteHandler")
-	}
-
-	if o.KeysWeaviateKeysGetHandler == nil {
-		unregistered = append(unregistered, "keys.WeaviateKeysGetHandler")
-	}
-
-	if o.KeysWeaviateKeysMeChildrenGetHandler == nil {
-		unregistered = append(unregistered, "keys.WeaviateKeysMeChildrenGetHandler")
-	}
-
-	if o.KeysWeaviateKeysMeGetHandler == nil {
-		unregistered = append(unregistered, "keys.WeaviateKeysMeGetHandler")
-	}
-
-	if o.KeysWeaviateKeysRenewTokenHandler == nil {
-		unregistered = append(unregistered, "keys.WeaviateKeysRenewTokenHandler")
 	}
 
 	if o.MetaWeaviateMetaGetHandler == nil {
@@ -774,41 +710,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/graphql"] = graphql.NewWeaviateGraphqlPost(o.context, o.GraphqlWeaviateGraphqlPostHandler)
-
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
-	o.handlers["POST"]["/keys"] = keys.NewWeaviateKeyCreate(o.context, o.KeysWeaviateKeyCreateHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/keys/{keyId}/children"] = keys.NewWeaviateKeysChildrenGet(o.context, o.KeysWeaviateKeysChildrenGetHandler)
-
-	if o.handlers["DELETE"] == nil {
-		o.handlers["DELETE"] = make(map[string]http.Handler)
-	}
-	o.handlers["DELETE"]["/keys/{keyId}"] = keys.NewWeaviateKeysDelete(o.context, o.KeysWeaviateKeysDeleteHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/keys/{keyId}"] = keys.NewWeaviateKeysGet(o.context, o.KeysWeaviateKeysGetHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/keys/me/children"] = keys.NewWeaviateKeysMeChildrenGet(o.context, o.KeysWeaviateKeysMeChildrenGetHandler)
-
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/keys/me"] = keys.NewWeaviateKeysMeGet(o.context, o.KeysWeaviateKeysMeGetHandler)
-
-	if o.handlers["PUT"] == nil {
-		o.handlers["PUT"] = make(map[string]http.Handler)
-	}
-	o.handlers["PUT"]["/keys/{keyId}/renew-token"] = keys.NewWeaviateKeysRenewToken(o.context, o.KeysWeaviateKeysRenewTokenHandler)
 
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)

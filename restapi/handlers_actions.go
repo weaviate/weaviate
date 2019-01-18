@@ -498,7 +498,6 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Update the database
 		params.Body.LastUpdateTimeUnix = connutils.NowUnix()
 		params.Body.CreationTimeUnix = actionGetResponse.CreationTimeUnix
-		params.Body.Key = actionGetResponse.Key
 
 		delayedLock.IncSteps()
 		go func() {
