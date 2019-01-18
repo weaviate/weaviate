@@ -18,8 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
-	"net"
 	"net/http"
 	"regexp"
 	"runtime"
@@ -27,92 +25,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	gouuid "github.com/satori/go.uuid"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/creativesoftwarefdn/weaviate/config"
-	"github.com/creativesoftwarefdn/weaviate/models"
 )
-
-// NewDatabaseObjectFromPrincipal creates a new object with default values, out of principle object
-// func NewDatabaseObjectFromPrincipal(principal interface{}, refType string) *DatabaseObject {
-// 	// Get user object
-// 	Key, _ := PrincipalMarshalling(principal)
-
-// 	// Generate DatabaseObject without JSON-object in it.
-// 	key := NewDatabaseObject(Key.Uuid, refType)
-
-// 	return key
-// }
-
-// CreateRootKeyObject creates a new user with new API key when none exists when starting server
-func CreateRootKeyObject(key *models.Key) (hashedToken string, UUID strfmt.UUID) {
-	// Create key token and UUID
-	token := GenerateUUID()
-	UUID = GenerateUUID()
-
-	hashedToken = CreateRootKeyObjectFromTokenAndUUID(key, UUID, token)
-
-	return
-}
-
-func CreateRootKeyObjectFromTokenAndUUID(key *models.Key, UUID strfmt.UUID, token strfmt.UUID) (hashedToken string) {
-	// Do not set any parent
-
-	// Set expiry to unlimited
-	key.KeyExpiresUnix = -1
-
-	// Get ips as v6
-	var ips []string
-	ifaces, _ := net.Interfaces()
-	for _, i := range ifaces {
-		addrs, _ := i.Addrs()
-		for _, addr := range addrs {
-			var ip net.IP
-			switch v := addr.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-
-			ipv6 := ip.To16()
-			ips = append(ips, ipv6.String())
-		}
-	}
-
-	key.IPOrigin = ips
-
-	// Set chmod variables
-	key.Read = true
-	key.Write = true
-	key.Delete = true
-	key.Execute = true
-
-	// Set Mail
-	key.Email = "weaviate@weaviate.nl"
-
-	// Print the key
-	log.Println("INFO: No root key was found, a new root key is created. More info: https://github.com/creativesoftwarefdn/weaviate/blob/develop/README.md#authentication")
-	log.Println("INFO: Auto set allowed IPs to: ", key.IPOrigin)
-	log.Println("ROOTTOKEN=" + token)
-	log.Println("ROOTKEY=" + string(UUID))
-
-	hashedToken = TokenHasher(token)
-
-	return
-}
-
-// TokenHasher is the function used to hash the UUID token
-func TokenHasher(UUID strfmt.UUID) string {
-	hashed, _ := bcrypt.GenerateFromPassword([]byte(UUID), bcrypt.DefaultCost)
-	return string(hashed)
-}
-
-// TokenHashCompare is the function used to compare the hash with given UUID
-func TokenHashCompare(hashed string, token strfmt.UUID) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hashed), []byte(token))
-	return err == nil
-}
 
 // Trace is used to display the running function in a connector
 func Trace() {

@@ -13,11 +13,9 @@
 package network_get
 
 import (
-	"context"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/go-openapi/strfmt"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 	"github.com/graphql-go/graphql/language/source"
@@ -31,19 +29,13 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 		`{ Network { Get { weaviateA { Things { City { name } } } } } } `,
 	)
 
-	principal := &models.KeyTokenGetResponse{
-		Token: strfmt.UUID("stand-in-for-token-uuid"),
-		KeyGetResponse: models.KeyGetResponse{
-			KeyID: strfmt.UUID("stand-in-for-key-id-uuid"),
-		},
-	}
 	expectedSubQuery := `Get { Things { City { name } } }`
 	expectedTarget := "weaviateA"
 	expectedResultString := "placeholder for result from Local.Get"
 
 	// in a real life scenario graphql will set the start and end
 	// correctly. We just need to manually specify them in the test
-	params := paramsFromQueryWithStartAndEnd(query, 18, 56, "weaviateA", resolver, principal)
+	params := paramsFromQueryWithStartAndEnd(query, 18, 56, "weaviateA", resolver, nil)
 	result, err := NetworkGetInstanceResolve(params)
 
 	if err != nil {
@@ -73,7 +65,7 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 }
 
 func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
-	instanceName string, resolver Resolver, principal *models.KeyTokenGetResponse) graphql.ResolveParams {
+	instanceName string, resolver Resolver, principal interface{}) graphql.ResolveParams {
 	return graphql.ResolveParams{
 		Source: FiltersAndResolver{
 			Resolver: resolver,
@@ -91,7 +83,7 @@ func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 				},
 			},
 		},
-		Context: context.WithValue(context.Background(), "principal", principal),
+		// Context: context.WithValue(context.Background(), "principal", principal),
 	}
 }
 

@@ -373,58 +373,6 @@ func (f *Foobar) MoveToHistoryAction(ctx context.Context, action *models.Action,
 // AddKey adds a key to the Foobar database with the given UUID and token.
 // UUID  = reference to the key
 // token = is the actual access token used in the API's header
-func (f *Foobar) AddKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
-
-	// Key struct should be stored
-
-	// If success return nil, otherwise return the error
-	return nil
-}
-
-// ValidateToken validates/gets a key to the Foobar database with the given token (=UUID)
-func (f *Foobar) ValidateToken(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) (token string, err error) {
-
-	// key (= models.KeyGetResponse) should be populated with the response that comes from the DB.
-
-	// in case the key is not found, return an error like:
-	// return errors_.New("Key not found in database.")
-
-	// If success return nil, otherwise return the error
-	return "", nil
-}
-
-// GetKey fills the given KeyGetResponse with the values from the database, based on the given UUID.
-func (f *Foobar) GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error {
-
-	f.trace()
-	return nil
-}
-
-// GetKeys fills the given []KeyGetResponse with the values from the database, based on the given UUIDs.
-func (f *Foobar) GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keysResponse *[]*models.KeyGetResponse) error {
-	f.trace()
-	return nil
-}
-
-// DeleteKey deletes the Key in the DB at the given UUID.
-func (f *Foobar) DeleteKey(ctx context.Context, key *models.Key, UUID strfmt.UUID) error {
-	f.trace()
-	return nil
-}
-
-// GetKeyChildren fills the given KeyGetResponse array with the values from the database, based on the given UUID.
-func (f *Foobar) GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children *[]*models.KeyGetResponse) error {
-
-	// for examle: `children = [OBJECT-A, OBJECT-B, OBJECT-C]`
-	// Where an OBJECT = models.KeyGetResponse
-
-	return nil
-}
-
-// UpdateKey updates the Key in the DB at the given UUID.
-func (f *Foobar) UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error {
-	return nil
-}
 
 // GetGraph returns the result based on th graphQL request
 func (f *Foobar) GetGraph(request graphql.ResolveParams) (interface{}, error) {

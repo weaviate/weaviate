@@ -65,5 +65,4 @@ type DatabaseConnector interface {
 
 	GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error
 	GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionResponse *models.ActionsListResponse) error
-	GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keyResponse *[]*models.KeyGetResponse) error
 }

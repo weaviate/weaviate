@@ -19,8 +19,6 @@ import (
 	"fmt"
 	"io/ioutil"
 
-	"github.com/creativesoftwarefdn/weaviate/models"
-
 	"github.com/go-openapi/swag"
 
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -157,7 +155,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 
 	// Return error if config file is incorrect
 	if err != nil {
-		return errors.New("error unmarshalling the config file. ")
+		return fmt.Errorf("error unmarshalling the config file: %s", err)
 	}
 
 	// Loop through all values in object to see whether the given connection-name exists
@@ -188,7 +186,7 @@ func (f *WeaviateConfig) LoadConfig(flags *swag.CommandLineOptionsGroup, m *mess
 }
 
 // GetInstance from config
-func (f *WeaviateConfig) GetInstance(hostname string, keyToken *models.KeyTokenGetResponse) (instance Instance, err error) {
+func (f *WeaviateConfig) GetInstance(hostname string) (instance Instance, err error) {
 	err = nil
 
 	found := false
@@ -206,15 +204,6 @@ func (f *WeaviateConfig) GetInstance(hostname string, keyToken *models.KeyTokenG
 		// Didn't find item in list
 		err = errors.New("can't find key for given instance")
 		return
-	}
-
-	// If no key and token are given in the config, use the key and token used for the current request
-	if instance.APIKey == "" {
-		instance.APIKey = string(keyToken.KeyID)
-	}
-
-	if instance.APIToken == "" {
-		instance.APIToken = string(keyToken.Token)
 	}
 
 	return
