@@ -41,7 +41,7 @@ WeaviateToolsMap tools to render a map of concepts based on ontologies available
 
 Tool to render a map of concepts, based on ontologies available over the network.
 */
-func (a *Client) WeaviateToolsMap(params *WeaviateToolsMapParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateToolsMapOK, error) {
+func (a *Client) WeaviateToolsMap(params *WeaviateToolsMapParams) (*WeaviateToolsMapOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateToolsMapParams()
@@ -56,7 +56,6 @@ func (a *Client) WeaviateToolsMap(params *WeaviateToolsMapParams, authInfo runti
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateToolsMapReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})

@@ -62,10 +62,6 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 		t.Errorf("expected targetInstance to be %#v, but got %#v", expectedTarget, actual)
 	}
 
-	if actual := resolver.CalledWith.Principal; actual != principal {
-		t.Errorf("expected principal to be %#v, but got %#v", principal, actual)
-	}
-
 	if _, ok := result.(string); !ok {
 		t.Errorf("expected result to be a string, but was %t", result)
 	}

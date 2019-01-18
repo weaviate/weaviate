@@ -42,11 +42,9 @@ import (
 	"github.com/rs/cors"
 	"google.golang.org/grpc/grpclog"
 
-	"github.com/creativesoftwarefdn/weaviate/auth"
 	weaviateBroker "github.com/creativesoftwarefdn/weaviate/broker"
 	"github.com/creativesoftwarefdn/weaviate/config"
 	"github.com/creativesoftwarefdn/weaviate/database"
-	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/connectors/listing"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -147,28 +145,6 @@ func generateMultipleRefObject(keyIDs []strfmt.UUID) models.MultipleRef {
 	return refs
 }
 
-func deleteKey(ctx context.Context, databaseConnector dbconnector.DatabaseConnector, parentUUID strfmt.UUID) {
-	// Find its children
-	var allIDs []strfmt.UUID
-
-	// Get all the children to remove
-	allIDs, _ = auth.GetKeyChildrenUUIDs(ctx, databaseConnector, parentUUID, false, allIDs, 0, 0)
-
-	// Append the children to the parent UUIDs to remove all
-	allIDs = append(allIDs, parentUUID)
-
-	// Delete for every child
-	for _, keyID := range allIDs {
-		// Initialize response
-		keyResponse := models.KeyGetResponse{}
-
-		// Get the key to delete
-		databaseConnector.GetKey(ctx, keyID, &keyResponse)
-
-		databaseConnector.DeleteKey(ctx, &keyResponse.Key, keyID)
-	}
-}
-
 func configureFlags(api *operations.WeaviateAPI) {
 	connectorOptionGroup = config.GetConfigOptionGroup()
 
@@ -192,52 +168,6 @@ func createErrorResponseObject(messages ...string) *models.ErrorResponse {
 	return er
 }
 
-func headerAPIKeyHandling(ctx context.Context, keyToken string) (*models.KeyTokenGetResponse, error) {
-	dbLock := db.ConnectorLock()
-	defer dbLock.Unlock()
-	dbConnector := dbLock.Connector()
-
-	// Convert JSON string to struct
-	kth := keyTokenHeader{}
-	json.Unmarshal([]byte(keyToken), &kth)
-
-	// Validate both headers
-	if kth.Key == "" || kth.Token == "" {
-		return nil, errors.New(401, connutils.StaticMissingHeader)
-	}
-
-	// Create key
-	validatedKey := models.KeyGetResponse{}
-
-	// Check if the user has access, true if yes
-	hashed, err := dbConnector.ValidateToken(ctx, kth.Key, &validatedKey)
-
-	// Error printing
-	if err != nil {
-		return nil, errors.New(401, err.Error())
-	}
-
-	// Check token
-	if !connutils.TokenHashCompare(hashed, kth.Token) {
-		return nil, errors.New(401, connutils.StaticInvalidToken)
-	}
-
-	// Validate the key on expiry time
-	currentUnix := connutils.NowUnix()
-
-	if validatedKey.KeyExpiresUnix != -1 && validatedKey.KeyExpiresUnix < currentUnix {
-		return nil, errors.New(401, connutils.StaticKeyExpired)
-	}
-
-	// Init response object
-	validatedKeyToken := models.KeyTokenGetResponse{}
-	validatedKeyToken.KeyGetResponse = validatedKey
-	validatedKeyToken.Token = kth.Token
-
-	// key is valid, next step is allowing per Handler handling
-	return &validatedKeyToken, nil
-}
-
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.ServeError = errors.ServeError
 
@@ -246,31 +176,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupSchemaHandlers(api)
 	setupThingsHandlers(api)
 	setupActionsHandlers(api)
-	setupKeysHandlers(api)
 
-	/*
-	 * HANDLE X-API-KEY
-	 */
-	// Applies when the "X-API-KEY" header is set
-	api.APIKeyAuth = func(token string) (interface{}, error) {
-		ctx := context.Background()
-		return headerAPIKeyHandling(ctx, token)
-	}
-
-	/*
-	 * HANDLE X-API-TOKEN
-	 */
-	// Applies when the "X-API-TOKEN" header is set
-	api.APITokenAuth = func(token string) (interface{}, error) {
-		ctx := context.Background()
-		return headerAPIKeyHandling(ctx, token)
-	}
-
-	/*
-	 * HANDLE KEYS
-	 */
-
-	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams, principal interface{}) middleware.Responder {
+	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		defer dbLock.Unlock()
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
@@ -312,7 +219,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 	})
 
-	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams, principal interface{}) middleware.Responder {
+	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL resolving")
 
@@ -337,9 +244,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			variables = params.Body.Variables.(map[string]interface{})
 		}
 
-		// Add security principal to context that we pass on to the GraphQL resolver.
-		graphql_context := context.WithValue(params.HTTPRequest.Context(), "principal", (principal.(*models.KeyTokenGetResponse)))
-
 		if graphQL == nil {
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				&models.ErrorResponseErrorItems0{
@@ -349,7 +253,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
-		result := graphQL.Resolve(query, operationName, variables, graphql_context)
+		result := graphQL.Resolve(query, operationName, variables, nil)
 
 		// Marshal the JSON
 		resultJSON, jsonErr := json.Marshal(result)
@@ -382,12 +286,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE BATCHING
 	 */
 
-	api.GraphqlWeaviateGraphqlBatchHandler = graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams, principal interface{}) middleware.Responder {
+	api.GraphqlWeaviateGraphqlBatchHandler = graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL batch resolving")
-
-		// Add security principal to context that we pass on to the GraphQL resolver.
-		graphql_context := context.WithValue(params.HTTPRequest.Context(), "principal", (principal.(*models.KeyTokenGetResponse)))
 
 		amountOfBatchedRequests := len(params.Body)
 		errorResponse := &models.ErrorResponse{}
@@ -402,7 +303,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Generate a goroutine for each separate request
 		for requestIndex, unbatchedRequest := range params.Body {
 			wg.Add(1)
-			go handleUnbatchedGraphQLRequest(wg, graphql_context, unbatchedRequest, requestIndex, &requestResults)
+			go handleUnbatchedGraphQLRequest(wg, context.Background(), unbatchedRequest, requestIndex, &requestResults)
 		}
 
 		wg.Wait()
@@ -419,7 +320,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return graphql.NewWeaviateGraphqlBatchOK().WithPayload(batchedRequestResponse)
 	})
 
-	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(func(params operations.WeaviateBatchingActionsCreateParams, principal interface{}) middleware.Responder {
+	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(func(params operations.WeaviateBatchingActionsCreateParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 
 		dbLock := db.ConnectorLock()
@@ -433,11 +334,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
-
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, requestLocks.DBConnector, nil); !allowed {
-			return operations.NewWeaviateBatchingActionsCreateForbidden()
-		}
 
 		amountOfBatchedRequests := len(params.Body.Actions)
 		errorResponse := &models.ErrorResponse{}
@@ -458,7 +354,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Generate a goroutine for each separate request
 		for requestIndex, batchedRequest := range params.Body.Actions {
 			wg.Add(1)
-			go handleBatchedActionsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, principal, &requestLocks, fieldsToKeep)
+			go handleBatchedActionsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, &requestLocks, fieldsToKeep)
 		}
 
 		wg.Wait()
@@ -476,7 +372,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	})
 
-	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(func(params operations.WeaviateBatchingThingsCreateParams, principal interface{}) middleware.Responder {
+	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(func(params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 
 		dbLock := db.ConnectorLock()
@@ -490,11 +386,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
-
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, requestLocks.DBConnector, nil); !allowed {
-			return operations.NewWeaviateBatchingThingsCreateForbidden()
-		}
 
 		amountOfBatchedRequests := len(params.Body.Things)
 		errorResponse := &models.ErrorResponse{}
@@ -515,7 +406,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Generate a goroutine for each separate request
 		for requestIndex, batchedRequest := range params.Body.Things {
 			wg.Add(1)
-			go handleBatchedThingsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, principal, &requestLocks, fieldsToKeep)
+			go handleBatchedThingsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, &requestLocks, fieldsToKeep)
 		}
 
 		wg.Wait()
@@ -535,7 +426,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	/*
 	 * HANDLE KNOWLEDGE TOOLS
 	 */
-	api.KnowledgeToolsWeaviateToolsMapHandler = knowledge_tools.WeaviateToolsMapHandlerFunc(func(params knowledge_tools.WeaviateToolsMapParams, principal interface{}) middleware.Responder {
+	api.KnowledgeToolsWeaviateToolsMapHandler = knowledge_tools.WeaviateToolsMapHandlerFunc(func(params knowledge_tools.WeaviateToolsMapParams) middleware.Responder {
 		return middleware.NotImplemented("operation knowledge_tools.WeaviateToolsMap has not yet been implemented")
 	})
 
@@ -623,7 +514,7 @@ func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unba
 
 }
 
-func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, batchedRequest *models.ActionCreate, requestIndex int, requestResults *chan rest_api_utils.BatchedActionsCreateRequestResponse, async bool, principal interface{}, requestLocks *rest_api_utils.RequestLocks, fieldsToKeep map[string]int) {
+func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, batchedRequest *models.ActionCreate, requestIndex int, requestResults *chan rest_api_utils.BatchedActionsCreateRequestResponse, async bool, requestLocks *rest_api_utils.RequestLocks, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
 	// Generate UUID for the new object
@@ -631,11 +522,6 @@ func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, 
 
 	// Validate schema given in body with the weaviate schema
 	databaseSchema := schema.HackFromDatabaseSchema(requestLocks.DBLock.GetSchema())
-
-	// Create Key-ref object
-	keyRef := &models.SingleRef{
-		NrDollarCref: strfmt.URI(principal.(*models.KeyTokenGetResponse).KeyID),
-	}
 
 	// Create Action object
 	action := &models.Action{}
@@ -650,9 +536,6 @@ func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, 
 	}
 	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
 		action.CreationTimeUnix = connutils.NowUnix()
-	}
-	if _, ok := fieldsToKeep["key"]; ok {
-		action.Key = keyRef
 	}
 
 	// Create request result object
@@ -670,7 +553,7 @@ func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, 
 	resultStatus := models.ActionsGetResponseAO1ResultStatusSUCCESS
 
 	validatedErr := validation.ValidateActionBody(ctx, batchedRequest, databaseSchema, requestLocks.DBConnector,
-		network, serverConfig, principal.(*models.KeyTokenGetResponse))
+		network, serverConfig)
 
 	if validatedErr != nil {
 		// Edit request result status
@@ -715,7 +598,7 @@ func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, 
 	}
 }
 
-func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, batchedRequest *models.ThingCreate, requestIndex int, requestResults *chan rest_api_utils.BatchedThingsCreateRequestResponse, async bool, principal interface{}, requestLocks *rest_api_utils.RequestLocks, fieldsToKeep map[string]int) {
+func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, batchedRequest *models.ThingCreate, requestIndex int, requestResults *chan rest_api_utils.BatchedThingsCreateRequestResponse, async bool, requestLocks *rest_api_utils.RequestLocks, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
 	// Generate UUID for the new object
@@ -723,11 +606,6 @@ func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, b
 
 	// Validate schema given in body with the weaviate schema
 	databaseSchema := schema.HackFromDatabaseSchema(requestLocks.DBLock.GetSchema())
-
-	// Create Key-ref object
-	keyRef := &models.SingleRef{
-		NrDollarCref: strfmt.URI(principal.(*models.KeyTokenGetResponse).KeyID),
-	}
 
 	// Create Thing object
 	thing := &models.Thing{}
@@ -742,9 +620,6 @@ func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, b
 	}
 	if _, ok := fieldsToKeep["creationtimeunix"]; ok {
 		thing.CreationTimeUnix = connutils.NowUnix()
-	}
-	if _, ok := fieldsToKeep["key"]; ok {
-		thing.Key = keyRef
 	}
 
 	// Create request result object
@@ -763,7 +638,7 @@ func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, b
 	resultStatus := models.ThingsGetResponseAO1ResultStatusSUCCESS
 
 	validatedErr := validation.ValidateThingBody(ctx, batchedRequest, databaseSchema, requestLocks.DBConnector,
-		network, serverConfig, principal.(*models.KeyTokenGetResponse))
+		network, serverConfig)
 
 	if validatedErr != nil {
 		// Edit request result status

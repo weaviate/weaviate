@@ -24,16 +24,16 @@ import (
 )
 
 // WeaviateKeysRenewTokenHandlerFunc turns a function with the right signature into a weaviate keys renew token handler
-type WeaviateKeysRenewTokenHandlerFunc func(WeaviateKeysRenewTokenParams, interface{}) middleware.Responder
+type WeaviateKeysRenewTokenHandlerFunc func(WeaviateKeysRenewTokenParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateKeysRenewTokenHandlerFunc) Handle(params WeaviateKeysRenewTokenParams, principal interface{}) middleware.Responder {
-	return fn(params, principal)
+func (fn WeaviateKeysRenewTokenHandlerFunc) Handle(params WeaviateKeysRenewTokenParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateKeysRenewTokenHandler interface for that can handle valid weaviate keys renew token params
 type WeaviateKeysRenewTokenHandler interface {
-	Handle(WeaviateKeysRenewTokenParams, interface{}) middleware.Responder
+	Handle(WeaviateKeysRenewTokenParams) middleware.Responder
 }
 
 // NewWeaviateKeysRenewToken creates a new http.Handler for the weaviate keys renew token operation
@@ -60,25 +60,12 @@ func (o *WeaviateKeysRenewToken) ServeHTTP(rw http.ResponseWriter, r *http.Reque
 	}
 	var Params = NewWeaviateKeysRenewTokenParams()
 
-	uprinc, aCtx, err := o.Context.Authorize(r, route)
-	if err != nil {
-		o.Context.Respond(rw, r, route.Produces, route, err)
-		return
-	}
-	if aCtx != nil {
-		r = aCtx
-	}
-	var principal interface{}
-	if uprinc != nil {
-		principal = uprinc
-	}
-
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params, principal) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

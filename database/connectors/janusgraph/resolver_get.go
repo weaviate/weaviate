@@ -74,9 +74,9 @@ func (j *Janusgraph) doLocalGetClass(first, offset int, params *graphql_local_ge
 	results := []interface{}{}
 
 	className := schema.AssertValidClassName(params.ClassName)
-	err := j.listClass(params.Kind, &className, first, offset, "", params.Filters, func(uuid strfmt.UUID) {
+	err := j.listClass(params.Kind, &className, first, offset, params.Filters, func(uuid strfmt.UUID) {
 		var properties models.Schema
-		err := j.getClass(params.Kind, uuid, nil, nil, nil, nil, nil, &properties, nil)
+		err := j.getClass(params.Kind, uuid, nil, nil, nil, nil, nil, &properties)
 		if err != nil {
 			return
 		}
@@ -188,7 +188,7 @@ func (j *Janusgraph) doLocalGetClassResolveLocalRef(selectProperty graphql_local
 	kind kind.Kind, refID strfmt.UUID) []interface{} {
 	var refAtClass string
 	var refPropertiesSchema models.Schema
-	err := j.getClass(kind, refID, &refAtClass, nil, nil, nil, nil, &refPropertiesSchema, nil)
+	err := j.getClass(kind, refID, &refAtClass, nil, nil, nil, nil, &refPropertiesSchema)
 	if err != nil {
 		// Skipping broken links for now.
 		return []interface{}{}

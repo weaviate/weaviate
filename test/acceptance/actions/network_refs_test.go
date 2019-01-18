@@ -72,7 +72,7 @@ func TestCanPatchSingleNetworkRef(t *testing.T) {
 		params := actions.NewWeaviateActionsPatchParams().
 			WithBody([]*models.PatchDocument{patch}).
 			WithActionID(actionID)
-		patchResp, _, err := helper.Client(t).Actions.WeaviateActionsPatch(params, helper.RootAuth)
+		patchResp, _, err := helper.Client(t).Actions.WeaviateActionsPatch(params)
 		helper.AssertRequestOk(t, patchResp, err, nil)
 	})
 

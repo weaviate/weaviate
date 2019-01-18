@@ -15,9 +15,11 @@ package test
 // Acceptance tests for actions
 
 import (
+	"testing"
+	"time"
+
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
-	"testing"
 )
 
 func TestCanAddAndRemoveAction(t *testing.T) {
@@ -27,10 +29,16 @@ func TestCanAddAndRemoveAction(t *testing.T) {
 	_ = assertGetAction(t, actionId)
 
 	// Now perorm the the deletion
-	delResp, err := helper.Client(t).Actions.WeaviateActionsDelete(actions.NewWeaviateActionsDeleteParams().WithActionID(actionId), helper.RootAuth)
+	delResp, err := helper.Client(t).Actions.WeaviateActionsDelete(actions.NewWeaviateActionsDeleteParams().WithActionID(actionId))
 	helper.AssertRequestOk(t, delResp, err, nil)
 
+	// This should be improved by polling rather then sleeping, but since it's a
+	// very low sleep period, this should do it for now as long as we don't
+	// repeat that too often and don't find this to be flaky. If we do see
+	// flakyness around this test, a polling mechanism is in order.
+	time.Sleep(50 * time.Millisecond)
+
 	// And verify that the action is gone
-	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionId), helper.RootAuth)
+	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionId))
 	helper.AssertRequestFail(t, getResp, err, nil)
 }

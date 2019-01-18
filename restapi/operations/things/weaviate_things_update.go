@@ -24,16 +24,16 @@ import (
 )
 
 // WeaviateThingsUpdateHandlerFunc turns a function with the right signature into a weaviate things update handler
-type WeaviateThingsUpdateHandlerFunc func(WeaviateThingsUpdateParams, interface{}) middleware.Responder
+type WeaviateThingsUpdateHandlerFunc func(WeaviateThingsUpdateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsUpdateHandlerFunc) Handle(params WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
-	return fn(params, principal)
+func (fn WeaviateThingsUpdateHandlerFunc) Handle(params WeaviateThingsUpdateParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateThingsUpdateHandler interface for that can handle valid weaviate things update params
 type WeaviateThingsUpdateHandler interface {
-	Handle(WeaviateThingsUpdateParams, interface{}) middleware.Responder
+	Handle(WeaviateThingsUpdateParams) middleware.Responder
 }
 
 // NewWeaviateThingsUpdate creates a new http.Handler for the weaviate things update operation
@@ -60,25 +60,12 @@ func (o *WeaviateThingsUpdate) ServeHTTP(rw http.ResponseWriter, r *http.Request
 	}
 	var Params = NewWeaviateThingsUpdateParams()
 
-	uprinc, aCtx, err := o.Context.Authorize(r, route)
-	if err != nil {
-		o.Context.Respond(rw, r, route.Produces, route, err)
-		return
-	}
-	if aCtx != nil {
-		r = aCtx
-	}
-	var principal interface{}
-	if uprinc != nil {
-		principal = uprinc
-	}
-
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params, principal) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

@@ -39,7 +39,7 @@ func TestCanUpdateActionSetNumber(t *testing.T) {
 	update.AtContext = "blurgh"
 
 	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, helper.RootAuth)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params)
 
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
@@ -63,7 +63,7 @@ func TestCanUpdateActionSetString(t *testing.T) {
 	update.AtContext = "blurgh"
 
 	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, helper.RootAuth)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params)
 
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
@@ -86,7 +86,7 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 	update.AtContext = "blurgh"
 
 	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, helper.RootAuth)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params)
 
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
@@ -116,7 +116,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	params := actions.NewWeaviateActionsPatchParams().
 		WithBody([]*models.PatchDocument{patch}).
 		WithActionID(actionID)
-	patchResp, _, err := helper.Client(t).Actions.WeaviateActionsPatch(params, helper.RootAuth)
+	patchResp, _, err := helper.Client(t).Actions.WeaviateActionsPatch(params)
 	helper.AssertRequestOk(t, patchResp, err, nil)
 
 	// Great! Let's fetch the action, and see if the property is set properly.

@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/auth"
 	weaviateBroker "github.com/creativesoftwarefdn/weaviate/broker"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -25,7 +24,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/actions"
-	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
 	"github.com/creativesoftwarefdn/weaviate/validation"
 	jsonpatch "github.com/evanphx/json-patch"
 	middleware "github.com/go-openapi/runtime/middleware"
@@ -33,7 +31,7 @@ import (
 )
 
 func setupActionsHandlers(api *operations.WeaviateAPI) {
-	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
@@ -49,19 +47,14 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		err := dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
 
 		// Object is deleted
-		if err != nil || actionGetResponse.Key == nil {
+		if err != nil {
 			return actions.NewWeaviateActionsGetNotFound()
-		}
-
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
-			return actions.NewWeaviateActionsGetForbidden()
 		}
 
 		// Get is successful
 		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
-	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
@@ -94,22 +87,12 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionHistoryGetNotFound()
 		}
 
-		if errHist == nil {
-			if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
-				return actions.NewWeaviateActionHistoryGetForbidden()
-			}
-		} else if errGet == nil {
-			if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
-				return actions.NewWeaviateActionHistoryGetForbidden()
-			}
-		}
-
 		// Action is deleted when we have an get error and no history error
 		historyResponse.Deleted = errGet != nil && errHist == nil && len(historyResponse.PropertyHistory) != 0
 
 		return actions.NewWeaviateActionHistoryGetOK().WithPayload(historyResponse)
 	})
-	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -135,11 +118,6 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Return error if UUID is not found.
 		if errGet != nil {
 			return actions.NewWeaviateActionsPatchNotFound()
-		}
-
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
-			return actions.NewWeaviateActionsPatchForbidden()
 		}
 
 		// Get PATCH params in format RFC 6902
@@ -170,7 +148,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Validate schema made after patching with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &action.ActionCreate,
-			databaseSchema, dbConnector, network, serverConfig, principal.(*models.KeyTokenGetResponse))
+			databaseSchema, dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -225,7 +203,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
 		}
 	})
-	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(params actions.WeaviateActionsPropertiesCreateParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(params actions.WeaviateActionsPropertiesCreateParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -266,14 +244,9 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
 		}
 
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
-			return actions.NewWeaviateActionsPatchForbidden()
-		}
-
 		// Look up the single ref.
 		err = validation.ValidateSingleRef(ctx, serverConfig, params.Body, dbConnector, network,
-			"reference not found", principal.(*models.KeyTokenGetResponse))
+			"reference not found")
 		if err != nil {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(err.Error()))
@@ -314,7 +287,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsPropertiesCreateOK()
 	})
-	api.ActionsWeaviateActionsPropertiesDeleteHandler = actions.WeaviateActionsPropertiesDeleteHandlerFunc(func(params actions.WeaviateActionsPropertiesDeleteParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsPropertiesDeleteHandler = actions.WeaviateActionsPropertiesDeleteHandlerFunc(func(params actions.WeaviateActionsPropertiesDeleteParams) middleware.Responder {
 		if params.Body == nil {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a no valid reference", params.PropertyName)))
@@ -359,11 +332,6 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		if prop.Cardinality == nil || *prop.Cardinality != "many" {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
-		}
-
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
-			return actions.NewWeaviateActionsPatchForbidden()
 		}
 
 		//NOTE: we are _not_ verifying the reference; otherwise we cannot delete broken references.
@@ -415,7 +383,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsPropertiesDeleteNoContent()
 	})
-	api.ActionsWeaviateActionsPropertiesUpdateHandler = actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(params actions.WeaviateActionsPropertiesUpdateParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsPropertiesUpdateHandler = actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(params actions.WeaviateActionsPropertiesUpdateParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -456,14 +424,9 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
 		}
 
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
-			return actions.NewWeaviateActionsPatchForbidden()
-		}
-
 		// Look up the single ref.
 		err = validation.ValidateMultipleRef(ctx, serverConfig, &params.Body, dbConnector, network,
-			"reference not found", principal.(*models.KeyTokenGetResponse))
+			"reference not found")
 		if err != nil {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("validation failed: %s", err.Error())))
@@ -491,7 +454,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsPropertiesCreateOK()
 	})
-	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -517,15 +480,10 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionUpdateNotFound()
 		}
 
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
-			return actions.NewWeaviateActionUpdateForbidden()
-		}
-
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &params.Body.ActionCreate,
-			databaseSchema, dbConnector, network, serverConfig, principal.(*models.KeyTokenGetResponse))
+			databaseSchema, dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return actions.NewWeaviateActionUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -560,7 +518,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return actions.NewWeaviateActionUpdateAccepted().WithPayload(responseObject)
 	})
-	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
@@ -571,14 +529,14 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(ctx, &params.Body.ActionCreate, databaseSchema,
-			dbConnector, network, serverConfig, principal.(*models.KeyTokenGetResponse))
+			dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
 		return actions.NewWeaviateActionsValidateOK()
 	})
-	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -587,18 +545,13 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
 
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, nil); !allowed {
-			return actions.NewWeaviateActionsCreateForbidden()
-		}
-
 		// Generate UUID for the new object
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), params.Body.Action,
-			databaseSchema, dbConnector, network, serverConfig, principal.(*models.KeyTokenGetResponse))
+			databaseSchema, dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -614,11 +567,6 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			}
 		}()
 
-		// Create Key-ref-Object
-		keyRef := &models.SingleRef{
-			NrDollarCref: strfmt.URI(principal.(*models.KeyTokenGetResponse).KeyID),
-		}
-
 		// Make Action-Object
 		action := &models.Action{}
 		action.AtClass = params.Body.Action.AtClass
@@ -626,7 +574,6 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		action.Schema = params.Body.Action.Schema
 		action.CreationTimeUnix = connutils.NowUnix()
 		action.LastUpdateTimeUnix = 0
-		action.Key = keyRef
 
 		responseObject := &models.ActionGetResponse{}
 		responseObject.Action = *action
@@ -648,7 +595,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
 		}
 	})
-	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -673,11 +620,6 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsDeleteNotFound()
 		}
 
-		// This is a delete function, validate if allowed to delete?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"delete"}, principal, dbConnector, actionGetResponse.Key.NrDollarCref); !allowed {
-			return things.NewWeaviateThingsDeleteForbidden()
-		}
-
 		actionGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Move the current properties to the history
@@ -698,7 +640,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		return actions.NewWeaviateActionsDeleteNoContent()
 	})
 
-	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams, principal interface{}) middleware.Responder {
+	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		defer dbLock.Unlock()
 
@@ -708,23 +650,15 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
-		// Get key-object
-		keyObject := principal.(*models.KeyTokenGetResponse)
-
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
-
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, keyObject.KeyID); !allowed {
-			return actions.NewWeaviateActionsListForbidden()
-		}
 
 		// Initialize response
 		actionsResponse := models.ActionsListResponse{}
 		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
-		err := dbConnector.ListActions(ctx, limit, (page-1)*limit, keyObject.KeyID, []*connutils.WhereQuery{}, &actionsResponse)
+		err := dbConnector.ListActions(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)

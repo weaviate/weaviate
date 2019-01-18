@@ -236,7 +236,7 @@ func fixupThings() {
 
 func checkThingExists(id string) bool {
 	params := things.NewWeaviateThingsGetParams().WithThingID(strfmt.UUID(id))
-	resp, err := client.Things.WeaviateThingsGet(params, auth)
+	resp, err := client.Things.WeaviateThingsGet(params)
 
 	if err != nil {
 		switch v := err.(type) {
@@ -253,7 +253,7 @@ func checkThingExists(id string) bool {
 func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
 	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: t})
 
-	resp, _, err := client.Things.WeaviateThingsCreate(params, auth)
+	resp, _, err := client.Things.WeaviateThingsCreate(params)
 
 	if err != nil {
 		switch v := err.(type) {
@@ -270,7 +270,7 @@ func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
 func assertUpdateThing(id string, update *models.ThingUpdate) *models.ThingGetResponse {
 	params := things.NewWeaviateThingsUpdateParams().WithBody(update).WithThingID(strfmt.UUID(id))
 
-	resp, err := client.Things.WeaviateThingsUpdate(params, auth)
+	resp, err := client.Things.WeaviateThingsUpdate(params)
 
 	if err != nil {
 		switch v := err.(type) {
@@ -290,7 +290,7 @@ func assertUpdateThing(id string, update *models.ThingUpdate) *models.ThingGetRe
 func assertPatchThing(id string, p *models.PatchDocument) *models.ThingGetResponse {
 	params := things.NewWeaviateThingsPatchParams().WithBody([]*models.PatchDocument{p}).WithThingID(strfmt.UUID(id))
 
-	resp, _, err := client.Things.WeaviateThingsPatch(params, auth)
+	resp, _, err := client.Things.WeaviateThingsPatch(params)
 
 	if err != nil {
 		switch v := err.(type) {

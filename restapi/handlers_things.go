@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/auth"
 	weaviateBroker "github.com/creativesoftwarefdn/weaviate/broker"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -36,7 +35,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 	/*
 	 * HANDLE THINGS
 	 */
-	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams, principal interface{}) middleware.Responder {
+	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -46,21 +45,13 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
 
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, nil); !allowed {
-			return things.NewWeaviateThingsCreateForbidden()
-		}
-
 		// Generate UUID for the new object
 		UUID := connutils.GenerateUUID()
-
-		// Convert principal to object
-		keyToken := principal.(*models.KeyTokenGetResponse)
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body.Thing, databaseSchema,
-			dbConnector, network, serverConfig, keyToken)
+			dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -76,11 +67,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			}
 		}()
 
-		// Create Key-ref-Object
-		keyRef := &models.SingleRef{
-			NrDollarCref: strfmt.URI(keyToken.KeyID),
-		}
-
 		// Make Thing-Object
 		thing := &models.Thing{}
 		thing.Schema = params.Body.Thing.Schema
@@ -88,7 +74,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		thing.AtContext = params.Body.Thing.AtContext
 		thing.CreationTimeUnix = connutils.NowUnix()
 		thing.LastUpdateTimeUnix = 0
-		thing.Key = keyRef
 
 		responseObject := &models.ThingGetResponse{}
 		responseObject.Thing = *thing
@@ -106,7 +91,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
 		}
 	})
-	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams, principal interface{}) middleware.Responder {
+	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -131,11 +116,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			return things.NewWeaviateThingsDeleteNotFound()
 		}
 
-		// This is a delete function, validate if allowed to delete?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"delete"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
-			return things.NewWeaviateThingsDeleteForbidden()
-		}
-
 		thingGetResponse.LastUpdateTimeUnix = connutils.NowUnix()
 
 		// Move the current properties to the history
@@ -155,7 +135,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Return 'No Content'
 		return things.NewWeaviateThingsDeleteNoContent()
 	})
-	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams, principal interface{}) middleware.Responder {
+	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
@@ -171,21 +151,16 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		err := dbConnector.GetThing(ctx, strfmt.UUID(params.ThingID), &responseObject)
 
 		// Object is not found
-		if err != nil || responseObject.Key == nil {
+		if err != nil {
 			messaging.ErrorMessage(err)
 			return things.NewWeaviateThingsGetNotFound()
-		}
-
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
-			return things.NewWeaviateThingsGetForbidden()
 		}
 
 		// Get is successful
 		return things.NewWeaviateThingsGetOK().WithPayload(&responseObject)
 	})
 
-	api.ThingsWeaviateThingHistoryGetHandler = things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams, principal interface{}) middleware.Responder {
+	api.ThingsWeaviateThingHistoryGetHandler = things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
@@ -218,24 +193,13 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			return things.NewWeaviateThingHistoryGetNotFound()
 		}
 
-		// This is a read function, validate if allowed to read?
-		if errHist == nil {
-			if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, historyResponse.Key.NrDollarCref); !allowed {
-				return things.NewWeaviateThingHistoryGetForbidden()
-			}
-		} else if errGet == nil {
-			if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, responseObject.Key.NrDollarCref); !allowed {
-				return things.NewWeaviateThingHistoryGetForbidden()
-			}
-		}
-
 		// Thing is deleted when we have an get error and no history error
 		historyResponse.Deleted = errGet != nil && errHist == nil && len(historyResponse.PropertyHistory) != 0
 
 		return things.NewWeaviateThingHistoryGetOK().WithPayload(historyResponse)
 	})
 
-	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams, principal interface{}) middleware.Responder {
+	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
@@ -244,23 +208,15 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
-		// Get user out of principal
-		keyID := principal.(*models.KeyTokenGetResponse).KeyID
-
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
-
-		// This is a read function, validate if allowed to read?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"read"}, principal, dbConnector, keyID); !allowed {
-			return things.NewWeaviateThingsListForbidden()
-		}
 
 		// Initialize response
 		thingsResponse := models.ThingsListResponse{}
 		thingsResponse.Things = []*models.ThingGetResponse{}
 
 		// List all results
-		err := dbConnector.ListThings(ctx, limit, (page-1)*limit, keyID, []*connutils.WhereQuery{}, &thingsResponse)
+		err := dbConnector.ListThings(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &thingsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)
@@ -268,7 +224,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
 	})
-	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams, principal interface{}) middleware.Responder {
+	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -301,11 +257,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			return things.NewWeaviateThingsPatchNotFound()
 		}
 
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
-			return things.NewWeaviateThingsPatchForbidden()
-		}
-
 		// Get PATCH params in format RFC 6902
 		jsonBody, marshalErr := json.Marshal(params.Body)
 		patchObject, decodeErr := jsonpatch.DecodePatch([]byte(jsonBody))
@@ -331,16 +282,13 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		thing := &models.Thing{}
 		json.Unmarshal([]byte(updatedJSON), &thing)
 
-		// Convert principal to object
-		keyToken := principal.(*models.KeyTokenGetResponse)
-
 		// Validate schema made after patching with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		fmt.Print("\n\n\n\n after patch:")
 		spew.Dump(thing.ThingCreate)
 		fmt.Print("\n\n\n\n")
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &thing.ThingCreate,
-			databaseSchema, dbConnector, network, serverConfig, keyToken)
+			databaseSchema, dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(
 				createErrorResponseObject(fmt.Sprintf("validation failed: %s", validatedErr.Error())),
@@ -396,7 +344,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			return things.NewWeaviateThingsPatchOK().WithPayload(&thingGetResponse)
 		}
 	})
-	api.ThingsWeaviateThingsPropertiesCreateHandler = things.WeaviateThingsPropertiesCreateHandlerFunc(func(params things.WeaviateThingsPropertiesCreateParams, principal interface{}) middleware.Responder {
+	api.ThingsWeaviateThingsPropertiesCreateHandler = things.WeaviateThingsPropertiesCreateHandlerFunc(func(params things.WeaviateThingsPropertiesCreateParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -437,14 +385,9 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
 		}
 
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
-			return things.NewWeaviateThingsPatchForbidden()
-		}
-
 		// Look up the single ref.
 		err = validation.ValidateSingleRef(ctx, serverConfig, params.Body, dbConnector, network,
-			"reference not found", principal.(*models.KeyTokenGetResponse))
+			"reference not found")
 		if err != nil {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(err.Error()))
@@ -485,7 +428,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsPropertiesCreateOK()
 	})
-	api.ThingsWeaviateThingsPropertiesDeleteHandler = things.WeaviateThingsPropertiesDeleteHandlerFunc(func(params things.WeaviateThingsPropertiesDeleteParams, principal interface{}) middleware.Responder {
+	api.ThingsWeaviateThingsPropertiesDeleteHandler = things.WeaviateThingsPropertiesDeleteHandlerFunc(func(params things.WeaviateThingsPropertiesDeleteParams) middleware.Responder {
 		if params.Body == nil {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a no valid reference", params.PropertyName)))
@@ -530,11 +473,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		if prop.Cardinality == nil || *prop.Cardinality != "many" {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
-		}
-
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
-			return things.NewWeaviateThingsPatchForbidden()
 		}
 
 		//NOTE: we are _not_ verifying the reference; otherwise we cannot delete broken references.
@@ -586,7 +524,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsPropertiesDeleteNoContent()
 	})
-	api.ThingsWeaviateThingsPropertiesUpdateHandler = things.WeaviateThingsPropertiesUpdateHandlerFunc(func(params things.WeaviateThingsPropertiesUpdateParams, principal interface{}) middleware.Responder {
+	api.ThingsWeaviateThingsPropertiesUpdateHandler = things.WeaviateThingsPropertiesUpdateHandlerFunc(func(params things.WeaviateThingsPropertiesUpdateParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -627,14 +565,9 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a cardinality of atMostOne", params.PropertyName)))
 		}
 
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, class.Key.NrDollarCref); !allowed {
-			return things.NewWeaviateThingsPatchForbidden()
-		}
-
 		// Look up the single ref.
 		err = validation.ValidateMultipleRef(ctx, serverConfig, &params.Body, dbConnector, network,
-			"reference not found", principal.(*models.KeyTokenGetResponse))
+			"reference not found")
 		if err != nil {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(err.Error()))
@@ -661,7 +594,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsPropertiesCreateOK()
 	})
-	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams, principal interface{}) middleware.Responder {
+	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -688,18 +621,10 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			return things.NewWeaviateThingsUpdateNotFound()
 		}
 
-		// This is a write function, validate if allowed to write?
-		if allowed, _ := auth.ActionsAllowed(ctx, []string{"write"}, principal, dbConnector, thingGetResponse.Key.NrDollarCref); !allowed {
-			return things.NewWeaviateThingsUpdateForbidden()
-		}
-
-		// Convert principal to object
-		keyToken := principal.(*models.KeyTokenGetResponse)
-
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &params.Body.ThingCreate,
-			databaseSchema, dbConnector, network, serverConfig, keyToken)
+			databaseSchema, dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsUpdateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
@@ -733,18 +658,15 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return things.NewWeaviateThingsUpdateAccepted().WithPayload(responseObject)
 	})
-	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams, principal interface{}) middleware.Responder {
+	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams) middleware.Responder {
 		dbLock := db.ConnectorLock()
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
 
-		// Convert principal to object
-		keyToken := principal.(*models.KeyTokenGetResponse)
-
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body, databaseSchema,
-			dbConnector, network, serverConfig, keyToken)
+			dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}

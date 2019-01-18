@@ -39,7 +39,7 @@ type Client struct {
 /*
 WeaviateSchemaActionsCreate creates a new action class in the ontology
 */
-func (a *Client) WeaviateSchemaActionsCreate(params *WeaviateSchemaActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsCreateOK, error) {
+func (a *Client) WeaviateSchemaActionsCreate(params *WeaviateSchemaActionsCreateParams) (*WeaviateSchemaActionsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaActionsCreateParams()
@@ -54,7 +54,6 @@ func (a *Client) WeaviateSchemaActionsCreate(params *WeaviateSchemaActionsCreate
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaActionsCreateReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -68,7 +67,7 @@ func (a *Client) WeaviateSchemaActionsCreate(params *WeaviateSchemaActionsCreate
 /*
 WeaviateSchemaActionsDelete removes an action class and all data in the instances from the ontology
 */
-func (a *Client) WeaviateSchemaActionsDelete(params *WeaviateSchemaActionsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsDeleteOK, error) {
+func (a *Client) WeaviateSchemaActionsDelete(params *WeaviateSchemaActionsDeleteParams) (*WeaviateSchemaActionsDeleteOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaActionsDeleteParams()
@@ -83,7 +82,6 @@ func (a *Client) WeaviateSchemaActionsDelete(params *WeaviateSchemaActionsDelete
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaActionsDeleteReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -97,7 +95,7 @@ func (a *Client) WeaviateSchemaActionsDelete(params *WeaviateSchemaActionsDelete
 /*
 WeaviateSchemaActionsPropertiesAdd adds a property to an action class
 */
-func (a *Client) WeaviateSchemaActionsPropertiesAdd(params *WeaviateSchemaActionsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsPropertiesAddOK, error) {
+func (a *Client) WeaviateSchemaActionsPropertiesAdd(params *WeaviateSchemaActionsPropertiesAddParams) (*WeaviateSchemaActionsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaActionsPropertiesAddParams()
@@ -112,7 +110,6 @@ func (a *Client) WeaviateSchemaActionsPropertiesAdd(params *WeaviateSchemaAction
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaActionsPropertiesAddReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -126,7 +123,7 @@ func (a *Client) WeaviateSchemaActionsPropertiesAdd(params *WeaviateSchemaAction
 /*
 WeaviateSchemaActionsPropertiesDelete removes a property from an action class
 */
-func (a *Client) WeaviateSchemaActionsPropertiesDelete(params *WeaviateSchemaActionsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsPropertiesDeleteOK, error) {
+func (a *Client) WeaviateSchemaActionsPropertiesDelete(params *WeaviateSchemaActionsPropertiesDeleteParams) (*WeaviateSchemaActionsPropertiesDeleteOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaActionsPropertiesDeleteParams()
@@ -141,7 +138,6 @@ func (a *Client) WeaviateSchemaActionsPropertiesDelete(params *WeaviateSchemaAct
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaActionsPropertiesDeleteReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -155,7 +151,7 @@ func (a *Client) WeaviateSchemaActionsPropertiesDelete(params *WeaviateSchemaAct
 /*
 WeaviateSchemaActionsPropertiesUpdate renames or replace the keywords of the property
 */
-func (a *Client) WeaviateSchemaActionsPropertiesUpdate(params *WeaviateSchemaActionsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsPropertiesUpdateOK, error) {
+func (a *Client) WeaviateSchemaActionsPropertiesUpdate(params *WeaviateSchemaActionsPropertiesUpdateParams) (*WeaviateSchemaActionsPropertiesUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaActionsPropertiesUpdateParams()
@@ -170,7 +166,6 @@ func (a *Client) WeaviateSchemaActionsPropertiesUpdate(params *WeaviateSchemaAct
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaActionsPropertiesUpdateReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -184,7 +179,7 @@ func (a *Client) WeaviateSchemaActionsPropertiesUpdate(params *WeaviateSchemaAct
 /*
 WeaviateSchemaActionsUpdate renames or replace the keywords of the action
 */
-func (a *Client) WeaviateSchemaActionsUpdate(params *WeaviateSchemaActionsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaActionsUpdateOK, error) {
+func (a *Client) WeaviateSchemaActionsUpdate(params *WeaviateSchemaActionsUpdateParams) (*WeaviateSchemaActionsUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaActionsUpdateParams()
@@ -199,7 +194,6 @@ func (a *Client) WeaviateSchemaActionsUpdate(params *WeaviateSchemaActionsUpdate
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaActionsUpdateReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -213,7 +207,7 @@ func (a *Client) WeaviateSchemaActionsUpdate(params *WeaviateSchemaActionsUpdate
 /*
 WeaviateSchemaDump dumps the current the database schema
 */
-func (a *Client) WeaviateSchemaDump(params *WeaviateSchemaDumpParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaDumpOK, error) {
+func (a *Client) WeaviateSchemaDump(params *WeaviateSchemaDumpParams) (*WeaviateSchemaDumpOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaDumpParams()
@@ -228,7 +222,6 @@ func (a *Client) WeaviateSchemaDump(params *WeaviateSchemaDumpParams, authInfo r
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaDumpReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -242,7 +235,7 @@ func (a *Client) WeaviateSchemaDump(params *WeaviateSchemaDumpParams, authInfo r
 /*
 WeaviateSchemaThingsCreate creates a new thing class in the ontology
 */
-func (a *Client) WeaviateSchemaThingsCreate(params *WeaviateSchemaThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsCreateOK, error) {
+func (a *Client) WeaviateSchemaThingsCreate(params *WeaviateSchemaThingsCreateParams) (*WeaviateSchemaThingsCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaThingsCreateParams()
@@ -257,7 +250,6 @@ func (a *Client) WeaviateSchemaThingsCreate(params *WeaviateSchemaThingsCreatePa
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaThingsCreateReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -271,7 +263,7 @@ func (a *Client) WeaviateSchemaThingsCreate(params *WeaviateSchemaThingsCreatePa
 /*
 WeaviateSchemaThingsDelete removes a thing class and all data in the instances from the ontology
 */
-func (a *Client) WeaviateSchemaThingsDelete(params *WeaviateSchemaThingsDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsDeleteOK, error) {
+func (a *Client) WeaviateSchemaThingsDelete(params *WeaviateSchemaThingsDeleteParams) (*WeaviateSchemaThingsDeleteOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaThingsDeleteParams()
@@ -286,7 +278,6 @@ func (a *Client) WeaviateSchemaThingsDelete(params *WeaviateSchemaThingsDeletePa
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaThingsDeleteReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -300,7 +291,7 @@ func (a *Client) WeaviateSchemaThingsDelete(params *WeaviateSchemaThingsDeletePa
 /*
 WeaviateSchemaThingsPropertiesAdd adds a property to a thing class
 */
-func (a *Client) WeaviateSchemaThingsPropertiesAdd(params *WeaviateSchemaThingsPropertiesAddParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsPropertiesAddOK, error) {
+func (a *Client) WeaviateSchemaThingsPropertiesAdd(params *WeaviateSchemaThingsPropertiesAddParams) (*WeaviateSchemaThingsPropertiesAddOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaThingsPropertiesAddParams()
@@ -315,7 +306,6 @@ func (a *Client) WeaviateSchemaThingsPropertiesAdd(params *WeaviateSchemaThingsP
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaThingsPropertiesAddReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -329,7 +319,7 @@ func (a *Client) WeaviateSchemaThingsPropertiesAdd(params *WeaviateSchemaThingsP
 /*
 WeaviateSchemaThingsPropertiesDelete removes a property from a thing class
 */
-func (a *Client) WeaviateSchemaThingsPropertiesDelete(params *WeaviateSchemaThingsPropertiesDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsPropertiesDeleteOK, error) {
+func (a *Client) WeaviateSchemaThingsPropertiesDelete(params *WeaviateSchemaThingsPropertiesDeleteParams) (*WeaviateSchemaThingsPropertiesDeleteOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaThingsPropertiesDeleteParams()
@@ -344,7 +334,6 @@ func (a *Client) WeaviateSchemaThingsPropertiesDelete(params *WeaviateSchemaThin
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaThingsPropertiesDeleteReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -358,7 +347,7 @@ func (a *Client) WeaviateSchemaThingsPropertiesDelete(params *WeaviateSchemaThin
 /*
 WeaviateSchemaThingsPropertiesUpdate renames or replace the keywords of the property
 */
-func (a *Client) WeaviateSchemaThingsPropertiesUpdate(params *WeaviateSchemaThingsPropertiesUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsPropertiesUpdateOK, error) {
+func (a *Client) WeaviateSchemaThingsPropertiesUpdate(params *WeaviateSchemaThingsPropertiesUpdateParams) (*WeaviateSchemaThingsPropertiesUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaThingsPropertiesUpdateParams()
@@ -373,7 +362,6 @@ func (a *Client) WeaviateSchemaThingsPropertiesUpdate(params *WeaviateSchemaThin
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaThingsPropertiesUpdateReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -387,7 +375,7 @@ func (a *Client) WeaviateSchemaThingsPropertiesUpdate(params *WeaviateSchemaThin
 /*
 WeaviateSchemaThingsUpdate renames or replace the keywords of the thing
 */
-func (a *Client) WeaviateSchemaThingsUpdate(params *WeaviateSchemaThingsUpdateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateSchemaThingsUpdateOK, error) {
+func (a *Client) WeaviateSchemaThingsUpdate(params *WeaviateSchemaThingsUpdateParams) (*WeaviateSchemaThingsUpdateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateSchemaThingsUpdateParams()
@@ -402,7 +390,6 @@ func (a *Client) WeaviateSchemaThingsUpdate(params *WeaviateSchemaThingsUpdatePa
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateSchemaThingsUpdateReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})

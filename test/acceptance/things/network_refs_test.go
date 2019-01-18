@@ -78,7 +78,7 @@ func TestCanPatchNetworkRef(t *testing.T) {
 		params := things.NewWeaviateThingsPatchParams().
 			WithBody([]*models.PatchDocument{patch}).
 			WithThingID(thingID)
-		patchResp, _, err := helper.Client(t).Things.WeaviateThingsPatch(params, helper.RootAuth)
+		patchResp, _, err := helper.Client(t).Things.WeaviateThingsPatch(params)
 		helper.AssertRequestOk(t, patchResp, err, nil)
 	})
 

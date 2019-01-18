@@ -16,6 +16,10 @@ package loader
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"reflect"
+
 	apiclient "github.com/creativesoftwarefdn/weaviate/client"
 	apischema "github.com/creativesoftwarefdn/weaviate/client/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -24,9 +28,6 @@ import (
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	log "github.com/sirupsen/logrus"
-	"io/ioutil"
-	"os"
-	"reflect"
 )
 
 type Loader interface {
@@ -211,7 +212,7 @@ func loadSemanticSchemaFromDisk(path string) (error, *models.SemanticSchema) {
 func (l *loader) getWeaviateSchema() error {
 	l.log.Info("Fetching existing schema from Weaviate")
 
-	response, err := l.client.Schema.WeaviateSchemaDump(nil, l.auth)
+	response, err := l.client.Schema.WeaviateSchemaDump(nil)
 	l.log.Info("Fetching existing schema from Weaviate DONE")
 	if err != nil {
 		return err
@@ -234,7 +235,7 @@ func (l *loader) maybeDropActionClasses() error {
 		// Check if this is in the schema to import
 		if l.schema.FindClassByName(sanitizedName) != nil {
 			params := apischema.NewWeaviateSchemaActionsDeleteParams().WithClassName(class.Class)
-			_, err := l.client.Schema.WeaviateSchemaActionsDelete(params, l.auth)
+			_, err := l.client.Schema.WeaviateSchemaActionsDelete(params)
 			if err != nil {
 				err = fmt.Errorf("Could not delete conflicting action class %s", class.Class)
 				l.log.Debug(err.Error())
@@ -254,7 +255,7 @@ func (l *loader) maybeDropThingClasses() error {
 		// Check if this is in the schema to import
 		if l.schema.FindClassByName(sanitizedName) != nil {
 			params := apischema.NewWeaviateSchemaThingsDeleteParams().WithClassName(class.Class)
-			_, err := l.client.Schema.WeaviateSchemaThingsDelete(params, l.auth)
+			_, err := l.client.Schema.WeaviateSchemaThingsDelete(params)
 			if err != nil {
 				err = fmt.Errorf("Could not delete conflicting thing class %s", class.Class)
 				l.log.Debug(err.Error())
@@ -277,7 +278,7 @@ func (l *loader) defineActionClasses() error {
 		classToAdd.Properties = nil
 
 		params := apischema.NewWeaviateSchemaActionsCreateParams().WithActionClass(&classToAdd)
-		_, err := l.client.Schema.WeaviateSchemaActionsCreate(params, l.auth)
+		_, err := l.client.Schema.WeaviateSchemaActionsCreate(params)
 		if err != nil {
 			l.log.Debugf("Could not create action class: %s", debugResponse(err))
 			return err
@@ -296,7 +297,7 @@ func (l *loader) defineThingClasses() error {
 		classToAdd.Properties = nil
 
 		params := apischema.NewWeaviateSchemaThingsCreateParams().WithThingClass(&classToAdd)
-		_, err := l.client.Schema.WeaviateSchemaThingsCreate(params, l.auth)
+		_, err := l.client.Schema.WeaviateSchemaThingsCreate(params)
 		if err != nil {
 			l.log.Debugf("Could not create thing class: %s", debugResponse(err))
 			return err
@@ -313,7 +314,7 @@ func (l *loader) addActionProperties() error {
 			l.log.Infof("Adding action property %s for action class %s", property.Name, class.Class)
 
 			params := apischema.NewWeaviateSchemaActionsPropertiesAddParams().WithClassName(class.Class).WithBody(property)
-			_, err := l.client.Schema.WeaviateSchemaActionsPropertiesAdd(params, l.auth)
+			_, err := l.client.Schema.WeaviateSchemaActionsPropertiesAdd(params)
 			if err != nil {
 				l.log.Debugf("Could not add property %s for action class %s: %s", property.Name, class.Class, debugResponse(err))
 				return err
@@ -332,7 +333,7 @@ func (l *loader) addThingProperties() error {
 			l.log.Infof("Adding thing property %s for thing class %s", property.Name, class.Class)
 
 			params := apischema.NewWeaviateSchemaThingsPropertiesAddParams().WithClassName(class.Class).WithBody(property)
-			_, err := l.client.Schema.WeaviateSchemaThingsPropertiesAdd(params, l.auth)
+			_, err := l.client.Schema.WeaviateSchemaThingsPropertiesAdd(params)
 			if err != nil {
 				l.log.Debugf("Could not add property %s for thing class %s: %s", property.Name, class.Class, debugResponse(err))
 				return err

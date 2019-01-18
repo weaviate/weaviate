@@ -41,7 +41,7 @@ WeaviateKeyCreate creates a new key related to this key
 
 Creates a new key. Input expiration date is validated on being in the future and not longer than parent expiration date.
 */
-func (a *Client) WeaviateKeyCreate(params *WeaviateKeyCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateKeyCreateOK, error) {
+func (a *Client) WeaviateKeyCreate(params *WeaviateKeyCreateParams) (*WeaviateKeyCreateOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateKeyCreateParams()
@@ -56,7 +56,6 @@ func (a *Client) WeaviateKeyCreate(params *WeaviateKeyCreateParams, authInfo run
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateKeyCreateReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -72,7 +71,7 @@ WeaviateKeysChildrenGet gets an object of this keys children related to this key
 
 Get children of a key, only one step deep. A child can have children of its own.
 */
-func (a *Client) WeaviateKeysChildrenGet(params *WeaviateKeysChildrenGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateKeysChildrenGetOK, error) {
+func (a *Client) WeaviateKeysChildrenGet(params *WeaviateKeysChildrenGetParams) (*WeaviateKeysChildrenGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateKeysChildrenGetParams()
@@ -87,7 +86,6 @@ func (a *Client) WeaviateKeysChildrenGet(params *WeaviateKeysChildrenGetParams, 
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateKeysChildrenGetReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -103,7 +101,7 @@ WeaviateKeysDelete deletes a key based on its UUID related to this key
 
 Deletes a key. Only parent or self is allowed to delete key. When you delete a key, all its children will be deleted as well.
 */
-func (a *Client) WeaviateKeysDelete(params *WeaviateKeysDeleteParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateKeysDeleteNoContent, error) {
+func (a *Client) WeaviateKeysDelete(params *WeaviateKeysDeleteParams) (*WeaviateKeysDeleteNoContent, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateKeysDeleteParams()
@@ -118,7 +116,6 @@ func (a *Client) WeaviateKeysDelete(params *WeaviateKeysDeleteParams, authInfo r
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateKeysDeleteReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -134,7 +131,7 @@ WeaviateKeysGet gets a key based on its UUID related to this key
 
 Get a key.
 */
-func (a *Client) WeaviateKeysGet(params *WeaviateKeysGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateKeysGetOK, error) {
+func (a *Client) WeaviateKeysGet(params *WeaviateKeysGetParams) (*WeaviateKeysGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateKeysGetParams()
@@ -149,7 +146,6 @@ func (a *Client) WeaviateKeysGet(params *WeaviateKeysGetParams, authInfo runtime
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateKeysGetReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -165,7 +161,7 @@ WeaviateKeysMeChildrenGet gets an object of this keys children related to the ke
 
 Get children of used key, only one step deep. A child can have children of its own.
 */
-func (a *Client) WeaviateKeysMeChildrenGet(params *WeaviateKeysMeChildrenGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateKeysMeChildrenGetOK, error) {
+func (a *Client) WeaviateKeysMeChildrenGet(params *WeaviateKeysMeChildrenGetParams) (*WeaviateKeysMeChildrenGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateKeysMeChildrenGetParams()
@@ -180,7 +176,6 @@ func (a *Client) WeaviateKeysMeChildrenGet(params *WeaviateKeysMeChildrenGetPara
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateKeysMeChildrenGetReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -196,7 +191,7 @@ WeaviateKeysMeGet gets a key based on the key used to do the request
 
 Get the key-information of the key used.
 */
-func (a *Client) WeaviateKeysMeGet(params *WeaviateKeysMeGetParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateKeysMeGetOK, error) {
+func (a *Client) WeaviateKeysMeGet(params *WeaviateKeysMeGetParams) (*WeaviateKeysMeGetOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateKeysMeGetParams()
@@ -211,7 +206,6 @@ func (a *Client) WeaviateKeysMeGet(params *WeaviateKeysMeGetParams, authInfo run
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateKeysMeGetReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -227,7 +221,7 @@ WeaviateKeysRenewToken renews a key based on the key given in the query string
 
 Renews the related key. Validates being lower in tree than given key. Can not renew itself, unless being parent.
 */
-func (a *Client) WeaviateKeysRenewToken(params *WeaviateKeysRenewTokenParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateKeysRenewTokenOK, error) {
+func (a *Client) WeaviateKeysRenewToken(params *WeaviateKeysRenewTokenParams) (*WeaviateKeysRenewTokenOK, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateKeysRenewTokenParams()
@@ -242,7 +236,6 @@ func (a *Client) WeaviateKeysRenewToken(params *WeaviateKeysRenewTokenParams, au
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateKeysRenewTokenReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})

@@ -62,7 +62,7 @@ const (
 // ValidateSchemaInBody Validate the schema in the given body
 func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{},
 	refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, network network.Network,
-	serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+	serverConfig *config.WeaviateConfig) error {
 	// Initialize class object
 	var isp interface{}
 	var className string
@@ -112,7 +112,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 		if *dt == schema.DataTypeCRef {
 			switch refValue := pv.(type) {
 			case map[string]interface{}:
-				cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, keyToken, refValue, class.Class, pk)
+				cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, refValue, class.Class, pk)
 				if err != nil {
 					return err
 				}
@@ -128,7 +128,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 							class.Class, pk, ref)
 					}
 
-					cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, keyToken, refTyped, class.Class, pk)
+					cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, refTyped, class.Class, pk)
 					if err != nil {
 						return err
 					}
@@ -273,7 +273,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 }
 
 func parseAndValidateSingleRef(ctx context.Context, dbConnector dbconnector.DatabaseConnector, network network.Network,
-	serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse, pvcr map[string]interface{},
+	serverConfig *config.WeaviateConfig, pvcr map[string]interface{},
 	className, propertyName string) (*models.SingleRef, error) {
 
 	// Return different types of errors for cref input
@@ -299,8 +299,7 @@ func parseAndValidateSingleRef(ctx context.Context, dbConnector dbconnector.Data
 		return nil, fmt.Errorf("invalid reference: %s", err)
 	}
 	errVal := fmt.Sprintf("'cref' %s %s:%s", ref.Kind.Name(), className, propertyName)
-	err = ValidateSingleRef(ctx, serverConfig, ref.SingleRef(), dbConnector, network,
-		errVal, keyToken)
+	err = ValidateSingleRef(ctx, serverConfig, ref.SingleRef(), dbConnector, network, errVal)
 	if err != nil {
 		return nil, err
 	}
