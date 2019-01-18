@@ -24,16 +24,16 @@ import (
 )
 
 // WeaviateKeysChildrenGetHandlerFunc turns a function with the right signature into a weaviate keys children get handler
-type WeaviateKeysChildrenGetHandlerFunc func(WeaviateKeysChildrenGetParams, interface{}) middleware.Responder
+type WeaviateKeysChildrenGetHandlerFunc func(WeaviateKeysChildrenGetParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateKeysChildrenGetHandlerFunc) Handle(params WeaviateKeysChildrenGetParams, principal interface{}) middleware.Responder {
-	return fn(params, principal)
+func (fn WeaviateKeysChildrenGetHandlerFunc) Handle(params WeaviateKeysChildrenGetParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateKeysChildrenGetHandler interface for that can handle valid weaviate keys children get params
 type WeaviateKeysChildrenGetHandler interface {
-	Handle(WeaviateKeysChildrenGetParams, interface{}) middleware.Responder
+	Handle(WeaviateKeysChildrenGetParams) middleware.Responder
 }
 
 // NewWeaviateKeysChildrenGet creates a new http.Handler for the weaviate keys children get operation
@@ -60,25 +60,12 @@ func (o *WeaviateKeysChildrenGet) ServeHTTP(rw http.ResponseWriter, r *http.Requ
 	}
 	var Params = NewWeaviateKeysChildrenGetParams()
 
-	uprinc, aCtx, err := o.Context.Authorize(r, route)
-	if err != nil {
-		o.Context.Respond(rw, r, route.Produces, route, err)
-		return
-	}
-	if aCtx != nil {
-		r = aCtx
-	}
-	var principal interface{}
-	if uprinc != nil {
-		principal = uprinc
-	}
-
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params, principal) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

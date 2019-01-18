@@ -36,7 +36,7 @@ func TestListAll(t *testing.T) {
 			Schema:    map[string]interface{}{},
 		},
 	})
-	resp1, _, err := helper.Client(t).Things.WeaviateThingsCreate(params1, helper.RootAuth)
+	resp1, _, err := helper.Client(t).Things.WeaviateThingsCreate(params1)
 	assert.Nil(t, err, "creation should succeed")
 
 	params2 := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
@@ -46,11 +46,11 @@ func TestListAll(t *testing.T) {
 			Schema:    map[string]interface{}{},
 		},
 	})
-	resp2, _, err := helper.Client(t).Things.WeaviateThingsCreate(params2, helper.RootAuth)
+	resp2, _, err := helper.Client(t).Things.WeaviateThingsCreate(params2)
 	assert.Nil(t, err, "creation should succeed")
 
 	listParams := things.NewWeaviateThingsListParams()
-	resp, err := helper.Client(t).Things.WeaviateThingsList(listParams, helper.RootAuth)
+	resp, err := helper.Client(t).Things.WeaviateThingsList(listParams)
 
 	found1 := false
 	found2 := false

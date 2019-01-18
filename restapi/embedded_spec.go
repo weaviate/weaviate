@@ -3138,24 +3138,6 @@ func init() {
       "in": "query"
     }
   },
-  "securityDefinitions": {
-    "apiKey": {
-      "type": "apiKey",
-      "name": "X-API-KEY",
-      "in": "header"
-    },
-    "apiToken": {
-      "type": "apiKey",
-      "name": "X-API-TOKEN",
-      "in": "header"
-    }
-  },
-  "security": [
-    {
-      "apiKey": [],
-      "apiToken": []
-    }
-  ],
   "tags": [
     {
       "name": "actions"
@@ -6316,24 +6298,6 @@ func init() {
       "in": "query"
     }
   },
-  "securityDefinitions": {
-    "apiKey": {
-      "type": "apiKey",
-      "name": "X-API-KEY",
-      "in": "header"
-    },
-    "apiToken": {
-      "type": "apiKey",
-      "name": "X-API-TOKEN",
-      "in": "header"
-    }
-  },
-  "security": [
-    {
-      "apiKey": [],
-      "apiToken": []
-    }
-  ],
   "tags": [
     {
       "name": "actions"

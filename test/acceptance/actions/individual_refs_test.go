@@ -15,7 +15,6 @@ package test
 // Acceptance tests for actions
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
@@ -44,7 +43,7 @@ func TestCanAddAPropertyIndividually(t *testing.T) {
 		WithPropertyName("testCrefs").
 		WithBody(crossref.New("localhost", toPointToUuid, kind.ACTION_KIND).SingleRef())
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsPropertiesCreate(params, helper.RootAuth)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionsPropertiesCreate(params)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	// Get the property again.
@@ -65,11 +64,8 @@ func TestCanReplaceAllProperties(t *testing.T) {
 		},
 	})
 
-	fmt.Printf("creation was fine")
-
 	// Verify that testCrefs is empty
 	updatedAction := assertGetAction(t, uuid)
-	fmt.Printf("get was fine")
 	updatedSchema := updatedAction.Schema.(map[string]interface{})
 	assert.NotNil(t, updatedSchema["testCrefs"])
 
@@ -81,13 +77,11 @@ func TestCanReplaceAllProperties(t *testing.T) {
 			crossref.New("localhost", toPointToUuidLater, kind.ACTION_KIND).SingleRef(),
 		})
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsPropertiesUpdate(params, helper.RootAuth)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionsPropertiesUpdate(params)
 	helper.AssertRequestOk(t, updateResp, err, nil)
-	fmt.Printf("update was fine")
 
 	// Get the property again.
 	updatedAction = assertGetAction(t, uuid)
-	fmt.Printf("another get was fine")
 	updatedSchema = updatedAction.Schema.(map[string]interface{})
 	assert.NotNil(t, updatedSchema["testCrefs"])
 }
@@ -116,7 +110,7 @@ func TestRemovePropertyIndividually(t *testing.T) {
 			crossref.New("localhost", toPointToUuid, kind.ACTION_KIND).SingleRef(),
 		)
 
-	updateResp, err := helper.Client(t).Actions.WeaviateActionsPropertiesDelete(params, helper.RootAuth)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionsPropertiesDelete(params)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
 	// Get the property again.

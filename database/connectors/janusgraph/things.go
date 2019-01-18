@@ -28,7 +28,7 @@ import (
 
 func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 	sanitizedClassName := schema.AssertValidClassName(thing.AtClass)
-	return j.addClass(kind.THING_KIND, sanitizedClassName, UUID, thing.AtContext, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, thing.Key, thing.Schema)
+	return j.addClass(kind.THING_KIND, sanitizedClassName, UUID, thing.AtContext, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, thing.Schema)
 }
 
 func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
@@ -38,8 +38,7 @@ func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingRespon
 		&thingResponse.ThingID,
 		&thingResponse.CreationTimeUnix,
 		&thingResponse.LastUpdateTimeUnix,
-		&thingResponse.Schema,
-		&thingResponse.Key)
+		&thingResponse.Schema)
 }
 
 func (j *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, response *models.ThingsListResponse) error {
@@ -63,11 +62,11 @@ func (j *Janusgraph) GetThings(ctx context.Context, UUIDs []strfmt.UUID, respons
 	return nil
 }
 
-func (j *Janusgraph) ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
+func (j *Janusgraph) ListThings(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, response *models.ThingsListResponse) error {
 	response.TotalResults = 0
 	response.Things = make([]*models.ThingGetResponse, 0)
 
-	return j.listClass(kind.THING_KIND, nil, first, offset, keyID, nil, func(uuid strfmt.UUID) {
+	return j.listClass(kind.THING_KIND, nil, first, offset, nil, func(uuid strfmt.UUID) {
 		var thing_response models.ThingGetResponse
 		err := j.GetThing(ctx, uuid, &thing_response)
 

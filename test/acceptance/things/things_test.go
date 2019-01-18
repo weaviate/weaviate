@@ -55,7 +55,7 @@ func TestCreateThingWorks(t *testing.T) {
 		},
 	})
 
-	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, helper.RootAuth)
+	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params)
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
@@ -87,7 +87,7 @@ func TestCannotCreateInvalidThings(t *testing.T) {
 			t.Parallel()
 
 			params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: example.thing()})
-			resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, helper.RootAuth)
+			resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params)
 			helper.AssertRequestFail(t, resp, err, func() {
 				errResponse, ok := err.(*things.WeaviateThingsCreateUnprocessableEntity)
 				if !ok {
@@ -230,7 +230,7 @@ var invalidThingTestCases = []struct {
 
 func cleanupThing(uuid strfmt.UUID) {
 	params := things.NewWeaviateThingsDeleteParams().WithThingID(uuid)
-	resp, err := helper.Client(nil).Things.WeaviateThingsDelete(params, helper.RootAuth)
+	resp, err := helper.Client(nil).Things.WeaviateThingsDelete(params)
 	if err != nil {
 		panic(fmt.Sprintf("Could not clean up thing '%s', because %v. Response: %#v", string(uuid), err, resp))
 	}

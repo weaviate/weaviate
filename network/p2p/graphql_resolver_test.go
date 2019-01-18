@@ -130,25 +130,26 @@ func TestProxyGetInstance(t *testing.T) {
 		cleanUp()
 	})
 
-	t.Run("should proxy along the key and token headers", func(t *testing.T) {
-		matcher := func(t *testing.T, r *http.Request) {
-			key := r.Header.Get("X-API-KEY")
-			token := r.Header.Get("X-API-TOKEN")
+	// re-enable when we have auth again
+	// t.Run("should proxy along the key and token headers", func(t *testing.T) {
+	// 	matcher := func(t *testing.T, r *http.Request) {
+	// 		key := r.Header.Get("X-API-KEY")
+	// 		token := r.Header.Get("X-API-TOKEN")
 
-			expectedKey := "stand-in-for-key-id-uuid"
-			if key != expectedKey {
-				t.Errorf("expected key to be \n%#v\n, but was \n%#v\n", expectedKey, key)
-			}
+	// 		expectedKey := "stand-in-for-key-id-uuid"
+	// 		if key != expectedKey {
+	// 			t.Errorf("expected key to be \n%#v\n, but was \n%#v\n", expectedKey, key)
+	// 		}
 
-			expectedToken := "stand-in-for-token-uuid"
-			if token != expectedToken {
-				t.Errorf("expected token to be \n%#v\n, but was \n%#v\n", expectedToken, token)
-			}
-		}
-		arrange(matcher)
-		act()
-		cleanUp()
-	})
+	// 		expectedToken := "stand-in-for-token-uuid"
+	// 		if token != expectedToken {
+	// 			t.Errorf("expected token to be \n%#v\n, but was \n%#v\n", expectedToken, token)
+	// 		}
+	// 	}
+	// 	arrange(matcher)
+	// 	act()
+	// 	cleanUp()
+	// })
 }
 
 type requestMatcher func(t *testing.T, r *http.Request)

@@ -13,13 +13,14 @@
 package test
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 	"testing"
+
+	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
 )
 
 // Helper function to get all the names of Thing classes.
 func GetThingClassNames(t *testing.T) []string {
-	resp, err := helper.Client(t).Schema.WeaviateSchemaDump(nil, helper.RootAuth)
+	resp, err := helper.Client(t).Schema.WeaviateSchemaDump(nil)
 	var names []string
 
 	// Extract all names
@@ -34,7 +35,7 @@ func GetThingClassNames(t *testing.T) []string {
 
 // Helper function to get all the names of Action classes.
 func GetActionClassNames(t *testing.T) []string {
-	resp, err := helper.Client(t).Schema.WeaviateSchemaDump(nil, helper.RootAuth)
+	resp, err := helper.Client(t).Schema.WeaviateSchemaDump(nil)
 	var names []string
 
 	// Extract all names

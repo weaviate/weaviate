@@ -16,11 +16,10 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/go-openapi/strfmt"
 )
 
-func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, atContext string, creationTimeUnix int64, lastUpdateTimeUnix int64, key *models.SingleRef, rawProperties interface{}) error {
+func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strfmt.UUID, atContext string, creationTimeUnix int64, lastUpdateTimeUnix int64, rawProperties interface{}) error {
 	vertexLabel := j.state.GetMappedClassName(className)
 	sourceClassAlias := "classToBeAdded"
 
@@ -37,15 +36,6 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 	if err != nil {
 		return err
 	}
-
-	// Link to key
-	q = q.AddE(KEY_VERTEX_LABEL).
-		StringProperty(PROP_REF_EDGE_CREF, string(key.NrDollarCref)).
-		StringProperty(PROP_REF_EDGE_TYPE, "Key").
-		StringProperty(PROP_REF_EDGE_LOCATION, "localhost")
-
-	q = q.FromRef(sourceClassAlias).
-		ToQuery(gremlin.G.V().HasLabel(KEY_VERTEX_LABEL).HasString(PROP_UUID, key.NrDollarCref.String()))
 
 	_, err = j.client.Execute(q)
 

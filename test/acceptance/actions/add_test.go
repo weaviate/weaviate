@@ -49,7 +49,7 @@ func TestCanCreateAction(t *testing.T) {
 		},
 	})
 
-	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params, helper.RootAuth)
+	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params)
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
@@ -88,7 +88,7 @@ func TestCanCreateAndGetAction(t *testing.T) {
 	})
 
 	// Now fetch the action
-	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionID), helper.RootAuth)
+	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionID))
 
 	helper.AssertRequestOk(t, getResp, err, func() {
 		action := getResp.Payload

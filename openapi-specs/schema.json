@@ -3112,22 +3112,8 @@
     "https"
   ],
   "security": [
-    {
-      "apiKey": [],
-      "apiToken": []
-    }
   ],
-  "securityDefinitions": {
-    "apiKey": {
-      "in": "header",
-      "name": "X-API-KEY",
-      "type": "apiKey"
-    },
-    "apiToken": {
-      "in": "header",
-      "name": "X-API-TOKEN",
-      "type": "apiKey"
-    }
+  "securityDefinitions": { 
   },
   "swagger": "2.0",
   "tags": [

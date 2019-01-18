@@ -24,16 +24,16 @@ import (
 )
 
 // WeaviateActionUpdateHandlerFunc turns a function with the right signature into a weaviate action update handler
-type WeaviateActionUpdateHandlerFunc func(WeaviateActionUpdateParams, interface{}) middleware.Responder
+type WeaviateActionUpdateHandlerFunc func(WeaviateActionUpdateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateActionUpdateHandlerFunc) Handle(params WeaviateActionUpdateParams, principal interface{}) middleware.Responder {
-	return fn(params, principal)
+func (fn WeaviateActionUpdateHandlerFunc) Handle(params WeaviateActionUpdateParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateActionUpdateHandler interface for that can handle valid weaviate action update params
 type WeaviateActionUpdateHandler interface {
-	Handle(WeaviateActionUpdateParams, interface{}) middleware.Responder
+	Handle(WeaviateActionUpdateParams) middleware.Responder
 }
 
 // NewWeaviateActionUpdate creates a new http.Handler for the weaviate action update operation
@@ -60,25 +60,12 @@ func (o *WeaviateActionUpdate) ServeHTTP(rw http.ResponseWriter, r *http.Request
 	}
 	var Params = NewWeaviateActionUpdateParams()
 
-	uprinc, aCtx, err := o.Context.Authorize(r, route)
-	if err != nil {
-		o.Context.Respond(rw, r, route.Produces, route, err)
-		return
-	}
-	if aCtx != nil {
-		r = aCtx
-	}
-	var principal interface{}
-	if uprinc != nil {
-		principal = uprinc
-	}
-
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params, principal) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

@@ -152,7 +152,7 @@ func fixupActions() {
 
 func checkActionExists(id string) bool {
 	params := actions.NewWeaviateActionsGetParams().WithActionID(strfmt.UUID(id))
-	resp, err := client.Actions.WeaviateActionsGet(params, auth)
+	resp, err := client.Actions.WeaviateActionsGet(params)
 
 	if err != nil {
 		switch v := err.(type) {
@@ -169,7 +169,7 @@ func checkActionExists(id string) bool {
 func assertCreateAction(t *models.ActionCreate) *models.ActionGetResponse {
 	params := actions.NewWeaviateActionsCreateParams().WithBody(actions.WeaviateActionsCreateBody{Action: t})
 
-	resp, _, err := client.Actions.WeaviateActionsCreate(params, auth)
+	resp, _, err := client.Actions.WeaviateActionsCreate(params)
 
 	if err != nil {
 		switch v := err.(type) {
@@ -186,7 +186,7 @@ func assertCreateAction(t *models.ActionCreate) *models.ActionGetResponse {
 func assertPatchAction(id string, p *models.PatchDocument) *models.ActionGetResponse {
 	params := actions.NewWeaviateActionsPatchParams().WithBody([]*models.PatchDocument{p}).WithActionID(strfmt.UUID(id))
 
-	resp, _, err := client.Actions.WeaviateActionsPatch(params, auth)
+	resp, _, err := client.Actions.WeaviateActionsPatch(params)
 
 	if err != nil {
 		switch v := err.(type) {

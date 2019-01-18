@@ -32,7 +32,7 @@ type GraphQLResult struct {
 func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) (*models.GraphQLResponse, error) {
 	var vars interface{} = variables
 	params := graphql_client.NewWeaviateGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
-	response, err := helper.Client(t).Graphql.WeaviateGraphqlPost(params, auth)
+	response, err := helper.Client(t).Graphql.WeaviateGraphqlPost(params)
 
 	if err != nil {
 		return nil, err

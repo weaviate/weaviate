@@ -24,16 +24,16 @@ import (
 )
 
 // WeaviateActionsListHandlerFunc turns a function with the right signature into a weaviate actions list handler
-type WeaviateActionsListHandlerFunc func(WeaviateActionsListParams, interface{}) middleware.Responder
+type WeaviateActionsListHandlerFunc func(WeaviateActionsListParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateActionsListHandlerFunc) Handle(params WeaviateActionsListParams, principal interface{}) middleware.Responder {
-	return fn(params, principal)
+func (fn WeaviateActionsListHandlerFunc) Handle(params WeaviateActionsListParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateActionsListHandler interface for that can handle valid weaviate actions list params
 type WeaviateActionsListHandler interface {
-	Handle(WeaviateActionsListParams, interface{}) middleware.Responder
+	Handle(WeaviateActionsListParams) middleware.Responder
 }
 
 // NewWeaviateActionsList creates a new http.Handler for the weaviate actions list operation
@@ -60,25 +60,12 @@ func (o *WeaviateActionsList) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 	}
 	var Params = NewWeaviateActionsListParams()
 
-	uprinc, aCtx, err := o.Context.Authorize(r, route)
-	if err != nil {
-		o.Context.Respond(rw, r, route.Produces, route, err)
-		return
-	}
-	if aCtx != nil {
-		r = aCtx
-	}
-	var principal interface{}
-	if uprinc != nil {
-		principal = uprinc
-	}
-
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params, principal) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

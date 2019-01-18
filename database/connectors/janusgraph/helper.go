@@ -28,20 +28,19 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 )
 
-func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *string, atContext *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema, key **models.SingleRef) error {
+func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *string, atContext *string, foundUUID *strfmt.UUID, creationTimeUnix *int64, lastUpdateTimeUnix *int64, properties *models.Schema) error {
 	// Fetch the class, it's key, and it's relations.
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name()).
 		HasString(PROP_UUID, string(searchUUID)).
 		As("class").
-		OutEWithLabel(KEY_VERTEX_LABEL).As("keyEdge").
-		InV().Path().FromRef("keyEdge").As("key"). // also get the path, so that we can learn about the location of the key.
 		V().
 		HasString(PROP_UUID, string(searchUUID)).
-		Raw(`.optional(outE().has("refId").as("ref")).choose(select("ref"), select("class", "key", "ref"), select("class", "key"))`)
+		Raw(`.optional(outE().has("refId").as("ref")).choose(select("ref"), select("class", "ref"), identity().project("class").by(select("class")))`)
 	result, err := j.client.Execute(q)
 
 	if err != nil {
@@ -54,7 +53,6 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 
 	// The outputs 'thing' and 'key' will be repeated over all results. Just get them for one for now.
 	vertex := result.Data[0].AssertKey("class").AssertVertex()
-	keyPath := result.Data[0].AssertKey("key").AssertPath()
 
 	// However, we can get multiple refs. In that case, we'll have multiple datums,
 	// each with the same thing & key, but a different ref.
@@ -67,9 +65,9 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 		}
 	}
 
-	if key != nil {
-		*key = newKeySingleRefFromKeyPath(keyPath)
-	}
+	fmt.Print("\n\n\n\n\n\n")
+	spew.Dump(vertex)
+	fmt.Print("\n\n\n\n\n\n")
 
 	if foundUUID != nil {
 		*foundUUID = strfmt.UUID(vertex.AssertPropertyValue(PROP_UUID).AssertString())
@@ -177,7 +175,7 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 	return nil
 }
 
-func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, keyID strfmt.UUID, filter *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
+func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first int, offset int, filter *common_filters.LocalFilter, yield func(id strfmt.UUID)) error {
 
 	q := gremlin.G.V().
 		HasString(PROP_KIND, k.Name())
@@ -217,6 +215,10 @@ func (j *Janusgraph) deleteClass(k kind.Kind, UUID strfmt.UUID) error {
 	q := gremlin.G.V().HasString(PROP_KIND, k.Name()).
 		HasString(PROP_UUID, string(UUID)).
 		Drop()
+
+	fmt.Print("\n\n\n\n\n the deletion query:")
+	spew.Dump(q)
+	fmt.Print("\n\n\n\n\n")
 
 	_, err := j.client.Execute(q)
 
