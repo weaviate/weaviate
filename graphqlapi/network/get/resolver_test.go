@@ -89,10 +89,10 @@ func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 
 type fakeNetworkResolver struct {
 	Called     bool
-	CalledWith ProxyGetInstanceParams
+	CalledWith Params
 }
 
-func (r *fakeNetworkResolver) ProxyGetInstance(info ProxyGetInstanceParams) (*models.GraphQLResponse, error) {
+func (r *fakeNetworkResolver) ProxyGetInstance(info Params) (*models.GraphQLResponse, error) {
 	r.Called = true
 	r.CalledWith = info
 	return &models.GraphQLResponse{
