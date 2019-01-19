@@ -56,3 +56,52 @@ var SimpleSchema = schema.Schema{
 		},
 	},
 }
+
+// CarSchema contains a car which has every primtive field and a ref field there is
+var CarSchema = schema.Schema{
+	Things: &models.SemanticSchema{
+		Classes: []*models.SemanticSchemaClass{
+			&models.SemanticSchemaClass{
+				Class: "Manufacturer",
+				Properties: []*models.SemanticSchemaClassProperty{
+					&models.SemanticSchemaClassProperty{
+						Name:       "name",
+						AtDataType: []string{"string"},
+					},
+				},
+			},
+			&models.SemanticSchemaClass{
+				Class: "Car",
+				Properties: []*models.SemanticSchemaClassProperty{
+					&models.SemanticSchemaClassProperty{
+						Name:       "horsepower",
+						AtDataType: []string{"int"},
+					},
+					&models.SemanticSchemaClassProperty{
+						Name:       "weight",
+						AtDataType: []string{"number"},
+					},
+					&models.SemanticSchemaClassProperty{
+						Name:       "modelName",
+						AtDataType: []string{"string"},
+					},
+					&models.SemanticSchemaClassProperty{
+						Name:       "madeBy",
+						AtDataType: []string{"Manufacturer"},
+					},
+					&models.SemanticSchemaClassProperty{
+						Name:       "startOfProduction",
+						AtDataType: []string{"date"},
+					},
+					&models.SemanticSchemaClassProperty{
+						Name:       "stillInProduction",
+						AtDataType: []string{"boolean"},
+					},
+				},
+			},
+		},
+	},
+	Actions: &models.SemanticSchema{
+		Classes: []*models.SemanticSchemaClass{},
+	},
+}

@@ -52,7 +52,62 @@ func (q *Query) E() *Query {
 
 // Count how many vertices or edges are selected by the previous query.
 func (q *Query) Count() *Query {
+	if q.query == "" {
+		return &Query{query: "count()"}
+	}
+
 	return extend_query(q, ".count()")
+}
+
+// CountLocal is most likely used in conjuction with an aggregation query and
+// wrapped in a By() statement
+func (q *Query) CountLocal() *Query {
+	return extend_query(q, "count(local)")
+}
+
+// SumLocal is most likely used in conjuction with an aggregation query and
+// wrapped in a By() statement
+func (q *Query) SumLocal() *Query {
+	return extend_query(q, "sum(local)")
+}
+
+// MaxLocal is most likely used in conjuction with an aggregation query and
+// wrapped in a By() statement
+func (q *Query) MaxLocal() *Query {
+	return extend_query(q, "max(local)")
+}
+
+// MinLocal is most likely used in conjuction with an aggregation query and
+// wrapped in a By() statement
+func (q *Query) MinLocal() *Query {
+	return extend_query(q, "min(local)")
+}
+
+// MeanLocal is most likely used in conjuction with an aggregation query and
+// wrapped in a By() statement
+func (q *Query) MeanLocal() *Query {
+	return extend_query(q, "mean(local)")
+}
+
+// GroupCount by values. Will most likely be followed by a `By()`
+func (q *Query) GroupCount() *Query {
+	if q.query == "" {
+		return &Query{query: "groupCount()"}
+	}
+
+	return extend_query(q, ".groupCount()")
+}
+
+// By filters down previous segement, most likely used after a count,
+// groupCount or select statement
+func (q *Query) By(label string) *Query {
+	return extend_query(q, `.by("%s")`, label)
+}
+
+// ByQuery filters down previous segement, most likely used after a count,
+// groupCount or select statement. It takes a query rather than a label string
+func (q *Query) ByQuery(subquery *Query) *Query {
+	return extend_query(q, `.by(%s)`, subquery.String())
 }
 
 func (q *Query) Fold() *Query {
@@ -96,6 +151,11 @@ func (q *Query) Values(propNames []string) *Query {
 
 func (q *Query) Range(offset int, limit int) *Query {
 	return extend_query(q, ".range(%d, %d)", offset, limit)
+}
+
+// Limit results
+func (q *Query) Limit(limit int) *Query {
+	return extend_query(q, ".limit(%d)", limit)
 }
 
 func (q *Query) AddV(label string) *Query {
@@ -173,6 +233,24 @@ func (q *Query) OutEWithLabel(label string) *Query {
 	return extend_query(q, `.outE("%s")`, EscapeString(label))
 }
 
+// Aggregate results to perform analyses on them
+func (q *Query) Aggregate(label string) *Query {
+	if q.query == "" {
+		return extend_query(q, `aggregate("%s")`, EscapeString(label))
+	}
+
+	return extend_query(q, `.aggregate("%s")`, EscapeString(label))
+}
+
+// Cap runs queries up until this point
+func (q *Query) Cap(label string) *Query {
+	if q.query == "" {
+		return extend_query(q, `cap("%s")`, EscapeString(label))
+	}
+
+	return extend_query(q, `.cap("%s")`, EscapeString(label))
+}
+
 func (q *Query) InV() *Query {
 	return extend_query(q, ".inV()")
 }
@@ -187,8 +265,12 @@ func (q *Query) Path() *Query {
 }
 
 // Create a reference
-func (q *Query) As(name string) *Query {
-	return extend_query(q, `.as("%s")`, EscapeString(name))
+func (q *Query) As(names ...string) *Query {
+	quoted := make([]string, len(names), len(names))
+	for i, name := range names {
+		quoted[i] = fmt.Sprintf(`"%s"`, EscapeString(name))
+	}
+	return extend_query(q, `.as(%s)`, strings.Join(quoted, ", "))
 }
 
 // Point to a reference
@@ -203,6 +285,16 @@ func (q *Query) ToQuery(query *Query) *Query {
 // Coalesce can be used in Upsert or GetOrCreate scenarios
 func (q *Query) Coalesce(query *Query) *Query {
 	return extend_query(q, `.coalesce(%s)`, query.String())
+}
+
+// Has Property checks if a property is set, regardless of its value
+func (q *Query) HasProperty(key string) *Query {
+	hasQuery := fmt.Sprintf(`has("%s")`, key)
+	if q.query == "" {
+		return &Query{query: hasQuery}
+	}
+
+	return extend_query(q, fmt.Sprintf(".%s", hasQuery))
 }
 
 // Has can be used for arbitrary filtering on props
@@ -296,4 +388,47 @@ func (q *Query) Optional(query *Query) *Query {
 
 func (q *Query) Drop() *Query {
 	return extend_query(q, ".drop()")
+}
+
+// Union can combine 0..n queries together
+//
+// If used on an existing query it will lead with a dot, e.g:
+//
+// existingQuery().union(<some joined queries>)
+//
+// Otherwise it will not lead with a dot, e.g.:
+//
+// union(<some joined queries>)
+func (q *Query) Union(queries ...*Query) *Query {
+	queryStrings := make([]string, len(queries), len(queries))
+	for i, single := range queries {
+		queryStrings[i] = single.String()
+	}
+
+	queryStringsConcat := strings.Join(queryStrings, ", ")
+	if q.query == "" {
+		return &Query{query: fmt.Sprintf("union(%s)", queryStringsConcat)}
+	}
+
+	return extend_query(q, `.union(%s)`, queryStringsConcat)
+}
+
+// AsProjectBy is a helper construct to wrap a result in a map, it a query like
+// so: .as("isCapital").project("isCapital").by(select("isCapital")))
+func (q *Query) AsProjectBy(labels ...string) *Query {
+	if len(labels) <= 1 {
+		label := EscapeString(labels[0])
+		return extend_query(q, `.as("%s").project("%s").by(select("%s"))`, label, label, label)
+	}
+
+	asLabel := EscapeString(labels[0])
+	projectLabel := EscapeString(labels[1])
+	return extend_query(q, `.as("%s").project("%s").by(select("%s"))`, asLabel, projectLabel, asLabel)
+}
+
+// OrderLocalByValuesLimit is a helper construct to select the most occuring
+// items, like so if called with "decr", 3:
+// .order(local).by(values, decr).limit(local, 3)
+func (q *Query) OrderLocalByValuesLimit(order string, limit int) *Query {
+	return extend_query(q, `.order(local).by(values, %s).limit(local, %d)`, EscapeString(order), limit)
 }

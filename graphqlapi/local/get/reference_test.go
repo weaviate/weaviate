@@ -115,7 +115,7 @@ func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 		Return(resolverResponse, nil).Once()
 
 	query := "{ Get { Things { SomeThing { NetworkRefField { ... on OtherInstance__SomeRemoteClass { bestString uuid } } } } } }"
-	result := resolver.AssertResolve(t, query)
+	result := resolver.AssertResolve(t, query).Result
 
 	expectedResult := map[string]interface{}{
 		"Get": map[string]interface{}{
@@ -191,7 +191,7 @@ func TestLocalGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T
 		Return(resolverResponse, nil).Once()
 
 	query := "{ Get { Things { SomeThing { uuid } } } }"
-	result := resolver.AssertResolve(t, query)
+	result := resolver.AssertResolve(t, query).Result
 
 	expectedResult := map[string]interface{}{
 		"Get": map[string]interface{}{
