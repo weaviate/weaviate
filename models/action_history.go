@@ -33,9 +33,6 @@ type ActionHistory struct {
 	// Indication of whether the Action is deleted.
 	Deleted bool `json:"deleted,omitempty"`
 
-	// key
-	Key *SingleRef `json:"key,omitempty"`
-
 	// An array with the history of the Action.
 	PropertyHistory []*ActionHistoryObject `json:"propertyHistory"`
 }
@@ -44,10 +41,6 @@ type ActionHistory struct {
 func (m *ActionHistory) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateKey(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if err := m.validatePropertyHistory(formats); err != nil {
 		res = append(res, err)
 	}
@@ -55,24 +48,6 @@ func (m *ActionHistory) Validate(formats strfmt.Registry) error {
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *ActionHistory) validateKey(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Key) { // not required
-		return nil
-	}
-
-	if m.Key != nil {
-		if err := m.Key.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("key")
-			}
-			return err
-		}
-	}
-
 	return nil
 }
 

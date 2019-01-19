@@ -5,9 +5,7 @@
       "database": {
         "name": "janusgraph",
         "database_config": {
-          "url": "http://localhost:8182",
-          "initialkey":   "657a48b9-e000-4d9a-b51d-69a0b621c1b9",
-          "initialtoken": "57ac8392-1ecc-4e17-9350-c9c866ac832b"
+          "url": "http://localhost:8182"
         },
         "local_schema": {
           "state_dir": "."
@@ -43,9 +41,7 @@
       "database": {
         "name": "janusgraph",
         "database_config": {
-          "url": "http://localhost:8182",
-          "initialkey":   "657a48b9-e000-4d9a-b51d-69a0b621c1b9",
-          "initialtoken": "57ac8392-1ecc-4e17-9350-c9c866ac832b"
+          "url": "http://localhost:8182"
         },
         "local_schema": {
           "state_dir": "."
@@ -67,9 +63,7 @@
       "database": {
         "name": "janusgraph",
         "database_config": {
-          "url": "http://janus:8182",
-          "initialkey":   "657a48b9-e000-4d9a-b51d-69a0b621c1b9",
-          "initialtoken": "57ac8392-1ecc-4e17-9350-c9c866ac832b"
+          "url": "http://janus:8182"
         },
         "local_schema": {
           "state_dir": "."
@@ -105,9 +99,7 @@
       "database": {
         "name": "janusgraph",
         "database_config": {
-          "url": "http://weaviate-janusgraph:8182",
-          "initialkey":   "657a48b9-e000-4d9a-b51d-69a0b621c1b9",
-          "initialtoken": "57ac8392-1ecc-4e17-9350-c9c866ac832b"
+          "url": "http://weaviate-janusgraph:8182"
         },
         "local_schema": {
           "state_dir": "."

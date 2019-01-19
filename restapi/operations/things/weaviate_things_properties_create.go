@@ -24,16 +24,16 @@ import (
 )
 
 // WeaviateThingsPropertiesCreateHandlerFunc turns a function with the right signature into a weaviate things properties create handler
-type WeaviateThingsPropertiesCreateHandlerFunc func(WeaviateThingsPropertiesCreateParams, interface{}) middleware.Responder
+type WeaviateThingsPropertiesCreateHandlerFunc func(WeaviateThingsPropertiesCreateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsPropertiesCreateHandlerFunc) Handle(params WeaviateThingsPropertiesCreateParams, principal interface{}) middleware.Responder {
-	return fn(params, principal)
+func (fn WeaviateThingsPropertiesCreateHandlerFunc) Handle(params WeaviateThingsPropertiesCreateParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateThingsPropertiesCreateHandler interface for that can handle valid weaviate things properties create params
 type WeaviateThingsPropertiesCreateHandler interface {
-	Handle(WeaviateThingsPropertiesCreateParams, interface{}) middleware.Responder
+	Handle(WeaviateThingsPropertiesCreateParams) middleware.Responder
 }
 
 // NewWeaviateThingsPropertiesCreate creates a new http.Handler for the weaviate things properties create operation
@@ -60,25 +60,12 @@ func (o *WeaviateThingsPropertiesCreate) ServeHTTP(rw http.ResponseWriter, r *ht
 	}
 	var Params = NewWeaviateThingsPropertiesCreateParams()
 
-	uprinc, aCtx, err := o.Context.Authorize(r, route)
-	if err != nil {
-		o.Context.Respond(rw, r, route.Produces, route, err)
-		return
-	}
-	if aCtx != nil {
-		r = aCtx
-	}
-	var principal interface{}
-	if uprinc != nil {
-		principal = uprinc
-	}
-
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params, principal) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

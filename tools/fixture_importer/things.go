@@ -174,8 +174,7 @@ func fixupThings() {
 
 		if fixup.location == "" {
 			// is local ref
-			kind, ok := classKinds[fixup.toClass]
-
+			_, ok := classKinds[fixup.toClass]
 			if !ok {
 				panic(fmt.Sprintf("Unknown class '%s'", fixup.toClass))
 			}
@@ -184,9 +183,7 @@ func fixupThings() {
 				Op:   &op,
 				Path: &path,
 				Value: map[string]interface{}{
-					"$cref":       idMap[fixup.toId],
-					"locationUrl": "http://localhost",
-					"type":        kind,
+					"$cref": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
 				},
 			}
 		} else {
@@ -195,9 +192,7 @@ func fixupThings() {
 				Op:   &op,
 				Path: &path,
 				Value: map[string]interface{}{
-					"$cref":       fixup.toId,
-					"locationUrl": fmt.Sprintf("http://%s", fixup.location),
-					"type":        "NetworkThing", // hard-code thing for now
+					"$cref": fmt.Sprintf("weaviate://%s/things/%s", fixup.location, fixup.toId),
 				},
 			}
 		}
@@ -219,22 +214,17 @@ func fixupThings() {
 		for _, fixup := range fixups {
 			if fixup.location == "" {
 				// is local ref
-				kind, ok := classKinds[fixup.toClass]
-
+				_, ok := classKinds[fixup.toClass]
 				if !ok {
 					panic(fmt.Sprintf("Unknown class '%s'", fixup.toClass))
 				}
 
 				patch.Value = append(patch.Value.([]map[string]interface{}), map[string]interface{}{
-					"$cref":       idMap[fixup.toId],
-					"locationUrl": "http://localhost",
-					"type":        kind,
+					"$cref": fmt.Sprintf("weaviate://localhost/things/%s", idMap[fixup.toId]),
 				})
 			} else {
 				patch.Value = append(patch.Value.([]map[string]interface{}), map[string]interface{}{
-					"$cref":       fixup.toId,
-					"locationUrl": fmt.Sprintf("http://%s", fixup.location),
-					"type":        "NetworkThing", // hard-code thing for now
+					"$cref": fmt.Sprintf("weaviate://%s/things/%s", fixup.location, fixup.toId),
 				})
 			}
 		}
@@ -246,7 +236,7 @@ func fixupThings() {
 
 func checkThingExists(id string) bool {
 	params := things.NewWeaviateThingsGetParams().WithThingID(strfmt.UUID(id))
-	resp, err := client.Things.WeaviateThingsGet(params, auth)
+	resp, err := client.Things.WeaviateThingsGet(params)
 
 	if err != nil {
 		switch v := err.(type) {
@@ -263,7 +253,7 @@ func checkThingExists(id string) bool {
 func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
 	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{Thing: t})
 
-	resp, _, err := client.Things.WeaviateThingsCreate(params, auth)
+	resp, _, err := client.Things.WeaviateThingsCreate(params)
 
 	if err != nil {
 		switch v := err.(type) {
@@ -280,7 +270,7 @@ func assertCreateThing(t *models.ThingCreate) *models.ThingGetResponse {
 func assertUpdateThing(id string, update *models.ThingUpdate) *models.ThingGetResponse {
 	params := things.NewWeaviateThingsUpdateParams().WithBody(update).WithThingID(strfmt.UUID(id))
 
-	resp, err := client.Things.WeaviateThingsUpdate(params, auth)
+	resp, err := client.Things.WeaviateThingsUpdate(params)
 
 	if err != nil {
 		switch v := err.(type) {
@@ -300,7 +290,7 @@ func assertUpdateThing(id string, update *models.ThingUpdate) *models.ThingGetRe
 func assertPatchThing(id string, p *models.PatchDocument) *models.ThingGetResponse {
 	params := things.NewWeaviateThingsPatchParams().WithBody([]*models.PatchDocument{p}).WithThingID(strfmt.UUID(id))
 
-	resp, _, err := client.Things.WeaviateThingsPatch(params, auth)
+	resp, _, err := client.Things.WeaviateThingsPatch(params)
 
 	if err != nil {
 		switch v := err.(type) {

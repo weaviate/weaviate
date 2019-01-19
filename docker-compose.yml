@@ -21,10 +21,6 @@
 #    weaviate_weaviate_1                 /bin/weaviate --host 0.0.0 ...   Up
 #    weaviate_weaviate_demo_importer_1   ./tools/dev/import_demo_da ...   Exit 0
 #
-# You'll be able connect to Weaviate with the following key/token pair:
-# 
-#  Key:   657a48b9-e000-4d9a-b51d-69a0b621c1b9
-#  Token: 57ac8392-1ecc-4e17-9350-c9c866ac832b
 #
 # NOTE:
 #   If you abort the janusstack hard (not a clean shutdown), it won't come up again;

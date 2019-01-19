@@ -64,7 +64,7 @@ func TestBatchActionsCreateResultsOrder(t *testing.T) {
 	})
 
 	// perform the request
-	resp, _, err := helper.OperationsClient(t).WeaviateBatchingActionsCreate(params, helper.RootAuth)
+	resp, _, err := helper.OperationsClient(t).WeaviateBatchingActionsCreate(params)
 	if err != nil {
 		fmt.Println("error detected") // TODO remove this if
 	}

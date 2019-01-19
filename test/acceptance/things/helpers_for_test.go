@@ -32,7 +32,7 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 		Async: false,
 	})
 
-	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params, helper.RootAuth)
+	resp, _, err := helper.Client(t).Things.WeaviateThingsCreate(params)
 
 	var thingID strfmt.UUID
 
@@ -45,7 +45,7 @@ func assertCreateThing(t *testing.T, className string, schema map[string]interfa
 }
 
 func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
-	getResp, err := helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid), helper.RootAuth)
+	getResp, err := helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid))
 
 	var thing *models.ThingGetResponse
 
@@ -57,7 +57,7 @@ func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
 }
 
 func assertGetSchema(t *testing.T) *schema.WeaviateSchemaDumpOKBody {
-	getResp, err := helper.Client(t).Schema.WeaviateSchemaDump(schema.NewWeaviateSchemaDumpParams(), helper.RootAuth)
+	getResp, err := helper.Client(t).Schema.WeaviateSchemaDump(schema.NewWeaviateSchemaDumpParams())
 	var schema *schema.WeaviateSchemaDumpOKBody
 	helper.AssertRequestOk(t, getResp, err, func() {
 		schema = getResp.Payload
