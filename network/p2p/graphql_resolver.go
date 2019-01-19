@@ -39,7 +39,7 @@ func (n *network) ProxyGetInstance(params networkGet.ProxyGetInstanceParams) (*m
 		return nil, fmt.Errorf("could not build client for peer %s: %s", peer.Name, err)
 	}
 
-	result, err := postToPeer(peerClient, params.SubQuery, params.Principal)
+	result, err := postToPeer(peerClient, params.SubQuery, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could post to peer %s: %s", peer.Name, err)
 	}
@@ -48,16 +48,17 @@ func (n *network) ProxyGetInstance(params networkGet.ProxyGetInstanceParams) (*m
 }
 
 func postToPeer(client *client.WeaviateDecentralisedKnowledgeGraph, subQuery networkGet.SubQuery,
-	principal *models.KeyTokenGetResponse) (*graphql.WeaviateGraphqlPostOK, error) {
+	principal interface{}) (*graphql.WeaviateGraphqlPostOK, error) {
 	localContext := context.Background()
 	localContext, cancel := context.WithTimeout(localContext, 1*time.Second)
 	defer cancel()
 	requestParams := &graphql.WeaviateGraphqlPostParams{
-		Body:       &models.GraphQLQuery{Query: subQuery.WrapInLocalQuery()},
-		Context:    localContext,
-		HTTPClient: clientWithTokenInjectorRoundTripper(principal),
+		Body:    &models.GraphQLQuery{Query: subQuery.WrapInLocalQuery()},
+		Context: localContext,
+		// re-enable once we have auth again
+		// HTTPClient: clientWithTokenInjectorRoundTripper(principal),
 	}
-	return client.Graphql.WeaviateGraphqlPost(requestParams, nil)
+	return client.Graphql.WeaviateGraphqlPost(requestParams)
 }
 
 type tokenInjectorRoundTripper struct {
@@ -71,11 +72,11 @@ func (rt *tokenInjectorRoundTripper) RoundTrip(req *http.Request) (*http.Respons
 	return http.DefaultTransport.RoundTrip(req)
 }
 
-func clientWithTokenInjectorRoundTripper(principal *models.KeyTokenGetResponse) *http.Client {
+func clientWithTokenInjectorRoundTripper(principal interface{}) *http.Client {
 	return &http.Client{
 		Transport: &tokenInjectorRoundTripper{
-			key:   string(principal.KeyID),
-			token: string(principal.Token),
+			// key:   string(principal.KeyID),
+			// token: string(principal.Token),
 		},
 	}
 }

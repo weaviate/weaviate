@@ -15,6 +15,7 @@ package test
 // Acceptance tests for actions
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
@@ -48,7 +49,7 @@ func TestCanCreateAction(t *testing.T) {
 		},
 	})
 
-	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params, helper.RootAuth)
+	resp, _, err := helper.Client(t).Actions.WeaviateActionsCreate(params)
 
 	// Ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
@@ -87,7 +88,7 @@ func TestCanCreateAndGetAction(t *testing.T) {
 	})
 
 	// Now fetch the action
-	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionID), helper.RootAuth)
+	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionID))
 
 	helper.AssertRequestOk(t, getResp, err, func() {
 		action := getResp.Payload
@@ -111,15 +112,12 @@ func TestCanAddSingleRefAction(t *testing.T) {
 	secondActionID := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
 		"testString": "stringy",
 		"testCref": map[string]interface{}{
-			"type":        "Action",
-			"locationUrl": "http://localhost",
-			"$cref":       firstActionID,
+			"$cref": fmt.Sprintf("weaviate://localhost/actions/%s", firstActionID),
 		},
 	})
 
 	secondAction := assertGetAction(t, secondActionID)
 
 	singleRef := secondAction.Schema.(map[string]interface{})["testCref"].(map[string]interface{})
-	assert.Equal(t, singleRef["type"].(string), "Action")
-	assert.Equal(t, singleRef["$cref"].(string), string(firstActionID))
+	assert.Equal(t, singleRef["$cref"].(string), fmt.Sprintf("weaviate://localhost/actions/%s", firstActionID))
 }

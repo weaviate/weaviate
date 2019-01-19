@@ -15,12 +15,12 @@ package test
 // Acceptance tests for actions
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/client/actions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestCanUpdateActionSetNumber(t *testing.T) {
@@ -38,13 +38,15 @@ func TestCanUpdateActionSetNumber(t *testing.T) {
 	update.AtContext = "blurgh"
 
 	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, helper.RootAuth)
-
+	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
-	updatedAction := assertGetAction(t, uuid)
-	updatedSchema := updatedAction.Schema.(map[string]interface{})
-	assert.Equal(t, updatedSchema["testNumber"], 41.0)
+	actualThunk := func() interface{} {
+		updatedAction := assertGetAction(t, uuid)
+		updatedSchema := updatedAction.Schema.(map[string]interface{})
+		return updatedSchema["testNumber"]
+	}
+	helper.AssertEventuallyEqual(t, 41.0, actualThunk)
 }
 
 func TestCanUpdateActionSetString(t *testing.T) {
@@ -62,13 +64,15 @@ func TestCanUpdateActionSetString(t *testing.T) {
 	update.AtContext = "blurgh"
 
 	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, helper.RootAuth)
-
+	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params)
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
-	updatedAction := assertGetAction(t, uuid)
-	updatedSchema := updatedAction.Schema.(map[string]interface{})
-	assert.Equal(t, updatedSchema["testString"], "wibbly wobbly")
+	actualThunk := func() interface{} {
+		updatedAction := assertGetAction(t, uuid)
+		updatedSchema := updatedAction.Schema.(map[string]interface{})
+		return updatedSchema["testString"]
+	}
+	helper.AssertEventuallyEqual(t, "wibbly wobbly", actualThunk)
 }
 
 func TestCanUpdateActionSetBool(t *testing.T) {
@@ -85,13 +89,16 @@ func TestCanUpdateActionSetBool(t *testing.T) {
 	update.AtContext = "blurgh"
 
 	params := actions.NewWeaviateActionUpdateParams().WithActionID(uuid).WithBody(&update)
-	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params, helper.RootAuth)
+	updateResp, err := helper.Client(t).Actions.WeaviateActionUpdate(params)
 
 	helper.AssertRequestOk(t, updateResp, err, nil)
 
-	updatedAction := assertGetAction(t, uuid)
-	updatedSchema := updatedAction.Schema.(map[string]interface{})
-	assert.Equal(t, updatedSchema["testBoolean"], true)
+	actualThunk := func() interface{} {
+		updatedAction := assertGetAction(t, uuid)
+		updatedSchema := updatedAction.Schema.(map[string]interface{})
+		return updatedSchema["testBoolean"]
+	}
+	helper.AssertEventuallyEqual(t, true, actualThunk)
 }
 
 func TestCanPatchActionsSetCref(t *testing.T) {
@@ -107,9 +114,7 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 		Op:   &op,
 		Path: &path,
 		Value: map[string]interface{}{
-			"$cref":       thingToRefID,
-			"locationUrl": "http://localhost",
-			"type":        "Thing",
+			"$cref": fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID),
 		},
 	}
 
@@ -117,16 +122,16 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	params := actions.NewWeaviateActionsPatchParams().
 		WithBody([]*models.PatchDocument{patch}).
 		WithActionID(actionID)
-	patchResp, _, err := helper.Client(t).Actions.WeaviateActionsPatch(params, helper.RootAuth)
+	patchResp, _, err := helper.Client(t).Actions.WeaviateActionsPatch(params)
 	helper.AssertRequestOk(t, patchResp, err, nil)
 
-	// Great! Let's fetch the action, and see if the property is set properly.
+	actualThunk := func() interface{} {
+		patchedAction := assertGetAction(t, actionID)
 
-	patchedAction := assertGetAction(t, actionID)
+		rawCref := patchedAction.Schema.(map[string]interface{})["testCref"]
+		cref := rawCref.(map[string]interface{})
 
-	rawCref := patchedAction.Schema.(map[string]interface{})["testCref"]
-	cref := rawCref.(map[string]interface{})
-
-	assert.Equal(t, cref["type"], "Thing")
-	assert.Equal(t, cref["$cref"], string(thingToRefID))
+		return cref["$cref"]
+	}
+	helper.AssertEventuallyEqual(t, fmt.Sprintf("weaviate://localhost/things/%s", thingToRefID), actualThunk)
 }

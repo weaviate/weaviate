@@ -37,7 +37,7 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 
 	t.Log("Creating class")
 	params := schema.NewWeaviateSchemaThingsCreateParams().WithThingClass(tc)
-	resp, err := helper.Client(t).Schema.WeaviateSchemaThingsCreate(params, helper.RootAuth)
+	resp, err := helper.Client(t).Schema.WeaviateSchemaThingsCreate(params)
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	t.Log("Asserting that this class is now created")
@@ -46,7 +46,7 @@ func TestAddAndRemoveThingClass(t *testing.T) {
 	// Now clean up this class.
 	t.Log("Remove the class")
 	delParams := schema.NewWeaviateSchemaThingsDeleteParams().WithClassName(randomThingClassName)
-	delResp, err := helper.Client(t).Schema.WeaviateSchemaThingsDelete(delParams, helper.RootAuth)
+	delResp, err := helper.Client(t).Schema.WeaviateSchemaThingsDelete(delParams)
 	helper.AssertRequestOk(t, delResp, err, nil)
 
 	// And verify that the class does not exist anymore.

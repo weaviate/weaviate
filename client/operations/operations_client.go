@@ -41,7 +41,7 @@ WeaviateBatchingActionsCreate creates new actions based on an action template re
 
 Register new Actions in bulk. Given meta-data and schema values are validated.
 */
-func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateBatchingActionsCreateOK, *WeaviateBatchingActionsCreateAccepted, error) {
+func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCreateParams) (*WeaviateBatchingActionsCreateOK, *WeaviateBatchingActionsCreateAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateBatchingActionsCreateParams()
@@ -56,7 +56,6 @@ func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCr
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateBatchingActionsCreateReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})
@@ -78,7 +77,7 @@ WeaviateBatchingThingsCreate creates new things based on a thing template relate
 
 Register new Things in bulk. Provided meta-data and schema values are validated.
 */
-func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCreateParams, authInfo runtime.ClientAuthInfoWriter) (*WeaviateBatchingThingsCreateOK, *WeaviateBatchingThingsCreateAccepted, error) {
+func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCreateParams) (*WeaviateBatchingThingsCreateOK, *WeaviateBatchingThingsCreateAccepted, error) {
 	// TODO: Validate the params before sending
 	if params == nil {
 		params = NewWeaviateBatchingThingsCreateParams()
@@ -93,7 +92,6 @@ func (a *Client) WeaviateBatchingThingsCreate(params *WeaviateBatchingThingsCrea
 		Schemes:            []string{"https"},
 		Params:             params,
 		Reader:             &WeaviateBatchingThingsCreateReader{formats: a.formats},
-		AuthInfo:           authInfo,
 		Context:            params.Context,
 		Client:             params.HTTPClient,
 	})

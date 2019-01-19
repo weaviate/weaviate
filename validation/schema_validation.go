@@ -19,27 +19,28 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-openapi/strfmt"
-
 	"github.com/creativesoftwarefdn/weaviate/config"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network"
 )
 
 const (
 	// ErrorInvalidSingleRef message
-	ErrorInvalidSingleRef string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. Check your input schema"
+	ErrorInvalidSingleRef string = "class '%s' with property '%s' requires exactly 1 arguments: '$cref'. Check your input schema, got: %#v"
 	// ErrorMissingSingleRefCRef message
 	ErrorMissingSingleRefCRef string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. '$cref' is missing, check your input schema"
+	// ErrorCrefInvalidURI message
+	ErrorCrefInvalidURI string = "class '%s' with property '%s' is not a valid URI: %s"
+	// ErrorCrefInvalidURIPath message
+	ErrorCrefInvalidURIPath string = "class '%s' with property '%s' does not contain a valid path, must have 2 segments: /<kind>/<id>"
 	// ErrorMissingSingleRefLocationURL message
 	ErrorMissingSingleRefLocationURL string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema"
 	// ErrorMissingSingleRefType message
 	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
-	// ErrorInvalidClassType message
-	ErrorInvalidClassType string = "class '%s' with property '%s' requires one of the following values in 'type': '%s', '%s', '%s', '%s' or '%s'"
 	// ErrorInvalidString message
 	ErrorInvalidString string = "class '%s' with property '%s' requires a string. The given value is '%v'"
 	// ErrorInvalidText message
@@ -61,7 +62,7 @@ const (
 // ValidateSchemaInBody Validate the schema in the given body
 func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{},
 	refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, network network.Network,
-	serverConfig *config.WeaviateConfig, keyToken *models.KeyTokenGetResponse) error {
+	serverConfig *config.WeaviateConfig) error {
 	// Initialize class object
 	var isp interface{}
 	var className string
@@ -111,61 +112,7 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 		if *dt == schema.DataTypeCRef {
 			switch refValue := pv.(type) {
 			case map[string]interface{}:
-				pvcr := refValue
-
-				// Return different types of errors for cref input
-				if len(pvcr) != 3 {
-					// Give an error if the cref is not filled with correct number of properties
-					return fmt.Errorf(
-						ErrorInvalidSingleRef,
-						class.Class,
-						pk,
-					)
-				} else if _, ok := pvcr["$cref"]; !ok {
-					// Give an error if the cref is not filled with correct properties ($cref)
-					return fmt.Errorf(
-						ErrorMissingSingleRefCRef,
-						class.Class,
-						pk,
-					)
-				} else if _, ok := pvcr["locationUrl"]; !ok {
-					// Give an error if the cref is not filled with correct properties (locationUrl)
-					return fmt.Errorf(
-						ErrorMissingSingleRefLocationURL,
-						class.Class,
-						pk,
-					)
-				} else if _, ok := pvcr["type"]; !ok {
-					// Give an error if the cref is not filled with correct properties (type)
-					return fmt.Errorf(
-						ErrorMissingSingleRefType,
-						class.Class,
-						pk,
-					)
-				}
-
-				// Return error if type is not right, when it is not one of the 3 possible types
-				refType := pvcr["type"].(string)
-				if !validateRefType(connutils.RefType(refType)) {
-					return fmt.Errorf(
-						ErrorInvalidClassType,
-						class.Class, pk,
-						connutils.RefTypeAction,
-						connutils.RefTypeThing,
-						connutils.RefTypeKey,
-						connutils.RefTypeNetworkAction,
-						connutils.RefTypeNetworkThing,
-					)
-				}
-
-				// Validate whether reference exists based on given Type
-				cref := &models.SingleRef{}
-				cref.Type = refType
-				locationURL := pvcr["locationUrl"].(string)
-				cref.LocationURL = &locationURL
-				cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
-				err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, network,
-					fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
+				cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, refValue, class.Class, pk)
 				if err != nil {
 					return err
 				}
@@ -174,67 +121,18 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 			case []interface{}:
 				crefs := models.MultipleRef{}
 				for _, ref := range refValue {
-					pvcr, ok := ref.(map[string]interface{})
+
+					refTyped, ok := ref.(map[string]interface{})
 					if !ok {
-						return fmt.Errorf("Multipleref should be a list")
+						return fmt.Errorf("Multiple references in %s.%s should be a list of maps, but we got: %t",
+							class.Class, pk, ref)
 					}
 
-					// Return different types of errors for cref input
-					if len(pvcr) != 3 {
-						// Give an error if the cref is not filled with correct number of properties
-						return fmt.Errorf(
-							ErrorInvalidSingleRef,
-							class.Class,
-							pk,
-						)
-					} else if _, ok := pvcr["$cref"]; !ok {
-						// Give an error if the cref is not filled with correct properties ($cref)
-						return fmt.Errorf(
-							ErrorMissingSingleRefCRef,
-							class.Class,
-							pk,
-						)
-					} else if _, ok := pvcr["locationUrl"]; !ok {
-						// Give an error if the cref is not filled with correct properties (locationUrl)
-						return fmt.Errorf(
-							ErrorMissingSingleRefLocationURL,
-							class.Class,
-							pk,
-						)
-					} else if _, ok := pvcr["type"]; !ok {
-						// Give an error if the cref is not filled with correct properties (type)
-						return fmt.Errorf(
-							ErrorMissingSingleRefType,
-							class.Class,
-							pk,
-						)
-					}
-
-					// Return error if type is not right, when it is not one of the 3 possible types
-					refType := pvcr["type"].(string)
-					if !validateRefType(connutils.RefType(refType)) {
-						return fmt.Errorf(
-							ErrorInvalidClassType,
-							class.Class, pk,
-							connutils.RefTypeAction,
-							connutils.RefTypeThing,
-							connutils.RefTypeKey,
-							connutils.RefTypeNetworkAction,
-							connutils.RefTypeNetworkThing,
-						)
-					}
-
-					// Validate whether reference exists based on given Type
-					cref := &models.SingleRef{}
-					cref.Type = refType
-					locationURL := pvcr["locationUrl"].(string)
-					cref.LocationURL = &locationURL
-					cref.NrDollarCref = strfmt.UUID(pvcr["$cref"].(string))
-					err = ValidateSingleRef(ctx, serverConfig, cref, dbConnector, network,
-						fmt.Sprintf("'cref' %s %s:%s", cref.Type, class.Class, pk), keyToken)
+					cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, refTyped, class.Class, pk)
 					if err != nil {
 						return err
 					}
+
 					crefs = append(crefs, cref)
 				}
 
@@ -372,4 +270,40 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 	}
 
 	return nil
+}
+
+func parseAndValidateSingleRef(ctx context.Context, dbConnector dbconnector.DatabaseConnector, network network.Network,
+	serverConfig *config.WeaviateConfig, pvcr map[string]interface{},
+	className, propertyName string) (*models.SingleRef, error) {
+
+	// Return different types of errors for cref input
+	if len(pvcr) != 1 {
+		// Give an error if the cref is not filled with correct number of properties
+		return nil, fmt.Errorf(
+			ErrorInvalidSingleRef,
+			className,
+			propertyName,
+			pvcr,
+		)
+	} else if _, ok := pvcr["$cref"]; !ok {
+		// Give an error if the cref is not filled with correct properties ($cref)
+		return nil, fmt.Errorf(
+			ErrorMissingSingleRefCRef,
+			className,
+			propertyName,
+		)
+	}
+
+	ref, err := crossref.Parse(pvcr["$cref"].(string))
+	if err != nil {
+		return nil, fmt.Errorf("invalid reference: %s", err)
+	}
+	errVal := fmt.Sprintf("'cref' %s %s:%s", ref.Kind.Name(), className, propertyName)
+	err = ValidateSingleRef(ctx, serverConfig, ref.SingleRef(), dbConnector, network, errVal)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate whether reference exists based on given Type
+	return ref.SingleRef(), nil
 }

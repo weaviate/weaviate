@@ -24,16 +24,16 @@ import (
 )
 
 // WeaviateSchemaActionsDeleteHandlerFunc turns a function with the right signature into a weaviate schema actions delete handler
-type WeaviateSchemaActionsDeleteHandlerFunc func(WeaviateSchemaActionsDeleteParams, interface{}) middleware.Responder
+type WeaviateSchemaActionsDeleteHandlerFunc func(WeaviateSchemaActionsDeleteParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateSchemaActionsDeleteHandlerFunc) Handle(params WeaviateSchemaActionsDeleteParams, principal interface{}) middleware.Responder {
-	return fn(params, principal)
+func (fn WeaviateSchemaActionsDeleteHandlerFunc) Handle(params WeaviateSchemaActionsDeleteParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateSchemaActionsDeleteHandler interface for that can handle valid weaviate schema actions delete params
 type WeaviateSchemaActionsDeleteHandler interface {
-	Handle(WeaviateSchemaActionsDeleteParams, interface{}) middleware.Responder
+	Handle(WeaviateSchemaActionsDeleteParams) middleware.Responder
 }
 
 // NewWeaviateSchemaActionsDelete creates a new http.Handler for the weaviate schema actions delete operation
@@ -58,25 +58,12 @@ func (o *WeaviateSchemaActionsDelete) ServeHTTP(rw http.ResponseWriter, r *http.
 	}
 	var Params = NewWeaviateSchemaActionsDeleteParams()
 
-	uprinc, aCtx, err := o.Context.Authorize(r, route)
-	if err != nil {
-		o.Context.Respond(rw, r, route.Produces, route, err)
-		return
-	}
-	if aCtx != nil {
-		r = aCtx
-	}
-	var principal interface{}
-	if uprinc != nil {
-		principal = uprinc
-	}
-
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params, principal) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

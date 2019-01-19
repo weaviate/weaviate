@@ -24,16 +24,16 @@ import (
 )
 
 // WeaviateSchemaActionsPropertiesAddHandlerFunc turns a function with the right signature into a weaviate schema actions properties add handler
-type WeaviateSchemaActionsPropertiesAddHandlerFunc func(WeaviateSchemaActionsPropertiesAddParams, interface{}) middleware.Responder
+type WeaviateSchemaActionsPropertiesAddHandlerFunc func(WeaviateSchemaActionsPropertiesAddParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateSchemaActionsPropertiesAddHandlerFunc) Handle(params WeaviateSchemaActionsPropertiesAddParams, principal interface{}) middleware.Responder {
-	return fn(params, principal)
+func (fn WeaviateSchemaActionsPropertiesAddHandlerFunc) Handle(params WeaviateSchemaActionsPropertiesAddParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateSchemaActionsPropertiesAddHandler interface for that can handle valid weaviate schema actions properties add params
 type WeaviateSchemaActionsPropertiesAddHandler interface {
-	Handle(WeaviateSchemaActionsPropertiesAddParams, interface{}) middleware.Responder
+	Handle(WeaviateSchemaActionsPropertiesAddParams) middleware.Responder
 }
 
 // NewWeaviateSchemaActionsPropertiesAdd creates a new http.Handler for the weaviate schema actions properties add operation
@@ -58,25 +58,12 @@ func (o *WeaviateSchemaActionsPropertiesAdd) ServeHTTP(rw http.ResponseWriter, r
 	}
 	var Params = NewWeaviateSchemaActionsPropertiesAddParams()
 
-	uprinc, aCtx, err := o.Context.Authorize(r, route)
-	if err != nil {
-		o.Context.Respond(rw, r, route.Produces, route, err)
-		return
-	}
-	if aCtx != nil {
-		r = aCtx
-	}
-	var principal interface{}
-	if uprinc != nil {
-		principal = uprinc
-	}
-
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params, principal) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

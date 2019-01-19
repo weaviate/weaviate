@@ -32,9 +32,6 @@ type Action struct {
 	// Timestamp of creation of this Action in milliseconds since epoch UTC.
 	CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
-	// key
-	Key *SingleRef `json:"key,omitempty"`
-
 	// Timestamp of the last update made to the Action since epoch UTC.
 	LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 }
@@ -52,8 +49,6 @@ func (m *Action) UnmarshalJSON(raw []byte) error {
 	var dataAO1 struct {
 		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
-		Key *SingleRef `json:"key,omitempty"`
-
 		LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 	}
 	if err := swag.ReadJSON(raw, &dataAO1); err != nil {
@@ -61,8 +56,6 @@ func (m *Action) UnmarshalJSON(raw []byte) error {
 	}
 
 	m.CreationTimeUnix = dataAO1.CreationTimeUnix
-
-	m.Key = dataAO1.Key
 
 	m.LastUpdateTimeUnix = dataAO1.LastUpdateTimeUnix
 
@@ -82,14 +75,10 @@ func (m Action) MarshalJSON() ([]byte, error) {
 	var dataAO1 struct {
 		CreationTimeUnix int64 `json:"creationTimeUnix,omitempty"`
 
-		Key *SingleRef `json:"key,omitempty"`
-
 		LastUpdateTimeUnix int64 `json:"lastUpdateTimeUnix,omitempty"`
 	}
 
 	dataAO1.CreationTimeUnix = m.CreationTimeUnix
-
-	dataAO1.Key = m.Key
 
 	dataAO1.LastUpdateTimeUnix = m.LastUpdateTimeUnix
 
@@ -111,31 +100,9 @@ func (m *Action) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateKey(formats); err != nil {
-		res = append(res, err)
-	}
-
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
-	return nil
-}
-
-func (m *Action) validateKey(formats strfmt.Registry) error {
-
-	if swag.IsZero(m.Key) { // not required
-		return nil
-	}
-
-	if m.Key != nil {
-		if err := m.Key.Validate(formats); err != nil {
-			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("key")
-			}
-			return err
-		}
-	}
-
 	return nil
 }
 

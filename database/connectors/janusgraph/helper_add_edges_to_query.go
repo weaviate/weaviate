@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -26,9 +27,7 @@ import (
 // map properties in thing.Schema according to the mapping.
 type edge struct {
 	PropertyName string
-	Type         string
-	Reference    string
-	Location     string
+	*crossref.Ref
 }
 
 type edgeFromRefProp struct {
@@ -92,11 +91,11 @@ func (j *Janusgraph) addEdgesToQuery(q *gremlin.Query, k kind.Kind, className sc
 	for _, edge := range localEdges {
 		q = q.AddE(edge.PropertyName).
 			FromRef(janusSourceClassLabel).
-			ToQuery(gremlin.G.V().HasString(PROP_UUID, edge.Reference)).
+			ToQuery(gremlin.G.V().HasString(PROP_UUID, string(edge.TargetID))).
 			StringProperty(PROP_REF_ID, edge.PropertyName).
-			StringProperty(PROP_REF_EDGE_CREF, edge.Reference).
-			StringProperty(PROP_REF_EDGE_TYPE, edge.Type).
-			StringProperty(PROP_REF_EDGE_LOCATION, edge.Location)
+			StringProperty(PROP_REF_EDGE_CREF, string(edge.TargetID)).
+			StringProperty(PROP_REF_EDGE_TYPE, edge.Kind.Name()).
+			StringProperty(PROP_REF_EDGE_LOCATION, edge.PeerName)
 	}
 
 	// (Re-)Add edges to all network refs
@@ -104,16 +103,16 @@ func (j *Janusgraph) addEdgesToQuery(q *gremlin.Query, k kind.Kind, className sc
 		q = q.AddE(edge.PropertyName).
 			FromRef(janusSourceClassLabel).
 			ToQuery(
-				gremlin.G.V().HasString(PROP_UUID, edge.Reference).
+				gremlin.G.V().HasString(PROP_UUID, string(edge.TargetID)).
 					Fold().
 					Coalesce(gremlin.RawQuery(
-						fmt.Sprintf("unfold(), addV().property(\"uuid\", \"%s\")", edge.Reference),
+						fmt.Sprintf("unfold(), addV().property(\"uuid\", \"%s\")", string(edge.TargetID)),
 					)),
 			).
 			StringProperty(PROP_REF_ID, edge.PropertyName).
-			StringProperty(PROP_REF_EDGE_CREF, edge.Reference).
-			StringProperty(PROP_REF_EDGE_TYPE, edge.Type).
-			StringProperty(PROP_REF_EDGE_LOCATION, edge.Location)
+			StringProperty(PROP_REF_EDGE_CREF, string(edge.TargetID)).
+			StringProperty(PROP_REF_EDGE_TYPE, edge.Kind.Name()).
+			StringProperty(PROP_REF_EDGE_LOCATION, edge.PeerName)
 	}
 
 	return q, nil
@@ -223,22 +222,22 @@ func (j *Janusgraph) singleRef(value interface{}, propType schema.PropertyDataTy
 	result := edgeFromRefProp{}
 	switch ref := value.(type) {
 	case *models.SingleRef:
-		switch ref.Type {
-		case "NetworkThing", "NetworkAction":
-			return j.singleNetworkRef(ref, janusPropertyName)
-		case "Action", "Thing":
-			return j.singleLocalRef(ref, propType, janusPropertyName, sanitizedPropertyName)
-		default:
-			return result, fmt.Errorf(
-				"illegal value for property %s; only Thing or Action supported", ref.Type)
+		parsedRef, err := crossref.ParseSingleRef(ref)
+		if err != nil {
+			return result, err
 		}
+
+		if parsedRef.Local {
+			return j.singleLocalRef(parsedRef, propType, janusPropertyName, sanitizedPropertyName)
+		}
+		return j.singleNetworkRef(parsedRef, janusPropertyName)
 
 	default:
 		return result, fmt.Errorf("Illegal value for property %s", sanitizedPropertyName)
 	}
 }
 
-func (j *Janusgraph) singleNetworkRef(ref *models.SingleRef, janusPropertyName string,
+func (j *Janusgraph) singleNetworkRef(ref *crossref.Ref, janusPropertyName string,
 ) (edgeFromRefProp, error) {
 	result := edgeFromRefProp{}
 	// We can't do any business-validation in here (such as does this
@@ -248,44 +247,40 @@ func (j *Janusgraph) singleNetworkRef(ref *models.SingleRef, janusPropertyName s
 
 	result.networkEdges = []edge{{
 		PropertyName: janusPropertyName,
-		Reference:    ref.NrDollarCref.String(),
-		Type:         ref.Type,
-		Location:     *ref.LocationURL,
+		Ref:          ref,
 	}}
 	return result, nil
 }
 
-func (j *Janusgraph) singleLocalRef(ref *models.SingleRef, propType schema.PropertyDataType,
+func (j *Janusgraph) singleLocalRef(ref *crossref.Ref, propType schema.PropertyDataType,
 	janusPropertyName string, sanitizedPropertyName schema.PropertyName) (edgeFromRefProp, error) {
 	var refClassName schema.ClassName
 	result := edgeFromRefProp{}
 
-	switch ref.Type {
-	case "Action":
+	switch ref.Kind {
+	case kind.ACTION_KIND:
 		var singleRefValue models.ActionGetResponse
-		err := j.GetAction(nil, ref.NrDollarCref, &singleRefValue)
+		err := j.GetAction(nil, ref.TargetID, &singleRefValue)
 		if err != nil {
-			return result, fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", ref.NrDollarCref.String(), err)
+			return result, fmt.Errorf("Illegal value for property %s; could not resolve action with UUID: %v", ref.TargetID.String(), err)
 		}
 		refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
-	case "Thing":
+	case kind.THING_KIND:
 		var singleRefValue models.ThingGetResponse
-		err := j.GetThing(nil, ref.NrDollarCref, &singleRefValue)
+		err := j.GetThing(nil, ref.TargetID, &singleRefValue)
 		if err != nil {
-			return result, fmt.Errorf("Illegal value for property %s; could not resolve thing with UUID: %v", ref.NrDollarCref.String(), err)
+			return result, fmt.Errorf("Illegal value for property %s; could not resolve thing with UUID: %v", ref.TargetID.String(), err)
 		}
 		refClassName = schema.AssertValidClassName(singleRefValue.AtClass)
 	}
 
 	// Verify the cross reference
 	if !propType.ContainsClass(refClassName) {
-		return result, fmt.Errorf("Illegal value for property %s; cannot point to %s", sanitizedPropertyName, ref.Type)
+		return result, fmt.Errorf("Illegal value for property %s; cannot point to %s", sanitizedPropertyName, ref.Kind.Name())
 	}
 	result.localEdges = []edge{{
 		PropertyName: janusPropertyName,
-		Reference:    ref.NrDollarCref.String(),
-		Type:         ref.Type,
-		Location:     *ref.LocationURL,
+		Ref:          ref,
 	}}
 
 	return result, nil

@@ -20,27 +20,19 @@ import (
 	"testing"
 
 	graphqlnetworkGet "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/get"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	"github.com/go-openapi/strfmt"
 )
 
 func TestProxyGetInstance(t *testing.T) {
 	var (
-		subject   *network
-		remote    *httptest.Server
-		principal *models.KeyTokenGetResponse
-		err       error
+		subject *network
+		remote  *httptest.Server
+		err     error
 	)
 
 	arrange := func(matchers ...requestMatcher) {
 		remote = fakeRemoteInstanceWithGraphQL(t, matchers...)
-		principal = &models.KeyTokenGetResponse{
-			Token: strfmt.UUID("stand-in-for-token-uuid"),
-			KeyGetResponse: models.KeyGetResponse{
-				KeyID: strfmt.UUID("stand-in-for-key-id-uuid"),
-			},
-		}
 		subject = &network{
 			peers: []peers.Peer{{
 				Name: "best-instance",
@@ -54,7 +46,6 @@ func TestProxyGetInstance(t *testing.T) {
 		_, err = subject.ProxyGetInstance(graphqlnetworkGet.ProxyGetInstanceParams{
 			SubQuery:       graphqlnetworkGet.SubQuery(`Get { Things { City { name } } }`),
 			TargetInstance: "best-instance",
-			Principal:      principal,
 		})
 	}
 
@@ -130,25 +121,26 @@ func TestProxyGetInstance(t *testing.T) {
 		cleanUp()
 	})
 
-	t.Run("should proxy along the key and token headers", func(t *testing.T) {
-		matcher := func(t *testing.T, r *http.Request) {
-			key := r.Header.Get("X-API-KEY")
-			token := r.Header.Get("X-API-TOKEN")
+	// re-enable when we have auth again
+	// t.Run("should proxy along the key and token headers", func(t *testing.T) {
+	// 	matcher := func(t *testing.T, r *http.Request) {
+	// 		key := r.Header.Get("X-API-KEY")
+	// 		token := r.Header.Get("X-API-TOKEN")
 
-			expectedKey := "stand-in-for-key-id-uuid"
-			if key != expectedKey {
-				t.Errorf("expected key to be \n%#v\n, but was \n%#v\n", expectedKey, key)
-			}
+	// 		expectedKey := "stand-in-for-key-id-uuid"
+	// 		if key != expectedKey {
+	// 			t.Errorf("expected key to be \n%#v\n, but was \n%#v\n", expectedKey, key)
+	// 		}
 
-			expectedToken := "stand-in-for-token-uuid"
-			if token != expectedToken {
-				t.Errorf("expected token to be \n%#v\n, but was \n%#v\n", expectedToken, token)
-			}
-		}
-		arrange(matcher)
-		act()
-		cleanUp()
-	})
+	// 		expectedToken := "stand-in-for-token-uuid"
+	// 		if token != expectedToken {
+	// 			t.Errorf("expected token to be \n%#v\n, but was \n%#v\n", expectedToken, token)
+	// 		}
+	// 	}
+	// 	arrange(matcher)
+	// 	act()
+	// 	cleanUp()
+	// })
 }
 
 type requestMatcher func(t *testing.T, r *http.Request)

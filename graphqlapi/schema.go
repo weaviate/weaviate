@@ -17,6 +17,7 @@ package graphqlapi
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
@@ -103,7 +104,7 @@ func buildGraphqlSchema(dbSchema *schema.Schema, peers peers.Peers, logger *mess
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				err = fmt.Errorf("%v", r)
+				err = fmt.Errorf("%v at %s", r, debug.Stack())
 			}
 		}()
 

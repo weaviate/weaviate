@@ -24,16 +24,16 @@ import (
 )
 
 // WeaviateThingsPropertiesDeleteHandlerFunc turns a function with the right signature into a weaviate things properties delete handler
-type WeaviateThingsPropertiesDeleteHandlerFunc func(WeaviateThingsPropertiesDeleteParams, interface{}) middleware.Responder
+type WeaviateThingsPropertiesDeleteHandlerFunc func(WeaviateThingsPropertiesDeleteParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsPropertiesDeleteHandlerFunc) Handle(params WeaviateThingsPropertiesDeleteParams, principal interface{}) middleware.Responder {
-	return fn(params, principal)
+func (fn WeaviateThingsPropertiesDeleteHandlerFunc) Handle(params WeaviateThingsPropertiesDeleteParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateThingsPropertiesDeleteHandler interface for that can handle valid weaviate things properties delete params
 type WeaviateThingsPropertiesDeleteHandler interface {
-	Handle(WeaviateThingsPropertiesDeleteParams, interface{}) middleware.Responder
+	Handle(WeaviateThingsPropertiesDeleteParams) middleware.Responder
 }
 
 // NewWeaviateThingsPropertiesDelete creates a new http.Handler for the weaviate things properties delete operation
@@ -60,25 +60,12 @@ func (o *WeaviateThingsPropertiesDelete) ServeHTTP(rw http.ResponseWriter, r *ht
 	}
 	var Params = NewWeaviateThingsPropertiesDeleteParams()
 
-	uprinc, aCtx, err := o.Context.Authorize(r, route)
-	if err != nil {
-		o.Context.Respond(rw, r, route.Produces, route, err)
-		return
-	}
-	if aCtx != nil {
-		r = aCtx
-	}
-	var principal interface{}
-	if uprinc != nil {
-		principal = uprinc
-	}
-
 	if err := o.Context.BindValidRequest(r, route, &Params); err != nil { // bind params
 		o.Context.Respond(rw, r, route.Produces, route, err)
 		return
 	}
 
-	res := o.Handler.Handle(Params, principal) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

@@ -16,9 +16,6 @@
               "format": "int64",
               "type": "integer"
             },
-            "key": {
-              "$ref": "#/definitions/SingleRef"
-            },
             "lastUpdateTimeUnix": {
               "description": "Timestamp of the last update made to the Action since epoch UTC.",
               "format": "int64",
@@ -119,9 +116,6 @@
         "deleted": {
           "description": "Indication of whether the Action is deleted.",
           "type": "boolean"
-        },
-        "key": {
-          "$ref": "#/definitions/SingleRef"
         },
         "propertyHistory": {
           "description": "An array with the history of the Action.",
@@ -287,100 +281,6 @@
     "JsonObject": {
       "description": "JSON object value.",
       "type": "object"
-    },
-    "Key": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/KeyCreate"
-        },
-        {
-          "properties": {
-            "parent": {
-              "$ref": "#/definitions/SingleRef"
-            }
-          }
-        }
-      ]
-    },
-    "KeyChildrenGetResponse": {
-      "properties": {
-        "children": {
-          "$ref": "#/definitions/MultipleRef"
-        }
-      }
-    },
-    "KeyCreate": {
-      "properties": {
-        "delete": {
-          "description": "Is user allowed to delete?",
-          "type": "boolean"
-        },
-        "email": {
-          "description": "Email associated with this account.",
-          "type": "string"
-        },
-        "execute": {
-          "description": "Is user allowed to execute?",
-          "type": "boolean"
-        },
-        "ipOrigin": {
-          "description": "Origin of the IP using CIDR notation.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "isRoot": {
-          "description": "Shows if key is root key.",
-          "type": "boolean",
-          "default": false
-        },
-        "keyExpiresUnix": {
-          "description": "Time as Unix timestamp that the key expires. Set to 0 for never.",
-          "format": "int64",
-          "type": "integer"
-        },
-        "read": {
-          "description": "Is user allowed to read?",
-          "type": "boolean"
-        },
-        "write": {
-          "description": "Is user allowed to write?",
-          "type": "boolean"
-        }
-      }
-    },
-    "KeyGetResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/Key"
-        },
-        {
-          "properties": {
-            "keyId": {
-              "description": "Id of the key.",
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        }
-      ]
-    },
-    "KeyTokenGetResponse": {
-      "allOf": [
-        {
-          "$ref": "#/definitions/KeyGetResponse"
-        },
-        {
-          "properties": {
-            "token": {
-              "description": "Key for the user to use.",
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        }
-      ]
     },
     "Meta": {
       "description": "Contains meta information of the current Weaviate instance.",
@@ -586,23 +486,8 @@
     "SingleRef": {
       "properties": {
         "$cref": {
-          "description": "Location of the cross reference.",
-          "format": "uuid",
-          "type": "string"
-        },
-        "locationUrl": {
-          "default": "http://localhost/",
-          "description": "Url of location. Http://localhost means this database. This option can be used to refer to other databases.",
-          "format": "url",
-          "type": "string"
-        },
-        "type": {
-          "description": "Type should be Thing, Action or Key.",
-          "enum": [
-            "Thing",
-            "Action",
-            "Key"
-          ],
+          "description": "URI to point to the cross-ref. Should be in the form of weaviate://localhost/things/<uuid> for the example of a local cross-ref to a thing",
+          "format": "uri",
           "type": "string"
         }
       }
@@ -1703,254 +1588,6 @@
         "summary": "Get a response based on GraphQL.",
         "tags": [
           "graphql"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/keys": {
-      "post": {
-        "description": "Creates a new key. Input expiration date is validated on being in the future and not longer than parent expiration date.",
-        "operationId": "weaviate.key.create",
-        "parameters": [
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/KeyCreate"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successfully created.",
-            "schema": {
-              "$ref": "#/definitions/KeyTokenGetResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Create a new key related to this key.",
-        "tags": [
-          "keys"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/keys/me": {
-      "get": {
-        "description": "Get the key-information of the key used.",
-        "operationId": "weaviate.keys.me.get",
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/KeyGetResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          }
-        },
-        "summary": "Get a key based on the key used to do the request.",
-        "tags": [
-          "keys"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/keys/me/children": {
-      "get": {
-        "description": "Get children of used key, only one step deep. A child can have children of its own.",
-        "operationId": "weaviate.keys.me.children.get",
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/KeyChildrenGetResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          }
-        },
-        "summary": "Get an object of this keys' children related to the key used for request.",
-        "tags": [
-          "keys"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/keys/{keyId}": {
-      "delete": {
-        "description": "Deletes a key. Only parent or self is allowed to delete key. When you delete a key, all its children will be deleted as well.",
-        "operationId": "weaviate.keys.delete",
-        "parameters": [
-          {
-            "description": "Unique ID of the key.",
-            "format": "uuid",
-            "in": "path",
-            "name": "keyId",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successfully deleted."
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          }
-        },
-        "summary": "Delete a key based on its UUID related to this key.",
-        "tags": [
-          "keys"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      },
-      "get": {
-        "description": "Get a key.",
-        "operationId": "weaviate.keys.get",
-        "parameters": [
-          {
-            "description": "Unique ID of the key.",
-            "format": "uuid",
-            "in": "path",
-            "name": "keyId",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/KeyGetResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          }
-        },
-        "summary": "Get a key based on its UUID related to this key.",
-        "tags": [
-          "keys"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/keys/{keyId}/children": {
-      "get": {
-        "description": "Get children of a key, only one step deep. A child can have children of its own.",
-        "operationId": "weaviate.keys.children.get",
-        "parameters": [
-          {
-            "description": "Unique ID of the key.",
-            "format": "uuid",
-            "in": "path",
-            "name": "keyId",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/KeyChildrenGetResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          }
-        },
-        "summary": "Get an object of this keys' children related to this key.",
-        "tags": [
-          "keys"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/keys/{keyId}/renew-token": {
-      "put": {
-        "description": "Renews the related key. Validates being lower in tree than given key. Can not renew itself, unless being parent.",
-        "operationId": "weaviate.keys.renew.token",
-        "parameters": [
-          {
-            "description": "Unique ID of the key.",
-            "format": "uuid",
-            "in": "path",
-            "name": "keyId",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/KeyTokenGetResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          }
-        },
-        "summary": "Renews a key based on the key given in the query string.",
-        "tags": [
-          "keys"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
@@ -3127,22 +2764,8 @@
     "https"
   ],
   "security": [
-    {
-      "apiKey": [],
-      "apiToken": []
-    }
   ],
-  "securityDefinitions": {
-    "apiKey": {
-      "in": "header",
-      "name": "X-API-KEY",
-      "type": "apiKey"
-    },
-    "apiToken": {
-      "in": "header",
-      "name": "X-API-TOKEN",
-      "type": "apiKey"
-    }
+  "securityDefinitions": { 
   },
   "swagger": "2.0",
   "tags": [
@@ -3155,9 +2778,6 @@
     },
     {
       "name": "graphql"
-    },
-    {
-      "name": "keys"
     },
     {
       "name": "meta"

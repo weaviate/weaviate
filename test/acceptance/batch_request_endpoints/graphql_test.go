@@ -25,7 +25,6 @@ import (
 	graphql_client "github.com/creativesoftwarefdn/weaviate/client/graphql"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
-	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -41,7 +40,7 @@ func TestBatchGraphQLResultsOrder(t *testing.T) {
 	expectedResult := "Syntax Error GraphQL request (1:1) Unexpected Name \"%s\"\n\n1: %s\n   ^\n"
 
 	// perform the query
-	gqlResponse, err := queryBatchEndpoint(t, helper.RootAuth)
+	gqlResponse, err := queryBatchEndpoint(t)
 
 	if err != nil {
 		t.Fatal("The returned schema is not an JSON object")
@@ -65,7 +64,7 @@ func TestBatchGraphQLResultsOrder(t *testing.T) {
 // Helper functions
 // TODO: change this to a successful query when the test dataset is implemented. Make sure to implement a query returning 3 or more elements.
 // Perform a batch GraphQL query
-func queryBatchEndpoint(t *testing.T, auth runtime.ClientAuthInfoWriterFunc) (models.GraphQLResponses, error) {
+func queryBatchEndpoint(t *testing.T) (models.GraphQLResponses, error) {
 	var vars interface{} = nil
 	query1 := &models.GraphQLQuery{OperationName: "testQuery", Query: "testQuery", Variables: vars}
 	query2 := &models.GraphQLQuery{OperationName: "testQuery2", Query: "testQuery2", Variables: vars}
@@ -73,7 +72,7 @@ func queryBatchEndpoint(t *testing.T, auth runtime.ClientAuthInfoWriterFunc) (mo
 	queries := models.GraphQLQueries{query1, query2}
 
 	params := graphql_client.NewWeaviateGraphqlBatchParams().WithBody(queries)
-	response, err := helper.Client(t).Graphql.WeaviateGraphqlBatch(params, auth)
+	response, err := helper.Client(t).Graphql.WeaviateGraphqlBatch(params)
 
 	if err != nil {
 		return nil, err

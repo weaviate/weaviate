@@ -40,7 +40,7 @@ type BaseConnector interface {
 
 	AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
 	GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
-	ListThings(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
+	ListThings(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
 	UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
 	DeleteThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
 	HistoryThing(ctx context.Context, UUID strfmt.UUID, history *models.ThingHistory) error
@@ -48,18 +48,11 @@ type BaseConnector interface {
 
 	AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
 	GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error
-	ListActions(ctx context.Context, first int, offset int, keyID strfmt.UUID, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error
+	ListActions(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error
 	UpdateAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
 	DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
 	HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error
 	MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error
-
-	AddKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error
-	ValidateToken(ctx context.Context, UUID strfmt.UUID, key *models.KeyGetResponse) (token string, err error)
-	GetKey(ctx context.Context, UUID strfmt.UUID, keyResponse *models.KeyGetResponse) error
-	DeleteKey(ctx context.Context, key *models.Key, UUID strfmt.UUID) error
-	GetKeyChildren(ctx context.Context, UUID strfmt.UUID, children *[]*models.KeyGetResponse) error
-	UpdateKey(ctx context.Context, key *models.Key, UUID strfmt.UUID, token string) error
 
 	GetGraph(request graphql.ResolveParams) (interface{}, error)
 }
@@ -72,5 +65,4 @@ type DatabaseConnector interface {
 
 	GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error
 	GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionResponse *models.ActionsListResponse) error
-	GetKeys(ctx context.Context, UUIDs []strfmt.UUID, keyResponse *[]*models.KeyGetResponse) error
 }
