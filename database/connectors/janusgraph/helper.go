@@ -197,7 +197,6 @@ func (j *Janusgraph) listClass(k kind.Kind, className *schema.ClassName, first i
 		Values([]string{PROP_UUID})
 
 	result, err := j.client.Execute(q)
-
 	if err != nil {
 		return err
 	}

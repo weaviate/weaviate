@@ -61,7 +61,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
-	graphql_local_get_meta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get_meta"
+	graphql_local_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
@@ -444,6 +444,6 @@ func (f *Foobar) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (int
 	return nil, nil
 }
 
-func (f *Foobar) LocalGetMeta(info *graphql_local_get_meta.LocalGetMetaParams) (interface{}, error) {
+func (f *Foobar) LocalGetMeta(info *graphql_local_getmeta.Params) (interface{}, error) {
 	return nil, nil
 }

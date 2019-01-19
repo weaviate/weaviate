@@ -14,12 +14,14 @@ package helper
 
 import (
 	"encoding/json"
+	"fmt"
+	"sync"
+	"testing"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/graphql-go/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"sync"
-	"testing"
 )
 
 type MockResolver struct {
@@ -60,14 +62,14 @@ func (mr *MockResolver) Resolve(query string) *graphql.Result {
 	return result
 }
 
-func (mr *MockResolver) AssertResolve(t *testing.T, query string) interface{} {
+func (mr *MockResolver) AssertResolve(t *testing.T, query string) *GraphQLResult {
 	result := mr.Resolve(query)
 	if len(result.Errors) > 0 {
 		t.Fatalf("Failed to resolve; %#v", result.Errors)
 	}
 
 	mr.AssertExpectations(t)
-	return result.Data
+	return &GraphQLResult{Result: result.Data}
 }
 
 func (mr *MockResolver) AssertFailToResolve(t *testing.T, query string) {
@@ -89,4 +91,29 @@ func (mr *MockResolver) AssertJSONResponse(t *testing.T, query string, expectedR
 	response := mr.AssertResolve(t, query)
 
 	assert.Equal(t, expectedResponse, response)
+}
+
+type GraphQLResult struct {
+	Result interface{}
+}
+
+// Drill down in the result
+func (g GraphQLResult) Get(paths ...string) *GraphQLResult {
+	current := g.Result
+	for _, path := range paths {
+		var ok bool
+		currentAsMap, ok := (current.(map[string]interface{}))
+		if !ok {
+			panic(fmt.Sprintf("Cannot get element %s in %#v; result: %#v", path, paths, g.Result))
+		}
+
+		current, ok = currentAsMap[path]
+		if !ok {
+			panic(fmt.Sprintf("Cannot get element %s in %#v; result: %#v", path, paths, g.Result))
+		}
+	}
+
+	return &GraphQLResult{
+		Result: current,
+	}
 }

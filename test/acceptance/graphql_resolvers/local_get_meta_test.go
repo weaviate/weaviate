@@ -1,0 +1,247 @@
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
+ */
+package test
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestLocalGetMetaWithoutFilters(t *testing.T) {
+	result := AssertGraphQL(t, helper.RootAuth, `
+		{
+			Local {
+				GetMeta{
+					Things {
+						City {
+							meta {
+								count
+							}
+							isCapital {
+								count
+								percentageFalse
+								percentageTrue
+								totalFalse
+								totalTrue
+								type
+							}
+							population {
+								average
+								count
+								highest
+								lowest
+								sum
+								type
+							}
+							InCountry {
+								pointingTo
+								type
+							}
+							name {
+								topOccurrences {
+									occurs
+									value
+								}
+								type
+								count
+							}
+						}
+					}
+				}
+			}
+		}
+	`)
+
+	t.Run("meta count", func(t *testing.T) {
+		count := result.Get("Local", "GetMeta", "Things", "City", "meta", "count").Result
+		expected := json.Number("4")
+		assert.Equal(t, expected, count)
+	})
+
+	t.Run("boolean props", func(t *testing.T) {
+		isCapital := result.Get("Local", "GetMeta", "Things", "City", "isCapital").Result
+		expected := map[string]interface{}{
+			"count":           json.Number("4"),
+			"percentageTrue":  json.Number("0.5"),
+			"percentageFalse": json.Number("0.5"),
+			"totalTrue":       json.Number("2"),
+			"totalFalse":      json.Number("2"),
+			"type":            "boolean",
+		}
+		assert.Equal(t, expected, isCapital)
+	})
+
+	t.Run("int/number props", func(t *testing.T) {
+		isCapital := result.Get("Local", "GetMeta", "Things", "City", "population").Result
+		expected := map[string]interface{}{
+			"average": json.Number("1917500"),
+			"count":   json.Number("4"),
+			"highest": json.Number("3470000"),
+			"lowest":  json.Number("600000"),
+			"sum":     json.Number("7670000"),
+			"type":    "int",
+		}
+		assert.Equal(t, expected, isCapital)
+	})
+
+	t.Run("ref prop", func(t *testing.T) {
+		inCountry := result.Get("Local", "GetMeta", "Things", "City", "InCountry").Result
+		expected := map[string]interface{}{
+			"pointingTo": []interface{}{"Country"},
+			"type":       "cref",
+		}
+		assert.Equal(t, expected, inCountry)
+	})
+
+	t.Run("string prop", func(t *testing.T) {
+		typeField := result.Get("Local", "GetMeta", "Things", "City", "name", "type").Result
+		count := result.Get("Local", "GetMeta", "Things", "City", "name", "count").Result
+		topOccurrences := result.Get("Local", "GetMeta", "Things", "City", "name", "topOccurrences").Result
+
+		assert.Equal(t, json.Number("4"), count)
+		assert.Equal(t, "string", typeField)
+
+		expectedTopOccurrences := []interface{}{
+			map[string]interface{}{
+				"value":  "Amsterdam",
+				"occurs": json.Number("1"),
+			},
+			map[string]interface{}{
+				"value":  "Dusseldorf",
+				"occurs": json.Number("1"),
+			},
+			map[string]interface{}{
+				"value":  "Rotterdam",
+				"occurs": json.Number("1"),
+			},
+		}
+		assert.ElementsMatch(t, expectedTopOccurrences, topOccurrences)
+	})
+}
+
+func TestLocalGetMetaWithFilters(t *testing.T) {
+	result := AssertGraphQL(t, helper.RootAuth, `
+		{
+			Local {
+				GetMeta{
+					Things {
+						City (where: {
+							valueBoolean: true,
+							operator: Equal,
+							path: ["isCapital"]
+						}){
+							meta {
+								count
+							}
+							isCapital {
+								count
+								percentageFalse
+								percentageTrue
+								totalFalse
+								totalTrue
+								type
+							}
+							population {
+								average
+								count
+								highest
+								lowest
+								sum
+								type
+							}
+							InCountry {
+								pointingTo
+								type
+							}
+							name {
+								topOccurrences {
+									occurs
+									value
+								}
+								type
+								count
+							}
+						}
+					}
+				}
+			}
+		}
+	`)
+
+	t.Run("meta count", func(t *testing.T) {
+		count := result.Get("Local", "GetMeta", "Things", "City", "meta", "count").Result
+		expected := json.Number("2")
+		assert.Equal(t, expected, count)
+	})
+
+	t.Run("boolean props", func(t *testing.T) {
+		isCapital := result.Get("Local", "GetMeta", "Things", "City", "isCapital").Result
+		expected := map[string]interface{}{
+			"count":           json.Number("2"),
+			"percentageTrue":  json.Number("1"),
+			"percentageFalse": json.Number("0"),
+			"totalTrue":       json.Number("2"),
+			"totalFalse":      json.Number("0"),
+			"type":            "boolean",
+		}
+		assert.Equal(t, expected, isCapital)
+	})
+
+	t.Run("int/number props", func(t *testing.T) {
+		isCapital := result.Get("Local", "GetMeta", "Things", "City", "population").Result
+		expected := map[string]interface{}{
+			"average": json.Number("2635000"),
+			"count":   json.Number("2"),
+			"highest": json.Number("3470000"),
+			"lowest":  json.Number("1800000"),
+			"sum":     json.Number("5270000"),
+			"type":    "int",
+		}
+		assert.Equal(t, expected, isCapital)
+	})
+
+	t.Run("ref prop", func(t *testing.T) {
+		inCountry := result.Get("Local", "GetMeta", "Things", "City", "InCountry").Result
+		expected := map[string]interface{}{
+			"pointingTo": []interface{}{"Country"},
+			"type":       "cref",
+		}
+		assert.Equal(t, expected, inCountry)
+	})
+
+	t.Run("string prop", func(t *testing.T) {
+		typeField := result.Get("Local", "GetMeta", "Things", "City", "name", "type").Result
+		count := result.Get("Local", "GetMeta", "Things", "City", "name", "count").Result
+		spew.Dump(count)
+		topOccurrences := result.Get("Local", "GetMeta", "Things", "City", "name", "topOccurrences").Result
+
+		assert.Equal(t, json.Number("2"), count)
+		assert.Equal(t, "string", typeField)
+
+		expectedTopOccurrences := []interface{}{
+			map[string]interface{}{
+				"value":  "Amsterdam",
+				"occurs": json.Number("1"),
+			},
+			map[string]interface{}{
+				"value":  "Berlin",
+				"occurs": json.Number("1"),
+			},
+		}
+		assert.ElementsMatch(t, expectedTopOccurrences, topOccurrences)
+	})
+}
