@@ -10,6 +10,7 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
+
 package aggregate
 
 import (
@@ -24,7 +25,7 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
-// Builds the classes below a Network -> Aggregate -> (k kind.Kind)
+// BuildAggregateClasses builds the classes below a Network -> Aggregate -> (k kind.Kind)
 func BuildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *models.SemanticSchema, knownClasses *map[string]*graphql.Object, weaviate string) (*graphql.Object, error) {
 	classFields := graphql.Fields{}
 
