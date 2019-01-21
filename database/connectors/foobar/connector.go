@@ -10,6 +10,19 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */
 
+/*                          _       _
+ *__      _____  __ ___   ___  __ _| |_ ___
+ *\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ *
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
+ */
+
 /*
 When starting Weaviate, functions are called in the following order;
 (find the function in this document to understand what it is that they do)
@@ -38,6 +51,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/gorilla/websocket"
+	"github.com/graphql-go/graphql"
 	"github.com/mitchellh/mapstructure"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
@@ -164,13 +178,36 @@ func (f *Foobar) Connect() error {
 	return nil
 }
 
-// Init 1st initializes the schema in the database.
+// Init 1st initializes the schema in the database and 2nd creates a root key.
 func (f *Foobar) Init() error {
 
 	/*
 	 * 1.  If a schema is needed, you need to add the schema to the DB here.
 	 * 1.1 Create the (thing or action) classes first, classes that a node (subject or object) can have (for example: Building, Person, etcetera)
+	 * 2.  Create a root key.
 	 */
+
+	// Example of creating rootkey
+	//
+	// Add ROOT-key if not exists
+	// Search for Root key
+
+	// SEARCH FOR ROOTKEY
+
+	//if totalResult.Root.Count == 0 {
+	//	f.messaging.InfoMessage("No root-key found.")
+	//
+	//	// Create new object and fill it
+	//	keyObject := models.Key{}
+	//	token := connutils.CreateRootKeyObject(&keyObject)
+	//
+	//	err = f.AddKey(&keyObject, connutils.GenerateUUID(), token)
+	//
+	//	if err != nil {
+	//		return err
+	//	}
+	//}
+	// END KEYS
 
 	// If success return nil, otherwise return the error
 	return nil
@@ -330,6 +367,15 @@ func (f *Foobar) HistoryAction(ctx context.Context, UUID strfmt.UUID, history *m
 // MoveToHistoryAction moves an action to history
 func (f *Foobar) MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error {
 	return nil
+}
+
+// AddKey adds a key to the Foobar database with the given UUID and token.
+// UUID  = reference to the key
+// token = is the actual access token used in the API's header
+
+// GetGraph returns the result based on th graphQL request
+func (f *Foobar) GetGraph(request graphql.ResolveParams) (interface{}, error) {
+	return nil, fmt.Errorf("not supported")
 }
 
 // Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.
