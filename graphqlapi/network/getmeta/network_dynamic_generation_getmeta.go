@@ -11,8 +11,8 @@
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
-// Package network_getmeta provides the network getmeta graphql endpoint for Weaviate
-package network_getmeta
+// Package getmeta provides the network getmeta graphql endpoint for Weaviate
+package getmeta
 
 import (
 	"fmt"
@@ -96,9 +96,6 @@ func metaClassField(class *models.SemanticSchemaClass, kindName string, descript
 					},
 				),
 			},
-		},
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
 		},
 	}
 
