@@ -1,83 +1,116 @@
 package getmeta
 
-// Removed until we have refactored the getmeta package
+import (
+	"fmt"
+	"testing"
 
-// type testCase struct {
-// 	name            string
-// 	query           string
-// 	resolverReturn  interface{}
-// 	expectedResults []result
-// }
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
+	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/graphql-go/graphql"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+)
 
-// type testCases []testCase
+type testCase struct {
+	name            string
+	query           string
+	resolverReturn  interface{}
+	expectedResults []result
+}
 
-// type result struct {
-// 	pathToField   []string
-// 	expectedValue interface{}
-// }
+type testCases []testCase
 
-// func TestNetworkGetMeta(t *testing.T) {
+type result struct {
+	pathToField   []string
+	expectedValue interface{}
+}
 
-// }
+func TestNetworkGetMeta(t *testing.T) {
 
-// func (tests testCases) Assert(t *testing.T, k kind.Kind, className string) {
-// 	for _, testCase := range tests {
-// 		t.Run(testCase.name, func(t *testing.T) {
-// 			resolver := newMockResolver()
+	tests := testCases{
+		testCase{
+			name:  "network get meta happy path",
+			query: "{ GetMeta { PeerA { Things { Car { horsepower { sum }}}}}}",
+			resolverReturn: map[string]interface{}{
+				"Things": map[string]interface{}{
+					"Car": map[string]interface{}{
+						"horsepower": map[string]interface{}{
+							"sum": 10000.0,
+						},
+					},
+				},
+			},
+			expectedResults: []result{{
+				pathToField:   []string{"GetMeta", "PeerA", "Things", "Car", "horsepower", "sum"},
+				expectedValue: 10000.0,
+			}},
+		},
+	}
 
-// 			resolverReturn := &models.GraphQLResponse{
-// 				Data: map[string]models.JSONObject{
-// 					"Local": map[string]interface{}{
-// 						"GetMeta": testCase.resolverReturn,
-// 					},
-// 				},
-// 			}
+	tests.Assert(t)
+}
 
-// 			resolver.On("LocalGetMeta").
-// 				Return(resolverReturn, nil).Once()
+func (tests testCases) Assert(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			resolver := newMockResolver()
 
-// 			result := resolver.AssertResolve(t, testCase.query)
+			resolverReturn := &models.GraphQLResponse{
+				Data: map[string]models.JSONObject{
+					"Local": map[string]interface{}{
+						"GetMeta": testCase.resolverReturn,
+					},
+				},
+			}
 
-// 			for _, expectedResult := range testCase.expectedResults {
-// 				value := result.Get(expectedResult.pathToField...).Result
+			resolver.On("ProxyGetMetaInstance", mock.AnythingOfType("Params")).
+				Return(resolverReturn, nil).Once()
 
-// 				assert.Equal(t, expectedResult.expectedValue, value)
-// 			}
-// 		})
-// 	}
-// }
+			result := resolver.AssertResolve(t, testCase.query)
 
-// type fakeNetworkResolver struct {
-// 	returnValue interface{}
-// }
+			for _, expectedResult := range testCase.expectedResults {
+				value := result.Get(expectedResult.pathToField...).Result
 
-// func (r *fakeNetworkResolver) ProxyGetMetaInstance(info Params) (*models.GraphQLResponse, error) {
-// 	return &models.GraphQLResponse{
-// 		Data: map[string]models.JSONObject{
-// 			"Local": map[string]interface{}{
-// 				"GetMeta": r.returnValue,
-// 			},
-// 		},
-// 	}, nil
-// }
+				assert.Equal(t, expectedResult.expectedValue, value)
+			}
+		})
+	}
+}
 
-// type mockResolver struct {
-// 	helper.MockResolver
-// }
+type mockResolver struct {
+	helper.MockResolver
+}
 
-// func newMockResolver() *mockResolver {
-// 	field, err := Build(&testhelper.CarSchema)
-// 	if err != nil {
-// 		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
-// 	}
-// 	mocker := &mockResolver{}
-// 	mocker.RootFieldName = "GetMeta"
-// 	mocker.RootField = field
-// 	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker)}
-// 	return mocker
-// }
+func newMockResolver() *mockResolver {
+	peerA, err := New("PeerA", helper.CarSchema).PeerField()
+	if err != nil {
+		panic(fmt.Sprintf("could not build graphql test schema: %s", err))
+	}
 
-// func (m *mockResolver) LocalGetMeta(params *Params) (interface{}, error) {
-// 	args := m.Called(params)
-// 	return args.Get(0), args.Error(1)
-// }
+	peerField := &graphql.Field{
+		Name: "Peers",
+		Type: graphql.NewObject(graphql.ObjectConfig{
+			Name:   "PeerAObj",
+			Fields: graphql.Fields{"PeerA": peerA},
+		}),
+		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+			resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(Resolver)
+			if !ok {
+				return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+			}
+
+			return resolver, nil
+		},
+	}
+
+	mocker := &mockResolver{}
+	mocker.RootFieldName = "GetMeta"
+	mocker.RootField = peerField
+	mocker.RootObject = map[string]interface{}{"NetworkResolver": Resolver(mocker)}
+	return mocker
+}
+
+func (m *mockResolver) ProxyGetMetaInstance(params Params) (*models.GraphQLResponse, error) {
+	args := m.Called(params)
+	return args.Get(0).(*models.GraphQLResponse), args.Error(1)
+}

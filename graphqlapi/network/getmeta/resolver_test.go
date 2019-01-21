@@ -71,9 +71,7 @@ func TestNetworkGetInstanceQueryWithoutFilters(t *testing.T) {
 func paramsFromQueryWithStartAndEnd(query []byte, start int, end int,
 	instanceName string, resolver Resolver, principal interface{}) graphql.ResolveParams {
 	return graphql.ResolveParams{
-		Source: FiltersAndResolver{
-			Resolver: resolver,
-		},
+		Source: resolver,
 		Info: graphql.ResolveInfo{
 			FieldName: instanceName,
 			FieldASTs: []*ast.Field{
