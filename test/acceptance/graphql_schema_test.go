@@ -64,7 +64,6 @@ func TestCompareExpectedToActualSchemaWithIntrospection(t *testing.T) {
 	rawFile, _ := ioutil.ReadFile("../graphql_schema/schema_design.json")
 	var data map[string]interface{}
 	err := json.Unmarshal(rawFile, &data)
-
 	if err != nil {
 		fmt.Println(err)
 	} else {

@@ -774,7 +774,6 @@ func configureServer(s *http.Server, scheme, addr string) {
 		// Note that this is thread safe; we're running in a single go-routine, because the event
 		// handlers are called when the SchemaLock is still held.
 
-		fmt.Printf("UPDATESCHEMA DB: %#v\n", db)
 		peers, err := network.ListPeers()
 		if err != nil {
 			graphQL = nil
