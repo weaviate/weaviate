@@ -2763,8 +2763,10 @@
   "schemes": [
     "https"
   ],
-  "security": [],
-  "securityDefinitions": {},
+  "security": [
+  ],
+  "securityDefinitions": {
+  },
   "swagger": "2.0",
   "tags": [
     {
