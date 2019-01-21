@@ -39,13 +39,12 @@ type FiltersAndResolver struct {
 }
 
 func Resolve(p graphql.ResolveParams) (interface{}, error) {
-	filterAndResolver, ok := p.Source.(FiltersAndResolver)
+	resolver, ok := p.Source.(Resolver)
 	if !ok {
-		return nil, fmt.Errorf("expected source to be a FilterAndResolver, but was \n%#v",
+		return nil, fmt.Errorf("expected source to be a Resolver, but was \n%#v",
 			p.Source)
 	}
 
-	resolver := filterAndResolver.Resolver
 	astLoc := p.Info.FieldASTs[0].GetLoc()
 	rawSubQuery := astLoc.Source.Body[astLoc.Start:astLoc.End]
 	subQueryWithoutInstance, err := replaceInstanceName(p.Info.FieldName, rawSubQuery)

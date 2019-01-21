@@ -80,7 +80,6 @@ func newActionsField(actions *graphql.Object) *graphql.Field {
 		Name:        "WeaviateNetworkGetMetaActions",
 		Description: descriptions.NetworkGetMetaActionsDesc,
 		Type:        actions,
-		Resolve:     passThroughResolver,
 	}
 }
 
@@ -89,7 +88,6 @@ func newThingsField(things *graphql.Object) *graphql.Field {
 		Name:        "WeaviateNetworkGetMetaThings",
 		Description: descriptions.NetworkGetMetaThingsDesc,
 		Type:        things,
-		Resolve:     passThroughResolver,
 	}
 }
 

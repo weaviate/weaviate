@@ -101,16 +101,14 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 			Name:        descriptions.NetworkGetDesc,
 			Type:        graphQLNetworkFieldContents.NetworkGetObject,
 			Description: descriptions.NetworkGetDesc,
-			Resolve:     passThroughFiltersAndResolvers,
+			Resolve:     passThroughGetFiltersAndResolvers,
 		},
 
 		"GetMeta": &graphql.Field{
 			Name:        "WeaviateNetworkGetMeta",
 			Type:        graphQLNetworkFieldContents.NetworkGetMetaObject,
 			Description: descriptions.NetworkGetMetaDesc,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     passThroughGetMetaResolvers,
 		},
 
 		"Fetch": &graphql.Field{
@@ -204,7 +202,7 @@ func buildSchemaDependentObjects(peers peers.Peers) (*schemaDependentObjects, er
 	}, nil
 }
 
-func passThroughFiltersAndResolvers(p graphql.ResolveParams) (interface{}, error) {
+func passThroughGetFiltersAndResolvers(p graphql.ResolveParams) (interface{}, error) {
 	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_get.Resolver)
 	if !ok {
 		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
@@ -213,4 +211,13 @@ func passThroughFiltersAndResolvers(p graphql.ResolveParams) (interface{}, error
 	return network_get.FiltersAndResolver{
 		Resolver: resolver,
 	}, nil
+}
+
+func passThroughGetMetaResolvers(p graphql.ResolveParams) (interface{}, error) {
+	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_getmeta.Resolver)
+	if !ok {
+		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+	}
+
+	return resolver, nil
 }
