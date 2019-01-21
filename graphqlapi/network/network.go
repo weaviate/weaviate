@@ -326,9 +326,7 @@ func buildGetAndGetMeta(weaviatesWithGetFields map[string]*graphql.Object,
 			Name:        fmt.Sprintf("%s%s", "Meta", weaviate),
 			Description: fmt.Sprintf("%s%s", descriptions.NetworkWeaviateDesc, weaviate),
 			Type:        weaviatesWithMetaGetFields[weaviate],
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     network_getmeta.Resolve,
 		}
 		aggregateWeaviates[weaviate] = &graphql.Field{
 			Name:        fmt.Sprintf("%s%s", "Aggregate", weaviate),
