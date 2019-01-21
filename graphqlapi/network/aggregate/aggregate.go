@@ -55,8 +55,15 @@ func BuildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema 
 
 // Build a single class in Network -> Aggregate -> (k kind.Kind) -> (models.SemanticSchemaClass)
 func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object, kindName string, weaviate string) (*graphql.Field, error) {
-	classObject := graphql.NewObject(graphql.ObjectConfig{
 
+	if len(class.Properties) == 0 {
+		// if we don't have class properties, we can't build this particular class,
+		// as it would not have any fields. So we have to return (without an
+		// error), so as not to block the creation of other classes
+		return nil, nil
+	}
+
+	classObject := graphql.NewObject(graphql.ObjectConfig{
 		Name: fmt.Sprintf("Aggregate%s%s", weaviate, class.Class),
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 
