@@ -65,10 +65,6 @@ func TestBatchActionsCreateResultsOrder(t *testing.T) {
 
 	// perform the request
 	resp, _, err := helper.OperationsClient(t).WeaviateBatchingActionsCreate(params)
-	if err != nil {
-		fmt.Println("error detected") // TODO remove this if
-	}
-
 	// ensure that the response is OK
 	helper.AssertRequestOk(t, resp, err, func() {
 
