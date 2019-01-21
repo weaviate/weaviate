@@ -28,6 +28,12 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
+type schemaDependentObjects struct {
+	get       *graphql.Object
+	getMeta   *graphql.Object
+	aggregate *graphql.Object
+}
+
 // Build the network queries from the database schema.
 func Build(peers peers.Peers) (*graphql.Field, error) {
 
@@ -36,8 +42,6 @@ func Build(peers peers.Peers) (*graphql.Field, error) {
 	// this map is used to store all the Filter InputObjects, so that we can use them in references.
 	filterContainer.NetworkFilterOptions = make(map[string]*graphql.InputObject)
 
-	// TODO implement function that capitalizes all Weaviate names
-
 	if len(peers) == 0 {
 		// Don't error, but also don't register the Network  field if we don't
 		// have any peers. This build function will be called again if the
@@ -45,8 +49,12 @@ func Build(peers peers.Peers) (*graphql.Field, error) {
 		return nil, nil
 	}
 
-	networkGetObject, networkGetMetaObject, networkAggregateObject := buildGetAndGetMeta(peers)
-	if networkGetObject == nil && networkGetMetaObject == nil && networkAggregateObject == nil {
+	schemaObjects, err := buildSchemaDependentObjects(peers)
+	if err != nil {
+		return nil, fmt.Errorf("could not build schema-dependent objects: %s", err)
+	}
+
+	if schemaObjects == nil {
 		// if we don't have any peers with schemas, we effectively don't have
 		// a Network Field.
 		// We should not error though, because local queries are still possible.
@@ -60,17 +68,16 @@ func Build(peers peers.Peers) (*graphql.Field, error) {
 	networkIntrospectObject := network_introspect.FieldsObj(filterContainer)
 
 	graphQLNetworkFieldContents := utils.GraphQLNetworkFieldContents{
-		NetworkGetObject:        networkGetObject,
-		NetworkGetMetaObject:    networkGetMetaObject,
+		NetworkGetObject:        schemaObjects.get,
+		NetworkGetMetaObject:    schemaObjects.getMeta,
 		NetworkFetchObject:      networkFetchObject,
 		NetworkIntrospectObject: networkIntrospectObject,
-		NetworkAggregateObject:  networkAggregateObject,
+		NetworkAggregateObject:  schemaObjects.aggregate,
 	}
-
-	networkGetAndGetMetaObject := genNetworkFields(&graphQLNetworkFieldContents /*, filterContainer*/)
+	object := genNetworkFields(&graphQLNetworkFieldContents /*, filterContainer*/)
 
 	networkField := &graphql.Field{
-		Type:        networkGetAndGetMetaObject,
+		Type:        object,
 		Description: descriptions.WeaviateNetworkDesc,
 		Args: graphql.FieldConfigArgument{
 			"networkTimeout": &graphql.ArgumentConfig{
@@ -142,58 +149,59 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 	return graphql.NewObject(*weaviateNetworkObject)
 }
 
-func buildGetAndGetMeta(peers peers.Peers) (*graphql.Object, *graphql.Object, *graphql.Object) {
-
+func buildSchemaDependentObjects(peers peers.Peers) (*schemaDependentObjects, error) {
 	if len(peers) == 0 {
 		// if we don't have any peers, we must return nil
 		// otherwise we'd have an empty Get and GetMeta object, which
 		// is not valid GraphQL
-		return nil, nil, nil
+		return nil, nil
 	}
 
-	getWeaviates := graphql.Fields{}
-	metaGetWeaviates := graphql.Fields{}
-	aggregateWeaviates := graphql.Fields{}
+	getPeers := graphql.Fields{}
+	metaGetPeers := graphql.Fields{}
+	aggregatePeers := graphql.Fields{}
 
 	for _, peer := range peers {
-		// TODO: replace panics with actual error handling
-
 		get, err := network_get.New(peer.Name, peer.Schema).PeerField()
 		if err != nil {
-			panic(fmt.Errorf("could not build Get for peer '%s': %s", peer.Name, err))
+			return nil, fmt.Errorf("could not build Get for peer '%s': %s", peer.Name, err)
 		}
-		getWeaviates[peer.Name] = get
+		getPeers[peer.Name] = get
 
 		getMeta, err := network_getmeta.New(peer.Name, peer.Schema).PeerField()
 		if err != nil {
-			panic(fmt.Errorf("could not build GetMeta for peer '%s': %s", peer.Name, err))
+			return nil, fmt.Errorf("could not build GetMeta for peer '%s': %s", peer.Name, err)
 		}
-		metaGetWeaviates[peer.Name] = getMeta
+		metaGetPeers[peer.Name] = getMeta
 
 		aggregate, err := network_aggregate.New(peer.Name, peer.Schema).PeerField()
 		if err != nil {
-			panic(fmt.Errorf("could not build Aggregate for peer '%s': %s", peer.Name, err))
+			return nil, fmt.Errorf("could not build Aggregate for peer '%s': %s", peer.Name, err)
 		}
-		aggregateWeaviates[peer.Name] = aggregate
+		aggregatePeers[peer.Name] = aggregate
 	}
 
-	GetObject := graphql.ObjectConfig{
+	get := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateNetworkGetObj",
-		Fields:      getWeaviates,
+		Fields:      getPeers,
 		Description: descriptions.NetworkGetObjDesc,
-	}
-	GetMetaObject := graphql.ObjectConfig{
+	})
+	getMeta := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateNetworkGetMetaObj",
-		Fields:      metaGetWeaviates,
+		Fields:      metaGetPeers,
 		Description: descriptions.NetworkGetMetaObjDesc,
-	}
-	AggregateObject := graphql.ObjectConfig{
+	})
+	aggregate := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateNetworkAggregateObj",
-		Fields:      aggregateWeaviates,
+		Fields:      aggregatePeers,
 		Description: descriptions.NetworkAggregateObjDesc,
-	}
+	})
 
-	return graphql.NewObject(GetObject), graphql.NewObject(GetMetaObject), graphql.NewObject(AggregateObject)
+	return &schemaDependentObjects{
+		get:       get,
+		getMeta:   getMeta,
+		aggregate: aggregate,
+	}, nil
 }
 
 func passThroughFiltersAndResolvers(p graphql.ResolveParams) (interface{}, error) {
