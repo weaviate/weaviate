@@ -21,6 +21,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
@@ -209,6 +210,7 @@ func classStringPropertyFields(class *models.SemanticSchemaClass, property *mode
 			Name:        fmt.Sprintf("%s%s%s%s", weaviate, "Meta", class.Class, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"topOccurrences": &graphql.Field{
@@ -250,6 +252,7 @@ func classStringPropertyTopOccurrencesFields(class *models.SemanticSchemaClass, 
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TopOccurrencesOccurs"),
 			Description: descriptions.GetMetaPropertyTopOccurrencesOccursDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -277,6 +280,7 @@ func classTextPropertyFields(class *models.SemanticSchemaClass, property *models
 			Name:        fmt.Sprintf("%s%s%s%s", weaviate, "Meta", class.Class, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"topOccurrences": &graphql.Field{
@@ -318,6 +322,7 @@ func classTextPropertyTopOccurrencesFields(class *models.SemanticSchemaClass, pr
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TopOccurrencesOccurs"),
 			Description: descriptions.GetMetaPropertyTopOccurrencesOccursDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -337,6 +342,7 @@ func classIntPropertyFields(class *models.SemanticSchemaClass, property *models.
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Sum"),
 			Description: descriptions.GetMetaPropertySumDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"type": &graphql.Field{
@@ -349,24 +355,28 @@ func classIntPropertyFields(class *models.SemanticSchemaClass, property *models.
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Lowest"),
 			Description: descriptions.GetMetaPropertyLowestDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"highest": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Highest"),
 			Description: descriptions.GetMetaPropertyHighestDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"average": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Average"),
 			Description: descriptions.GetMetaPropertyAverageDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -386,6 +396,7 @@ func classNumberPropertyFields(class *models.SemanticSchemaClass, property *mode
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Sum"),
 			Description: descriptions.GetMetaPropertySumDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"type": &graphql.Field{
@@ -398,24 +409,28 @@ func classNumberPropertyFields(class *models.SemanticSchemaClass, property *mode
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Lowest"),
 			Description: descriptions.GetMetaPropertyLowestDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"highest": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Highest"),
 			Description: descriptions.GetMetaPropertyHighestDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"average": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Average"),
 			Description: descriptions.GetMetaPropertyAverageDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -441,30 +456,35 @@ func classBooleanPropertyFields(class *models.SemanticSchemaClass, property *mod
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"totalTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TotalTrue"),
 			Description: descriptions.GetMetaClassPropertyTotalTrueDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"percentageTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "PercentageTrue"),
 			Description: descriptions.GetMetaClassPropertyPercentageTrueDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"totalFalse": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TotalFalse"),
 			Description: descriptions.GetMetaClassPropertyTotalFalseDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"percentageFalse": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "PercentageFalse"),
 			Description: descriptions.GetMetaClassPropertyPercentageFalseDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -493,6 +513,7 @@ func classDatePropertyFields(class *models.SemanticSchemaClass, property *models
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"topOccurrences": &graphql.Field{
@@ -534,6 +555,7 @@ func classDatePropertyTopOccurrencesFields(class *models.SemanticSchemaClass, pr
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TopOccurrencesOccurs"),
 			Description: descriptions.GetMetaPropertyTopOccurrencesOccursDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -559,6 +581,7 @@ func classCRefPropertyObj(class *models.SemanticSchemaClass, property *models.Se
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"pointingTo": &graphql.Field{
@@ -579,11 +602,11 @@ func classCRefPropertyObj(class *models.SemanticSchemaClass, property *models.Se
 
 func propertyObj(class *models.SemanticSchemaClass, weaviate string) *graphql.Object {
 	getMetaPropertyFields := graphql.Fields{
-
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", weaviate, "Meta", class.Class, "MetaCount"),
 			Description: descriptions.GetMetaClassMetaCountDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 

@@ -1,6 +1,7 @@
 package getmeta
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -35,7 +36,7 @@ func TestNetworkGetMeta(t *testing.T) {
 				"Things": map[string]interface{}{
 					"Car": map[string]interface{}{
 						"horsepower": map[string]interface{}{
-							"sum": 10000.0,
+							"sum": json.Number("10000"),
 						},
 					},
 				},
@@ -44,6 +45,131 @@ func TestNetworkGetMeta(t *testing.T) {
 				pathToField:   []string{"GetMeta", "PeerA", "Things", "Car", "horsepower", "sum"},
 				expectedValue: 10000.0,
 			}},
+		},
+
+		testCase{
+			name: "with every possible json number field there is",
+			query: `{ 
+				GetMeta { 
+					PeerA { 
+						Things { 
+							Car { 
+								horsepower { 
+									sum highest lowest average count
+								}
+								weight { 
+									sum highest lowest average count
+								}
+								meta {
+								  count
+								}
+								modelName {
+									count
+								  topOccurrences {
+										occurs
+									}
+								}
+								stillInProduction {
+									totalTrue totalFalse percentageTrue percentageFalse count
+								}
+								MadeBy {
+									count
+								}
+							}
+						}
+					}
+				}
+			}
+				`,
+			resolverReturn: map[string]interface{}{
+				"Things": map[string]interface{}{
+					"Car": map[string]interface{}{
+						"horsepower": map[string]interface{}{
+							"sum":     json.Number("10000"),
+							"highest": json.Number("10000"),
+							"lowest":  json.Number("10000"),
+							"average": json.Number("10000"),
+							"count":   json.Number("10000"),
+						},
+						"weight": map[string]interface{}{
+							"sum":     json.Number("10000"),
+							"highest": json.Number("10000"),
+							"lowest":  json.Number("10000"),
+							"average": json.Number("10000"),
+							"count":   json.Number("10000"),
+						},
+						"stillInProduction": map[string]interface{}{
+							"totalTrue":       json.Number("10000"),
+							"totalFalse":      json.Number("10000"),
+							"percentageTrue":  json.Number("10000"),
+							"percentageFalse": json.Number("10000"),
+							"count":           json.Number("10000"),
+						},
+						"meta": map[string]interface{}{
+							"count": json.Number("10000"),
+						},
+						"MadeBy": map[string]interface{}{
+							"count": json.Number("10000"),
+						},
+						"modelName": map[string]interface{}{
+							"count": json.Number("10000"),
+							"topOccurrences": []interface{}{
+								map[string]interface{}{
+									"occurs": json.Number("10000"),
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedResults: []result{
+				{
+					pathToField: []string{"GetMeta", "PeerA", "Things", "Car", "horsepower"},
+					expectedValue: map[string]interface{}{
+						"sum":     10000.0,
+						"highest": 10000.0,
+						"lowest":  10000.0,
+						"average": 10000.0,
+						"count":   10000,
+					},
+				},
+				{
+					pathToField: []string{"GetMeta", "PeerA", "Things", "Car", "weight"},
+					expectedValue: map[string]interface{}{
+						"sum":     10000.0,
+						"highest": 10000.0,
+						"lowest":  10000.0,
+						"average": 10000.0,
+						"count":   10000,
+					},
+				},
+				{
+					pathToField: []string{"GetMeta", "PeerA", "Things", "Car", "stillInProduction"},
+					expectedValue: map[string]interface{}{
+						"totalTrue":       10000,
+						"totalFalse":      10000,
+						"percentageTrue":  10000.0,
+						"percentageFalse": 10000.0,
+						"count":           10000,
+					},
+				},
+				{
+					pathToField:   []string{"GetMeta", "PeerA", "Things", "Car", "meta", "count"},
+					expectedValue: 10000,
+				},
+				{
+					pathToField:   []string{"GetMeta", "PeerA", "Things", "Car", "MadeBy", "count"},
+					expectedValue: 10000,
+				},
+				{
+					pathToField:   []string{"GetMeta", "PeerA", "Things", "Car", "modelName", "topOccurrences"},
+					expectedValue: []interface{}{map[string]interface{}{"occurs": 10000}},
+				},
+				{
+					pathToField:   []string{"GetMeta", "PeerA", "Things", "Car", "modelName", "count"},
+					expectedValue: 10000,
+				},
+			},
 		},
 	}
 
