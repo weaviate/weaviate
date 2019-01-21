@@ -17,6 +17,7 @@ import (
 
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/go-openapi/strfmt"
+	"github.com/graphql-go/graphql"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -51,6 +52,8 @@ type BaseConnector interface {
 	DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
 	HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error
 	MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error
+
+	GetGraph(request graphql.ResolveParams) (interface{}, error)
 }
 
 // DatabaseConnector is the interface that all DB-connectors should have
