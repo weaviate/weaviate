@@ -29,7 +29,6 @@ import (
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	p2pschema "github.com/creativesoftwarefdn/weaviate/network/p2p/schema"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -189,8 +188,6 @@ func (n *network) ping() {
 	params.Body = &genesismodels.PeerPing{
 		SchemaHash: hash,
 	}
-	fmt.Printf("\n\n\nparams we are sending\n\n\n")
-	spew.Dump(params)
 	n.Unlock()
 	_, err = n.client.Operations.GenesisPeersPing(params)
 	if err != nil {
