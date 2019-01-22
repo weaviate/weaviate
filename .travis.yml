@@ -27,7 +27,6 @@ branches:
   only: 
     - master
     - develop
-    - feature/network_get_meta
 dist: xenial
 go: 
   - "1.11"
