@@ -4,11 +4,10 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2019 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@kub.design)
- * See www.creativesoftwarefdn.org for details
- * Contact: @CreativeSofwFdn / bob@kub.design
+ * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+ * CONTACT: hello@creativesoftwarefdn.org
  */
 package p2p
 
@@ -29,6 +28,7 @@ import (
 	libnetwork "github.com/creativesoftwarefdn/weaviate/network"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
 	p2pschema "github.com/creativesoftwarefdn/weaviate/network/p2p/schema"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -188,6 +188,8 @@ func (n *network) ping() {
 	params.Body = &genesismodels.PeerPing{
 		SchemaHash: hash,
 	}
+	fmt.Printf("\n\n\nparams we are sending\n\n\n")
+	spew.Dump(params)
 	n.Unlock()
 	_, err = n.client.Operations.GenesisPeersPing(params)
 	if err != nil {
