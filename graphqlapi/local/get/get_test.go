@@ -11,7 +11,8 @@
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
 // These tests verify that the parameters to the resolver are properly extracted from a GraphQL query.
-package local_get
+
+package get
 
 import (
 	"testing"

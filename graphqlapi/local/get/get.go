@@ -11,7 +11,7 @@
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
-package local_get
+package get
 
 import (
 	"fmt"
