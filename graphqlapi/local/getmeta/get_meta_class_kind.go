@@ -30,16 +30,13 @@ import (
 func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 	var (
-		name        string
 		description string
 	)
 
 	switch k {
 	case kind.THING_KIND:
-		name = "WeaviateLocalGetMetaThingsObj"
 		description = descriptions.LocalGetMetaThingsObjDesc
 	case kind.ACTION_KIND:
-		name = "WeaviateLocalGetMetaActionsObj"
 		description = descriptions.LocalGetMetaActionsObjDesc
 	default:
 		return nil, fmt.Errorf("unrecoginzed kind '%#v", k)
@@ -56,7 +53,7 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*gr
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{
-		Name:        name,
+		Name:        fmt.Sprintf("WeaviateLocalGetMeta%ssObj", k.TitleizedName()),
 		Fields:      fields,
 		Description: description,
 	}), nil

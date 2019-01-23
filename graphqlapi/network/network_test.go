@@ -53,6 +53,9 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 			},
 		},
 
+		// this test asserts that we don't error with property-less classes, as we
+		// could otherwise end up with empty Fields which would lead to a graphQL
+		// build error
 		testCase{
 			name: "one peer with a thing schema without properties, but no actions",
 			peers: peers.Peers{
@@ -73,6 +76,9 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 			},
 		},
 
+		// this test asserts that we don't error with half-empty schemas, as we
+		// could otherwise end up with empty Fields which would lead to a graphQL
+		// build error
 		testCase{
 			name: "one peer with a thing schema with properties, but no actions",
 			peers: peers.Peers{
@@ -117,6 +123,116 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 								&models.SemanticSchemaClass{
 									Class:      "BestAction",
 									Properties: []*models.SemanticSchemaClassProperty{},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+
+		// The properties, albeit on different classes have the same names. This
+		// test asserts that there is no naming collision, i.e. that the properties
+		// are namespaced correctly by their respective classes.
+		testCase{
+			name: "one peer with a both a thing and an action class with properties",
+			peers: peers.Peers{
+				peers.Peer{
+					Name: "SomePeer",
+					Schema: schema.Schema{
+						Things: &models.SemanticSchema{
+							Classes: []*models.SemanticSchemaClass{
+								&models.SemanticSchemaClass{
+									Class: "BestThing",
+									Properties: []*models.SemanticSchemaClassProperty{
+										&models.SemanticSchemaClassProperty{
+											AtDataType: []string{"string"},
+											Name:       "myStringProp",
+										},
+									},
+								},
+							},
+						},
+						Actions: &models.SemanticSchema{
+							Classes: []*models.SemanticSchemaClass{
+								&models.SemanticSchemaClass{
+									Class: "BestAction",
+									Properties: []*models.SemanticSchemaClassProperty{
+										&models.SemanticSchemaClassProperty{
+											AtDataType: []string{"string"},
+											Name:       "myStringProp",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+
+		// This tests assert that there are no name collisions with multiple peers,
+		// i.e. that every peer has their objects and fields namespaced correctly.
+		testCase{
+			name: "two peers with identical schemas",
+			peers: peers.Peers{
+				peers.Peer{
+					Name: "SomePeer",
+					Schema: schema.Schema{
+						Things: &models.SemanticSchema{
+							Classes: []*models.SemanticSchemaClass{
+								&models.SemanticSchemaClass{
+									Class: "BestThing",
+									Properties: []*models.SemanticSchemaClassProperty{
+										&models.SemanticSchemaClassProperty{
+											AtDataType: []string{"string"},
+											Name:       "myStringProp",
+										},
+									},
+								},
+							},
+						},
+						Actions: &models.SemanticSchema{
+							Classes: []*models.SemanticSchemaClass{
+								&models.SemanticSchemaClass{
+									Class: "BestAction",
+									Properties: []*models.SemanticSchemaClassProperty{
+										&models.SemanticSchemaClassProperty{
+											AtDataType: []string{"string"},
+											Name:       "myStringProp",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				peers.Peer{
+					Name: "SomeOtherPeer",
+					Schema: schema.Schema{
+						Things: &models.SemanticSchema{
+							Classes: []*models.SemanticSchemaClass{
+								&models.SemanticSchemaClass{
+									Class: "BestThing",
+									Properties: []*models.SemanticSchemaClassProperty{
+										&models.SemanticSchemaClassProperty{
+											AtDataType: []string{"string"},
+											Name:       "myStringProp",
+										},
+									},
+								},
+							},
+						},
+						Actions: &models.SemanticSchema{
+							Classes: []*models.SemanticSchemaClass{
+								&models.SemanticSchemaClass{
+									Class: "BestAction",
+									Properties: []*models.SemanticSchemaClassProperty{
+										&models.SemanticSchemaClassProperty{
+											AtDataType: []string{"string"},
+											Name:       "myStringProp",
+										},
+									},
 								},
 							},
 						},
