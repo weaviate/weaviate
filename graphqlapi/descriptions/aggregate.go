@@ -22,6 +22,7 @@ const LocalAggregateActionsDesc string = "Aggregate Things on a local Weaviate"
 const GroupByDesc string = "Specify which properties to group by"
 
 const LocalAggregateObjDesc string = "An object allowing Aggregation of Things and Actions"
+const LocalAggregatePropertyObjectDesc string = "An object containing Aggregation information about this property"
 
 const LocalAggregateThingsActionsObjDesc string = "An object allowing Aggregation of %ss on a local Weaviate"
 
