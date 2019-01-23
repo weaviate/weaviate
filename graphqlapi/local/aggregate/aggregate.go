@@ -42,9 +42,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			Name:        "WeaviateLocalAggregateActions",
 			Description: descriptions.LocalAggregateActionsDesc,
 			Type:        localAggregateActions,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     passThroughResolver,
 		}
 	}
 
@@ -58,9 +56,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			Name:        "WeaviateLocalAggregateThings",
 			Description: descriptions.LocalAggregateThingsDesc,
 			Type:        localAggregateThings,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     passThroughResolver,
 		}
 	}
 
@@ -72,9 +68,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			Fields:      getKinds,
 			Description: descriptions.LocalAggregateObjDesc,
 		}),
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
-		},
+		Resolve: passThroughResolver,
 	}
 
 	return &field, nil
@@ -154,9 +148,7 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
 			},
 		},
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("resolve network aggregate class field not yet supported")
-		},
+		Resolve: makeResolveClass(k),
 	}
 
 	return fieldsField, nil
@@ -222,4 +214,9 @@ func makePropertyField(class *models.SemanticSchemaClass, property *models.Seman
 		Description: fmt.Sprintf(`%s"%s"`, descriptions.AggregatePropertyDesc, property.Name),
 		Type:        fieldMaker(class, property, prefix),
 	}, nil
+}
+
+func passThroughResolver(p graphql.ResolveParams) (interface{}, error) {
+	// bubble up root resolver
+	return p.Source, nil
 }
