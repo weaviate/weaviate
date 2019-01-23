@@ -22,12 +22,13 @@ import (
 )
 
 type testCase struct {
-	name            string
-	query           string
-	expectedProps   []Property
-	resolverReturn  interface{}
-	expectedResults []result
-	expectedGroupBy *common_filters.Path
+	name                string
+	query               string
+	expectedProps       []Property
+	resolverReturn      interface{}
+	expectedResults     []result
+	expectedGroupBy     *common_filters.Path
+	expectedWhereFilter *common_filters.LocalFilter
 }
 
 type testCases []testCase
@@ -71,6 +72,57 @@ func Test_Resolve(t *testing.T) {
 				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "mean"},
 				expectedValue: 275.7773,
 			}},
+		},
+
+		testCase{
+			name: "single prop: mean with a where filter",
+			query: `{ 
+				Aggregate { 
+					Things { 
+						Car(
+							groupBy:["madeBy", "Manufacturer", "name"]
+							where: {
+								operator: LessThan,
+								valueInt: 200,
+								path: ["horsepower"],
+							}
+						) { 
+							horsepower { 
+								mean 
+							} 
+						} 
+					} 
+				} 
+			}`,
+			expectedProps: []Property{
+				{
+					Name:        "horsepower",
+					Aggregators: []Aggregator{Mean},
+				},
+			},
+			resolverReturn: map[string]interface{}{
+				"horsepower": map[string]interface{}{
+					"mean": 275.7773,
+				},
+			},
+			expectedGroupBy: groupCarByMadeByManufacturerName(),
+			expectedResults: []result{{
+				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "mean"},
+				expectedValue: 275.7773,
+			}},
+			expectedWhereFilter: &common_filters.LocalFilter{
+				Root: &common_filters.Clause{
+					On: &common_filters.Path{
+						Class:    schema.ClassName("Car"),
+						Property: schema.PropertyName("horsepower"),
+					},
+					Value: &common_filters.Value{
+						Value: 200,
+						Type:  schema.DataTypeInt,
+					},
+					Operator: common_filters.OperatorLessThan,
+				},
+			},
 		},
 
 		testCase{
@@ -153,6 +205,7 @@ func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className str
 				ClassName:  schema.ClassName(className),
 				Properties: testCase.expectedProps,
 				GroupBy:    testCase.expectedGroupBy,
+				Filters:    testCase.expectedWhereFilter,
 			}
 
 			resolver.On("LocalAggregate", expectedParams).
