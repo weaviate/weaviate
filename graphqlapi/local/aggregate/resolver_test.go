@@ -62,15 +62,22 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []Aggregator{Mean},
 				},
 			},
-			resolverReturn: map[string]interface{}{
-				"horsepower": map[string]interface{}{
-					"mean": 275.7773,
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"horsepower": map[string]interface{}{
+						"mean": 275.7773,
+					},
 				},
 			},
+
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
-				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "mean"},
-				expectedValue: 275.7773,
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"horsepower": map[string]interface{}{"mean": 275.7773},
+					},
+				},
 			}},
 		},
 
@@ -100,15 +107,23 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []Aggregator{Mean},
 				},
 			},
-			resolverReturn: map[string]interface{}{
-				"horsepower": map[string]interface{}{
-					"mean": 275.7773,
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"horsepower": map[string]interface{}{
+						"mean": 275.7773,
+					},
 				},
 			},
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
-				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "mean"},
-				expectedValue: 275.7773,
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"horsepower": map[string]interface{}{
+							"mean": 275.7773,
+						},
+					},
+				},
 			}},
 			expectedWhereFilter: &common_filters.LocalFilter{
 				Root: &common_filters.Clause{
@@ -134,40 +149,37 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []Aggregator{Mean, Median, Mode, Maximum, Minimum, Count, Sum},
 				},
 			},
-			resolverReturn: map[string]interface{}{
-				"horsepower": map[string]interface{}{
-					"maximum": 610.0,
-					"minimum": 89.0,
-					"mean":    275.7,
-					"median":  289.0,
-					"mode":    115.0,
-					"count":   23,
-					"sum":     6343.0,
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"horsepower": map[string]interface{}{
+						"maximum": 610.0,
+						"minimum": 89.0,
+						"mean":    275.7,
+						"median":  289.0,
+						"mode":    115.0,
+						"count":   23,
+						"sum":     6343.0,
+					},
 				},
 			},
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
-				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "maximum"},
-				expectedValue: 610.0,
-			}, {
-				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "minimum"},
-				expectedValue: 89.0,
-			}, {
-				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "count"},
-				expectedValue: 23,
-			}, {
-				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "sum"},
-				expectedValue: 6343.0,
-			}, {
-				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "mean"},
-				expectedValue: 275.7,
-			}, {
-				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "median"},
-				expectedValue: 289.0,
-			}, {
-				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "mode"},
-				expectedValue: 115.0,
-			}},
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"horsepower": map[string]interface{}{
+							"maximum": 610.0,
+							"minimum": 89.0,
+							"mean":    275.7,
+							"median":  289.0,
+							"mode":    115.0,
+							"count":   23,
+							"sum":     6343.0,
+						},
+					},
+				},
+			},
+			},
 		},
 
 		testCase{
@@ -179,15 +191,23 @@ func Test_Resolve(t *testing.T) {
 					Aggregators: []Aggregator{Count},
 				},
 			},
-			resolverReturn: map[string]interface{}{
-				"modelName": map[string]interface{}{
-					"count": 7,
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"modelName": map[string]interface{}{
+						"count": 7,
+					},
 				},
 			},
 			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
-				pathToField:   []string{"Aggregate", "Things", "Car", "modelName", "count"},
-				expectedValue: 7,
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"modelName": map[string]interface{}{
+							"count": 7,
+						},
+					},
+				},
 			}},
 		},
 	}

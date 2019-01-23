@@ -10,6 +10,7 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
+
 package janusgraph
 
 import (
@@ -17,7 +18,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/filters"
 	graphql_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
-	"github.com/davecgh/go-spew/spew"
 )
 
 // LocalAggregate based on GraphQL Query params
@@ -34,15 +34,5 @@ func (j *Janusgraph) LocalAggregate(params *graphql_aggregate.Params) (interface
 
 	q = q.Raw(metaQuery)
 
-	//temp
-	res, err := j.client.Execute(q)
-	if err != nil {
-		return nil, err
-	}
-	spew.Dump(res)
-
-	return nil, nil
-	//temp - end
-
-	// return meta.NewProcessor(j.client).Process(q, typeInfo)
+	return aggregate.NewProcessor(j.client).Process(q, params.GroupBy)
 }
