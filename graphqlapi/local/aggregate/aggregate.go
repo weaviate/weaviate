@@ -120,7 +120,7 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 
 	fieldsObject := graphql.NewObject(fields)
 	fieldsField := &graphql.Field{
-		Type:        fieldsObject,
+		Type:        graphql.NewList(fieldsObject),
 		Description: description,
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{

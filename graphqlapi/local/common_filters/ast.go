@@ -105,3 +105,12 @@ func (p *Path) GetInnerMost() *Path {
 
 	return p.Child.GetInnerMost()
 }
+
+// Slice flattens the nested path into a slice of segments
+func (p *Path) Slice() []interface{} {
+	result := []interface{}{}
+	// On first round ommit ClassName
+
+	result = append(result, string(p.Property))
+	return result
+}
