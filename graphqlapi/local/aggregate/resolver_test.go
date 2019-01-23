@@ -17,6 +17,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,6 +27,7 @@ type testCase struct {
 	expectedProps   []Property
 	resolverReturn  interface{}
 	expectedResults []result
+	expectedGroupBy *common_filters.Path
 }
 
 type testCases []testCase
@@ -33,6 +35,17 @@ type testCases []testCase
 type result struct {
 	pathToField   []string
 	expectedValue interface{}
+}
+
+func groupCarByMadeByManufacturerName() *common_filters.Path {
+	return &common_filters.Path{
+		Class:    schema.ClassName("Car"),
+		Property: schema.PropertyName("madeBy"),
+		Child: &common_filters.Path{
+			Class:    schema.ClassName("Manufacturer"),
+			Property: schema.PropertyName("name"),
+		},
+	}
 }
 
 func Test_Resolve(t *testing.T) {
@@ -53,6 +66,7 @@ func Test_Resolve(t *testing.T) {
 					"mean": 275.7773,
 				},
 			},
+			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
 				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "mean"},
 				expectedValue: 275.7773,
@@ -79,6 +93,7 @@ func Test_Resolve(t *testing.T) {
 					"sum":     6343.0,
 				},
 			},
+			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
 				pathToField:   []string{"Aggregate", "Things", "Car", "horsepower", "maximum"},
 				expectedValue: 610.0,
@@ -117,6 +132,7 @@ func Test_Resolve(t *testing.T) {
 					"count": 7,
 				},
 			},
+			expectedGroupBy: groupCarByMadeByManufacturerName(),
 			expectedResults: []result{{
 				pathToField:   []string{"Aggregate", "Things", "Car", "modelName", "count"},
 				expectedValue: 7,
@@ -136,6 +152,7 @@ func (tests testCases) AssertExtraction(t *testing.T, k kind.Kind, className str
 				Kind:       k,
 				ClassName:  schema.ClassName(className),
 				Properties: testCase.expectedProps,
+				GroupBy:    testCase.expectedGroupBy,
 			}
 
 			resolver.On("LocalAggregate", expectedParams).
