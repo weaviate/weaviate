@@ -86,7 +86,7 @@ func parseCompareOp(args map[string]interface{}, operator Operator, rootClass st
 		return nil, fmt.Errorf("a 'operands' is given in clause '%s'; this is not allowed for a %s clause", jsonify(args), operator.Name())
 	}
 
-	path, err := parsePath(args, rootClass)
+	path, err := parsePathFromArgs(args, rootClass)
 	if err != nil {
 		return nil, err
 	}
@@ -152,11 +152,7 @@ func parseOperandsOp(args map[string]interface{}, operator Operator, rootClass s
 	}, nil
 }
 
-// Parses the path
-// It parses an array of strings in this format
-// [0] ClassName -> The root class name we're drilling down from
-// [1] propertyName -> The property name we're interested in.
-func parsePath(args map[string]interface{}, rootClass string) (*Path, error) {
+func parsePathFromArgs(args map[string]interface{}, rootClass string) (*Path, error) {
 	rawPath, ok := args["path"]
 	if !ok {
 		return nil, fmt.Errorf("Missing the 'path' field for the filter '%s'", jsonify(args))
@@ -167,6 +163,19 @@ func parsePath(args map[string]interface{}, rootClass string) (*Path, error) {
 		return nil, fmt.Errorf("The 'path' field for the filter '%s' is not a list of strings", jsonify(args))
 	}
 
+	path, err := ParsePath(pathElements, rootClass)
+	if err != nil {
+		return nil, fmt.Errorf("invalid 'path' field for filter '%s': %s", jsonify(args), err)
+	}
+
+	return path, nil
+}
+
+// ParsePath Parses the path
+// It parses an array of strings in this format
+// [0] ClassName -> The root class name we're drilling down from
+// [1] propertyName -> The property name we're interested in.
+func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 	// we need to manually insert the root class, as that is omitted from the user
 	pathElements = append([]interface{}{rootClass}, pathElements...)
 
@@ -183,22 +192,22 @@ func parsePath(args map[string]interface{}, rootClass string) (*Path, error) {
 	for i := 0; i < len(pathElements); i += 2 {
 		lengthRemaining := len(pathElements) - i
 		if lengthRemaining < 2 {
-			return nil, fmt.Errorf("The 'path' field for the filter '%s' is invalid! Missing an argument after '%s'", jsonify(args), pathElements[i])
+			return nil, fmt.Errorf("missing an argument after '%s'", pathElements[i])
 		}
 
 		rawClassName, ok := pathElements[i].(string)
 		if !ok {
-			return nil, fmt.Errorf("The 'path' field for the filter '%s' is invalid! Element %v is not a string", jsonify(args), i+1)
+			return nil, fmt.Errorf("element %v is not a string", i+1)
 		}
 
 		rawPropertyName, ok := pathElements[i+1].(string)
 		if !ok {
-			return nil, fmt.Errorf("The 'path' field for the filter '%s' is invalid! Element %v is not a string", jsonify(args), i+2)
+			return nil, fmt.Errorf("element %v is not a string", i+2)
 		}
 
 		err, className := schema.ValidateClassName(rawClassName)
 		if err != nil {
-			return nil, fmt.Errorf("Expected a valid class name in 'path' field for the filter '%s', but got '%s'", jsonify(args), rawClassName)
+			return nil, fmt.Errorf("Expected a valid class name in 'path' field for the filter but got '%s'", rawClassName)
 		}
 
 		err, propertyName := schema.ValidatePropertyName(rawPropertyName)
@@ -210,7 +219,7 @@ func parsePath(args map[string]interface{}, rootClass string) (*Path, error) {
 			err, propertyName = schema.ValidatePropertyName(untitlizedPropertyName)
 
 			if err != nil {
-				return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter '%s', but got '%s'", jsonify(args), rawPropertyName)
+				return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter, but got '%s'", rawPropertyName)
 			}
 		}
 

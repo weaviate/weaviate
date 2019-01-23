@@ -39,6 +39,7 @@ type Params struct {
 	Filters    *common_filters.LocalFilter
 	ClassName  schema.ClassName
 	Properties []Property
+	GroupBy    *common_filters.Path
 }
 
 // Aggregator is the desired computation that the database connector
@@ -99,6 +100,11 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract properties for class '%s': %s", className, err)
 		}
 
+		groupBy, err := extractGroupBy(p.Args, p.Info.FieldName)
+		if err != nil {
+			return nil, fmt.Errorf("could not extract groupBy path: %s", err)
+		}
+
 		filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
@@ -109,6 +115,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			Filters:    filters,
 			ClassName:  className,
 			Properties: properties,
+			GroupBy:    groupBy,
 		}
 		return resolver.LocalAggregate(params)
 	}
@@ -168,4 +175,18 @@ func parseAnalysisProp(name string) (Aggregator, error) {
 	default:
 		return "", fmt.Errorf("unrecognized statistical prop '%s'", name)
 	}
+}
+
+func extractGroupBy(args map[string]interface{}, rootClass string) (*common_filters.Path, error) {
+	groupBy, ok := args["groupBy"]
+	if !ok {
+		return nil, fmt.Errorf("no groupBy present in args")
+	}
+
+	pathSegments, ok := groupBy.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("no groupBy must be a list, instead got: %#v", groupBy)
+	}
+
+	return common_filters.ParsePath(pathSegments, rootClass)
 }
