@@ -67,7 +67,7 @@ func (b *Query) String() (string, error) {
 
 	// add grouping
 	// for now pretend we can only group by primitive props
-	q = q.Group().By(string(b.params.GroupBy.Property))
+	q = q.Group().By(b.mappedPropertyName(b.params.GroupBy.Class, b.params.GroupBy.Property))
 
 	// add aggregation
 	aggregationQuery, err := b.aggregationProperties()
