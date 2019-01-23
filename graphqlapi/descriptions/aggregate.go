@@ -14,9 +14,8 @@
 // Package descriptions provides the descriptions as used by the graphql endpoint for Weaviate
 package descriptions
 
-import ()
-
 // AGGREGATE
+const AggregatePropertyDesc string = "Aggregate this property"
 const LocalAggregateThingsDesc string = "Aggregate Things on a local Weaviate"
 const LocalAggregateActionsDesc string = "Aggregate Things on a local Weaviate"
 
@@ -53,6 +52,7 @@ const NetworkAggregateThingsDesc string = "Aggregate Things on a network Weaviat
 const NetworkAggregateActionsDesc string = "Aggregate Things on a network Weaviate"
 
 const NetworkAggregateObjDesc string = "An object allowing Aggregation of Things and Actions"
+const NetworkAggregatePropertyObjectDesc string = "An object containing Aggregation information about this property"
 
 const NetworkAggregateThingsActionsObjDesc string = "An object allowing Aggregation of %ss on a network Weaviate"
 

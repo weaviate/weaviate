@@ -103,9 +103,9 @@ func (b *Builder) buildKind(k kind.Kind) (*graphql.Object, error) {
 
 	switch k {
 	case kind.ACTION_KIND:
-		return BuildAggregateClasses(&b.schema, k, b.schema.Actions, &b.existingClasses, b.peerName)
+		return classFields(b.schema.Actions.Classes, k, b.peerName)
 	case kind.THING_KIND:
-		return BuildAggregateClasses(&b.schema, k, b.schema.Things, &b.existingClasses, b.peerName)
+		return classFields(b.schema.Things.Classes, k, b.peerName)
 	}
 
 	return nil, fmt.Errorf("unrecognized kind '%s'", k)
