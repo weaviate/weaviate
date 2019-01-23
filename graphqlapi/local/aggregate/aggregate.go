@@ -24,17 +24,16 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
+// Build the Aggreate Kinds schema
 func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	getKinds := graphql.Fields{}
 
 	if len(dbSchema.Actions.Classes) == 0 && len(dbSchema.Things.Classes) == 0 {
-		return nil, fmt.Errorf("There are no Actions or Things classes defined yet.")
+		return nil, fmt.Errorf("there are no Actions or Things classes defined yet")
 	}
 
-	knownClasses := map[string]*graphql.Object{}
-
 	if len(dbSchema.Actions.Classes) > 0 {
-		localAggregateActions, err := buildAggregateClasses(dbSchema, kind.ACTION_KIND, dbSchema.Actions, &knownClasses)
+		localAggregateActions, err := classFields(dbSchema.Actions.Classes, kind.ACTION_KIND)
 		if err != nil {
 			return nil, err
 		}
@@ -50,7 +49,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	}
 
 	if len(dbSchema.Things.Classes) > 0 {
-		localAggregateThings, err := buildAggregateClasses(dbSchema, kind.THING_KIND, dbSchema.Things, &knownClasses)
+		localAggregateThings, err := classFields(dbSchema.Things.Classes, kind.THING_KIND)
 		if err != nil {
 			return nil, err
 		}
@@ -81,116 +80,54 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	return &field, nil
 }
 
-// Builds the classes below a Local -> Aggregate -> (k kind.Kind)
-func buildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *models.SemanticSchema, knownClasses *map[string]*graphql.Object) (*graphql.Object, error) {
-	classFields := graphql.Fields{}
+func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*graphql.Object, error) {
+	fields := graphql.Fields{}
 
-	var kindName string
-	switch k {
-	case kind.THING_KIND:
-		kindName = "Thing"
-	case kind.ACTION_KIND:
-		kindName = "Action"
-	}
-
-	for _, class := range semanticSchema.Classes {
-		classField, err := buildAggregateClass(dbSchema, k, kindName, class, knownClasses)
+	for _, class := range databaseSchema {
+		field, err := classField(k, class, class.Description)
 		if err != nil {
-			return nil, fmt.Errorf("Could not build class for %s", class.Class)
+			return nil, err
 		}
-		classFields[class.Class] = classField
+
+		fields[class.Class] = field
 	}
 
-	classes := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("WeaviateLocalAggregate%ssObj", kindName),
-		Fields:      classFields,
-		Description: fmt.Sprintf(descriptions.LocalAggregateThingsActionsObjDesc, kindName),
-	})
-
-	return classes, nil
+	return graphql.NewObject(graphql.ObjectConfig{
+		Name:        fmt.Sprintf("WeaviateLocalAggregate%ssObj", k.TitleizedName()),
+		Fields:      fields,
+		Description: descriptions.LocalAggregateThingsActionsObjDesc,
+	}), nil
 }
 
-// Build a single class in Local -> Aggregate -> (k kind.Kind) -> (models.SemanticSchemaClass)
-func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, kindName string, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object) (*graphql.Field, error) {
-	classObject := graphql.NewObject(graphql.ObjectConfig{
+func classField(k kind.Kind, class *models.SemanticSchemaClass, description string) (*graphql.Field, error) {
 
-		Name: fmt.Sprintf("Aggregate%s", class.Class),
+	if len(class.Properties) == 0 {
+		// if we don't have class properties, we can't build this particular class,
+		// as it would not have any fields. So we have to return (without an
+		// error), so as not to block the creation of other classes
+		return nil, nil
+	}
+
+	metaClassName := fmt.Sprintf("LocalAggregate%s", class.Class)
+
+	fields := graphql.ObjectConfig{
+		Name: metaClassName,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
-
-			classProperties := graphql.Fields{}
-
-			// only generate these fields if the class contains a numeric property
-			if classContainsNumericProperties(dbSchema, class) == true {
-				classProperties["sum"] = &graphql.Field{
-					Description: descriptions.LocalAggregateSumDesc,
-					Type:        generateNumericPropertyFields(dbSchema, class, "sum"),
-					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-						return nil, fmt.Errorf("not supported")
-					},
-				}
-				classProperties["mode"] = &graphql.Field{
-					Description: descriptions.LocalAggregateModeDesc,
-					Type:        generateNumericPropertyFields(dbSchema, class, "mode"),
-					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-						return nil, fmt.Errorf("not supported")
-					},
-				}
-				classProperties["mean"] = &graphql.Field{
-					Description: descriptions.LocalAggregateMeanDesc,
-					Type:        generateNumericPropertyFields(dbSchema, class, "mean"),
-					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-						return nil, fmt.Errorf("not supported")
-					},
-				}
-				classProperties["median"] = &graphql.Field{
-					Description: descriptions.LocalAggregateMedianDesc,
-					Type:        generateNumericPropertyFields(dbSchema, class, "median"),
-					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-						return nil, fmt.Errorf("not supported")
-					},
-				}
-				classProperties["minimum"] = &graphql.Field{
-					Description: descriptions.LocalAggregateMinDesc,
-					Type:        generateNumericPropertyFields(dbSchema, class, "minimum"),
-					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-						return nil, fmt.Errorf("not supported")
-					},
-				}
-				classProperties["maximum"] = &graphql.Field{
-					Description: descriptions.LocalAggregateMaxDesc,
-					Type:        generateNumericPropertyFields(dbSchema, class, "maximum"),
-					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-						return nil, fmt.Errorf("not supported")
-					},
-				}
+			fields, err := classPropertyFields(class)
+			if err != nil {
+				// we cannot return an error in this FieldsThunk and have to panic unfortunately
+				panic(fmt.Sprintf("Failed to assemble single Local Meta Class field: %s", err))
 			}
 
-			// always generate these fields
-			classProperties["count"] = &graphql.Field{
-				Description: descriptions.LocalAggregateCountDesc,
-				Type:        generateCountPropertyFields(dbSchema, class, "count"),
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					return nil, fmt.Errorf("not supported")
-				},
-			}
-			classProperties["groupedBy"] = &graphql.Field{
-				Description: descriptions.LocalAggregateGroupedByDesc,
-				Type:        generateGroupedByPropertyFields(dbSchema, class, "groupedBy"),
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					return nil, fmt.Errorf("not supported")
-				},
-			}
-
-			return classProperties
+			return fields
 		}),
-		Description: class.Description,
-	})
+		Description: description,
+	}
 
-	(*knownClasses)[class.Class] = classObject
-
-	classField := graphql.Field{
-		Type:        graphql.NewList(classObject),
-		Description: class.Description,
+	fieldsObject := graphql.NewObject(fields)
+	fieldsField := &graphql.Field{
+		Type:        fieldsObject,
+		Description: description,
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
 				Description: descriptions.FirstDesc,
@@ -200,151 +137,89 @@ func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, kindName string, 
 				Description: descriptions.AfterDesc,
 				Type:        graphql.Int,
 			},
-			"groupBy": &graphql.ArgumentConfig{
-				Description: descriptions.GroupByDesc,
-				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
-			},
 			"where": &graphql.ArgumentConfig{
 				Description: descriptions.LocalGetWhereDesc,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateLocalAggregate%ss%sWhereInpObj", kindName, class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalAggregate%ss%s", kindName, class.Class)),
-						Description: descriptions.LocalAggregateWhereInpObjDesc,
+						Name: fmt.Sprintf("WeaviateLocalAggregate%ss%sWhereInpObj",
+							k.TitleizedName(), class.Class),
+						Fields: common_filters.BuildNew(fmt.Sprintf("WeaviateLocalAggregate%ss%s",
+							k.TitleizedName(), class.Class)),
+						Description: descriptions.LocalGetWhereInpObjDesc,
 					},
 				),
 			},
+			"groupBy": &graphql.ArgumentConfig{
+				Description: descriptions.GroupByDesc,
+				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
+			},
 		},
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
+			return nil, fmt.Errorf("resolve network aggregate class field not yet supported")
 		},
 	}
 
-	return &classField, nil
+	return fieldsField, nil
 }
 
-// classContainsNumericProperties determines whether a specified class contains one or more numeric properties.
-func classContainsNumericProperties(dbSchema *schema.Schema, class *models.SemanticSchemaClass) bool {
-
+func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, error) {
+	fields := graphql.Fields{}
 	for _, property := range class.Properties {
-		propertyType, err := dbSchema.FindPropertyDataType(property.AtDataType)
-
+		propertyType, err := schema.GetPropertyDataType(class, property.Name)
 		if err != nil {
-			// We can't return an error in this FieldsThunk function, so we need to panic
-			panic(fmt.Sprintf("buildGetClass: wrong propertyType for %s.%s; %s", class.Class, property.Name, err.Error()))
+			return nil, fmt.Errorf("%s.%s: %s", class.Class, property.Name, err)
 		}
 
-		if propertyType.IsPrimitive() {
-			primitivePropertyType := propertyType.AsPrimitive()
-
-			if primitivePropertyType == schema.DataTypeInt || primitivePropertyType == schema.DataTypeNumber {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func generateNumericPropertyFields(dbSchema *schema.Schema, class *models.SemanticSchemaClass, method string) *graphql.Object {
-	classProperties := graphql.Fields{}
-
-	for _, property := range class.Properties {
-		var propertyField *graphql.Field
-		propertyType, err := dbSchema.FindPropertyDataType(property.AtDataType)
-
+		convertedDataType, err := classPropertyField(*propertyType, class, property)
 		if err != nil {
-			// We can't return an error in this FieldsThunk function, so we need to panic
-			panic(fmt.Sprintf("buildAggregateClass: wrong propertyType for %s.%s; %s", class.Class, property.Name, err.Error()))
+			return nil, err
 		}
 
-		if propertyType.IsPrimitive() {
-			primitivePropertyType := propertyType.AsPrimitive()
-
-			if primitivePropertyType == schema.DataTypeInt {
-				propertyField = &graphql.Field{
-					Description: property.Description,
-					Type:        graphql.Int,
-					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-						return nil, fmt.Errorf("not supported")
-					},
-				}
-
-				propertyField.Name = property.Name
-				classProperties[property.Name] = propertyField
-			}
-			if primitivePropertyType == schema.DataTypeNumber {
-				propertyField = &graphql.Field{
-					Description: property.Description,
-					Type:        graphql.Float,
-					Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-						return nil, fmt.Errorf("not supported")
-					},
-				}
-
-				propertyField.Name = property.Name
-				classProperties[property.Name] = propertyField
-			}
+		if *propertyType == schema.DataTypeCRef {
+			fields[strings.Title(property.Name)] = convertedDataType
+		} else {
+			fields[property.Name] = convertedDataType
 		}
 	}
 
-	classPropertiesObj := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("Aggregate%s%sObj", class.Class, strings.Title(method)),
-		Fields:      classProperties,
-		Description: fmt.Sprintf(descriptions.LocalAggregateNumericObj, method),
-	})
+	// Always append Grouped By field
+	fields["groupedBy"] = &graphql.Field{
+		Description: descriptions.LocalAggregateGroupedByDesc,
+		Type:        groupedByProperty(class),
+	}
 
-	return classPropertiesObj
+	return fields, nil
 }
 
-func generateCountPropertyFields(dbSchema *schema.Schema, class *models.SemanticSchemaClass, method string) *graphql.Object {
-	classProperties := graphql.Fields{}
-
-	for _, property := range class.Properties {
-		propertyField := &graphql.Field{
-			Description: property.Description,
-			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
-		}
-
-		propertyField.Name = property.Name
-		classProperties[property.Name] = propertyField
+func classPropertyField(dataType schema.DataType, class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
+	switch dataType {
+	case schema.DataTypeString:
+		return makePropertyField(class, property, nonNumericPropertyFields)
+	case schema.DataTypeText:
+		return makePropertyField(class, property, nonNumericPropertyFields)
+	case schema.DataTypeInt:
+		return makePropertyField(class, property, numericPropertyFields)
+	case schema.DataTypeNumber:
+		return makePropertyField(class, property, numericPropertyFields)
+	case schema.DataTypeBoolean:
+		return makePropertyField(class, property, nonNumericPropertyFields)
+	case schema.DataTypeDate:
+		return makePropertyField(class, property, nonNumericPropertyFields)
+	case schema.DataTypeCRef:
+		return makePropertyField(class, property, nonNumericPropertyFields)
+	default:
+		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype)
 	}
-
-	classPropertiesObj := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("Aggregate%s%sObj", class.Class, strings.Title(method)),
-		Fields:      classProperties,
-		Description: descriptions.LocalAggregateCountObj,
-	})
-
-	return classPropertiesObj
 }
 
-func generateGroupedByPropertyFields(dbSchema *schema.Schema, class *models.SemanticSchemaClass, method string) *graphql.Object {
-	classProperties := graphql.Fields{
+type propertyFieldMaker func(class *models.SemanticSchemaClass,
+	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object
 
-		"path": &graphql.Field{
-			Description: descriptions.LocalAggregateGroupedByGroupedByPathDesc,
-			Type:        graphql.NewList(graphql.String),
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
-		},
-		"value": &graphql.Field{
-			Description: descriptions.LocalAggregateGroupedByGroupedByValueDesc,
-			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
-		},
-	}
-
-	classPropertiesObj := graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("Aggregate%s%sObj", class.Class, strings.Title(method)),
-		Fields:      classProperties,
-		Description: descriptions.LocalAggregateGroupedByObjDesc,
-	})
-
-	return classPropertiesObj
+func makePropertyField(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty,
+	fieldMaker propertyFieldMaker) (*graphql.Field, error) {
+	prefix := "LocalAggregate"
+	return &graphql.Field{
+		Description: fmt.Sprintf(`%s"%s"`, descriptions.AggregatePropertyDesc, property.Name),
+		Type:        fieldMaker(class, property, prefix),
+	}, nil
 }
