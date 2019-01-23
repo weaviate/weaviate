@@ -29,3 +29,16 @@ func extend_query(query *Query, format string, vals ...interface{}) *Query {
 	r := Query{query: query.query + fmt.Sprintf(format, vals...)}
 	return &r
 }
+
+// leads with dot if q is an existing query, does not lead with dot if q is a
+// new query
+func smartExtendQuery(query *Query, format string, vals ...interface{}) *Query {
+	var r Query
+	if query.query == "" {
+		r = Query{query: query.query + fmt.Sprintf(format, vals...)}
+	} else {
+		r = Query{query: query.query + "." + fmt.Sprintf(format, vals...)}
+	}
+	return &r
+
+}

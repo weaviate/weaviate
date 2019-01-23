@@ -89,6 +89,15 @@ func (q *Query) MeanLocal() *Query {
 	return extend_query(q, "mean(local)")
 }
 
+// Group by values. Will most likely be followed by a `By()`
+func (q *Query) Group() *Query {
+	if q.query == "" {
+		return &Query{query: "group()"}
+	}
+
+	return extend_query(q, ".group()")
+}
+
 // GroupCount by values. Will most likely be followed by a `By()`
 func (q *Query) GroupCount() *Query {
 	if q.query == "" {
@@ -104,18 +113,24 @@ func (q *Query) By(label string) *Query {
 	return extend_query(q, `.by("%s")`, label)
 }
 
-// ByQuery filters down previous segement, most likely used after a count,
-// groupCount or select statement. It takes a query rather than a label string
+// Project can be used to project a result into a map. Most likely used in
+// combination with Select().By(), example: select("foo").by(project("bar")).
+func (q *Query) Project(label string) *Query {
+	return smartExtendQuery(q, `project("%s")`, label)
+}
+
+// ByQuery filters down previous segement, most likely used after a group(), count(),
+// groupCount() or select() statement. It takes a query rather than a label string
 func (q *Query) ByQuery(subquery *Query) *Query {
 	return extend_query(q, `.by(%s)`, subquery.String())
 }
 
 func (q *Query) Fold() *Query {
-	return extend_query(q, ".fold()")
+	return smartExtendQuery(q, "fold()")
 }
 
 func (q *Query) Unfold() *Query {
-	return extend_query(q, ".unfold()")
+	return smartExtendQuery(q, "unfold()")
 }
 
 func (q *Query) Properties(names []string) *Query {
@@ -264,13 +279,23 @@ func (q *Query) Path() *Query {
 	return extend_query(q, ".path()")
 }
 
-// Create a reference
+// As create a reference or label
+//
+// As is a special case in that it cannot lead a query in Gremlin, because it
+// is a reserved word in Groovy. That means it's fine if it is appended to an
+// existing query like so: existingQuery.as(), but it cannot start a query like
+// so: as().somethingElse(). That's why there is a workaround in Germlin to
+// start a query with as like so: __.as()
 func (q *Query) As(names ...string) *Query {
 	quoted := make([]string, len(names), len(names))
 	for i, name := range names {
 		quoted[i] = fmt.Sprintf(`"%s"`, EscapeString(name))
 	}
-	return extend_query(q, `.as(%s)`, strings.Join(quoted, ", "))
+
+	if q.query != "" {
+		return extend_query(q, `.as(%s)`, strings.Join(quoted, ", "))
+	}
+	return extend_query(q, `__.as(%s)`, strings.Join(quoted, ", "))
 }
 
 // Point to a reference
@@ -360,14 +385,6 @@ func (q *Query) Or(queries ...*Query) *Query {
 }
 
 // Where can combine 0..n queries together
-//
-// If used on an existing query it will lead with a dot, e.g:
-//
-// existingQuery().where(<some joined queries>)
-//
-// Otherwise it will not lead with a dot, e.g.:
-//
-// where(<some joined queries>)
 func (q *Query) Where(queries ...*Query) *Query {
 	queryStrings := make([]string, len(queries), len(queries))
 	for i, single := range queries {
@@ -375,11 +392,7 @@ func (q *Query) Where(queries ...*Query) *Query {
 	}
 
 	queryStringsConcat := strings.Join(queryStrings, ", ")
-	if q.query == "" {
-		return &Query{query: fmt.Sprintf("where(%s)", queryStringsConcat)}
-	}
-
-	return extend_query(q, `.where(%s)`, queryStringsConcat)
+	return smartExtendQuery(q, `where(%s)`, queryStringsConcat)
 }
 
 func (q *Query) Optional(query *Query) *Query {
@@ -391,14 +404,6 @@ func (q *Query) Drop() *Query {
 }
 
 // Union can combine 0..n queries together
-//
-// If used on an existing query it will lead with a dot, e.g:
-//
-// existingQuery().union(<some joined queries>)
-//
-// Otherwise it will not lead with a dot, e.g.:
-//
-// union(<some joined queries>)
 func (q *Query) Union(queries ...*Query) *Query {
 	queryStrings := make([]string, len(queries), len(queries))
 	for i, single := range queries {
@@ -406,11 +411,18 @@ func (q *Query) Union(queries ...*Query) *Query {
 	}
 
 	queryStringsConcat := strings.Join(queryStrings, ", ")
-	if q.query == "" {
-		return &Query{query: fmt.Sprintf("union(%s)", queryStringsConcat)}
+	return smartExtendQuery(q, `union(%s)`, queryStringsConcat)
+}
+
+// Match can combine 0..n queries together
+func (q *Query) Match(queries ...*Query) *Query {
+	queryStrings := make([]string, len(queries), len(queries))
+	for i, single := range queries {
+		queryStrings[i] = single.String()
 	}
 
-	return extend_query(q, `.union(%s)`, queryStringsConcat)
+	queryStringsConcat := strings.Join(queryStrings, ", ")
+	return smartExtendQuery(q, `match(%s)`, queryStringsConcat)
 }
 
 // AsProjectBy is a helper construct to wrap a result in a map, it a query like
