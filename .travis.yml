@@ -27,7 +27,7 @@ branches:
   only: 
     - master
     - develop
-    - local_aggregate
+    - feature/local_aggregate
 dist: xenial
 go: 
   - "1.11"
