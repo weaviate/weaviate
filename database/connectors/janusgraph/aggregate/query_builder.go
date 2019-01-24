@@ -10,6 +10,7 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
+
 package aggregate
 
 import (
@@ -83,7 +84,7 @@ func (b *Query) String() (string, error) {
 func (b *Query) aggregationProperties() (*gremlin.Query, error) {
 	props := b.params.Properties
 	matchQueries := []*gremlin.Query{}
-	propsProcessed := 0
+	propNames := []string{}
 	selectQueries := gremlin.New()
 	for _, prop := range props {
 		propAggregation, err := b.prop(prop)
@@ -111,13 +112,17 @@ func (b *Query) aggregationProperties() (*gremlin.Query, error) {
 
 			// Group and select inner props into outer selection per Class Property
 			selectQueries = selectQueries.
-				As(string(prop.Name)).
-				Select([]string{string(prop.Name)})
-			propsProcessed++
+				As(string(prop.Name))
+
+			// Save the prop name for use in the final selection query
+			propNames = append(propNames, string(prop.Name))
 		}
 	}
 
-	if propsProcessed == 1 {
+	// One final select to group all props together
+	selectQueries = selectQueries.Select(propNames)
+
+	if len(propNames) == 1 {
 		// similarly to what we did on the inner selection we must add an
 		// additional projection if there is only a single property
 		selectQueries = selectQueries.ByQuery(gremlin.New().Project(string(props[0].Name)))
