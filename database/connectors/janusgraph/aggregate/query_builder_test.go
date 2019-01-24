@@ -57,5 +57,4 @@ func Test_QueryBuilder_MultipleProps(t *testing.T) {
 	}
 
 	tests.AssertQuery(t, nil)
-
 }

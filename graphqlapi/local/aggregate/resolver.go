@@ -24,6 +24,11 @@ import (
 	"github.com/graphql-go/graphql/language/ast"
 )
 
+// GroupedByFieldName is a special graphQL field that appears alongside the
+// to-be-aggregated props, but doesn't require any processing by the connectors
+// itself, as it just displays meta info about the overall aggregation.
+const GroupedByFieldName = "groupedBy"
+
 // Resolver is a local interface that can be composed with other interfaces to
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the GetMeta feature must implement this interface.
@@ -95,7 +100,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		}
 
 		selections := p.Info.FieldASTs[0].SelectionSet
-		properties, err := extractMetaProperties(selections)
+		properties, err := extractProperties(selections)
 		if err != nil {
 			return nil, fmt.Errorf("could not extract properties for class '%s': %s", className, err)
 		}
@@ -121,12 +126,23 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 	}
 }
 
-func extractMetaProperties(selections *ast.SelectionSet) ([]Property, error) {
-	properties := make([]Property, len(selections.Selections), len(selections.Selections))
+func extractProperties(selections *ast.SelectionSet) ([]Property, error) {
+	properties := []Property{}
 
-	for i, selection := range selections.Selections {
+	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
+		if name == GroupedByFieldName {
+			// in the graphQL API we show the "groupedBy" field alongside various
+			// properties, however, we don't have to include it here, as we don't
+			// wont to perform aggregations on it.
+			// If we didn't exclude it we'd run into errors down the line, because
+			// the connector would look for a "groupedBy" prop on the specific class
+			// which doesn't exist.
+
+			continue
+		}
+
 		property := Property{Name: schema.PropertyName(name)}
 		aggregators, err := extractAggregators(field.SelectionSet)
 		if err != nil {
@@ -134,7 +150,7 @@ func extractMetaProperties(selections *ast.SelectionSet) ([]Property, error) {
 		}
 
 		property.Aggregators = aggregators
-		properties[i] = property
+		properties = append(properties, property)
 	}
 
 	return properties, nil
@@ -173,7 +189,7 @@ func parseAnalysisProp(name string) (Aggregator, error) {
 	case string(Sum):
 		return Sum, nil
 	default:
-		return "", fmt.Errorf("unrecognized statistical prop '%s'", name)
+		return "", fmt.Errorf("unrecognized aggregator prop '%s'", name)
 	}
 }
 

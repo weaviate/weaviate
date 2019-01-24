@@ -82,6 +82,42 @@ func Test_Resolve(t *testing.T) {
 		},
 
 		testCase{
+			name:  "single prop: mean with groupedBy path/value",
+			query: `{ Aggregate { Things { Car(groupBy:["madeBy", "Manufacturer", "name"]) { horsepower { mean } groupedBy { value path } } } } }`,
+			expectedProps: []Property{
+				{
+					Name:        "horsepower",
+					Aggregators: []Aggregator{Mean},
+				},
+			},
+			resolverReturn: []interface{}{
+				map[string]interface{}{
+					"horsepower": map[string]interface{}{
+						"mean": 275.7773,
+					},
+					"groupedBy": map[string]interface{}{
+						"path":  []interface{}{"madeBy", "Manufacturer", "name"},
+						"value": "best-manufacturer",
+					},
+				},
+			},
+
+			expectedGroupBy: groupCarByMadeByManufacturerName(),
+			expectedResults: []result{{
+				pathToField: []string{"Aggregate", "Things", "Car"},
+				expectedValue: []interface{}{
+					map[string]interface{}{
+						"horsepower": map[string]interface{}{"mean": 275.7773},
+						"groupedBy": map[string]interface{}{
+							"path":  []interface{}{"madeBy", "Manufacturer", "name"},
+							"value": "best-manufacturer",
+						},
+					},
+				},
+			}},
+		},
+
+		testCase{
 			name: "single prop: mean with a where filter",
 			query: `{ 
 				Aggregate { 
