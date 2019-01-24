@@ -171,9 +171,9 @@ func (b *Query) prop(prop aggregate.Property) (*propertyAggregation, error) {
 		return nil, fmt.Errorf("could not find data type of prop '%s': %s", prop.Name, err)
 	}
 
-	// if !dataType.IsPrimitive() {
-	// 	return b.crefProp(prop)
-	// }
+	if !dataType.IsPrimitive() {
+		return b.crefProp(prop)
+	}
 
 	switch dataType.AsPrimitive() {
 	case schema.DataTypeBoolean, schema.DataTypeString, schema.DataTypeDate:
