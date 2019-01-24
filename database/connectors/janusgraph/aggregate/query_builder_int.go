@@ -14,6 +14,7 @@ package aggregate
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
@@ -47,14 +48,19 @@ func (b *Query) numericalPropAggregators(aggregator aggregate.Aggregator) (*nume
 	switch aggregator {
 	case aggregate.Count:
 		return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().Count()}, nil
-	// case aggregate.Mean:
-	// 	return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().MeanLocal()}, nil
-	// case aggregate.Sum:
-	// 	return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().SumLocal()}, nil
-	// case aggregate.Highest:
-	// 	return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().MaxLocal()}, nil
-	// case aggregate.Lowest:
-	// 	return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().MinLocal()}, nil
+	case aggregate.Mean:
+		return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().Mean()}, nil
+	case aggregate.Mode:
+		return &numericalAggregation{
+			label:       string(aggregator),
+			aggregation: gremlin.New().GroupCount().OrderLocalByValuesSelectKeysLimit("decr", 1),
+		}, nil
+	case aggregate.Sum:
+		return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().Sum()}, nil
+	case aggregate.Maximum:
+		return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().Max()}, nil
+	case aggregate.Minimum:
+		return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().Min()}, nil
 	default:
 		return nil, fmt.Errorf("analysis '%s' not supported for int prop", aggregator)
 	}
@@ -62,24 +68,25 @@ func (b *Query) numericalPropAggregators(aggregator aggregate.Aggregator) (*nume
 
 func (b *Query) numericalPropMergeAggregators(aggregationQueries []*numericalAggregation,
 	prop aggregate.Property) (*propertyAggregation, error) {
-	q := gremlin.New()
 	selections := []string{}
+	matchFragments := []string{}
 
 	for _, a := range aggregationQueries {
 		mappedPropName := b.mappedPropertyName(b.params.ClassName, prop.Name)
 		selection := fmt.Sprintf("%s__%s", mappedPropName, a.label)
-		q = q.
+		q := gremlin.New().
 			As("a").
 			Unfold().
 			Values([]string{mappedPropName}).
 			Raw("." + a.aggregation.String()).
 			As(selection)
 
+		matchFragments = append(matchFragments, q.String())
 		selections = append(selections, selection)
 	}
 
 	return &propertyAggregation{
-		matchQueryFragment: q,
+		matchQueryFragment: gremlin.New().Raw(strings.Join(matchFragments, ",")),
 		selections:         selections,
 	}, nil
 }
