@@ -20,13 +20,13 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
-type numericalAggregation struct {
+type aggregation struct {
 	label       string
 	aggregation *gremlin.Query
 }
 
 func (b *Query) numericalProp(prop aggregate.Property) (*propertyAggregation, error) {
-	aggregators := []*numericalAggregation{}
+	aggregators := []*aggregation{}
 	for _, aggregator := range prop.Aggregators {
 
 		newAggregator, err := b.numericalPropAggregators(aggregator)
@@ -41,32 +41,32 @@ func (b *Query) numericalProp(prop aggregate.Property) (*propertyAggregation, er
 		aggregators = append(aggregators, newAggregator)
 	}
 
-	return b.numericalPropMergeAggregators(aggregators, prop)
+	return b.mergeAggregators(aggregators, prop)
 }
 
-func (b *Query) numericalPropAggregators(aggregator aggregate.Aggregator) (*numericalAggregation, error) {
+func (b *Query) numericalPropAggregators(aggregator aggregate.Aggregator) (*aggregation, error) {
 	switch aggregator {
 	case aggregate.Count:
-		return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().Count()}, nil
+		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Count()}, nil
 	case aggregate.Mean:
-		return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().Mean()}, nil
+		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Mean()}, nil
 	case aggregate.Mode:
-		return &numericalAggregation{
+		return &aggregation{
 			label:       string(aggregator),
 			aggregation: gremlin.New().GroupCount().OrderLocalByValuesSelectKeysLimit("decr", 1),
 		}, nil
 	case aggregate.Sum:
-		return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().Sum()}, nil
+		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Sum()}, nil
 	case aggregate.Maximum:
-		return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().Max()}, nil
+		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Max()}, nil
 	case aggregate.Minimum:
-		return &numericalAggregation{label: string(aggregator), aggregation: gremlin.New().Min()}, nil
+		return &aggregation{label: string(aggregator), aggregation: gremlin.New().Min()}, nil
 	default:
 		return nil, fmt.Errorf("analysis '%s' not supported for int prop", aggregator)
 	}
 }
 
-func (b *Query) numericalPropMergeAggregators(aggregationQueries []*numericalAggregation,
+func (b *Query) mergeAggregators(aggregationQueries []*aggregation,
 	prop aggregate.Property) (*propertyAggregation, error) {
 	selections := []string{}
 	matchFragments := []string{}

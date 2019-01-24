@@ -176,10 +176,8 @@ func (b *Query) prop(prop aggregate.Property) (*propertyAggregation, error) {
 	// }
 
 	switch dataType.AsPrimitive() {
-	// case schema.DataTypeBoolean:
-	// 	return b.booleanProp(prop)
-	// case schema.DataTypeString, schema.DataTypeDate:
-	// 	return b.stringProp(prop)
+	case schema.DataTypeBoolean, schema.DataTypeString, schema.DataTypeDate:
+		return b.nonNumericalProp(prop)
 	case schema.DataTypeInt, schema.DataTypeNumber:
 		return b.numericalProp(prop)
 	default:
