@@ -239,7 +239,7 @@ func (q *Query) Out() *Query {
 }
 
 func (q *Query) OutWithLabel(label string) *Query {
-	return extend_query(q, `.out("%s")`, EscapeString(label))
+	return smartExtendQuery(q, `out("%s")`, EscapeString(label))
 }
 
 func (q *Query) InE() *Query {

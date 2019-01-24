@@ -20,14 +20,29 @@ type fakeNameSource struct{}
 func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
 	propName schema.PropertyName) state.MappedPropertyName {
 	switch propName {
+	case schema.PropertyName("name"):
+		return "prop_1"
+	case schema.PropertyName("population"):
+		return "prop_2"
 	case schema.PropertyName("inCountry"):
-		return "prop_15"
+		return "prop_3"
+	case schema.PropertyName("isCapital"):
+		return "prop_4"
+	case schema.PropertyName("inContinent"):
+		return "prop_5"
 	}
 	return state.MappedPropertyName("prop_20")
 }
 
 func (f *fakeNameSource) GetMappedClassName(className schema.ClassName) state.MappedClassName {
-	return state.MappedClassName("class_18")
+	switch className {
+	case schema.ClassName("Country"):
+		return state.MappedClassName("class_18")
+	case schema.ClassName("Continent"):
+		return state.MappedClassName("class_19")
+	default:
+		panic(fmt.Sprintf("fake name source does not contain a fake for '%s'", className))
+	}
 }
 
 type fakeTypeSource struct{}
@@ -145,6 +160,6 @@ func stripAll(input string) string {
 }
 
 func breakOnDot(input string) string {
-	input = strings.Replace(input, ".", "\n.", -1)
+	// input = strings.Replace(input, ".", "\n.", -1)
 	return input
 }

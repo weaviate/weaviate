@@ -44,6 +44,7 @@ func NewQuery(params *aggregate.Params, nameSource nameSource, typeSource typeSo
 
 type nameSource interface {
 	GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
+	GetMappedClassName(className schema.ClassName) state.MappedClassName
 }
 
 type typeSource interface {
@@ -66,9 +67,7 @@ func (b *Query) String() (string, error) {
 
 	q = q.Raw(filterQuery)
 
-	// add grouping
-	// for now pretend we can only group by primitive props
-	q = q.Group().By(b.mappedPropertyName(b.params.GroupBy.Class, b.params.GroupBy.Property))
+	q = q.Raw(b.groupByQuery().String())
 
 	// add aggregation
 	aggregationQuery, err := b.aggregationProperties()
@@ -197,6 +196,14 @@ func (b *Query) mappedPropertyName(className schema.ClassName,
 	}
 
 	return string(b.nameSource.GetMappedPropertyName(className, propName))
+}
+
+func (b *Query) mappedClassName(className schema.ClassName) string {
+	if b.nameSource == nil {
+		return string(className)
+	}
+
+	return string(b.nameSource.GetMappedClassName(className))
 }
 
 func untitle(propName schema.PropertyName) schema.PropertyName {
