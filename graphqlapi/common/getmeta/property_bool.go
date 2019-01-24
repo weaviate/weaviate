@@ -10,56 +10,61 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
+
 package getmeta
 
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
 
 func booleanPropertyFields(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty) *graphql.Object {
+	property *models.SemanticSchemaClassProperty, prefix string) *graphql.Object {
 	getMetaBooleanFields := graphql.Fields{
 		"type": &graphql.Field{
-			Name:        fmt.Sprintf("Meta%s%sType", class.Class, property.Name),
+			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
 		},
 		"count": &graphql.Field{
-			Name:        fmt.Sprintf("Meta%s%sCount", class.Class, property.Name),
+			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 		"totalTrue": &graphql.Field{
-			Name:        fmt.Sprintf("Meta%s%sTotalTrue", class.Class, property.Name),
+			Name:        fmt.Sprintf("%s%s%sTotalTrue", prefix, class.Class, property.Name),
 			Description: descriptions.GetMetaClassPropertyTotalTrueDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 		"percentageTrue": &graphql.Field{
-			Name:        fmt.Sprintf("Meta%s%sPercentageTrue", class.Class, property.Name),
+			Name:        fmt.Sprintf("%s%s%sPercentageTrue", prefix, class.Class, property.Name),
 			Description: descriptions.GetMetaClassPropertyPercentageTrueDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 		"totalFalse": &graphql.Field{
-			Name:        fmt.Sprintf("Meta%s%sTotalFalse", class.Class, property.Name),
+			Name:        fmt.Sprintf("%s%s%sTotalFalse", prefix, class.Class, property.Name),
 			Description: descriptions.GetMetaClassPropertyTotalFalseDesc,
 			Type:        graphql.Int,
+			Resolve:     common.JSONNumberResolver,
 		},
 		"percentageFalse": &graphql.Field{
-			Name:        fmt.Sprintf("Meta%s%sPercentageFalse", class.Class, property.Name),
+			Name:        fmt.Sprintf("%s%s%sPercentageFalse", prefix, class.Class, property.Name),
 			Description: descriptions.GetMetaClassPropertyPercentageFalseDesc,
 			Type:        graphql.Float,
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
-	getMetaBooleanProperty := graphql.ObjectConfig{
-		Name:        fmt.Sprintf("Meta%s%sObj", class.Class, property.Name),
+	return graphql.NewObject(graphql.ObjectConfig{
+		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaBooleanFields,
 		Description: descriptions.GetMetaPropertyObjectDesc,
-	}
-
-	return graphql.NewObject(getMetaBooleanProperty)
+	})
 }

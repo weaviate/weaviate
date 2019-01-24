@@ -124,6 +124,7 @@ func Test_Resolve(t *testing.T) {
 			},
 			resolverReturn: map[string]interface{}{
 				"stillInProduction": map[string]interface{}{
+					"count":           7,
 					"totalTrue":       20,
 					"totalFalse":      30,
 					"percentageTrue":  0.4,
@@ -131,6 +132,9 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedResults: []result{{
+				pathToField:   []string{"GetMeta", "Things", "Car", "stillInProduction", "count"},
+				expectedValue: 7,
+			}, {
 				pathToField:   []string{"GetMeta", "Things", "Car", "stillInProduction", "totalTrue"},
 				expectedValue: 20,
 			}, {
