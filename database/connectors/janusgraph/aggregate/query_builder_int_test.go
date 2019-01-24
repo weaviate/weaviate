@@ -23,7 +23,7 @@ import (
 func Test_QueryBuilder_IntProps(t *testing.T) {
 	tests := testCases{
 		testCase{
-			name: "with only an int, with only count",
+			name: "with only an int, with only count, grouped by a primitive prop",
 			inputProps: []ag.Property{
 				ag.Property{
 					Name:        "population",
@@ -46,26 +46,38 @@ func Test_QueryBuilder_IntProps(t *testing.T) {
 				`,
 		},
 
-		// testCase{
-		// 	name: "with only an int, with all props",
-		// 	inputProps: []ag.Property{
-		// 		ag.Property{
-		// 			Name: "population",
-		// 			Aggregators: []ag.Aggregator{
-		// 				ag.Average, ag.Type, ag.Sum, ag.Highest, ag.Lowest, ag.Count,
-		// 			},
-		// 		},
-		// 	},
-		// 	expectedQuery: `
-		// 		.union(
-		// 			aggregate("aggregation").by("population").cap("aggregation").limit(1)
-		// 				.as("average", "sum", "highest", "lowest", "count")
-		// 				.select("average", "sum", "highest", "lowest", "count")
-		// 				.by(mean(local)).by(sum(local)).by(max(local)).by(min(local)).by(count(local))
-		// 				.as("population").project("population").by(select("population"))
-		// 		)
-		// 	`,
-		// },
+		testCase{
+			name: "with only an int, with all possible int props (except median), grouped by a primitive prop",
+			inputProps: []ag.Property{
+				ag.Property{
+					Name:        "population",
+					Aggregators: []ag.Aggregator{ag.Count, ag.Mean, ag.Sum, ag.Maximum, ag.Minimum, ag.Mode},
+				},
+			},
+			inputGroupBy: &cf.Path{
+				Class:    schema.ClassName("City"),
+				Property: schema.PropertyName("isCapital"),
+			},
+			expectedQuery: `
+				.group().by("isCapital").by(
+					fold()
+					.match(
+						__.as("a").unfold().values("population").count().as("population__count"),
+						__.as("a").unfold().values("population").mean().as("population__mean"),
+						__.as("a").unfold().values("population").sum().as("population__sum"),
+						__.as("a").unfold().values("population").max().as("population__maximum"),
+						__.as("a").unfold().values("population").min().as("population__minimum"),
+						__.as("a").unfold().values("population").groupCount()
+								.order(local).by(values, decr).select(keys).limit(local, 1).as("population__mode")
+					)
+						.select(
+							"population__count", "population__mean", "population__sum", "population__maximum", "population__minimum", "population__mode"
+						)
+						.as("population")
+						.select("population").by(project("population"))
+					)
+				`,
+		},
 	}
 
 	tests.AssertQuery(t, nil)

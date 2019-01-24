@@ -52,11 +52,27 @@ func (q *Query) E() *Query {
 
 // Count how many vertices or edges are selected by the previous query.
 func (q *Query) Count() *Query {
-	if q.query == "" {
-		return &Query{query: "count()"}
-	}
+	return smartExtendQuery(q, "count()")
+}
 
-	return extend_query(q, ".count()")
+// Mean of the underlying values
+func (q *Query) Mean() *Query {
+	return smartExtendQuery(q, "mean()")
+}
+
+// Max of the underlying values
+func (q *Query) Max() *Query {
+	return smartExtendQuery(q, "max()")
+}
+
+// Min of the unerlying values
+func (q *Query) Min() *Query {
+	return smartExtendQuery(q, "min()")
+}
+
+// Sum up all the underlying values
+func (q *Query) Sum() *Query {
+	return smartExtendQuery(q, "sum()")
 }
 
 // CountLocal is most likely used in conjuction with an aggregation query and
@@ -443,4 +459,11 @@ func (q *Query) AsProjectBy(labels ...string) *Query {
 // .order(local).by(values, decr).limit(local, 3)
 func (q *Query) OrderLocalByValuesLimit(order string, limit int) *Query {
 	return extend_query(q, `.order(local).by(values, %s).limit(local, %d)`, EscapeString(order), limit)
+}
+
+// OrderLocalByValuesSelectKeysLimit is a helper construct to select the most occuring
+// items and extract the keys, like so if called with "decr", 3:
+// .order(local).by(values, decr).select(keys).limit(local, 3)
+func (q *Query) OrderLocalByValuesSelectKeysLimit(order string, limit int) *Query {
+	return extend_query(q, `.order(local).by(values, %s).select(keys).limit(local, %d)`, EscapeString(order), limit)
 }

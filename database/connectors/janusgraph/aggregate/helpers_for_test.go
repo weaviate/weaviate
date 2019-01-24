@@ -132,7 +132,7 @@ func (tests testCases) AssertQueryWithFilterSource(t *testing.T, nameSource name
 			}
 			query, err := NewQuery(params, nameSource, &fakeTypeSource{}, filterSource).String()
 			require.Nil(t, err, "should not error")
-			assert.Equal(t, stripAll(test.expectedQuery), stripAll(query), "should match the query")
+			assert.Equal(t, breakOnDot(stripAll(test.expectedQuery)), breakOnDot(stripAll(query)), "should match the query")
 		})
 	}
 }
@@ -141,5 +141,10 @@ func stripAll(input string) string {
 	input = strings.Replace(input, " ", "", -1)
 	input = strings.Replace(input, "\t", "", -1)
 	input = strings.Replace(input, "\n", "", -1)
+	return input
+}
+
+func breakOnDot(input string) string {
+	input = strings.Replace(input, ".", "\n.", -1)
 	return input
 }
