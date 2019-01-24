@@ -24,6 +24,8 @@ func JSONNumberResolver(p graphql.ResolveParams) (interface{}, error) {
 		return n.Float64()
 	case int64:
 		return float64(n), nil
+	case int:
+		return float64(n), nil
 	case float64:
 		return n, nil
 	}

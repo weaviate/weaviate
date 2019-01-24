@@ -20,6 +20,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	commonGetMeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/common/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -108,7 +109,7 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 
 func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, error) {
 	fields := graphql.Fields{}
-	metaField, err := metaPropertyField(class)
+	metaField, err := commonGetMeta.MetaPropertyField(class, "Meta")
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +121,7 @@ func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, err
 			return nil, fmt.Errorf("%s.%s: %s", class.Class, property.Name, err)
 		}
 
-		convertedDataType, err := classPropertyField(*propertyType, class, property)
+		convertedDataType, err := commonGetMeta.ClassPropertyField(*propertyType, class, property, "Meta")
 		if err != nil {
 			return nil, err
 		}
@@ -133,61 +134,4 @@ func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, err
 	}
 
 	return fields, nil
-}
-
-func classPropertyField(dataType schema.DataType, class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
-	switch dataType {
-	case schema.DataTypeString:
-		return makePropertyField(class, property, stringPropertyFields)
-	case schema.DataTypeText:
-		return makePropertyField(class, property, textPropertyFields)
-	case schema.DataTypeInt:
-		return makePropertyField(class, property, intPropertyFields)
-	case schema.DataTypeNumber:
-		return makePropertyField(class, property, numberPropertyFields)
-	case schema.DataTypeBoolean:
-		return makePropertyField(class, property, booleanPropertyFields)
-	case schema.DataTypeDate:
-		return makePropertyField(class, property, datePropertyFields)
-	case schema.DataTypeCRef:
-		return makePropertyField(class, property, refPropertyObj)
-	default:
-		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype)
-	}
-}
-
-type propertyFieldMaker func(class *models.SemanticSchemaClass,
-	property *models.SemanticSchemaClassProperty) *graphql.Object
-
-func makePropertyField(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty,
-	fieldMaker propertyFieldMaker) (*graphql.Field, error) {
-	return &graphql.Field{
-		Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaPropertyDesc, property.Name),
-		Type:        fieldMaker(class, property),
-	}, nil
-}
-
-func metaPropertyField(class *models.SemanticSchemaClass) (*graphql.Field, error) {
-	return &graphql.Field{
-		Description: descriptions.GetMetaMetaPropertyDesc,
-		Type:        metaPropertyObj(class),
-	}, nil
-}
-
-func metaPropertyObj(class *models.SemanticSchemaClass) *graphql.Object {
-	getMetaPropertyFields := graphql.Fields{
-		"count": &graphql.Field{
-			Name:        fmt.Sprintf("Meta%sMetaCount", class.Class),
-			Description: descriptions.GetMetaClassMetaCountDesc,
-			Type:        graphql.Int,
-		},
-	}
-
-	metaPropertyFields := graphql.ObjectConfig{
-		Name:        fmt.Sprintf("Meta%sMetaObj", class.Class),
-		Fields:      getMetaPropertyFields,
-		Description: descriptions.GetMetaClassMetaObjDesc,
-	}
-
-	return graphql.NewObject(metaPropertyFields)
 }

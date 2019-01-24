@@ -15,8 +15,8 @@ package getmeta
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
@@ -66,7 +66,6 @@ func stringTopOccurrences(class *models.SemanticSchemaClass,
 			Name:        fmt.Sprintf("%s%s%sTopOccurrencesValue", prefix, class.Class, property.Name),
 			Description: descriptions.GetMetaPropertyTopOccurrencesValueDesc,
 			Type:        graphql.String,
-			Resolve:     common.JSONNumberResolver,
 		},
 		"occurs": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTopOccurrencesOccurs", prefix, class.Class, property.Name),
