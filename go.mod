@@ -5,6 +5,7 @@ require (
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296
 	github.com/asaskevich/govalidator v0.0.0-20180720115003-f9ffefc3facf // indirect
+	github.com/coreos/etcd v3.3.11+incompatible
 	github.com/davecgh/go-spew v1.1.1
 	github.com/docker/go-units v0.3.3 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.1.1
@@ -46,11 +47,12 @@ require (
 	github.com/sirupsen/logrus v1.2.0
 	github.com/stretchr/testify v1.2.2
 	github.com/syndtr/goleveldb v0.0.0-20180708030551-c4c61651e9e3
+	go.etcd.io/etcd v3.3.11+incompatible
 	golang.org/x/arch v0.0.0-20181203225421-5a4828bb7045 // indirect
 	golang.org/x/crypto v0.0.0-20180904163835-0709b304e793
 	golang.org/x/net v0.0.0-20181114220301-adae6a3d119a
-	golang.org/x/text v0.3.0 // indirect
-	google.golang.org/grpc v1.13.0
+	google.golang.org/genproto v0.0.0-20190123001331-8819c946db44 // indirect
+	google.golang.org/grpc v1.16.0
 	gopkg.in/fsnotify.v1 v1.4.7 // indirect
 	gopkg.in/mgo.v2 v2.0.0-20180705113604-9856a29383ce // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
