@@ -13,11 +13,14 @@
 package local
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"net/url"
 	"os"
+	"time"
 
+	"github.com/coreos/etcd/clientv3"
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
@@ -29,13 +32,17 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const SchemaStateStorageKey = "/weaviate/schema/state"
+const ConnectorStateStorageKey = "/weaviate/connector/state"
+
 type LocalSchemaConfig struct {
 	StateDir *string `json:"state_dir"`
 }
 
 type localSchemaManager struct {
 	// The directory where the state will be stored
-	stateDir string
+	stateDir       string
+	configStoreURL *url.URL
 
 	// Persist schema
 	stateFile   *os.File
@@ -76,8 +83,9 @@ func (l *localSchemaState) SchemaFor(k kind.Kind) *models.SemanticSchema {
 	}
 }
 
-func New(stateDirName string, connectorMigrator schema_migrator.Migrator, network network.Network) (database.SchemaManager, error) {
+func New(stateDirName string, configStoreURL *url.URL, connectorMigrator schema_migrator.Migrator, network network.Network) (database.SchemaManager, error) {
 	manager := &localSchemaManager{
+		configStoreURL:    configStoreURL,
 		stateDir:          stateDirName,
 		schemaState:       localSchemaState{},
 		connectorMigrator: connectorMigrator,
@@ -99,43 +107,25 @@ func New(stateDirName string, connectorMigrator schema_migrator.Migrator, networ
 
 // Load the state from a file, or if the files do not exist yet, initialize an empty schema.
 func (l *localSchemaManager) loadOrInitializeSchema() error {
-	// Verify that the directory exists and is indeed a directory.
-	dirStat, err := os.Stat(l.stateDir)
+
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{l.configStoreURL.String()},
+		DialTimeout: 5 * time.Second,
+	})
 	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("Directory '%v' does not exist", l.stateDir)
-		} else {
-			return fmt.Errorf("Could not look up stats of '%v'", l.stateDir)
-		}
-	} else {
-		if !dirStat.IsDir() {
-			return fmt.Errorf("The path '%v' is not a directory!", l.stateDir)
-		}
+		return fmt.Errorf("could not build etcd client: %s", err)
 	}
 
-	// Check if the schema files exist.
-	stateFileStat, err := os.Stat(l.statePath())
-	var stateFileExists bool = true
+	defer cli.Close()
+
+	res, err := cli.Get(context.TODO(), SchemaStateStorageKey)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("Could not look up stats of '%v'", l.statePath())
-		} else {
-			stateFileExists = false
-		}
-	} else {
-		if stateFileStat.IsDir() {
-			return fmt.Errorf("The path '%v' is a directory, not a file!", l.statePath())
-		}
+		return fmt.Errorf("could not retrieve key '%s': %#v", SchemaStateStorageKey, err)
 	}
 
-	// Open the file. If it's created, only allow the current user to access it.
-	l.stateFile, err = os.OpenFile(l.statePath(), os.O_RDWR|os.O_CREATE, 0600)
-	if err != nil {
-		return fmt.Errorf("Could not open state file '%v'", l.statePath())
-	}
-
-	// Fill in empty ontologies if there is no schema file.
-	if !stateFileExists {
+	switch k := len(res.Kvs); {
+	case k == 0:
+		// has not been initialized before
 		l.schemaState.ActionSchema = &models.SemanticSchema{
 			Classes: []*models.SemanticSchemaClass{},
 			Type:    "action",
@@ -145,118 +135,79 @@ func (l *localSchemaManager) loadOrInitializeSchema() error {
 			Classes: []*models.SemanticSchemaClass{},
 			Type:    "thing",
 		}
-
-		// And flush the schema to disk.
-		err := l.saveToDisk()
-		if err != nil {
-			log.Fatal("Could not save empty schema to disk")
-		}
-		log.Infof("Initialized empty schema")
-	} else {
-		// Load the state from disk.
-		stateBytes, _ := ioutil.ReadAll(l.stateFile)
+		return l.saveToDisk()
+	case k == 1:
+		stateBytes := res.Kvs[0].Value
 		var state localSchemaState
 		err := json.Unmarshal(stateBytes, &state)
 		if err != nil {
-			return fmt.Errorf("Could not parse the schema state file '%v'", l.statePath())
-		} else {
-			l.schemaState = state
+			return fmt.Errorf("Could not parse the schema state: %s", err)
 		}
+		l.schemaState = state
+		return nil
+	default:
+		return fmt.Errorf("unexpected number of results for key '%s', expected to have 0 or 1, but got %d: %#v",
+			SchemaStateStorageKey, len(res.Kvs), res.Kvs)
 	}
-	return nil
 }
 
 // Load the
 func (l *localSchemaManager) loadOrInitializeConnectorState() error {
-	// Verify that the directory exists and is indeed a directory.
-	dirStat, err := os.Stat(l.stateDir)
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{l.configStoreURL.String()},
+		DialTimeout: 5 * time.Second,
+	})
 	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("Directory '%v' does not exist", l.stateDir)
-		} else {
-			return fmt.Errorf("Could not look up stats of '%v'", l.stateDir)
-		}
-	} else {
-		if !dirStat.IsDir() {
-			return fmt.Errorf("The path '%v' is not a directory!", l.stateDir)
-		}
+		return fmt.Errorf("could not build etcd client: %s", err)
 	}
 
-	// Check if the schema files exist.
-	stateFileStat, err := os.Stat(l.connectorStatePath())
-	var stateFileExists bool = true
+	defer cli.Close()
+
+	res, err := cli.Get(context.TODO(), ConnectorStateStorageKey)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("Could not look up stats of '%v'", l.connectorStatePath())
-		} else {
-			stateFileExists = false
-		}
-	} else {
-		if stateFileStat.IsDir() {
-			return fmt.Errorf("The path '%v' is a directory, not a file!", l.connectorStatePath())
-		}
+		return fmt.Errorf("could not retrieve key '%s': %#v", ConnectorStateStorageKey, err)
 	}
 
-	// Open the file. If it's created, only allow the current user to access it.
-	l.connectorStateFile, err = os.OpenFile(l.connectorStatePath(), os.O_RDWR|os.O_CREATE, 0600)
-	if err != nil {
-		return fmt.Errorf("Could not open connector state file '%v'", l.connectorStatePath())
-	}
-
-	// Fill in null state
-	if !stateFileExists {
+	switch k := len(res.Kvs); {
+	case k == 0:
+		// has not been initialized before
 		l.connectorState = json.RawMessage([]byte("{}"))
+		return l.saveConnectorStateToDisk()
 
-		// And flush the connector state
-		err := l.saveConnectorStateToDisk()
-		if err != nil {
-			log.Fatal("Could not save initial connector state to disk")
-		}
-		log.Infof("Initialized empty connector state")
-	} else {
-		// Load the state from disk.
-		stateBytes, _ := ioutil.ReadAll(l.connectorStateFile)
-		err := l.connectorState.UnmarshalJSON(stateBytes)
-		if err != nil {
-			return fmt.Errorf("Could not parse connector state '%v'", l.connectorStatePath())
-		}
+	case k == 1:
+		stateBytes := res.Kvs[0].Value
+		return l.connectorState.UnmarshalJSON(stateBytes)
+	default:
+		return fmt.Errorf("unexpected number of results for key '%s', expected to have 0 or 1, but got %d: %#v",
+			ConnectorStateStorageKey, len(res.Kvs), res.Kvs)
 	}
-	return nil
-}
-
-func (l *localSchemaManager) statePath() string {
-	return l.stateDir + "/schema_state.json"
-}
-
-func (l *localSchemaManager) connectorStatePath() string {
-	return l.stateDir + "/connector_state.json"
 }
 
 // Save the schema to the local disk.
 // Triggers callbacks to all interested observers.
 func (l *localSchemaManager) saveToDisk() error {
-	log.Info("Updating local schema on disk")
-	// This is not 100% robust against failures.
-	// we don't check IO errors yet
-	// good enough for local deployments.
 
 	stateBytes, err := json.Marshal(l.schemaState)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not marshal schema state to json: %s", err)
 	}
 
-	err = l.stateFile.Truncate(0)
+	log.Info("Updating local schema on etcd")
+
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{l.configStoreURL.String()},
+		DialTimeout: 5 * time.Second,
+	})
 	if err != nil {
-		return err
+		return fmt.Errorf("could not build etcd client: %s", err)
 	}
 
-	_, err = l.stateFile.Seek(0, 0)
+	defer cli.Close()
+
+	_, err = cli.Put(context.TODO(), "/weaviate/schema/state", string(stateBytes))
 	if err != nil {
-		return err
+		return fmt.Errorf("could not send schema state to etcd: %s", err)
 	}
-
-	l.stateFile.Write(stateBytes)
-	l.stateFile.Sync()
 
 	l.TriggerSchemaUpdateCallbacks()
 
@@ -266,25 +217,27 @@ func (l *localSchemaManager) saveToDisk() error {
 // Save the connector state to disk.
 // This local implementation has no side effects (like updating peer weaviate instances)
 func (l *localSchemaManager) saveConnectorStateToDisk() error {
-	log.Info("Saving connector state on disk")
 
 	stateBytes, err := l.connectorState.MarshalJSON()
 	if err != nil {
-		return err
+		return fmt.Errorf("could not marshal connector state to json: %s", err)
 	}
 
-	err = l.connectorStateFile.Truncate(0)
+	log.Info("Saving connector state to etcd")
+	cli, err := clientv3.New(clientv3.Config{
+		Endpoints:   []string{l.configStoreURL.String()},
+		DialTimeout: 5 * time.Second,
+	})
 	if err != nil {
-		return err
+		return fmt.Errorf("could not build etcd client: %s", err)
 	}
 
-	_, err = l.connectorStateFile.Seek(0, 0)
+	defer cli.Close()
+
+	_, err = cli.Put(context.TODO(), "/weaviate/connector/state", string(stateBytes))
 	if err != nil {
-		return err
+		return fmt.Errorf("could not send schema state to etcd: %s", err)
 	}
-
-	l.connectorStateFile.Write(stateBytes)
-	l.connectorStateFile.Sync()
 
 	return nil
 }
