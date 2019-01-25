@@ -9,5 +9,5 @@ docker-compose down --remove-orphans
 
 rm -rf data connector_state.json schema_state.json
 
-docker-compose up -d index janus db genesis_fake weaviate_b_fake
+docker-compose up -d index janus db etcd genesis_fake weaviate_b_fake 
 

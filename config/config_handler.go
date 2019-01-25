@@ -52,6 +52,7 @@ type Environment struct {
 	Debug         bool          `json:"debug"`
 	Development   Development   `json:"development"`
 	Contextionary Contextionary `json:"contextionary"`
+	ConfigStore   ConfigStore   `json:"configuration_storage"`
 }
 
 type Contextionary struct {
@@ -64,6 +65,11 @@ type Network struct {
 	GenesisURL string `json:"genesis_url"`
 	PublicURL  string `json:"public_url"`
 	PeerName   string `json:"peer_name"`
+}
+
+type ConfigStore struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
 }
 
 // Broker checks if broker details are set

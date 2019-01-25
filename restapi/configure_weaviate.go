@@ -23,6 +23,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -764,8 +765,14 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, "Local schema manager is not configured.")
 	}
 
+	// parse config store URL
+	configStore, err := url.Parse(serverConfig.Environment.ConfigStore.URL)
+	if err != nil {
+		messaging.ExitError(78, fmt.Sprintf("cannot parse config store URL: %s", err))
+	}
+
 	manager, err := db_local_schema_manager.New(
-		serverConfig.Environment.Database.LocalSchemaConfig.StateDir, dbConnector, network)
+		serverConfig.Environment.Database.LocalSchemaConfig.StateDir, configStore, dbConnector, network)
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
 	}

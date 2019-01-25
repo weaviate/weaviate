@@ -25,7 +25,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/things"
 	"github.com/creativesoftwarefdn/weaviate/validation"
-	"github.com/davecgh/go-spew/spew"
 	jsonpatch "github.com/evanphx/json-patch"
 	middleware "github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
@@ -280,9 +279,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 
 		// Validate schema made after patching with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
-		fmt.Print("\n\n\n\n after patch:")
-		spew.Dump(thing.ThingCreate)
-		fmt.Print("\n\n\n\n")
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &thing.ThingCreate,
 			databaseSchema, dbConnector, network, serverConfig)
 		if validatedErr != nil {
