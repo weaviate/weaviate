@@ -94,9 +94,9 @@ Generic meta data about classes and its properties can be queried. Property meta
 		occurs
 	}`
 - `Number or Integer`:
-	- `lowest`
-	- `highest`
-	- `average`
+	- `minimum`
+	- `maximmum`
+	- `mean`
 	- `sum`
 - `Boolean`: 
 	- `totalTrue`
@@ -131,9 +131,9 @@ The query below returns metadata of the nodes in the class `Animal`.
           age {
             type
             count
-            lowest
-            highest
-            average
+            mimimum
+            maximumm
+            mean
             sum
           }
           InZoo {

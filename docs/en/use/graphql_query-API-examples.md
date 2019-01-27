@@ -153,9 +153,9 @@ The query below returns metadata of the nodes in the class `City`.
           population {
             type
             count
-            lowest
-            highest
-            average
+            minimum
+            maximum
+            mean
             sum
           }
           name {
@@ -205,9 +205,9 @@ The same filters as the converted fetch can be used to filter the data. The foll
           population {
             type
             count
-            lowest
-            highest
-            average
+            minimum
+            maximum
+            mean
             sum
           }
           name {
