@@ -20,23 +20,17 @@ The query below groups all the cities in a local Weaviate on the name of the cou
     Aggregate {
       Things {
         City(groupBy:["inCountry", "Country", "name"]) { 
-          minimum {
-            population
+          population {
+            minimum
+            maximum
+            median
+            mean
+            sum
+            mode
+            count
           }
-          maximum {
-            population
-          }
-          median {
-            population
-          }
-          sum {
-            population
-          }
-          mode {
-            population
-          }
-          count { #number of names found
-            name
+          name { # This property has no numeric values, but 'string' values instead. Only 'count' can be queried for non-numeric propertie
+            count
           }
           groupedBy { #indicates the groups
             path #the path as shown in the filter, will be ["inCountry", "Country", "name"]
@@ -58,24 +52,18 @@ The same type of grouping can be done with single Weaviates in the Network:
       WeaviateB {
         Things {
           Airline(groupBy: ["label"]) {
-            minimum {
-              hasNumberOfPlanes
-            }
-            maximum {
-              hasNumberOfPlanes
-            }
-            median {
-              hasNumberOfPlanes
-            }
-            sum {
-              hasNumberOfPlanes
-            }
-            mode {
-              hasNumberOfPlanes
-            }
-            count { #number of labels found
-              label
-            }
+            hasNumberOfPlanes {
+            minimum
+            maximum
+            median
+            mean
+            sum
+            mode
+            count
+          }
+          label { # This property has no numeric values, but 'string' values instead. Only 'count' can be queried for non-numeric propertie
+            count
+          }
             groupedBy { #indicates the groups
               path #the path as shown in the filter, will be ["label"]
               value #the property value of the path's property key of the group
