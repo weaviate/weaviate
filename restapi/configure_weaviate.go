@@ -30,6 +30,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coreos/etcd/clientv3"
+	"github.com/coreos/etcd/clientv3/concurrency"
+	recipe "github.com/coreos/etcd/contrib/recipes"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/knowledge_tools"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
@@ -756,19 +759,32 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, err.Error())
 	}
 
-	// Construct a (distributed lock)
-	localMutex := sync.RWMutex{}
-	dbLock := database.RWLocker(&localMutex)
-
-	// Configure schema manager
-	if serverConfig.Environment.Database.LocalSchemaConfig == nil {
-		messaging.ExitError(78, "Local schema manager is not configured.")
-	}
-
 	// parse config store URL
 	configStore, err := url.Parse(serverConfig.Environment.ConfigStore.URL)
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("cannot parse config store URL: %s", err))
+	}
+
+	// Construct a (distributed lock)
+	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer cli.Close()
+
+	// create two separate sessions for lock competition
+	s1, err := concurrency.NewSession(cli)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer s1.Close()
+
+	m1 := recipe.NewRWMutex(s1, "/weaviate/schema-connector-rw-lock")
+	dbLock := database.RWLocker(m1)
+
+	// Configure schema manager
+	if serverConfig.Environment.Database.LocalSchemaConfig == nil {
+		messaging.ExitError(78, "Local schema manager is not configured.")
 	}
 
 	manager, err := db_local_schema_manager.New(

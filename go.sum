@@ -34,6 +34,8 @@ github.com/docker/go-units v0.3.3 h1:Xk8S3Xj5sLGlG5g67hJmYMmUgXv5N4PhkjJHHqrwnTk
 github.com/docker/go-units v0.3.3/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/eclipse/paho.mqtt.golang v1.1.1 h1:iPJYXJLaViCshRTW/PSqImSS6HJ2Rf671WR0bXZ2GIU=
 github.com/eclipse/paho.mqtt.golang v1.1.1/go.mod h1:H9keYFcgq3Qr5OUJm/JZI/i6U7joQ8SYLhZwfeOo6Ts=
+github.com/etcd-io/etcd v3.3.11+incompatible h1:J66UhDc5xi48VCeBkS99nPk9JYdmHzrgGx9dWqVkfdA=
+github.com/etcd-io/etcd v3.3.11+incompatible/go.mod h1:cdZ77EstHBwVtD6iTgzgvogwcjo9m4iOqoijouPJ4bs=
 github.com/evanphx/json-patch v3.0.0+incompatible h1:l91aby7TzBXBdmF8heZqjskeH9f3g7ZOL8/sSe+vTlU=
 github.com/evanphx/json-patch v3.0.0+incompatible/go.mod h1:50XU6AFN0ol/bzJsmQLiYLvXMP4fmwYFNcr97nuDLSk=
 github.com/fatih/camelcase v0.0.0-20171027104257-44e46d280b43 h1:3RIS+pIRWsJm1s9tnI/t5LXJcfPFtlkE6kj2uC+aBtk=

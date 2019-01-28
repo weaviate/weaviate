@@ -18,11 +18,11 @@ import (
 )
 
 type RWLocker interface {
-	Lock()
-	RLock()
+	Lock() error
+	RLock() error
 
-	Unlock()
-	RUnlock()
+	Unlock() error
+	RUnlock() error
 }
 
 type ConnectorLock interface {

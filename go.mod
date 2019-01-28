@@ -15,6 +15,7 @@ require (
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible // indirect
 	github.com/docker/go-units v0.3.3 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.1.1
+	github.com/etcd-io/etcd v3.3.11+incompatible
 	github.com/evanphx/json-patch v3.0.0+incompatible
 	github.com/fatih/camelcase v0.0.0-20171027104257-44e46d280b43
 	github.com/fatih/color v1.7.0 // indirect
