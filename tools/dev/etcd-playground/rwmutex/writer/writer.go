@@ -1,13 +1,13 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
+	recipe "github.com/coreos/etcd/contrib/recipes"
 )
 
 func main() {
@@ -24,21 +24,20 @@ func main() {
 	}
 	defer s1.Close()
 
-	m1 := concurrency.NewMutex(s1, "/my-lock")
+	m1 := recipe.NewRWMutex(s1, "my-rw-lock")
 
 	// acquire lock for s1
 	log.Println("about to aquire lock")
-	if err := m1.Lock(context.TODO()); err != nil {
+	if err := m1.Lock(); err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("acquired lock with key %s - now sleeping for 30s\n", m1.Key())
-	log.Println("...pretending to do some work that cannot happen concurrently...")
+	log.Println("I am writing nobody can read now!")
 
 	time.Sleep(30 * time.Second)
 	log.Println("30s are over, about to release lock")
 
-	if err := m1.Unlock(context.TODO()); err != nil {
+	if err := m1.Unlock(); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("released lock - exiting")
+	fmt.Println("released rlock - exiting")
 }
