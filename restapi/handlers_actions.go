@@ -155,7 +155,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
-		err = newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, action.AtClass, kind.ACTION_KIND).
+		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, action.AtClass, kind.ACTION_KIND).
 			addNetworkDataTypes(action.Schema)
 		if err != nil {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
@@ -555,7 +555,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
-		err = newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, params.Body.Action.AtClass, kind.ACTION_KIND).
+		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.Action.AtClass, kind.ACTION_KIND).
 			addNetworkDataTypes(params.Body.Action.Schema)
 		if err != nil {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))

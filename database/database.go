@@ -13,6 +13,7 @@
 package database
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -105,7 +106,7 @@ func (p *Params) validate() error {
 
 // New Database with Params. See docs of "Params" for more details on the
 // individual params.
-func New(params *Params) (Database, error) {
+func New(ctx context.Context, params *Params) (Database, error) {
 	if err := params.validate(); err != nil {
 		return nil, err
 	}
@@ -125,7 +126,7 @@ func New(params *Params) (Database, error) {
 
 	initialState := manager.GetInitialConnectorState()
 
-	connector.SetState(initialState)
+	connector.SetState(ctx, initialState)
 	connector.SetSchema(manager.GetSchema())
 	connector.SetMessaging(messaging)
 
@@ -196,7 +197,7 @@ func New(params *Params) (Database, error) {
 			log.Fatal(err)
 		}
 	}()
-	errInit := connector.Init()
+	errInit := connector.Init(ctx)
 	if errInit != nil {
 		messaging.ExitError(1, fmt.Sprintf("Could not initialize connector: %s", errInit.Error()))
 	}
