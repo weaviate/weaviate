@@ -38,7 +38,7 @@ type ResolverProvider interface {
 }
 
 type DatabaseResolverProvider interface {
-	GetResolver() ClosingResolver
+	GetResolver() (ClosingResolver, error)
 }
 
 type NetworkResolverProvider interface {

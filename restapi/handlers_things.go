@@ -35,11 +35,14 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 	 * HANDLE THINGS
 	 */
 	api.ThingsWeaviateThingsCreateHandler = things.WeaviateThingsCreateHandlerFunc(func(params things.WeaviateThingsCreateParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
-		delayedLock := delayed_unlock.New(dbLock)
-		defer delayedLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		delayedLock := delayed_unlock.New(schemaLock)
+		defer unlock(delayedLock)
 
-		dbConnector := dbLock.Connector()
+		dbConnector := schemaLock.Connector()
 
 		// Get context from request
 		ctx := params.HTTPRequest.Context()
@@ -48,23 +51,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
-		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
+		databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), params.Body.Thing, databaseSchema,
 			dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
-
-		go func() {
-			schemaLock := db.SchemaLock()
-			defer schemaLock.Unlock()
-
-			err := newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, params.Body.Thing.AtClass, kind.THING_KIND).
-				addNetworkDataTypes(params.Body.Thing.Schema)
-			if err != nil {
-				messaging.DebugMessage(fmt.Sprintf("Async network ref update failed: %s", err.Error()))
-			}
-		}()
 
 		// Make Thing-Object
 		thing := &models.Thing{}
@@ -78,22 +70,32 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		responseObject.Thing = *thing
 		responseObject.ThingID = UUID
 
+		refSchemaUpdater := newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, params.Body.Thing.AtClass, kind.THING_KIND)
+
 		if params.Body.Async {
 			delayedLock.IncSteps()
 			go func() {
-				defer delayedLock.Unlock()
+				defer unlock(delayedLock)
 				dbConnector.AddThing(ctx, thing, UUID)
+				refSchemaUpdater.addNetworkDataTypes(params.Body.Thing.Schema)
 			}()
 			return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
-		} else {
-			dbConnector.AddThing(ctx, thing, UUID)
-			return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
 		}
+
+		dbConnector.AddThing(ctx, thing, UUID)
+		err = refSchemaUpdater.addNetworkDataTypes(params.Body.Thing.Schema)
+		if err != nil {
+			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+		}
+		return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsDeleteHandler = things.WeaviateThingsDeleteHandlerFunc(func(params things.WeaviateThingsDeleteParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
 		delayedLock := delayed_unlock.New(dbLock)
-		defer delayedLock.Unlock()
+		defer unlock(delayedLock)
 
 		dbConnector := dbLock.Connector()
 
@@ -135,8 +137,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		return things.NewWeaviateThingsDeleteNoContent()
 	})
 	api.ThingsWeaviateThingsGetHandler = things.WeaviateThingsGetHandlerFunc(func(params things.WeaviateThingsGetParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
-		defer dbLock.Unlock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(dbLock)
 		dbConnector := dbLock.Connector()
 
 		// Initialize response
@@ -147,7 +152,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
-		err := dbConnector.GetThing(ctx, strfmt.UUID(params.ThingID), &responseObject)
+		err = dbConnector.GetThing(ctx, strfmt.UUID(params.ThingID), &responseObject)
 
 		// Object is not found
 		if err != nil {
@@ -160,8 +165,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.ThingsWeaviateThingHistoryGetHandler = things.WeaviateThingHistoryGetHandlerFunc(func(params things.WeaviateThingHistoryGetParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
-		defer dbLock.Unlock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(dbLock)
 		dbConnector := dbLock.Connector()
 
 		// Initialize response
@@ -199,8 +207,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.ThingsWeaviateThingsListHandler = things.WeaviateThingsListHandlerFunc(func(params things.WeaviateThingsListParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
-		defer dbLock.Unlock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(dbLock)
 		dbConnector := dbLock.Connector()
 
 		// Get limit and page
@@ -215,7 +226,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		thingsResponse.Things = []*models.ThingGetResponse{}
 
 		// List all results
-		err := dbConnector.ListThings(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &thingsResponse)
+		err = dbConnector.ListThings(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &thingsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)
@@ -224,11 +235,14 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
 	})
 	api.ThingsWeaviateThingsPatchHandler = things.WeaviateThingsPatchHandlerFunc(func(params things.WeaviateThingsPatchParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
-		delayedLock := delayed_unlock.New(dbLock)
-		defer delayedLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		delayedLock := delayed_unlock.New(schemaLock)
+		defer unlock(delayedLock)
 
-		dbConnector := dbLock.Connector()
+		dbConnector := schemaLock.Connector()
 
 		// Initialize response
 		thingGetResponse := models.ThingGetResponse{}
@@ -278,7 +292,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		json.Unmarshal([]byte(updatedJSON), &thing)
 
 		// Validate schema made after patching with the weaviate schema
-		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
+		databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
 		validatedErr := validation.ValidateThingBody(params.HTTPRequest.Context(), &thing.ThingCreate,
 			databaseSchema, dbConnector, network, serverConfig)
 		if validatedErr != nil {
@@ -287,16 +301,13 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			)
 		}
 
-		go func() {
-			schemaLock := db.SchemaLock()
-			defer schemaLock.Unlock()
-
-			err := newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, thing.AtClass, kind.THING_KIND).
-				addNetworkDataTypes(thing.Schema)
-			if err != nil {
-				messaging.DebugMessage(fmt.Sprintf("Async network ref update failed: %s", err.Error()))
-			}
-		}()
+		err = newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, thing.AtClass, kind.THING_KIND).
+			addNetworkDataTypes(thing.Schema)
+		if err != nil {
+			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(
+				createErrorResponseObject(err.Error()),
+			)
+		}
 
 		if params.Async != nil && *params.Async == true {
 			// Move the current properties to the history
@@ -318,28 +329,31 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 
 			// Returns accepted so a Go routine can process in the background
 			return things.NewWeaviateThingsPatchAccepted().WithPayload(&thingGetResponse)
-		} else {
-			// Move the current properties to the history
-			dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
-
-			// Update the database
-			err := dbConnector.UpdateThing(ctx, thing, UUID)
-
-			if err != nil {
-				return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
-			}
-
-			// Create return Object
-			thingGetResponse.Thing = *thing
-
-			// Returns accepted so a Go routine can process in the background
-			return things.NewWeaviateThingsPatchOK().WithPayload(&thingGetResponse)
 		}
+
+		// Move the current properties to the history
+		dbConnector.MoveToHistoryThing(ctx, &oldThing.Thing, UUID, false)
+
+		// Update the database
+		err = dbConnector.UpdateThing(ctx, thing, UUID)
+
+		if err != nil {
+			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+		}
+
+		// Create return Object
+		thingGetResponse.Thing = *thing
+
+		// Returns accepted so a Go routine can process in the background
+		return things.NewWeaviateThingsPatchOK().WithPayload(&thingGetResponse)
 	})
 	api.ThingsWeaviateThingsPropertiesCreateHandler = things.WeaviateThingsPropertiesCreateHandlerFunc(func(params things.WeaviateThingsPropertiesCreateParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
 		delayedLock := delayed_unlock.New(dbLock)
-		defer delayedLock.Unlock()
+		defer unlock(delayedLock)
 
 		dbConnector := dbLock.Connector()
 
@@ -348,7 +362,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		UUID := strfmt.UUID(params.ThingID)
 
 		class := models.ThingGetResponse{}
-		err := dbConnector.GetThing(ctx, UUID, &class)
+		err = dbConnector.GetThing(ctx, UUID, &class)
 
 		if err != nil {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
@@ -427,9 +441,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		}
 
 		// Delete a specific SingleRef from the selected property.
-		dbLock := db.ConnectorLock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
 		delayedLock := delayed_unlock.New(dbLock)
-		defer delayedLock.Unlock()
+		defer unlock(delayedLock)
 
 		dbConnector := dbLock.Connector()
 
@@ -438,7 +455,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		UUID := strfmt.UUID(params.ThingID)
 
 		class := models.ThingGetResponse{}
-		err := dbConnector.GetThing(ctx, UUID, &class)
+		err = dbConnector.GetThing(ctx, UUID, &class)
 
 		if err != nil {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
@@ -517,9 +534,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		return things.NewWeaviateThingsPropertiesDeleteNoContent()
 	})
 	api.ThingsWeaviateThingsPropertiesUpdateHandler = things.WeaviateThingsPropertiesUpdateHandlerFunc(func(params things.WeaviateThingsPropertiesUpdateParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
 		delayedLock := delayed_unlock.New(dbLock)
-		defer delayedLock.Unlock()
+		defer unlock(delayedLock)
 
 		dbConnector := dbLock.Connector()
 
@@ -528,7 +548,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		UUID := strfmt.UUID(params.ThingID)
 
 		class := models.ThingGetResponse{}
-		err := dbConnector.GetThing(ctx, UUID, &class)
+		err = dbConnector.GetThing(ctx, UUID, &class)
 
 		if err != nil {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().
@@ -587,9 +607,12 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		return things.NewWeaviateThingsPropertiesCreateOK()
 	})
 	api.ThingsWeaviateThingsUpdateHandler = things.WeaviateThingsUpdateHandlerFunc(func(params things.WeaviateThingsUpdateParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
 		delayedLock := delayed_unlock.New(dbLock)
-		defer delayedLock.Unlock()
+		defer unlock(delayedLock)
 
 		dbConnector := dbLock.Connector()
 
@@ -651,8 +674,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		return things.NewWeaviateThingsUpdateAccepted().WithPayload(responseObject)
 	})
 	api.ThingsWeaviateThingsValidateHandler = things.WeaviateThingsValidateHandlerFunc(func(params things.WeaviateThingsValidateParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
-		defer dbLock.Unlock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(dbLock)
 		dbConnector := dbLock.Connector()
 
 		// Validate schema given in body with the weaviate schema

@@ -13,6 +13,8 @@
 package database
 
 import (
+	"fmt"
+
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
 	db_schema "github.com/creativesoftwarefdn/weaviate/database/schema"
 )
@@ -28,7 +30,7 @@ type RWLocker interface {
 type ConnectorLock interface {
 	Connector() dbconnector.DatabaseConnector
 	GetSchema() db_schema.Schema
-	Unlock()
+	Unlock() error
 }
 
 type SchemaLock interface {
@@ -37,8 +39,9 @@ type SchemaLock interface {
 }
 
 type connectorLock struct {
-	db    *database
-	valid bool
+	db     *database
+	valid  bool
+	locker RWLocker
 }
 
 func (cl *connectorLock) Connector() dbconnector.DatabaseConnector {
@@ -57,14 +60,20 @@ func (cl *connectorLock) GetSchema() db_schema.Schema {
 	}
 }
 
-func (cl *connectorLock) Unlock() {
-	cl.db.locker.RUnlock()
+func (cl *connectorLock) Unlock() error {
+	err := cl.locker.RUnlock()
+	if err != nil {
+		return fmt.Errorf("could not unlock connector: %s", err)
+	}
+
 	cl.valid = false
+	return nil
 }
 
 type schemaLock struct {
-	db    *database
-	valid bool
+	db     *database
+	valid  bool
+	locker RWLocker
 }
 
 func (cl *schemaLock) GetSchema() db_schema.Schema {
@@ -91,7 +100,12 @@ func (sl *schemaLock) SchemaManager() SchemaManager {
 	}
 }
 
-func (sl *schemaLock) Unlock() {
-	sl.db.locker.Unlock()
+func (sl *schemaLock) Unlock() error {
+	err := sl.locker.Unlock()
+	if err != nil {
+		return fmt.Errorf("could not unlock schema: %s", err)
+	}
+
 	sl.valid = false
+	return nil
 }
