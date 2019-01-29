@@ -21,6 +21,8 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateP2pGenesisUpdateOKCode is the HTTP code returned for type WeaviateP2pGenesisUpdateOK
@@ -74,11 +76,16 @@ func (o *WeaviateP2pGenesisUpdateUnauthorized) WriteResponse(rw http.ResponseWri
 // WeaviateP2pGenesisUpdateInternalServerErrorCode is the HTTP code returned for type WeaviateP2pGenesisUpdateInternalServerError
 const WeaviateP2pGenesisUpdateInternalServerErrorCode int = 500
 
-/*WeaviateP2pGenesisUpdateInternalServerError Internal error.
+/*WeaviateP2pGenesisUpdateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response weaviateP2pGenesisUpdateInternalServerError
 */
 type WeaviateP2pGenesisUpdateInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateP2pGenesisUpdateInternalServerError creates WeaviateP2pGenesisUpdateInternalServerError with default headers values
@@ -87,10 +94,25 @@ func NewWeaviateP2pGenesisUpdateInternalServerError() *WeaviateP2pGenesisUpdateI
 	return &WeaviateP2pGenesisUpdateInternalServerError{}
 }
 
+// WithPayload adds the payload to the weaviate p2p genesis update internal server error response
+func (o *WeaviateP2pGenesisUpdateInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateP2pGenesisUpdateInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate p2p genesis update internal server error response
+func (o *WeaviateP2pGenesisUpdateInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateP2pGenesisUpdateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }

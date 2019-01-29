@@ -140,3 +140,47 @@ func (o *WeaviateSchemaThingsPropertiesAddUnprocessableEntity) WriteResponse(rw 
 		}
 	}
 }
+
+// WeaviateSchemaThingsPropertiesAddInternalServerErrorCode is the HTTP code returned for type WeaviateSchemaThingsPropertiesAddInternalServerError
+const WeaviateSchemaThingsPropertiesAddInternalServerErrorCode int = 500
+
+/*WeaviateSchemaThingsPropertiesAddInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response weaviateSchemaThingsPropertiesAddInternalServerError
+*/
+type WeaviateSchemaThingsPropertiesAddInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateSchemaThingsPropertiesAddInternalServerError creates WeaviateSchemaThingsPropertiesAddInternalServerError with default headers values
+func NewWeaviateSchemaThingsPropertiesAddInternalServerError() *WeaviateSchemaThingsPropertiesAddInternalServerError {
+
+	return &WeaviateSchemaThingsPropertiesAddInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate schema things properties add internal server error response
+func (o *WeaviateSchemaThingsPropertiesAddInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateSchemaThingsPropertiesAddInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema things properties add internal server error response
+func (o *WeaviateSchemaThingsPropertiesAddInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateSchemaThingsPropertiesAddInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

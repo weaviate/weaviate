@@ -19,10 +19,13 @@ package p2_p
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/go-openapi/runtime"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateP2pGenesisUpdateReader is a Reader for the WeaviateP2pGenesisUpdate structure.
@@ -109,16 +112,24 @@ func NewWeaviateP2pGenesisUpdateInternalServerError() *WeaviateP2pGenesisUpdateI
 
 /*WeaviateP2pGenesisUpdateInternalServerError handles this case with default header values.
 
-Internal error.
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
 type WeaviateP2pGenesisUpdateInternalServerError struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateP2pGenesisUpdateInternalServerError) Error() string {
-	return fmt.Sprintf("[PUT /p2p/genesis][%d] weaviateP2pGenesisUpdateInternalServerError ", 500)
+	return fmt.Sprintf("[PUT /p2p/genesis][%d] weaviateP2pGenesisUpdateInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateP2pGenesisUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

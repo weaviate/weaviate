@@ -65,6 +65,13 @@ func (o *WeaviateActionsGetReader) ReadResponse(response runtime.ClientResponse,
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateActionsGetInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -158,6 +165,35 @@ func (o *WeaviateActionsGetNotFound) Error() string {
 }
 
 func (o *WeaviateActionsGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateActionsGetInternalServerError creates a WeaviateActionsGetInternalServerError with default headers values
+func NewWeaviateActionsGetInternalServerError() *WeaviateActionsGetInternalServerError {
+	return &WeaviateActionsGetInternalServerError{}
+}
+
+/*WeaviateActionsGetInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateActionsGetInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateActionsGetInternalServerError) Error() string {
+	return fmt.Sprintf("[GET /actions/{actionId}][%d] weaviateActionsGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateActionsGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

@@ -72,6 +72,13 @@ func (o *WeaviateActionUpdateReader) ReadResponse(response runtime.ClientRespons
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateActionUpdateInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -187,6 +194,35 @@ func (o *WeaviateActionUpdateUnprocessableEntity) Error() string {
 }
 
 func (o *WeaviateActionUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewWeaviateActionUpdateInternalServerError creates a WeaviateActionUpdateInternalServerError with default headers values
+func NewWeaviateActionUpdateInternalServerError() *WeaviateActionUpdateInternalServerError {
+	return &WeaviateActionUpdateInternalServerError{}
+}
+
+/*WeaviateActionUpdateInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateActionUpdateInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateActionUpdateInternalServerError) Error() string {
+	return fmt.Sprintf("[PUT /actions/{actionId}][%d] weaviateActionUpdateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateActionUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

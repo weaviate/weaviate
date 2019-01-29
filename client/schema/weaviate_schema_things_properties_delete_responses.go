@@ -19,10 +19,13 @@ package schema
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/go-openapi/runtime"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateSchemaThingsPropertiesDeleteReader is a Reader for the WeaviateSchemaThingsPropertiesDelete structure.
@@ -50,6 +53,13 @@ func (o *WeaviateSchemaThingsPropertiesDeleteReader) ReadResponse(response runti
 
 	case 403:
 		result := NewWeaviateSchemaThingsPropertiesDeleteForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
+	case 500:
+		result := NewWeaviateSchemaThingsPropertiesDeleteInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -119,6 +129,35 @@ func (o *WeaviateSchemaThingsPropertiesDeleteForbidden) Error() string {
 }
 
 func (o *WeaviateSchemaThingsPropertiesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateSchemaThingsPropertiesDeleteInternalServerError creates a WeaviateSchemaThingsPropertiesDeleteInternalServerError with default headers values
+func NewWeaviateSchemaThingsPropertiesDeleteInternalServerError() *WeaviateSchemaThingsPropertiesDeleteInternalServerError {
+	return &WeaviateSchemaThingsPropertiesDeleteInternalServerError{}
+}
+
+/*WeaviateSchemaThingsPropertiesDeleteInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateSchemaThingsPropertiesDeleteInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateSchemaThingsPropertiesDeleteInternalServerError) Error() string {
+	return fmt.Sprintf("[DELETE /schema/things/{className}/properties/{propertyName}][%d] weaviateSchemaThingsPropertiesDeleteInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateSchemaThingsPropertiesDeleteInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

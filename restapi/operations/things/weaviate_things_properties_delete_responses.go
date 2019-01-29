@@ -140,3 +140,47 @@ func (o *WeaviateThingsPropertiesDeleteNotFound) WriteResponse(rw http.ResponseW
 		}
 	}
 }
+
+// WeaviateThingsPropertiesDeleteInternalServerErrorCode is the HTTP code returned for type WeaviateThingsPropertiesDeleteInternalServerError
+const WeaviateThingsPropertiesDeleteInternalServerErrorCode int = 500
+
+/*WeaviateThingsPropertiesDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response weaviateThingsPropertiesDeleteInternalServerError
+*/
+type WeaviateThingsPropertiesDeleteInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateThingsPropertiesDeleteInternalServerError creates WeaviateThingsPropertiesDeleteInternalServerError with default headers values
+func NewWeaviateThingsPropertiesDeleteInternalServerError() *WeaviateThingsPropertiesDeleteInternalServerError {
+
+	return &WeaviateThingsPropertiesDeleteInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate things properties delete internal server error response
+func (o *WeaviateThingsPropertiesDeleteInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateThingsPropertiesDeleteInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate things properties delete internal server error response
+func (o *WeaviateThingsPropertiesDeleteInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateThingsPropertiesDeleteInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

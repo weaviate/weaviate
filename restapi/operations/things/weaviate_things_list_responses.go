@@ -140,3 +140,47 @@ func (o *WeaviateThingsListNotFound) WriteResponse(rw http.ResponseWriter, produ
 
 	rw.WriteHeader(404)
 }
+
+// WeaviateThingsListInternalServerErrorCode is the HTTP code returned for type WeaviateThingsListInternalServerError
+const WeaviateThingsListInternalServerErrorCode int = 500
+
+/*WeaviateThingsListInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response weaviateThingsListInternalServerError
+*/
+type WeaviateThingsListInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateThingsListInternalServerError creates WeaviateThingsListInternalServerError with default headers values
+func NewWeaviateThingsListInternalServerError() *WeaviateThingsListInternalServerError {
+
+	return &WeaviateThingsListInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate things list internal server error response
+func (o *WeaviateThingsListInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateThingsListInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate things list internal server error response
+func (o *WeaviateThingsListInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateThingsListInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
