@@ -68,7 +68,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		responseObject.Thing = *thing
 		responseObject.ThingID = UUID
 
-		refSchemaUpdater := newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, params.Body.Thing.AtClass, kind.THING_KIND)
+		refSchemaUpdater := newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.Thing.AtClass, kind.THING_KIND)
 
 		if params.Body.Async {
 			delayedLock.IncSteps()
@@ -284,7 +284,7 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			)
 		}
 
-		err = newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, thing.AtClass, kind.THING_KIND).
+		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, thing.AtClass, kind.THING_KIND).
 			addNetworkDataTypes(thing.Schema)
 		if err != nil {
 			return things.NewWeaviateThingsPatchUnprocessableEntity().WithPayload(

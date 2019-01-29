@@ -13,6 +13,7 @@
 package etcd
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
@@ -23,9 +24,9 @@ func (l *etcdSchemaManager) GetInitialConnectorState() json.RawMessage {
 	return l.connectorState
 }
 
-func (l *etcdSchemaManager) SetState(state json.RawMessage) error {
+func (l *etcdSchemaManager) SetState(ctx context.Context, state json.RawMessage) error {
 	l.connectorState = state
-	return l.saveConnectorStateToDisk()
+	return l.saveConnectorState(ctx)
 }
 
 func (l *etcdSchemaManager) SetStateConnector(stateConnector connector_state.Connector) {

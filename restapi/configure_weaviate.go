@@ -732,6 +732,17 @@ func configureTLS(tlsConfig *tls.Config) {
 // This function can be called multiple times, depending on the number of serving schemes.
 // scheme value will be set accordingly: "http", "https" or "unix"
 func configureServer(s *http.Server, scheme, addr string) {
+	// context for the startup procedure. (So far the only subcommand respecting
+	// the context is the schema initialization, as this uses the etcd client
+	// requiring context. Nevertheless it would make sense to have everything
+	// that goes on in here pay attention to the context, so we can have a
+	// "startup in x seconds or fail")
+	ctx := context.Background()
+	// The timeout is arbitrary we have to adjust it as we go along, if we
+	// realize it is to big/small
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	// Create message service
 	messaging = &messages.Messaging{}
 
@@ -781,7 +792,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 		log.Fatal(err)
 	}
 
-	manager, err := etcdSchemaManager.New(etcdClient, dbConnector, network)
+	manager, err := etcdSchemaManager.New(ctx, etcdClient, dbConnector, network)
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
 	}
@@ -817,7 +828,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 		Contextionary: contextionary,
 		Messaging:     messaging,
 	}
-	db, err = database.New(dbParams)
+	db, err = database.New(ctx, dbParams)
 	if err != nil {
 		messaging.ExitError(1, fmt.Sprintf("Could not initialize the database: %s", err.Error()))
 	}

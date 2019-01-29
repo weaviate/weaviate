@@ -13,6 +13,7 @@
 package etcd
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
@@ -29,36 +30,37 @@ func (l *etcdSchemaManager) GetSchema() schema.Schema {
 	}
 }
 
-func (l *etcdSchemaManager) UpdateMeta(kind kind.Kind, atContext strfmt.URI, maintainer strfmt.Email, name string) error {
+func (l *etcdSchemaManager) UpdateMeta(ctx context.Context, kind kind.Kind,
+	atContext strfmt.URI, maintainer strfmt.Email, name string) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	semanticSchema.AtContext = atContext
 	semanticSchema.Maintainer = maintainer
 	semanticSchema.Name = name
 
-	return l.saveToDisk()
+	return l.saveSchema(ctx)
 }
 
 func (l *etcdSchemaManager) SetContextionary(context contextionary.Contextionary) {
 	l.contextionary = context
 }
 
-func (l *etcdSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (l *etcdSchemaManager) AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error {
 	err := l.validateCanAddClass(kind, class)
 	if err != nil {
 		return err
 	} else {
 		semanticSchema := l.schemaState.SchemaFor(kind)
 		semanticSchema.Classes = append(semanticSchema.Classes, class)
-		err := l.saveToDisk()
+		err := l.saveSchema(ctx)
 		if err != nil {
 			return err
 		}
 
-		return l.connectorMigrator.AddClass(kind, class)
+		return l.connectorMigrator.AddClass(ctx, kind, class)
 	}
 }
 
-func (l *etcdSchemaManager) DropClass(kind kind.Kind, className string) error {
+func (l *etcdSchemaManager) DropClass(ctx context.Context, kind kind.Kind, className string) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 
 	var classIdx int = -1
@@ -77,15 +79,15 @@ func (l *etcdSchemaManager) DropClass(kind kind.Kind, className string) error {
 	semanticSchema.Classes[len(semanticSchema.Classes)-1] = nil // to prevent leaking this pointer.
 	semanticSchema.Classes = semanticSchema.Classes[:len(semanticSchema.Classes)-1]
 
-	err := l.saveToDisk()
+	err := l.saveSchema(ctx)
 	if err != nil {
 		return err
 	}
 
-	return l.connectorMigrator.DropClass(kind, className)
+	return l.connectorMigrator.DropClass(ctx, kind, className)
 }
 
-func (l *etcdSchemaManager) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (l *etcdSchemaManager) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 
 	class, err := schema.GetClassByName(semanticSchema, className)
@@ -116,16 +118,16 @@ func (l *etcdSchemaManager) UpdateClass(kind kind.Kind, className string, newCla
 	class.Class = classNameAfterUpdate
 	class.Keywords = keywordsAfterUpdate
 
-	err = l.saveToDisk()
+	err = l.saveSchema(ctx)
 
 	if err != nil {
 		return nil
 	}
 
-	return l.connectorMigrator.UpdateClass(kind, className, newClassName, newKeywords)
+	return l.connectorMigrator.UpdateClass(ctx, kind, className, newClassName, newKeywords)
 }
 
-func (l *etcdSchemaManager) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (l *etcdSchemaManager) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
@@ -139,16 +141,16 @@ func (l *etcdSchemaManager) AddProperty(kind kind.Kind, className string, prop *
 
 	class.Properties = append(class.Properties, prop)
 
-	err = l.saveToDisk()
+	err = l.saveSchema(ctx)
 
 	if err != nil {
 		return nil
 	}
 
-	return l.connectorMigrator.AddProperty(kind, className, prop)
+	return l.connectorMigrator.AddProperty(ctx, kind, className, prop)
 }
 
-func (l *etcdSchemaManager) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (l *etcdSchemaManager) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
@@ -183,16 +185,16 @@ func (l *etcdSchemaManager) UpdateProperty(kind kind.Kind, className string, pro
 	prop.Name = propNameAfterUpdate
 	prop.Keywords = keywordsAfterUpdate
 
-	err = l.saveToDisk()
+	err = l.saveSchema(ctx)
 
 	if err != nil {
 		return nil
 	}
 
-	return l.connectorMigrator.UpdateProperty(kind, className, propName, newName, newKeywords)
+	return l.connectorMigrator.UpdateProperty(ctx, kind, className, propName, newName, newKeywords)
 }
 
-func (l *etcdSchemaManager) UpdatePropertyAddDataType(kind kind.Kind, className string, propName string, newDataType string) error {
+func (l *etcdSchemaManager) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
@@ -209,13 +211,13 @@ func (l *etcdSchemaManager) UpdatePropertyAddDataType(kind kind.Kind, className 
 	}
 
 	prop.AtDataType = append(prop.AtDataType, newDataType)
-	err = l.saveToDisk()
+	err = l.saveSchema(ctx)
 
 	if err != nil {
 		return nil
 	}
 
-	return l.connectorMigrator.UpdatePropertyAddDataType(kind, className, propName, newDataType)
+	return l.connectorMigrator.UpdatePropertyAddDataType(ctx, kind, className, propName, newDataType)
 }
 
 func dataTypeAlreadyContained(haystack []string, needle string) bool {
@@ -227,7 +229,7 @@ func dataTypeAlreadyContained(haystack []string, needle string) bool {
 	return false
 }
 
-func (l *etcdSchemaManager) DropProperty(kind kind.Kind, className string, propName string) error {
+func (l *etcdSchemaManager) DropProperty(ctx context.Context, kind kind.Kind, className string, propName string) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
@@ -250,11 +252,11 @@ func (l *etcdSchemaManager) DropProperty(kind kind.Kind, className string, propN
 	class.Properties[len(class.Properties)-1] = nil // to prevent leaking this pointer.
 	class.Properties = class.Properties[:len(class.Properties)-1]
 
-	err = l.saveToDisk()
+	err = l.saveSchema(ctx)
 
 	if err != nil {
 		return nil
 	}
 
-	return l.connectorMigrator.DropProperty(kind, className, propName)
+	return l.connectorMigrator.DropProperty(ctx, kind, className, propName)
 }

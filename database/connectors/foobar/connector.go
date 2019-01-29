@@ -181,7 +181,7 @@ func (f *Foobar) Connect() error {
 }
 
 // Init 1st initializes the schema in the database and 2nd creates a root key.
-func (f *Foobar) Init() error {
+func (f *Foobar) Init(ctx context.Context) error {
 
 	/*
 	 * 1.  If a schema is needed, you need to add the schema to the DB here.
@@ -221,32 +221,32 @@ func (f *Foobar) Attach(ctx context.Context) (context.Context, error) {
 }
 
 // Add a class to the Thing or Action schema, depending on the kind parameter.
-func (f *Foobar) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (f *Foobar) AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error {
 	return errors_.New("Not supported")
 }
 
 // Drop a class from the schema.
-func (f *Foobar) DropClass(kind kind.Kind, className string) error {
+func (f *Foobar) DropClass(ctx context.Context, kind kind.Kind, className string) error {
 	return errors_.New("Not supported")
 }
 
-func (f *Foobar) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (f *Foobar) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	return errors_.New("Not supported")
 }
 
-func (f *Foobar) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (f *Foobar) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
 	return errors_.New("Not supported")
 }
 
-func (f *Foobar) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (f *Foobar) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	return errors_.New("Not supported")
 }
 
-func (j *Foobar) UpdatePropertyAddDataType(kind kind.Kind, className string, propName string, newDataType string) error {
+func (j *Foobar) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
 	return errors_.New("Not supported")
 }
 
-func (f *Foobar) DropProperty(kind kind.Kind, className string, propName string) error {
+func (f *Foobar) DropProperty(ctx context.Context, kind kind.Kind, className string, propName string) error {
 	return errors_.New("Not supported")
 }
 
@@ -381,7 +381,7 @@ func (f *Foobar) GetGraph(request graphql.ResolveParams) (interface{}, error) {
 }
 
 // Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.
-func (f *Foobar) SetState(state json.RawMessage) {
+func (f *Foobar) SetState(ctx context.Context, state json.RawMessage) {
 }
 
 // Link a connector to this state manager.

@@ -13,6 +13,7 @@
 package etcd
 
 import (
+	"context"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -31,29 +32,29 @@ import (
 // The etcd manager requires a backend for now (to prevent lots of nil checks).
 type NilMigrator struct{}
 
-func (n *NilMigrator) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (n *NilMigrator) AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error {
 	return nil
 }
-func (n *NilMigrator) DropClass(kind kind.Kind, className string) error {
-	return nil
-}
-
-func (n *NilMigrator) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (n *NilMigrator) DropClass(ctx context.Context, kind kind.Kind, className string) error {
 	return nil
 }
 
-func (n *NilMigrator) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (n *NilMigrator) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	return nil
 }
 
-func (n *NilMigrator) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
-	return nil
-}
-func (n *NilMigrator) UpdatePropertyAddDataType(kind kind.Kind, className string, propName string, newDataType string) error {
+func (n *NilMigrator) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
 	return nil
 }
 
-func (n *NilMigrator) DropProperty(kind kind.Kind, className string, propName string) error {
+func (n *NilMigrator) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+	return nil
+}
+func (n *NilMigrator) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
+	return nil
+}
+
+func (n *NilMigrator) DropProperty(ctx context.Context, kind kind.Kind, className string, propName string) error {
 	return nil
 }
 
@@ -87,7 +88,7 @@ func testUpdateMeta(t *testing.T, lsm database.SchemaManager) {
 	assert.Equal(t, lsm.GetSchema().Things.Maintainer, strfmt.Email(""))
 	assert.Equal(t, lsm.GetSchema().Things.Name, "")
 
-	assert.Nil(t, lsm.UpdateMeta(kind.THING_KIND, "http://new/context", "person@example.org", "somename"))
+	assert.Nil(t, lsm.UpdateMeta(context.TODO(), kind.THING_KIND, "http://new/context", "person@example.org", "somename"))
 
 	assert.Equal(t, lsm.GetSchema().Things.AtContext, strfmt.URI("http://new/context"))
 	assert.Equal(t, lsm.GetSchema().Things.Maintainer, strfmt.Email("person@example.org"))
@@ -100,7 +101,7 @@ func testAddThingClass(t *testing.T, lsm database.SchemaManager) {
 	thingClasses := testGetClassNames(lsm, kind.THING_KIND)
 	assert.NotContains(t, thingClasses, "Car")
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class: "Car",
 	})
 
@@ -113,7 +114,7 @@ func testAddThingClass(t *testing.T, lsm database.SchemaManager) {
 func testRemoveThingClass(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class: "Car",
 	})
 
@@ -123,7 +124,7 @@ func testRemoveThingClass(t *testing.T, lsm database.SchemaManager) {
 	assert.Contains(t, thingClasses, "Car")
 
 	// Now delete the class
-	err = lsm.DropClass(kind.THING_KIND, "Car")
+	err = lsm.DropClass(context.TODO(), kind.THING_KIND, "Car")
 	assert.Nil(t, err)
 
 	thingClasses = testGetClassNames(lsm, kind.THING_KIND)
@@ -133,14 +134,14 @@ func testRemoveThingClass(t *testing.T, lsm database.SchemaManager) {
 func testCantAddSameClassTwice(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class: "Car",
 	})
 
 	assert.Nil(t, err)
 
 	// Add it again
-	err = lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err = lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class: "Car",
 	})
 
@@ -150,14 +151,14 @@ func testCantAddSameClassTwice(t *testing.T, lsm database.SchemaManager) {
 func testCantAddSameClassTwiceDifferentKinds(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class: "Car",
 	})
 
 	assert.Nil(t, err)
 
 	// Add it again, but with a different kind.
-	err = lsm.AddClass(kind.ACTION_KIND, &models.SemanticSchemaClass{
+	err = lsm.AddClass(context.TODO(), kind.ACTION_KIND, &models.SemanticSchemaClass{
 		Class: "Car",
 	})
 
@@ -168,11 +169,11 @@ func testUpdateClassName(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	// Create a simple class.
-	assert.Nil(t, lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{Class: "InitialName"}))
+	assert.Nil(t, lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{Class: "InitialName"}))
 
 	// Rename it
 	newName := "NewName"
-	assert.Nil(t, lsm.UpdateClass(kind.THING_KIND, "InitialName", &newName, nil))
+	assert.Nil(t, lsm.UpdateClass(context.TODO(), kind.THING_KIND, "InitialName", &newName, nil))
 
 	thingClasses := testGetClassNames(lsm, kind.THING_KIND)
 	assert.Len(t, thingClasses, 1)
@@ -183,15 +184,15 @@ func testUpdateClassNameCollision(t *testing.T, lsm database.SchemaManager) {
 	t.Parallel()
 
 	// Create a class to rename
-	assert.Nil(t, lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{Class: "InitialName"}))
+	assert.Nil(t, lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{Class: "InitialName"}))
 
 	// Create another class, that we'll collide names with.
 	// For some extra action, use a Action class here.
-	assert.Nil(t, lsm.AddClass(kind.ACTION_KIND, &models.SemanticSchemaClass{Class: "ExistingClass"}))
+	assert.Nil(t, lsm.AddClass(context.TODO(), kind.ACTION_KIND, &models.SemanticSchemaClass{Class: "ExistingClass"}))
 
 	// Try to rename a class to one that already exists
 	collidingNewName := "ExistingClass"
-	err := lsm.UpdateClass(kind.THING_KIND, "InitialName", &collidingNewName, nil)
+	err := lsm.UpdateClass(context.TODO(), kind.THING_KIND, "InitialName", &collidingNewName, nil)
 	// Should fail
 	assert.NotNil(t, err)
 
@@ -209,7 +210,7 @@ func testAddThingClassWithKeywords(t *testing.T, lsm database.SchemaManager) {
 		{Keyword: "transport", Weight: 0.4},
 	}
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class:    "Car",
 		Keywords: keywords,
 	})
@@ -232,7 +233,7 @@ func testUpdateClassKeywords(t *testing.T, lsm database.SchemaManager) {
 		{Keyword: "transport", Weight: 1.0},
 	}
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class:    "Car",
 		Keywords: keywords,
 	})
@@ -243,7 +244,7 @@ func testUpdateClassKeywords(t *testing.T, lsm database.SchemaManager) {
 		{Keyword: "vehicle", Weight: 1.0},
 	}
 
-	err = lsm.UpdateClass(kind.THING_KIND, "Car", nil, &updatedKeywords)
+	err = lsm.UpdateClass(context.TODO(), kind.THING_KIND, "Car", nil, &updatedKeywords)
 
 	thingClasses := testGetClasses(lsm, kind.THING_KIND)
 	assert.Len(t, thingClasses, 1)
@@ -259,7 +260,7 @@ func testAddPropertyDuringCreation(t *testing.T, lsm database.SchemaManager) {
 		{Name: "color", AtDataType: []string{"string"}},
 	}
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -280,7 +281,7 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, lsm database.SchemaManag
 		{Name: "color", AtDataType: []string{"blurp"}},
 	}
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -294,7 +295,7 @@ func testDropProperty(t *testing.T, lsm database.SchemaManager) {
 		{Name: "color", AtDataType: []string{"string"}},
 	}
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -305,7 +306,7 @@ func testDropProperty(t *testing.T, lsm database.SchemaManager) {
 	assert.Len(t, thingClasses[0].Properties, 1)
 
 	// Now drop the property
-	lsm.DropProperty(kind.THING_KIND, "Car", "color")
+	lsm.DropProperty(context.TODO(), kind.THING_KIND, "Car", "color")
 
 	thingClasses = testGetClasses(lsm, kind.THING_KIND)
 	require.Len(t, thingClasses, 1)
@@ -320,7 +321,7 @@ func testUpdatePropertyName(t *testing.T, lsm database.SchemaManager) {
 		{Name: "color", AtDataType: []string{"string"}},
 	}
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -328,7 +329,7 @@ func testUpdatePropertyName(t *testing.T, lsm database.SchemaManager) {
 
 	// Update the property name
 	smell := "smell"
-	err = lsm.UpdateProperty(kind.THING_KIND, "Car", "color", &smell, nil)
+	err = lsm.UpdateProperty(context.TODO(), kind.THING_KIND, "Car", "color", &smell, nil)
 	assert.Nil(t, err)
 
 	// Check that the name is updated
@@ -348,7 +349,7 @@ func testUpdatePropertyNameCollision(t *testing.T, lsm database.SchemaManager) {
 		{Name: "smell", AtDataType: []string{"string"}},
 	}
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -356,7 +357,7 @@ func testUpdatePropertyNameCollision(t *testing.T, lsm database.SchemaManager) {
 
 	// Update the property name
 	smell := "smell"
-	err = lsm.UpdateProperty(kind.THING_KIND, "Car", "color", &smell, nil)
+	err = lsm.UpdateProperty(context.TODO(), kind.THING_KIND, "Car", "color", &smell, nil)
 	assert.NotNil(t, err)
 
 	// Check that the name is updated
@@ -376,7 +377,7 @@ func testUpdatePropertyKeywords(t *testing.T, lsm database.SchemaManager) {
 		{Name: "color", AtDataType: []string{"string"}},
 	}
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -396,7 +397,7 @@ func testUpdatePropertyKeywords(t *testing.T, lsm database.SchemaManager) {
 		&models.SemanticSchemaKeywordsItems0{Keyword: "paint", Weight: 0.1},
 	}
 
-	err = lsm.UpdateProperty(kind.THING_KIND, "Car", "color", nil, newKeywords)
+	err = lsm.UpdateProperty(context.TODO(), kind.THING_KIND, "Car", "color", nil, newKeywords)
 	assert.Nil(t, err)
 
 	// Verify the content of the keywords.
@@ -417,14 +418,14 @@ func testUpdatePropertyAddDataTypeNew(t *testing.T, lsm database.SchemaManager) 
 		{Name: "madeBy", AtDataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class:      "Car",
 		Properties: properties,
 	})
 	assert.Nil(t, err)
 
 	// Add a new datatype
-	err = lsm.UpdatePropertyAddDataType(kind.THING_KIND, "Car", "madeBy", "RemoteInstance/Builder")
+	err = lsm.UpdatePropertyAddDataType(context.TODO(), kind.THING_KIND, "Car", "madeBy", "RemoteInstance/Builder")
 	assert.Nil(t, err)
 
 	// Check that the name is updated
@@ -445,14 +446,14 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm database.SchemaMana
 		{Name: "madeBy", AtDataType: []string{"RemoteInstance/Manufacturer"}},
 	}
 
-	err := lsm.AddClass(kind.THING_KIND, &models.SemanticSchemaClass{
+	err := lsm.AddClass(context.TODO(), kind.THING_KIND, &models.SemanticSchemaClass{
 		Class:      "Car",
 		Properties: properties,
 	})
 	assert.Nil(t, err)
 
 	// Add a new datatype
-	err = lsm.UpdatePropertyAddDataType(kind.THING_KIND, "Car", "madeBy", "RemoteInstance/Manufacturer")
+	err = lsm.UpdatePropertyAddDataType(context.TODO(), kind.THING_KIND, "Car", "madeBy", "RemoteInstance/Manufacturer")
 	assert.Nil(t, err)
 
 	// Check that the name is updated
@@ -492,7 +493,7 @@ func TestSchema(t *testing.T) {
 
 // New Local Schema Manager
 func newSchemaManager() database.SchemaManager {
-	sm, err := New(nil, &NilMigrator{}, nil)
+	sm, err := New(context.TODO(), nil, &NilMigrator{}, nil)
 	if err != nil {
 		panic(err)
 	}

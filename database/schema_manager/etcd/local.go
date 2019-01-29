@@ -75,7 +75,10 @@ func (l *state) SchemaFor(k kind.Kind) *models.SemanticSchema {
 	}
 }
 
-func New(client *clientv3.Client, connectorMigrator schema_migrator.Migrator, network network.Network) (database.SchemaManager, error) {
+// New etcd schema manager which will save and read both the schema meta info
+// as well as the connector state (i.e. class name mappings) to and from etcd
+func New(ctx context.Context, client *clientv3.Client, connectorMigrator schema_migrator.Migrator,
+	network network.Network) (database.SchemaManager, error) {
 	manager := &etcdSchemaManager{
 		client:            client,
 		schemaState:       state{},
@@ -83,12 +86,12 @@ func New(client *clientv3.Client, connectorMigrator schema_migrator.Migrator, ne
 		network:           network,
 	}
 
-	err := manager.loadOrInitializeSchema()
+	err := manager.loadOrInitializeSchema(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	err = manager.loadOrInitializeConnectorState()
+	err = manager.loadOrInitializeConnectorState(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -97,8 +100,8 @@ func New(client *clientv3.Client, connectorMigrator schema_migrator.Migrator, ne
 }
 
 // Load the state from a file, or if the files do not exist yet, initialize an empty schema.
-func (m *etcdSchemaManager) loadOrInitializeSchema() error {
-	res, err := m.client.Get(context.TODO(), SchemaStateStorageKey)
+func (m *etcdSchemaManager) loadOrInitializeSchema(ctx context.Context) error {
+	res, err := m.client.Get(ctx, SchemaStateStorageKey)
 	if err != nil {
 		return fmt.Errorf("could not retrieve key '%s': %#v", SchemaStateStorageKey, err)
 	}
@@ -115,7 +118,7 @@ func (m *etcdSchemaManager) loadOrInitializeSchema() error {
 			Classes: []*models.SemanticSchemaClass{},
 			Type:    "thing",
 		}
-		return m.saveToDisk()
+		return m.saveSchema(ctx)
 	case k == 1:
 		stateBytes := res.Kvs[0].Value
 		var state state
@@ -132,8 +135,8 @@ func (m *etcdSchemaManager) loadOrInitializeSchema() error {
 }
 
 // Load the
-func (m *etcdSchemaManager) loadOrInitializeConnectorState() error {
-	res, err := m.client.Get(context.TODO(), ConnectorStateStorageKey)
+func (m *etcdSchemaManager) loadOrInitializeConnectorState(ctx context.Context) error {
+	res, err := m.client.Get(ctx, ConnectorStateStorageKey)
 	if err != nil {
 		return fmt.Errorf("could not retrieve key '%s': %#v", ConnectorStateStorageKey, err)
 	}
@@ -142,7 +145,7 @@ func (m *etcdSchemaManager) loadOrInitializeConnectorState() error {
 	case k == 0:
 		// has not been initialized before
 		m.connectorState = json.RawMessage([]byte("{}"))
-		return m.saveConnectorStateToDisk()
+		return m.saveConnectorState(ctx)
 
 	case k == 1:
 		stateBytes := res.Kvs[0].Value
@@ -153,9 +156,9 @@ func (m *etcdSchemaManager) loadOrInitializeConnectorState() error {
 	}
 }
 
-// Save the schema to the etcd disk.
+// Save the schema to etcd
 // Triggers callbacks to all interested observers.
-func (m *etcdSchemaManager) saveToDisk() error {
+func (m *etcdSchemaManager) saveSchema(ctx context.Context) error {
 
 	stateBytes, err := json.Marshal(m.schemaState)
 	if err != nil {
@@ -164,7 +167,7 @@ func (m *etcdSchemaManager) saveToDisk() error {
 
 	log.Info("Updating etcd schema on etcd")
 
-	_, err = m.client.Put(context.TODO(), "/weaviate/schema/state", string(stateBytes))
+	_, err = m.client.Put(ctx, "/weaviate/schema/state", string(stateBytes))
 	if err != nil {
 		return fmt.Errorf("could not send schema state to etcd: %s", err)
 	}
@@ -176,7 +179,7 @@ func (m *etcdSchemaManager) saveToDisk() error {
 
 // Save the connector state to disk.
 // This etcd implementation has no side effects (like updating peer weaviate instances)
-func (m *etcdSchemaManager) saveConnectorStateToDisk() error {
+func (m *etcdSchemaManager) saveConnectorState(ctx context.Context) error {
 
 	stateBytes, err := m.connectorState.MarshalJSON()
 	if err != nil {
@@ -185,7 +188,7 @@ func (m *etcdSchemaManager) saveConnectorStateToDisk() error {
 
 	log.Info("Saving connector state to etcd")
 
-	_, err = m.client.Put(context.TODO(), "/weaviate/connector/state", string(stateBytes))
+	_, err = m.client.Put(ctx, "/weaviate/connector/state", string(stateBytes))
 	if err != nil {
 		return fmt.Errorf("could not send schema state to etcd: %s", err)
 	}
