@@ -48,15 +48,23 @@ func main() {
 
 		parsed := removeAllWhiteSpace(body["query"])
 
-		expectedQuery := fmt.Sprintf("%s", `{ Local { Get { Things { Instruments { name } } } } }`)
-		if removeAllWhiteSpace(parsed) != removeAllWhiteSpace(expectedQuery) {
+		getQuery := fmt.Sprintf("%s", `{ Local { Get { Things { Instruments { name } } } } }`)
+		getMetaQuery := fmt.Sprintf("%s", `{ Local { GetMeta { Things { Instruments { volume { highest lowest average } } } } } }`)
+		switch parsed {
+		case removeAllWhiteSpace(getQuery):
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "%s", graphQLGetResponse)
+			return
+		case removeAllWhiteSpace(getMetaQuery):
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, "%s", graphQLGetMetaResponse)
+			return
+		default:
 			w.WriteHeader(422)
-			w.Write([]byte(fmt.Sprintf("wrong body, got \n%#v\nwanted\n%#v\n", parsed, expectedQuery)))
+			w.Write([]byte(fmt.Sprintf("unrecognized body, got \n%#v\nwanted\n%#v\nor\n%#v",
+				parsed, removeAllWhiteSpace(getQuery), removeAllWhiteSpace(getMetaQuery))))
 			return
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, "%s", graphQLhappyPathResponse)
 	})
 
 	http.HandleFunc("/weaviate/v1/schema", func(w http.ResponseWriter, req *http.Request) {
@@ -84,7 +92,25 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8081", nil))
 }
 
-var graphQLhappyPathResponse = `{
+var graphQLGetMetaResponse = `{
+  "data": {
+    "Local": {
+      "GetMeta": {
+        "Things": {
+          "Instruments": {
+            "volume": {
+              "highest": 110,
+              "lowest": 65,
+              "average": 82
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
+var graphQLGetResponse = `{
   "data": {
     "Local": {
       "Get": {
@@ -147,6 +173,18 @@ var schemaResponse = `{
             "keywords": [
               {
                 "keyword": "name",
+                "weight": 1
+              }
+            ]
+          }, {
+            "name": "volume",
+            "@dataType": [
+              "number"
+            ],
+            "description": "The volume the instrument can achieve",
+            "keywords": [
+              {
+                "keyword": "volume",
                 "weight": 1
               }
             ]

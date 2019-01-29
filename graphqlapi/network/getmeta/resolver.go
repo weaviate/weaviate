@@ -4,13 +4,14 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
-package network_get
+package getmeta
 
 import (
 	"fmt"
@@ -29,7 +30,7 @@ type Params struct {
 }
 
 type Resolver interface {
-	ProxyGetInstance(info Params) (*models.GraphQLResponse, error)
+	ProxyGetMetaInstance(info Params) (*models.GraphQLResponse, error)
 }
 
 // FiltersAndResolver is a helper tuple to bubble data through the resolvers.
@@ -37,14 +38,13 @@ type FiltersAndResolver struct {
 	Resolver Resolver
 }
 
-func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
-	filterAndResolver, ok := p.Source.(FiltersAndResolver)
+func Resolve(p graphql.ResolveParams) (interface{}, error) {
+	resolver, ok := p.Source.(Resolver)
 	if !ok {
-		return nil, fmt.Errorf("expected source to be a FilterAndResolver, but was \n%#v",
+		return nil, fmt.Errorf("expected source to be a Resolver, but was \n%#v",
 			p.Source)
 	}
 
-	resolver := filterAndResolver.Resolver
 	astLoc := p.Info.FieldASTs[0].GetLoc()
 	rawSubQuery := astLoc.Source.Body[astLoc.Start:astLoc.End]
 	subQueryWithoutInstance, err := replaceInstanceName(p.Info.FieldName, rawSubQuery)
@@ -57,7 +57,7 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 		TargetInstance: p.Info.FieldName,
 	}
 
-	graphQLResponse, err := resolver.ProxyGetInstance(params)
+	graphQLResponse, err := resolver.ProxyGetMetaInstance(params)
 	if err != nil {
 		return nil, fmt.Errorf("could not proxy to remote instance: %s", err)
 	}
@@ -68,7 +68,7 @@ func NetworkGetInstanceResolve(p graphql.ResolveParams) (interface{}, error) {
 			graphQLResponse.Data["Local"])
 	}
 
-	return local["Get"], nil
+	return local["GetMeta"], nil
 }
 
 func replaceInstanceName(instanceName string, query []byte) ([]byte, error) {
@@ -77,5 +77,5 @@ func replaceInstanceName(instanceName string, query []byte) ([]byte, error) {
 		return []byte{}, err
 	}
 
-	return r.ReplaceAll(query, []byte("Get ")), nil
+	return r.ReplaceAll(query, []byte("GetMeta ")), nil
 }

@@ -241,10 +241,6 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		UUID := strfmt.UUID(params.ThingID)
 		errGet := dbConnector.GetThing(params.HTTPRequest.Context(), UUID, &thingGetResponse)
 
-		fmt.Print("\n\n\n\n before patch:")
-		spew.Dump(thingGetResponse)
-		fmt.Print("\n\n\n\n")
-
 		// Save the old-thing in a variable
 		oldThing := thingGetResponse
 

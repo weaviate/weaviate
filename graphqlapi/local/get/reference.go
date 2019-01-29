@@ -178,7 +178,6 @@ func extractSchemaFromKind(v NetworkRef, result interface{}) (map[string]interfa
 
 		schema, ok := thing.Schema.(map[string]interface{})
 		if !ok {
-			fmt.Printf("expected schema of '%v', to be a map, but is: %#v", v, schema)
 			return nil, fmt.Errorf("expected schema of '%v', to be a map, but is: %#v", v, schema)
 		}
 		schema["__refClassName"] = thing.AtClass
@@ -192,7 +191,6 @@ func extractSchemaFromKind(v NetworkRef, result interface{}) (map[string]interfa
 
 		schema, ok := action.Schema.(map[string]interface{})
 		if !ok {
-			fmt.Printf("expected schema of '%v', to be a map, but is: %#v", v, schema)
 			return nil, fmt.Errorf("expected schema of '%v', to be a map, but is: %#v", v, schema)
 		}
 		schema["__refClassName"] = action.AtClass

@@ -16,7 +16,6 @@ package network
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	network_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/aggregate"
 	network_fetch "github.com/creativesoftwarefdn/weaviate/graphqlapi/network/fetch"
@@ -28,19 +27,19 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
+type schemaDependentObjects struct {
+	get       *graphql.Object
+	getMeta   *graphql.Object
+	aggregate *graphql.Object
+}
+
 // Build the network queries from the database schema.
 func Build(peers peers.Peers) (*graphql.Field, error) {
 
 	filterContainer := &utils.FilterContainer{}
 
-	weaviateNetworkGetResults := make(map[string]*graphql.Object)
-	weaviateNetworkGetMetaResults := make(map[string]*graphql.Object)
-	weaviateNetworkAggregateResults := make(map[string]*graphql.Object)
-
 	// this map is used to store all the Filter InputObjects, so that we can use them in references.
 	filterContainer.NetworkFilterOptions = make(map[string]*graphql.InputObject)
-
-	// TODO implement function that capitalizes all Weaviate names
 
 	if len(peers) == 0 {
 		// Don't error, but also don't register the Network  field if we don't
@@ -49,161 +48,12 @@ func Build(peers peers.Peers) (*graphql.Field, error) {
 		return nil, nil
 	}
 
-	for _, peer := range peers {
-		// This map is used to store all the Thing and Action Objects, so that we can use them in references.
-		getNetworkActionsAndThings := make(map[string]*graphql.Object)
-		aggregateNetworkActionsAndThings := make(map[string]*graphql.Object)
-
-		getKinds := graphql.Fields{}
-		getMetaKinds := graphql.Fields{}
-		aggregateKinds := graphql.Fields{}
-
-		if peer.Schema.Actions == nil && peer.Schema.Things == nil {
-			// don't error, but skip this particular peer as it currently
-			// has an empty schema
-			continue
-		}
-
-		if peer.Schema.Actions != nil && len(peer.Schema.Actions.Classes) > 0 {
-			networkGetActions, networkGetErr := network_get.ActionClassFieldsFromSchema(
-				&peer.Schema, &getNetworkActionsAndThings, peer.Name)
-			if networkGetErr != nil {
-				return nil, fmt.Errorf(
-					"failed to generate action fields from schema for network Get because: %v", networkGetErr)
-			}
-
-			getKinds["Actions"] = &graphql.Field{
-				Name:        "WeaviateNetworkGetActions",
-				Description: descriptions.NetworkGetActionsDesc,
-				Type:        networkGetActions,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					fmt.Printf("- NetworkGetActions (pass on Source)\n")
-					// Does nothing; pass through the filters
-					return p.Source, nil
-				},
-			}
-
-			classParentTypeIsAction := true
-			networkGetMetaActions, networkGetMetaErr := network_getmeta.ClassFieldsFromSchema(
-				peer.Schema.Actions.Classes, classParentTypeIsAction, peer.Name)
-			if networkGetMetaErr != nil {
-				return nil, fmt.Errorf(
-					"failed to generate action fields from schema for network MetaGet because: %v",
-					networkGetMetaErr)
-			}
-
-			getMetaKinds["Actions"] = &graphql.Field{
-				Name:        "WeaviateNetworkGetMetaActions",
-				Description: descriptions.NetworkGetMetaActionsDesc,
-				Type:        networkGetMetaActions,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					fmt.Printf("- NetworkGetMetaActions (pass on Source)\n")
-					// Does nothing; pass through the filters
-					return p.Source, nil
-				},
-			}
-
-			networkAggregateActions, aggregateErr := network_aggregate.BuildAggregateClasses(&peer.Schema, kind.ACTION_KIND, peer.Schema.Actions, &aggregateNetworkActionsAndThings, peer.Name)
-			if aggregateErr != nil {
-				return nil, fmt.Errorf(
-					"failed to generate action fields from schema for network Aggregate because: %v",
-					aggregateErr)
-			}
-
-			aggregateKinds["Actions"] = &graphql.Field{
-				Name:        "WeaviateNetworkAggregateActions",
-				Description: descriptions.NetworkAggregateActionsDesc,
-				Type:        networkAggregateActions,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					fmt.Printf("- NetworkAggregateActions (pass on Source)\n")
-					// Does nothing; pass through the filters
-					return p.Source, nil
-				},
-			}
-		}
-
-		if peer.Schema.Things != nil && len(peer.Schema.Things.Classes) > 0 {
-			networkGetThings, networkGetErr := network_get.ThingClassFieldsFromSchema(&peer.Schema,
-				&getNetworkActionsAndThings, peer.Name)
-			if networkGetErr != nil {
-				return nil, fmt.Errorf(
-					"failed to generate thing fields from schema for network Get because: %v", networkGetErr)
-			}
-
-			getKinds["Things"] = &graphql.Field{
-				Name:        "WeaviateNetworkGetThings",
-				Description: descriptions.NetworkGetThingsDesc,
-				Type:        networkGetThings,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					fmt.Printf("- NetworkGetThings (pass on Source)\n")
-					// Does nothing; pass through the filters
-					return p.Source, nil
-				},
-			}
-
-			classParentTypeIsAction := false
-			networkGetMetaThings, networkGetMetaErr := network_getmeta.ClassFieldsFromSchema(
-				peer.Schema.Things.Classes, classParentTypeIsAction, peer.Name)
-			if networkGetMetaErr != nil {
-				return nil, fmt.Errorf("failed to generate thing fields from schema for network MetaGet because: %v", networkGetMetaErr)
-			}
-
-			getMetaKinds["Things"] = &graphql.Field{
-				Name:        "WeaviateNetworkGetMetaThings",
-				Description: descriptions.NetworkGetMetaThingsDesc,
-				Type:        networkGetMetaThings,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					fmt.Printf("- NetworkGetMetaThings (pass on Source)\n")
-					// Does nothing; pass through the filters
-					return p.Source, nil
-				},
-			}
-
-			networkAggregateThings, aggregateErr := network_aggregate.BuildAggregateClasses(&peer.Schema, kind.THING_KIND, peer.Schema.Things, &aggregateNetworkActionsAndThings, peer.Name)
-			if aggregateErr != nil {
-				return nil, fmt.Errorf(
-					"failed to generate thing fields from schema for network Aggregate because: %v",
-					aggregateErr)
-			}
-
-			aggregateKinds["Things"] = &graphql.Field{
-				Name:        "WeaviateNetworkAggregateThings",
-				Description: descriptions.NetworkAggregateThingsDesc,
-				Type:        networkAggregateThings,
-				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-					fmt.Printf("- NetworkAggregateThings (pass on Source)\n")
-					// Does nothing; pass through the filters
-					return p.Source, nil
-				},
-			}
-		}
-
-		networkGetObject := graphql.NewObject(graphql.ObjectConfig{
-			Name:        fmt.Sprintf("WeaviateNetworkGet%sObj", peer.Name),
-			Fields:      getKinds,
-			Description: fmt.Sprintf("%s%s", descriptions.NetworkGetWeaviateObjDesc, peer.Name),
-		})
-
-		networkGetMetaObject := graphql.NewObject(graphql.ObjectConfig{
-			Name:        fmt.Sprintf("WeaviateNetworkGetMeta%sObj", peer.Name),
-			Fields:      getMetaKinds,
-			Description: fmt.Sprintf("%s%s", descriptions.NetworkGetMetaWeaviateObjDesc, peer.Name),
-		})
-
-		networkAggregateObject := graphql.NewObject(graphql.ObjectConfig{
-			Name:        fmt.Sprintf("WeaviateNetworkAggregate%sObj", peer.Name),
-			Fields:      aggregateKinds,
-			Description: fmt.Sprintf("%s%s", descriptions.NetworkAggregateWeaviateObjDesc, peer.Name),
-		})
-
-		weaviateNetworkGetResults[peer.Name] = networkGetObject
-		weaviateNetworkGetMetaResults[peer.Name] = networkGetMetaObject
-		weaviateNetworkAggregateResults[peer.Name] = networkAggregateObject
+	schemaObjects, err := buildSchemaDependentObjects(peers)
+	if err != nil {
+		return nil, fmt.Errorf("could not build schema-dependent objects: %s", err)
 	}
 
-	// TODO this is a temp function, inserts a temp weaviate obj in between Get and Things/Actions
-	networkGetObject, networkGetMetaObject, networkAggregateObject := buildGetAndGetMeta(weaviateNetworkGetResults, weaviateNetworkGetMetaResults, weaviateNetworkAggregateResults)
-	if networkGetObject == nil && networkGetMetaObject == nil && networkAggregateObject == nil {
+	if schemaObjects == nil {
 		// if we don't have any peers with schemas, we effectively don't have
 		// a Network Field.
 		// We should not error though, because local queries are still possible.
@@ -217,17 +67,16 @@ func Build(peers peers.Peers) (*graphql.Field, error) {
 	networkIntrospectObject := network_introspect.FieldsObj(filterContainer)
 
 	graphQLNetworkFieldContents := utils.GraphQLNetworkFieldContents{
-		NetworkGetObject:        networkGetObject,
-		NetworkGetMetaObject:    networkGetMetaObject,
+		NetworkGetObject:        schemaObjects.get,
+		NetworkGetMetaObject:    schemaObjects.getMeta,
 		NetworkFetchObject:      networkFetchObject,
 		NetworkIntrospectObject: networkIntrospectObject,
-		NetworkAggregateObject:  networkAggregateObject,
+		NetworkAggregateObject:  schemaObjects.aggregate,
 	}
-
-	networkGetAndGetMetaObject := genNetworkFields(&graphQLNetworkFieldContents /*, filterContainer*/)
+	object := genNetworkFields(&graphQLNetworkFieldContents /*, filterContainer*/)
 
 	networkField := &graphql.Field{
-		Type:        networkGetAndGetMetaObject,
+		Type:        object,
 		Description: descriptions.WeaviateNetworkDesc,
 		Args: graphql.FieldConfigArgument{
 			"networkTimeout": &graphql.ArgumentConfig{
@@ -251,16 +100,14 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 			Name:        descriptions.NetworkGetDesc,
 			Type:        graphQLNetworkFieldContents.NetworkGetObject,
 			Description: descriptions.NetworkGetDesc,
-			Resolve:     passThroughFiltersAndResolvers,
+			Resolve:     passThroughGetFiltersAndResolvers,
 		},
 
 		"GetMeta": &graphql.Field{
 			Name:        "WeaviateNetworkGetMeta",
 			Type:        graphQLNetworkFieldContents.NetworkGetMetaObject,
 			Description: descriptions.NetworkGetMetaDesc,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     passThroughGetMetaResolvers,
 		},
 
 		"Fetch": &graphql.Field{
@@ -299,66 +146,62 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 	return graphql.NewObject(*weaviateNetworkObject)
 }
 
-func buildGetAndGetMeta(weaviatesWithGetFields map[string]*graphql.Object,
-	weaviatesWithMetaGetFields map[string]*graphql.Object,
-	weaviatesWithAggregateFields map[string]*graphql.Object) (*graphql.Object, *graphql.Object, *graphql.Object) {
-
-	if len(weaviatesWithGetFields) == 0 {
+func buildSchemaDependentObjects(peers peers.Peers) (*schemaDependentObjects, error) {
+	if len(peers) == 0 {
 		// if we don't have any peers, we must return nil
 		// otherwise we'd have an empty Get and GetMeta object, which
 		// is not valid GraphQL
-		return nil, nil, nil
+		return nil, nil
 	}
 
-	getWeaviates := graphql.Fields{}
-	metaGetWeaviates := graphql.Fields{}
-	aggregateWeaviates := graphql.Fields{}
+	getPeers := graphql.Fields{}
+	metaGetPeers := graphql.Fields{}
+	aggregatePeers := graphql.Fields{}
 
-	for weaviate, weaviateFields := range weaviatesWithGetFields {
-		getWeaviates[weaviate] = &graphql.Field{
-			Name:        weaviate,
-			Description: fmt.Sprintf("%s%s", descriptions.NetworkWeaviateDesc, weaviate),
-			Type:        weaviateFields,
-			Resolve:     network_get.NetworkGetInstanceResolve,
+	for _, peer := range peers {
+		get, err := network_get.New(peer.Name, peer.Schema).PeerField()
+		if err != nil {
+			return nil, fmt.Errorf("could not build Get for peer '%s': %s", peer.Name, err)
 		}
-		metaGetWeaviates[weaviate] = &graphql.Field{
-			Name:        fmt.Sprintf("%s%s", "Meta", weaviate),
-			Description: fmt.Sprintf("%s%s", descriptions.NetworkWeaviateDesc, weaviate),
-			Type:        weaviatesWithMetaGetFields[weaviate],
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+		getPeers[peer.Name] = get
+
+		getMeta, err := network_getmeta.New(peer.Name, peer.Schema).PeerField()
+		if err != nil {
+			return nil, fmt.Errorf("could not build GetMeta for peer '%s': %s", peer.Name, err)
 		}
-		aggregateWeaviates[weaviate] = &graphql.Field{
-			Name:        fmt.Sprintf("%s%s", "Aggregate", weaviate),
-			Description: fmt.Sprintf("%s%s", descriptions.NetworkWeaviateDesc, weaviate),
-			Type:        weaviatesWithAggregateFields[weaviate],
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+		metaGetPeers[peer.Name] = getMeta
+
+		aggregate, err := network_aggregate.New(peer.Name, peer.Schema).PeerField()
+		if err != nil {
+			return nil, fmt.Errorf("could not build Aggregate for peer '%s': %s", peer.Name, err)
 		}
+		aggregatePeers[peer.Name] = aggregate
 	}
 
-	GetObject := graphql.ObjectConfig{
+	get := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateNetworkGetObj",
-		Fields:      getWeaviates,
+		Fields:      getPeers,
 		Description: descriptions.NetworkGetObjDesc,
-	}
-	GetMetaObject := graphql.ObjectConfig{
+	})
+	getMeta := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateNetworkGetMetaObj",
-		Fields:      metaGetWeaviates,
+		Fields:      metaGetPeers,
 		Description: descriptions.NetworkGetMetaObjDesc,
-	}
-	AggregateObject := graphql.ObjectConfig{
+	})
+	aggregate := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateNetworkAggregateObj",
-		Fields:      aggregateWeaviates,
+		Fields:      aggregatePeers,
 		Description: descriptions.NetworkAggregateObjDesc,
-	}
+	})
 
-	return graphql.NewObject(GetObject), graphql.NewObject(GetMetaObject), graphql.NewObject(AggregateObject)
+	return &schemaDependentObjects{
+		get:       get,
+		getMeta:   getMeta,
+		aggregate: aggregate,
+	}, nil
 }
 
-func passThroughFiltersAndResolvers(p graphql.ResolveParams) (interface{}, error) {
+func passThroughGetFiltersAndResolvers(p graphql.ResolveParams) (interface{}, error) {
 	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_get.Resolver)
 	if !ok {
 		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
@@ -367,4 +210,13 @@ func passThroughFiltersAndResolvers(p graphql.ResolveParams) (interface{}, error
 	return network_get.FiltersAndResolver{
 		Resolver: resolver,
 	}, nil
+}
+
+func passThroughGetMetaResolvers(p graphql.ResolveParams) (interface{}, error) {
+	resolver, ok := p.Source.(map[string]interface{})["NetworkResolver"].(network_getmeta.Resolver)
+	if !ok {
+		return nil, fmt.Errorf("source does not contain a NetworkResolver, but \n%#v", p.Source)
+	}
+
+	return resolver, nil
 }

@@ -10,8 +10,8 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */
 
-// Package network_getmeta provides the network getmeta graphql endpoint for Weaviate
-package network_getmeta
+// Package getmeta provides the network getmeta graphql endpoint for Weaviate
+package getmeta
 
 import (
 	"fmt"
@@ -20,6 +20,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network/common"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
@@ -96,9 +97,6 @@ func metaClassField(class *models.SemanticSchemaClass, kindName string, descript
 				),
 			},
 		},
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
-		},
 	}
 
 	return propertyFieldsField, nil
@@ -111,9 +109,6 @@ func metaClassPropertyFields(class *models.SemanticSchemaClass, weaviate string)
 	metaPropertyObjField := &graphql.Field{
 		Description: descriptions.GetMetaMetaPropertyDesc,
 		Type:        metaPropertyObj,
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			return nil, fmt.Errorf("not supported")
-		},
 	}
 
 	propertyFields["meta"] = metaPropertyObjField
@@ -156,63 +151,42 @@ func handleNonObjectPropertyDataTypes(dataType schema.DataType, class *models.Se
 		return &graphql.Field{
 			Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaPropertyDesc, property.Name),
 			Type:        stringPropertyFields,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeText:
 		return &graphql.Field{
 			Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaPropertyDesc, property.Name),
 			Type:        textPropertyFields,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeInt:
 		return &graphql.Field{
 			Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaPropertyDesc, property.Name),
 			Type:        intPropertyFields,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeNumber:
 		return &graphql.Field{
 			Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaPropertyDesc, property.Name),
 			Type:        numberPropertyFields,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeBoolean:
 		return &graphql.Field{
 			Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaPropertyDesc, property.Name),
 			Type:        booleanPropertyFields,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeDate:
 		return &graphql.Field{
 			Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaPropertyDesc, property.Name),
 			Type:        datePropertyFields,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	case schema.DataTypeCRef:
 		return &graphql.Field{
 			Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaPropertyDesc, property.Name),
 			Type:        cRefPropertyFields,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		}, nil
 
 	default:
@@ -229,18 +203,13 @@ func classStringPropertyFields(class *models.SemanticSchemaClass, property *mode
 			Name:        fmt.Sprintf("%s%s%s%s", weaviate, "Meta", class.Class, "Type"),
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", weaviate, "Meta", class.Class, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"topOccurrences": &graphql.Field{
@@ -256,9 +225,6 @@ func classStringPropertyFields(class *models.SemanticSchemaClass, property *mode
 					Description: descriptions.AfterDesc,
 					Type:        graphql.Int,
 				},
-			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
 			},
 		},
 	}
@@ -279,18 +245,13 @@ func classStringPropertyTopOccurrencesFields(class *models.SemanticSchemaClass, 
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TopOccurrencesValue"),
 			Description: descriptions.GetMetaPropertyTopOccurrencesValueDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"occurs": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TopOccurrencesOccurs"),
 			Description: descriptions.GetMetaPropertyTopOccurrencesOccursDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -312,18 +273,13 @@ func classTextPropertyFields(class *models.SemanticSchemaClass, property *models
 			Name:        fmt.Sprintf("%s%s%s%s", weaviate, "Meta", class.Class, "Type"),
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", weaviate, "Meta", class.Class, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"topOccurrences": &graphql.Field{
@@ -339,9 +295,6 @@ func classTextPropertyFields(class *models.SemanticSchemaClass, property *models
 					Description: descriptions.AfterDesc,
 					Type:        graphql.Int,
 				},
-			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
 			},
 		},
 	}
@@ -362,18 +315,13 @@ func classTextPropertyTopOccurrencesFields(class *models.SemanticSchemaClass, pr
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TopOccurrencesValue"),
 			Description: descriptions.GetMetaPropertyTopOccurrencesValueDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"occurs": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TopOccurrencesOccurs"),
 			Description: descriptions.GetMetaPropertyTopOccurrencesOccursDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -393,54 +341,41 @@ func classIntPropertyFields(class *models.SemanticSchemaClass, property *models.
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Sum"),
 			Description: descriptions.GetMetaPropertySumDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Type"),
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"lowest": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Lowest"),
 			Description: descriptions.GetMetaPropertyLowestDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"highest": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Highest"),
 			Description: descriptions.GetMetaPropertyHighestDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"average": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Average"),
 			Description: descriptions.GetMetaPropertyAverageDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -460,54 +395,41 @@ func classNumberPropertyFields(class *models.SemanticSchemaClass, property *mode
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Sum"),
 			Description: descriptions.GetMetaPropertySumDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Type"),
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"lowest": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Lowest"),
 			Description: descriptions.GetMetaPropertyLowestDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"highest": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Highest"),
 			Description: descriptions.GetMetaPropertyHighestDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"average": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Average"),
 			Description: descriptions.GetMetaPropertyAverageDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -527,54 +449,41 @@ func classBooleanPropertyFields(class *models.SemanticSchemaClass, property *mod
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Type"),
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"totalTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TotalTrue"),
 			Description: descriptions.GetMetaClassPropertyTotalTrueDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"percentageTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "PercentageTrue"),
 			Description: descriptions.GetMetaClassPropertyPercentageTrueDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"totalFalse": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TotalFalse"),
 			Description: descriptions.GetMetaClassPropertyTotalFalseDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"percentageFalse": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "PercentageFalse"),
 			Description: descriptions.GetMetaClassPropertyPercentageFalseDesc,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -597,18 +506,13 @@ func classDatePropertyFields(class *models.SemanticSchemaClass, property *models
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Type"),
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"topOccurrences": &graphql.Field{
@@ -624,9 +528,6 @@ func classDatePropertyFields(class *models.SemanticSchemaClass, property *models
 					Description: descriptions.AfterDesc,
 					Type:        graphql.Int,
 				},
-			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
 			},
 		},
 	}
@@ -647,18 +548,13 @@ func classDatePropertyTopOccurrencesFields(class *models.SemanticSchemaClass, pr
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TopOccurrencesValue"),
 			Description: descriptions.GetMetaPropertyTopOccurrencesValueDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"occurs": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "TopOccurrencesOccurs"),
 			Description: descriptions.GetMetaPropertyTopOccurrencesOccursDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 
@@ -678,27 +574,19 @@ func classCRefPropertyObj(class *models.SemanticSchemaClass, property *models.Se
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Type"),
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "Count"),
 			Description: descriptions.GetMetaPropertyCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 
 		"pointingTo": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s%s", weaviate, "Meta", class.Class, property.Name, "PointingTo"),
 			Description: descriptions.GetMetaClassPropertyPointingToDesc,
 			Type:        graphql.NewList(graphql.String),
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 	}
 
@@ -713,14 +601,11 @@ func classCRefPropertyObj(class *models.SemanticSchemaClass, property *models.Se
 
 func propertyObj(class *models.SemanticSchemaClass, weaviate string) *graphql.Object {
 	getMetaPropertyFields := graphql.Fields{
-
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%s%s", weaviate, "Meta", class.Class, "MetaCount"),
 			Description: descriptions.GetMetaClassMetaCountDesc,
 			Type:        graphql.Int,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve:     common.JSONNumberResolver,
 		},
 	}
 

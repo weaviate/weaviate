@@ -1974,14 +1974,10 @@ fs.readFile(demo_schema_things, 'utf8', function(err, ontologyThings) { // read 
     app.use(express.static(__dirname));
     const graphQLHandler = graphqlHTTP(() => ({ schema, graphiql: true }))
     const dummyAuthChecker = (req, res, next) => {
-      const key = '657a48b9-e000-4d9a-b51d-69a0b621c1b9'
-      const token = '57ac8392-1ecc-4e17-9350-c9c866ac832b'
-      if (req.get('x-api-key') == key && req.get('x-api-token') == token) {
+      // for now it'll allow every request
+      // Background: We have removed the key based auth
         next()
         return
-      }
-
-      res.status(401).send("unauthorized")
     }
     app.use('/graphql', graphQLHandler);
 
