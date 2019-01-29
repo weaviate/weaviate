@@ -14,11 +14,7 @@ package etcd
 
 import (
 	"context"
-	"io/ioutil"
-	"os"
 	"testing"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -467,13 +463,6 @@ func testUpdatePropertyAddDataTypeExisting(t *testing.T, lsm database.SchemaMana
 
 // This grant parent test setups up the temporary directory needed for the tests.
 func TestSchema(t *testing.T) {
-	// TODO gh-685: fix test rather than skipping
-	t.Skip()
-	tempDir, err := ioutil.TempDir("", "test-schema-manager")
-	if err != nil {
-		log.Fatalf("Could not initialize temporary directory: %v\n", err)
-	}
-
 	// We need this test here to make sure that we wait until all child tests
 	// (that can be run in parallel) have finished, before cleaning up the temp directory.
 	t.Run("group", func(t *testing.T) {
@@ -487,13 +476,11 @@ func TestSchema(t *testing.T) {
 			})
 		}
 	})
-
-	os.RemoveAll(tempDir)
 }
 
 // New Local Schema Manager
 func newSchemaManager() database.SchemaManager {
-	sm, err := New(context.TODO(), nil, &NilMigrator{}, nil)
+	sm, err := New(context.TODO(), newFakeETCDClient(), &NilMigrator{}, nil)
 	if err != nil {
 		panic(err)
 	}

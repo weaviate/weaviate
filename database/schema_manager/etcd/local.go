@@ -35,9 +35,14 @@ const SchemaStateStorageKey = "/weaviate/schema/state"
 // ConnectorStateStorageKey is the etcd key used to store the connector state
 const ConnectorStateStorageKey = "/weaviate/connector/state"
 
+type etcdClient interface {
+	Put(ctx context.Context, key, val string, opts ...clientv3.OpOption) (*clientv3.PutResponse, error)
+	Get(ctx context.Context, key string, opts ...clientv3.OpOption) (*clientv3.GetResponse, error)
+}
+
 type etcdSchemaManager struct {
 	// etcd client to store and retrieve the schema and connector state
-	client *clientv3.Client
+	client etcdClient
 
 	// Persist schema
 	schemaState state
@@ -77,7 +82,7 @@ func (l *state) SchemaFor(k kind.Kind) *models.SemanticSchema {
 
 // New etcd schema manager which will save and read both the schema meta info
 // as well as the connector state (i.e. class name mappings) to and from etcd
-func New(ctx context.Context, client *clientv3.Client, connectorMigrator schema_migrator.Migrator,
+func New(ctx context.Context, client etcdClient, connectorMigrator schema_migrator.Migrator,
 	network network.Network) (database.SchemaManager, error) {
 	manager := &etcdSchemaManager{
 		client:            client,
