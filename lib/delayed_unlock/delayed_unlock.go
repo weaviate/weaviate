@@ -12,10 +12,12 @@
  */
 package delayed_unlock
 
-import "sync"
+import (
+	"sync"
+)
 
 type Unlockable interface {
-	Unlock()
+	Unlock() error
 }
 
 type DelayedUnlockable interface {
@@ -59,15 +61,20 @@ func (d *delayedUnlockable) Go(f func()) {
 	}()
 }
 
-func (d *delayedUnlockable) Unlock() {
+func (d *delayedUnlockable) Unlock() error {
 	d.inner.Lock()
 	defer d.inner.Unlock()
 
 	d.steps -= 1
 
 	if d.steps == 0 {
-		d.toUnlock.Unlock()
+		err := d.toUnlock.Unlock()
+		if err != nil {
+			return err
+		}
 	} else if d.steps < 0 {
 		panic("Already unlocked")
 	}
+
+	return nil
 }

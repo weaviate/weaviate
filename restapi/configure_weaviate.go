@@ -32,7 +32,6 @@ import (
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
-	recipe "github.com/coreos/etcd/contrib/recipes"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/knowledge_tools"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
@@ -182,7 +181,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupActionsHandlers(api)
 
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			// return meta.NewWeaviateMetaGet(
+			// TODO: gh-685: add 500 code
+			panic(err)
+		}
 		defer dbLock.Unlock()
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		// Create response object
@@ -327,7 +331,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(func(params operations.WeaviateBatchingActionsCreateParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 
-		dbLock := db.ConnectorLock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+		}
 		requestLocks := rest_api_utils.RequestLocks{
 			DBLock:      dbLock,
 			DelayedLock: delayed_unlock.New(dbLock),
@@ -379,7 +386,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(func(params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 
-		dbLock := db.ConnectorLock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+		}
 		requestLocks := rest_api_utils.RequestLocks{
 			DBLock:      dbLock,
 			DelayedLock: delayed_unlock.New(dbLock),
@@ -770,17 +780,15 @@ func configureServer(s *http.Server, scheme, addr string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer cli.Close()
 
 	// create two separate sessions for lock competition
 	s1, err := concurrency.NewSession(cli)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer s1.Close()
 
-	m1 := recipe.NewRWMutex(s1, "/weaviate/schema-connector-rw-lock")
-	dbLock := database.RWLocker(m1)
+	// m1 := recipe.NewRWMutex(s1, "/weaviate/schema-connector-rw-lock")
+	// dbLock := database.RWLocker(m1)
 
 	// Configure schema manager
 	if serverConfig.Environment.Database.LocalSchemaConfig == nil {
@@ -816,12 +824,20 @@ func configureServer(s *http.Server, scheme, addr string) {
 	})
 
 	// Now instantiate a database, with the configured lock, manager and connector.
-	err, db = database.New(messaging, dbLock, manager, dbConnector, contextionary)
+	dbParams := &database.Params{
+		LockerKey:     "/weaviate/schema-connector-rw-lock",
+		LockerSession: s1,
+		SchemaManager: manager,
+		Connector:     dbConnector,
+		Contextionary: contextionary,
+		Messaging:     messaging,
+	}
+	db, err = database.New(dbParams)
 	if err != nil {
 		messaging.ExitError(1, fmt.Sprintf("Could not initialize the database: %s", err.Error()))
 	}
-	manager.TriggerSchemaUpdateCallbacks()
 
+	manager.TriggerSchemaUpdateCallbacks()
 	network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
 		manager.TriggerSchemaUpdateCallbacks()
 	})
@@ -833,10 +849,14 @@ type schemaGetter struct {
 	db database.Database
 }
 
-func (s *schemaGetter) Schema() schema.Schema {
-	dbLock := s.db.ConnectorLock()
+func (s *schemaGetter) Schema() (schema.Schema, error) {
+	dbLock, err := s.db.ConnectorLock()
+	if err != nil {
+		return schema.Schema{}, err
+	}
+
 	defer dbLock.Unlock()
-	return dbLock.GetSchema()
+	return dbLock.GetSchema(), nil
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
@@ -963,4 +983,10 @@ func connectToNetwork() {
 			network = *new_net
 		}
 	}
+}
+
+func errPayloadFromSingleErr(err error) *models.ErrorResponse {
+	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
+		Message: fmt.Sprintf("%s", err),
+	}}}
 }

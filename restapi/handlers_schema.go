@@ -13,6 +13,8 @@
 package restapi
 
 import (
+	"log"
+
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/schema"
 	middleware "github.com/go-openapi/runtime/middleware"
@@ -23,11 +25,14 @@ import (
 
 func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	api.SchemaWeaviateSchemaActionsCreateHandler = schema.WeaviateSchemaActionsCreateHandlerFunc(func(params schema.WeaviateSchemaActionsCreateParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
-		err := schemaManager.AddClass(kind.ACTION_KIND, params.ActionClass)
+		err = schemaManager.AddClass(kind.ACTION_KIND, params.ActionClass)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaActionsCreateOK()
@@ -38,11 +43,14 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaActionsDeleteHandler = schema.WeaviateSchemaActionsDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsDeleteParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
-		err := schemaManager.DropClass(kind.ACTION_KIND, params.ClassName)
+		err = schemaManager.DropClass(kind.ACTION_KIND, params.ClassName)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaActionsDeleteOK()
@@ -53,11 +61,14 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaActionsPropertiesAddHandler = schema.WeaviateSchemaActionsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesAddParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
-		err := schemaManager.AddProperty(kind.ACTION_KIND, params.ClassName, params.Body)
+		err = schemaManager.AddProperty(kind.ACTION_KIND, params.ClassName, params.Body)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaActionsPropertiesAddOK()
@@ -68,8 +79,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaActionsPropertiesDeleteHandler = schema.WeaviateSchemaActionsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesDeleteParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
 		_ = schemaManager.DropProperty(kind.ACTION_KIND, params.ClassName, params.PropertyName)
@@ -78,8 +92,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaActionsPropertiesUpdateHandler = schema.WeaviateSchemaActionsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
 
@@ -94,7 +111,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}
-		err := schemaManager.UpdateProperty(kind.ACTION_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
+		err = schemaManager.UpdateProperty(kind.ACTION_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaActionsPropertiesUpdateOK()
@@ -105,8 +122,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaActionsUpdateHandler = schema.WeaviateSchemaActionsUpdateHandlerFunc(func(params schema.WeaviateSchemaActionsUpdateParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
 
@@ -121,7 +141,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}
-		err := schemaManager.UpdateClass(kind.ACTION_KIND, params.ClassName, newName, newKeywords)
+		err = schemaManager.UpdateClass(kind.ACTION_KIND, params.ClassName, newName, newKeywords)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaActionsUpdateOK()
@@ -131,7 +151,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		}
 	})
 	api.SchemaWeaviateSchemaDumpHandler = schema.WeaviateSchemaDumpHandlerFunc(func(params schema.WeaviateSchemaDumpParams) middleware.Responder {
-		connectorLock := db.ConnectorLock()
+		connectorLock, err := db.ConnectorLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+
 		defer connectorLock.Unlock()
 
 		dbSchema := connectorLock.GetSchema()
@@ -145,11 +169,14 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsCreateHandler = schema.WeaviateSchemaThingsCreateHandlerFunc(func(params schema.WeaviateSchemaThingsCreateParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
-		err := schemaManager.AddClass(kind.THING_KIND, params.ThingClass)
+		err = schemaManager.AddClass(kind.THING_KIND, params.ThingClass)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsCreateOK()
@@ -160,11 +187,14 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsDeleteHandler = schema.WeaviateSchemaThingsDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsDeleteParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
-		err := schemaManager.DropClass(kind.THING_KIND, params.ClassName)
+		err = schemaManager.DropClass(kind.THING_KIND, params.ClassName)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsDeleteOK()
@@ -175,11 +205,14 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsPropertiesAddHandler = schema.WeaviateSchemaThingsPropertiesAddHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesAddParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
-		err := schemaManager.AddProperty(kind.THING_KIND, params.ClassName, params.Body)
+		err = schemaManager.AddProperty(kind.THING_KIND, params.ClassName, params.Body)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsPropertiesAddOK()
@@ -190,8 +223,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsPropertiesDeleteHandler = schema.WeaviateSchemaThingsPropertiesDeleteHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesDeleteParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
 		_ = schemaManager.DropProperty(kind.THING_KIND, params.ClassName, params.PropertyName)
@@ -200,8 +236,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsPropertiesUpdateHandler = schema.WeaviateSchemaThingsPropertiesUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsPropertiesUpdateParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
 
@@ -216,7 +255,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}
-		err := schemaManager.UpdateProperty(kind.THING_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
+		err = schemaManager.UpdateProperty(kind.THING_KIND, params.ClassName, params.PropertyName, newName, newKeywords)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsPropertiesUpdateOK()
@@ -227,8 +266,11 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 	})
 
 	api.SchemaWeaviateSchemaThingsUpdateHandler = schema.WeaviateSchemaThingsUpdateHandlerFunc(func(params schema.WeaviateSchemaThingsUpdateParams) middleware.Responder {
-		schemaLock := db.SchemaLock()
-		defer schemaLock.Unlock()
+		schemaLock, err := db.SchemaLock()
+		if err != nil { //TODO: gh-685
+			panic(err)
+		}
+		defer unlock(schemaLock)
 
 		schemaManager := schemaLock.SchemaManager()
 
@@ -243,7 +285,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 		if len(params.Body.Keywords) > 0 {
 			newKeywords = &params.Body.Keywords
 		}
-		err := schemaManager.UpdateClass(kind.THING_KIND, params.ClassName, newName, newKeywords)
+		err = schemaManager.UpdateClass(kind.THING_KIND, params.ClassName, newName, newKeywords)
 
 		if err == nil {
 			return schema.NewWeaviateSchemaThingsUpdateOK()
@@ -252,4 +294,15 @@ func setupSchemaHandlers(api *operations.WeaviateAPI) {
 			return schema.NewWeaviateSchemaThingsUpdateUnprocessableEntity().WithPayload(&errorResponse)
 		}
 	})
+}
+
+type unlocker interface {
+	Unlock() error
+}
+
+func unlock(l unlocker) {
+	err := l.Unlock()
+	if err != nil {
+		log.Fatal(err)
+	}
 }

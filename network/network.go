@@ -29,7 +29,7 @@ type PeerUpdateCallback func(peers peers.Peers)
 // schema. If it is, then the provided implemtation must make
 // sure that Schema() locks and unlocks.
 type SchemaGetter interface {
-	Schema() schema.Schema
+	Schema() (schema.Schema, error)
 }
 
 // Network is a Minimal abstraction over the network. This is the only API exposed to the rest of Weaviate.
