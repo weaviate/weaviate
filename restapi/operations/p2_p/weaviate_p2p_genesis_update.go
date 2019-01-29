@@ -20,20 +20,22 @@ package p2_p
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateP2pGenesisUpdateHandlerFunc turns a function with the right signature into a weaviate p2p genesis update handler
-type WeaviateP2pGenesisUpdateHandlerFunc func(WeaviateP2pGenesisUpdateParams) middleware.Responder
+type WeaviateP2pGenesisUpdateHandlerFunc func(context.Context, WeaviateP2pGenesisUpdateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateP2pGenesisUpdateHandlerFunc) Handle(params WeaviateP2pGenesisUpdateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateP2pGenesisUpdateHandlerFunc) Handle(ctx context.Context, params WeaviateP2pGenesisUpdateParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateP2pGenesisUpdateHandler interface for that can handle valid weaviate p2p genesis update params
 type WeaviateP2pGenesisUpdateHandler interface {
-	Handle(WeaviateP2pGenesisUpdateParams) middleware.Responder
+	Handle(context.Context, WeaviateP2pGenesisUpdateParams) middleware.Responder
 }
 
 // NewWeaviateP2pGenesisUpdate creates a new http.Handler for the weaviate p2p genesis update operation
@@ -63,7 +65,7 @@ func (o *WeaviateP2pGenesisUpdate) ServeHTTP(rw http.ResponseWriter, r *http.Req
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

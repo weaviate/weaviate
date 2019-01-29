@@ -20,20 +20,22 @@ package things
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateThingsPatchHandlerFunc turns a function with the right signature into a weaviate things patch handler
-type WeaviateThingsPatchHandlerFunc func(WeaviateThingsPatchParams) middleware.Responder
+type WeaviateThingsPatchHandlerFunc func(context.Context, WeaviateThingsPatchParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsPatchHandlerFunc) Handle(params WeaviateThingsPatchParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateThingsPatchHandlerFunc) Handle(ctx context.Context, params WeaviateThingsPatchParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateThingsPatchHandler interface for that can handle valid weaviate things patch params
 type WeaviateThingsPatchHandler interface {
-	Handle(WeaviateThingsPatchParams) middleware.Responder
+	Handle(context.Context, WeaviateThingsPatchParams) middleware.Responder
 }
 
 // NewWeaviateThingsPatch creates a new http.Handler for the weaviate things patch operation
@@ -65,7 +67,7 @@ func (o *WeaviateThingsPatch) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

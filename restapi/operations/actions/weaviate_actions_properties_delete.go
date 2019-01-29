@@ -20,20 +20,22 @@ package actions
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateActionsPropertiesDeleteHandlerFunc turns a function with the right signature into a weaviate actions properties delete handler
-type WeaviateActionsPropertiesDeleteHandlerFunc func(WeaviateActionsPropertiesDeleteParams) middleware.Responder
+type WeaviateActionsPropertiesDeleteHandlerFunc func(context.Context, WeaviateActionsPropertiesDeleteParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateActionsPropertiesDeleteHandlerFunc) Handle(params WeaviateActionsPropertiesDeleteParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateActionsPropertiesDeleteHandlerFunc) Handle(ctx context.Context, params WeaviateActionsPropertiesDeleteParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateActionsPropertiesDeleteHandler interface for that can handle valid weaviate actions properties delete params
 type WeaviateActionsPropertiesDeleteHandler interface {
-	Handle(WeaviateActionsPropertiesDeleteParams) middleware.Responder
+	Handle(context.Context, WeaviateActionsPropertiesDeleteParams) middleware.Responder
 }
 
 // NewWeaviateActionsPropertiesDelete creates a new http.Handler for the weaviate actions properties delete operation
@@ -65,7 +67,7 @@ func (o *WeaviateActionsPropertiesDelete) ServeHTTP(rw http.ResponseWriter, r *h
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
