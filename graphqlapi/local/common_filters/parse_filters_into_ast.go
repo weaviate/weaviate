@@ -14,7 +14,6 @@ package common_filters
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -85,7 +84,7 @@ func parseCompareOp(args map[string]interface{}, operator Operator, rootClass st
 		return nil, fmt.Errorf("a 'operands' is given in clause '%s'; this is not allowed for a %s clause", jsonify(args), operator.Name())
 	}
 
-	path, err := parsePath(args, rootClass)
+	path, err := parsePathFromArgs(args, rootClass)
 	if err != nil {
 		return nil, err
 	}
@@ -151,11 +150,7 @@ func parseOperandsOp(args map[string]interface{}, operator Operator, rootClass s
 	}, nil
 }
 
-// Parses the path
-// It parses an array of strings in this format
-// [0] ClassName -> The root class name we're drilling down from
-// [1] propertyName -> The property name we're interested in.
-func parsePath(args map[string]interface{}, rootClass string) (*Path, error) {
+func parsePathFromArgs(args map[string]interface{}, rootClass string) (*Path, error) {
 	rawPath, ok := args["path"]
 	if !ok {
 		return nil, fmt.Errorf("Missing the 'path' field for the filter '%s'", jsonify(args))
@@ -166,63 +161,12 @@ func parsePath(args map[string]interface{}, rootClass string) (*Path, error) {
 		return nil, fmt.Errorf("The 'path' field for the filter '%s' is not a list of strings", jsonify(args))
 	}
 
-	// we need to manually insert the root class, as that is omitted from the user
-	pathElements = append([]interface{}{rootClass}, pathElements...)
-
-	// The sentinel is used to bootstrap the inlined recursion.
-	// we return sentinal.Child at the end.
-	var sentinel Path
-
-	// Keep track of where we are in the path (e.g. always points to latest Path segment)
-	var current *Path = &sentinel
-
-	// Now go through the path elements, step over it in increments of two.
-	// Simple case:      ClassName -> property
-	// Nested path case: ClassName -> HasRef -> ClassOfRef -> Property
-	for i := 0; i < len(pathElements); i += 2 {
-		lengthRemaining := len(pathElements) - i
-		if lengthRemaining < 2 {
-			return nil, fmt.Errorf("The 'path' field for the filter '%s' is invalid! Missing an argument after '%s'", jsonify(args), pathElements[i])
-		}
-
-		rawClassName, ok := pathElements[i].(string)
-		if !ok {
-			return nil, fmt.Errorf("The 'path' field for the filter '%s' is invalid! Element %v is not a string", jsonify(args), i+1)
-		}
-
-		rawPropertyName, ok := pathElements[i+1].(string)
-		if !ok {
-			return nil, fmt.Errorf("The 'path' field for the filter '%s' is invalid! Element %v is not a string", jsonify(args), i+2)
-		}
-
-		err, className := schema.ValidateClassName(rawClassName)
-		if err != nil {
-			return nil, fmt.Errorf("Expected a valid class name in 'path' field for the filter '%s', but got '%s'", jsonify(args), rawClassName)
-		}
-
-		err, propertyName := schema.ValidatePropertyName(rawPropertyName)
-
-		// Invalid property name?
-		// Try to parse it as as a reference.
-		if err != nil {
-			untitlizedPropertyName := strings.ToLower(rawPropertyName[0:1]) + rawPropertyName[1:len(rawPropertyName)]
-			err, propertyName = schema.ValidatePropertyName(untitlizedPropertyName)
-
-			if err != nil {
-				return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter '%s', but got '%s'", jsonify(args), rawPropertyName)
-			}
-		}
-
-		current.Child = &Path{
-			Class:    className,
-			Property: propertyName,
-		}
-
-		// And down we go.
-		current = current.Child
+	path, err := ParsePath(pathElements, rootClass)
+	if err != nil {
+		return nil, fmt.Errorf("invalid 'path' field for filter '%s': %s", jsonify(args), err)
 	}
 
-	return sentinel.Child, nil
+	return path, nil
 }
 
 // Parse a value used in a comparator operator.

@@ -72,17 +72,6 @@ type LocalFilter struct {
 	Root *Clause
 }
 
-// Represents the path in a filter.
-// Either RelationProperty or PrimitiveProperty must be empty (e.g. "").
-type Path struct {
-	Class    schema.ClassName
-	Property schema.PropertyName
-
-	// If nil, then this is the property we're interested in.
-	// If a pointer to another Path, the constraint applies to that one.
-	Child *Path
-}
-
 type Value struct {
 	Value interface{}
 	Type  schema.DataType
@@ -93,14 +82,4 @@ type Clause struct {
 	On       *Path
 	Value    *Value
 	Operands []Clause
-}
-
-// GetInnerMost recursively searches for child paths, only when no more
-// children can be found will the path be returned
-func (p *Path) GetInnerMost() *Path {
-	if p.Child == nil {
-		return p
-	}
-
-	return p.Child.GetInnerMost()
 }

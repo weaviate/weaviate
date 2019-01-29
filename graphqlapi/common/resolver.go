@@ -9,7 +9,7 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
-package common_resolver
+package common
 
 import (
 	"errors"

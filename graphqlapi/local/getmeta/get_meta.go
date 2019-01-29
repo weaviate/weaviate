@@ -39,10 +39,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			Name:        "WeaviateLocalGetMetaActions",
 			Description: descriptions.LocalGetMetaActionsDesc,
 			Type:        localGetMetaActions,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				// bubble up root resolver
-				return p.Source, nil
-			},
+			Resolve:     passThroughResolver,
 		}
 	}
 
@@ -56,10 +53,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 			Name:        "WeaviateLocalGetMetaThings",
 			Description: descriptions.LocalGetMetaThingsDesc,
 			Type:        localGetMetaThings,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				// bubble up root resolver
-				return p.Source, nil
-			},
+			Resolve:     passThroughResolver,
 		}
 	}
 
@@ -73,11 +67,13 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 		Name:        "WeaviateLocalGetMeta",
 		Type:        getMetaObj,
 		Description: descriptions.LocalGetMetaDesc,
-		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			// bubble up root resolver
-			return p.Source, nil
-		},
+		Resolve:     passThroughResolver,
 	}
 
 	return localField, nil
+}
+
+func passThroughResolver(p graphql.ResolveParams) (interface{}, error) {
+	// bubble up root resolver
+	return p.Source, nil
 }

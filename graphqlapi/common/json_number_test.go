@@ -31,6 +31,10 @@ func TestJSONNumberResolver(t *testing.T) {
 			expectedOutput: 10.0,
 		},
 		testCase{
+			input:          int(10),
+			expectedOutput: 10.0,
+		},
+		testCase{
 			input:          int64(10),
 			expectedOutput: 10.0,
 		},

@@ -4,13 +4,14 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2019 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2018 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
- * CONTACT: hello@creativesoftwarefdn.org
+ * AUTHOR: Bob van Luijt (bob@kub.design)
+ * See www.creativesoftwarefdn.org for details
+ * Contact: @CreativeSofwFdn / bob@kub.design
  */
 
-// Package getmeta provides the Local GetMeta graphql endpoint for Weaviate
+// Package getmeta provides the network getmeta graphql endpoint for Weaviate
 package getmeta
 
 import (
@@ -27,7 +28,7 @@ import (
 )
 
 // Build the dynamically generated GetMeta Things part of the schema
-func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*graphql.Object, error) {
+func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind, peerName string) (*graphql.Object, error) {
 	fields := graphql.Fields{}
 	var (
 		description string
@@ -43,8 +44,7 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*gr
 	}
 
 	for _, class := range databaseSchema {
-		field, err := classField(k, class, class.Description)
-
+		field, err := classField(k, class, class.Description, peerName)
 		if err != nil {
 			return nil, err
 		}
@@ -53,19 +53,20 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*gr
 	}
 
 	return graphql.NewObject(graphql.ObjectConfig{
-		Name:        fmt.Sprintf("WeaviateLocalGetMeta%ssObj", k.TitleizedName()),
+		Name:        fmt.Sprintf("WeaviateNetworkGetMeta%s%ssObj", peerName, k.TitleizedName()),
 		Fields:      fields,
 		Description: description,
 	}), nil
 }
 
-func classField(k kind.Kind, class *models.SemanticSchemaClass, description string) (*graphql.Field, error) {
-	metaClassName := fmt.Sprintf("Meta%s", class.Class)
+func classField(k kind.Kind, class *models.SemanticSchemaClass, description string,
+	peerName string) (*graphql.Field, error) {
+	metaClassName := fmt.Sprintf("%sMeta%s", peerName, class.Class)
 
 	fields := graphql.ObjectConfig{
 		Name: metaClassName,
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
-			fields, err := classPropertyFields(class)
+			fields, err := classPropertyFields(class, peerName)
 			if err != nil {
 				// we cannot return an error in this FieldsThunk and have to panic unfortunately
 				panic(fmt.Sprintf("Failed to assemble single Local Meta Class field: %s", err))
@@ -93,22 +94,22 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 				Description: descriptions.LocalGetWhereDesc,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
-						Name:        fmt.Sprintf("WeaviateLocalGetMeta%s%sWhereInpObj", k.Name(), class.Class),
-						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGetMeta%s%s", k.Name(), class.Class)),
+						Name:        fmt.Sprintf("WeaviateNetworkGetMeta%s%s%sWhereInpObj", peerName, k.Name(), class.Class),
+						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGetMeta%s%s%s", peerName, k.Name(), class.Class)),
 						Description: descriptions.LocalGetWhereInpObjDesc,
 					},
 				),
 			},
 		},
-		Resolve: makeResolveClass(k),
 	}
 
 	return fieldsField, nil
 }
 
-func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, error) {
+func classPropertyFields(class *models.SemanticSchemaClass, peerName string) (graphql.Fields, error) {
 	fields := graphql.Fields{}
-	metaField, err := commonGetMeta.MetaPropertyField(class, "Meta")
+	prefix := fmt.Sprintf("%sMeta", peerName)
+	metaField, err := commonGetMeta.MetaPropertyField(class, prefix)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +121,7 @@ func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, err
 			return nil, fmt.Errorf("%s.%s: %s", class.Class, property.Name, err)
 		}
 
-		convertedDataType, err := commonGetMeta.ClassPropertyField(*propertyType, class, property, "Meta")
+		convertedDataType, err := commonGetMeta.ClassPropertyField(*propertyType, class, property, prefix)
 		if err != nil {
 			return nil, err
 		}

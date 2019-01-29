@@ -9,15 +9,18 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
+
 package local
 
 import (
-	local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
-	local_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
+	get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
+	getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 )
 
-// Resolving local GraphQL queries
+// Resolver for local GraphQL queries
 type Resolver interface {
-	local_get.Resolver
-	local_getmeta.Resolver
+	get.Resolver
+	getmeta.Resolver
+	aggregate.Resolver
 }
