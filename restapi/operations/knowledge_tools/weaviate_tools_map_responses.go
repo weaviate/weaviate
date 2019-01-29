@@ -141,6 +141,50 @@ func (o *WeaviateToolsMapNotFound) WriteResponse(rw http.ResponseWriter, produce
 	rw.WriteHeader(404)
 }
 
+// WeaviateToolsMapInternalServerErrorCode is the HTTP code returned for type WeaviateToolsMapInternalServerError
+const WeaviateToolsMapInternalServerErrorCode int = 500
+
+/*WeaviateToolsMapInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response weaviateToolsMapInternalServerError
+*/
+type WeaviateToolsMapInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateToolsMapInternalServerError creates WeaviateToolsMapInternalServerError with default headers values
+func NewWeaviateToolsMapInternalServerError() *WeaviateToolsMapInternalServerError {
+
+	return &WeaviateToolsMapInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate tools map internal server error response
+func (o *WeaviateToolsMapInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateToolsMapInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate tools map internal server error response
+func (o *WeaviateToolsMapInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateToolsMapInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // WeaviateToolsMapNotImplementedCode is the HTTP code returned for type WeaviateToolsMapNotImplemented
 const WeaviateToolsMapNotImplementedCode int = 501
 

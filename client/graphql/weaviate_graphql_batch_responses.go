@@ -65,6 +65,13 @@ func (o *WeaviateGraphqlBatchReader) ReadResponse(response runtime.ClientRespons
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateGraphqlBatchInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -157,6 +164,35 @@ func (o *WeaviateGraphqlBatchUnprocessableEntity) Error() string {
 }
 
 func (o *WeaviateGraphqlBatchUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewWeaviateGraphqlBatchInternalServerError creates a WeaviateGraphqlBatchInternalServerError with default headers values
+func NewWeaviateGraphqlBatchInternalServerError() *WeaviateGraphqlBatchInternalServerError {
+	return &WeaviateGraphqlBatchInternalServerError{}
+}
+
+/*WeaviateGraphqlBatchInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateGraphqlBatchInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateGraphqlBatchInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /graphql/batch][%d] weaviateGraphqlBatchInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateGraphqlBatchInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

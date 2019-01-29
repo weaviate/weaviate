@@ -21,6 +21,8 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateSchemaActionsPropertiesDeleteOKCode is the HTTP code returned for type WeaviateSchemaActionsPropertiesDeleteOK
@@ -93,4 +95,48 @@ func (o *WeaviateSchemaActionsPropertiesDeleteForbidden) WriteResponse(rw http.R
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(403)
+}
+
+// WeaviateSchemaActionsPropertiesDeleteInternalServerErrorCode is the HTTP code returned for type WeaviateSchemaActionsPropertiesDeleteInternalServerError
+const WeaviateSchemaActionsPropertiesDeleteInternalServerErrorCode int = 500
+
+/*WeaviateSchemaActionsPropertiesDeleteInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response weaviateSchemaActionsPropertiesDeleteInternalServerError
+*/
+type WeaviateSchemaActionsPropertiesDeleteInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateSchemaActionsPropertiesDeleteInternalServerError creates WeaviateSchemaActionsPropertiesDeleteInternalServerError with default headers values
+func NewWeaviateSchemaActionsPropertiesDeleteInternalServerError() *WeaviateSchemaActionsPropertiesDeleteInternalServerError {
+
+	return &WeaviateSchemaActionsPropertiesDeleteInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate schema actions properties delete internal server error response
+func (o *WeaviateSchemaActionsPropertiesDeleteInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateSchemaActionsPropertiesDeleteInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema actions properties delete internal server error response
+func (o *WeaviateSchemaActionsPropertiesDeleteInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateSchemaActionsPropertiesDeleteInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }
