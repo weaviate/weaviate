@@ -144,9 +144,9 @@ var solveMetaRootClass = function(nodes_in_class, className, args) {
 		else if (type == "number") {
 			if (!isNaN(nodes_in_class[0][key])) {
 				metadata[key]["type"] = "number"
-				metadata[key]["lowest"] = 999999999999
-				metadata[key]["highest"] = -999999999999
-				metadata[key]["average"] = 0
+				metadata[key]["minimum"] = 999999999999
+				metadata[key]["maximum"] = -999999999999
+				metadata[key]["mean"] = 0
 				metadata[key]["sum"] = 0
 			}
 			else {
@@ -185,14 +185,14 @@ var solveMetaRootClass = function(nodes_in_class, className, args) {
 				if (!isNaN(nodes_in_class[node][key])) {
 					metadata[key]["type"] = "number"
 					value = parseFloat(nodes_in_class[node][key])
-					if (value < metadata[key]["lowest"]) {
-						metadata[key]["lowest"] = value
+					if (value < metadata[key]["minimum"]) {
+						metadata[key]["minimum"] = value
 					}
-					if (value > metadata[key]["highest"]) {
-						metadata[key]["highest"] = value
+					if (value > metadata[key]["maximum"]) {
+						metadata[key]["maximum"] = value
 					}
 					metadata[key]["sum"] += value
-					metadata[key]["average"] = (metadata[key]["sum"] / metadata[key]["count"])
+					metadata[key]["mean"] = (metadata[key]["sum"] / metadata[key]["count"])
 				}
 			}
 			else if (type == "string") {
