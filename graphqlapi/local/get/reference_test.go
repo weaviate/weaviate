@@ -9,7 +9,8 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
-package local_get
+
+package get
 
 import (
 	"encoding/json"

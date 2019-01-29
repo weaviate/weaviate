@@ -9,7 +9,8 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
-package local_get
+
+package get
 
 import (
 	"fmt"
@@ -17,7 +18,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	common "github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 )
 

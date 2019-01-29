@@ -10,13 +10,14 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */
 // These tests verify that the parameters to the resolver are properly extracted from a GraphQL query.
-package local_get
+
+package get
 
 import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common_resolver"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common"
 	test_helper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
 )
 
@@ -64,7 +65,7 @@ func TestExtractPagination(t *testing.T) {
 		Kind:       kind.ACTION_KIND,
 		ClassName:  "SomeAction",
 		Properties: []SelectProperty{{Name: "intField", IsPrimitive: true}},
-		Pagination: &common_resolver.Pagination{
+		Pagination: &common.Pagination{
 			First: 10,
 			After: 20,
 		},

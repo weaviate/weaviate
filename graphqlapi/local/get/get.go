@@ -10,7 +10,7 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */
 
-package local_get
+package get
 
 import (
 	"fmt"

@@ -45,6 +45,7 @@ import (
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	graphql_local_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
 	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	graphql_local_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -346,5 +347,9 @@ func (f *Foobar) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (int
 }
 
 func (f *Foobar) LocalGetMeta(info *graphql_local_getmeta.Params) (interface{}, error) {
+	return nil, nil
+}
+
+func (f *Foobar) LocalAggregate(info *graphql_local_aggregate.Params) (interface{}, error) {
 	return nil, nil
 }
