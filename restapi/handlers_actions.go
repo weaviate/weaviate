@@ -35,8 +35,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsGetParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
-			// TODO: gh-685: add 500 code
-			panic(err)
+			return actions.NewWeaviateActionsGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
@@ -58,8 +57,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 	})
 	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(ctx context.Context, params actions.WeaviateActionHistoryGetParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
-		if err != nil { //TODO: gh-685
-			panic(err)
+		if err != nil {
+			return actions.NewWeaviateActionHistoryGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
@@ -96,8 +95,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 	})
 	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsPatchParams) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
-		if err != nil { //TODO: gh-685
-			panic(err)
+		if err != nil {
+			return actions.NewWeaviateActionsPatchInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		delayedLock := delayed_unlock.New(schemaLock)
 		defer unlock(delayedLock)
@@ -202,8 +201,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 	})
 	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsPropertiesCreateParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
-		if err != nil { //TODO: gh-685
-			panic(err)
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -293,8 +292,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		// Delete a specific SingleRef from the selected property.
 		dbLock, err := db.ConnectorLock()
-		if err != nil { //TODO: gh-685
-			panic(err)
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -384,8 +383,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 	})
 	api.ActionsWeaviateActionsPropertiesUpdateHandler = actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsPropertiesUpdateParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
-		if err != nil { //TODO: gh-685
-			panic(err)
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -456,8 +455,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 	})
 	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionUpdateParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
-		if err != nil { //TODO: gh-685
-			panic(err)
+		if err != nil {
+			return actions.NewWeaviateActionUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -519,8 +518,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 	})
 	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsValidateParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
-		if err != nil { //TODO: gh-685
-			panic(err)
+		if err != nil {
+			return actions.NewWeaviateActionsValidateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
@@ -537,8 +536,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 	})
 	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsCreateParams) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
-		if err != nil { //TODO: gh-685
-			panic(err)
+		if err != nil {
+			return actions.NewWeaviateActionsCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		delayedLock := delayed_unlock.New(schemaLock)
 		defer delayedLock.Unlock()
@@ -591,8 +590,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 	})
 	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsDeleteParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
-		if err != nil { //TODO: gh-685
-			panic(err)
+		if err != nil {
+			return actions.NewWeaviateActionsDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
@@ -636,8 +635,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsListParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
-		if err != nil { //TODO: gh-685
-			panic(err)
+		if err != nil {
+			return actions.NewWeaviateActionsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		defer dbLock.Unlock()
 
