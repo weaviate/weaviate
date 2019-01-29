@@ -183,9 +183,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(ctx context.Context, params meta.WeaviateMetaGetParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
-			// return meta.NewWeaviateMetaGet(
-			// TODO: gh-685: add 500 code
-			panic(err)
+			return meta.NewWeaviateMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 		defer dbLock.Unlock()
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
