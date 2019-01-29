@@ -20,20 +20,22 @@ package things
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateThingsValidateHandlerFunc turns a function with the right signature into a weaviate things validate handler
-type WeaviateThingsValidateHandlerFunc func(WeaviateThingsValidateParams) middleware.Responder
+type WeaviateThingsValidateHandlerFunc func(context.Context, WeaviateThingsValidateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsValidateHandlerFunc) Handle(params WeaviateThingsValidateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateThingsValidateHandlerFunc) Handle(ctx context.Context, params WeaviateThingsValidateParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateThingsValidateHandler interface for that can handle valid weaviate things validate params
 type WeaviateThingsValidateHandler interface {
-	Handle(WeaviateThingsValidateParams) middleware.Responder
+	Handle(context.Context, WeaviateThingsValidateParams) middleware.Responder
 }
 
 // NewWeaviateThingsValidate creates a new http.Handler for the weaviate things validate operation
@@ -65,7 +67,7 @@ func (o *WeaviateThingsValidate) ServeHTTP(rw http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

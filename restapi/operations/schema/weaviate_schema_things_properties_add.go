@@ -20,20 +20,22 @@ package schema
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateSchemaThingsPropertiesAddHandlerFunc turns a function with the right signature into a weaviate schema things properties add handler
-type WeaviateSchemaThingsPropertiesAddHandlerFunc func(WeaviateSchemaThingsPropertiesAddParams) middleware.Responder
+type WeaviateSchemaThingsPropertiesAddHandlerFunc func(context.Context, WeaviateSchemaThingsPropertiesAddParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateSchemaThingsPropertiesAddHandlerFunc) Handle(params WeaviateSchemaThingsPropertiesAddParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateSchemaThingsPropertiesAddHandlerFunc) Handle(ctx context.Context, params WeaviateSchemaThingsPropertiesAddParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateSchemaThingsPropertiesAddHandler interface for that can handle valid weaviate schema things properties add params
 type WeaviateSchemaThingsPropertiesAddHandler interface {
-	Handle(WeaviateSchemaThingsPropertiesAddParams) middleware.Responder
+	Handle(context.Context, WeaviateSchemaThingsPropertiesAddParams) middleware.Responder
 }
 
 // NewWeaviateSchemaThingsPropertiesAdd creates a new http.Handler for the weaviate schema things properties add operation
@@ -63,7 +65,7 @@ func (o *WeaviateSchemaThingsPropertiesAdd) ServeHTTP(rw http.ResponseWriter, r 
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

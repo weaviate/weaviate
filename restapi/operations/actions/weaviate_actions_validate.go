@@ -20,20 +20,22 @@ package actions
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateActionsValidateHandlerFunc turns a function with the right signature into a weaviate actions validate handler
-type WeaviateActionsValidateHandlerFunc func(WeaviateActionsValidateParams) middleware.Responder
+type WeaviateActionsValidateHandlerFunc func(context.Context, WeaviateActionsValidateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateActionsValidateHandlerFunc) Handle(params WeaviateActionsValidateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateActionsValidateHandlerFunc) Handle(ctx context.Context, params WeaviateActionsValidateParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateActionsValidateHandler interface for that can handle valid weaviate actions validate params
 type WeaviateActionsValidateHandler interface {
-	Handle(WeaviateActionsValidateParams) middleware.Responder
+	Handle(context.Context, WeaviateActionsValidateParams) middleware.Responder
 }
 
 // NewWeaviateActionsValidate creates a new http.Handler for the weaviate actions validate operation
@@ -65,7 +67,7 @@ func (o *WeaviateActionsValidate) ServeHTTP(rw http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

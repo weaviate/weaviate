@@ -20,20 +20,22 @@ package things
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateThingsPropertiesCreateHandlerFunc turns a function with the right signature into a weaviate things properties create handler
-type WeaviateThingsPropertiesCreateHandlerFunc func(WeaviateThingsPropertiesCreateParams) middleware.Responder
+type WeaviateThingsPropertiesCreateHandlerFunc func(context.Context, WeaviateThingsPropertiesCreateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsPropertiesCreateHandlerFunc) Handle(params WeaviateThingsPropertiesCreateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateThingsPropertiesCreateHandlerFunc) Handle(ctx context.Context, params WeaviateThingsPropertiesCreateParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateThingsPropertiesCreateHandler interface for that can handle valid weaviate things properties create params
 type WeaviateThingsPropertiesCreateHandler interface {
-	Handle(WeaviateThingsPropertiesCreateParams) middleware.Responder
+	Handle(context.Context, WeaviateThingsPropertiesCreateParams) middleware.Responder
 }
 
 // NewWeaviateThingsPropertiesCreate creates a new http.Handler for the weaviate things properties create operation
@@ -65,7 +67,7 @@ func (o *WeaviateThingsPropertiesCreate) ServeHTTP(rw http.ResponseWriter, r *ht
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

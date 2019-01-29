@@ -20,20 +20,22 @@ package schema
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateSchemaActionsCreateHandlerFunc turns a function with the right signature into a weaviate schema actions create handler
-type WeaviateSchemaActionsCreateHandlerFunc func(WeaviateSchemaActionsCreateParams) middleware.Responder
+type WeaviateSchemaActionsCreateHandlerFunc func(context.Context, WeaviateSchemaActionsCreateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateSchemaActionsCreateHandlerFunc) Handle(params WeaviateSchemaActionsCreateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateSchemaActionsCreateHandlerFunc) Handle(ctx context.Context, params WeaviateSchemaActionsCreateParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateSchemaActionsCreateHandler interface for that can handle valid weaviate schema actions create params
 type WeaviateSchemaActionsCreateHandler interface {
-	Handle(WeaviateSchemaActionsCreateParams) middleware.Responder
+	Handle(context.Context, WeaviateSchemaActionsCreateParams) middleware.Responder
 }
 
 // NewWeaviateSchemaActionsCreate creates a new http.Handler for the weaviate schema actions create operation
@@ -63,7 +65,7 @@ func (o *WeaviateSchemaActionsCreate) ServeHTTP(rw http.ResponseWriter, r *http.
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

@@ -22,6 +22,8 @@ import (
 	"net/http"
 	"strconv"
 
+	context "golang.org/x/net/context"
+
 	errors "github.com/go-openapi/errors"
 	middleware "github.com/go-openapi/runtime/middleware"
 	strfmt "github.com/go-openapi/strfmt"
@@ -32,16 +34,16 @@ import (
 )
 
 // WeaviateBatchingThingsCreateHandlerFunc turns a function with the right signature into a weaviate batching things create handler
-type WeaviateBatchingThingsCreateHandlerFunc func(WeaviateBatchingThingsCreateParams) middleware.Responder
+type WeaviateBatchingThingsCreateHandlerFunc func(context.Context, WeaviateBatchingThingsCreateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateBatchingThingsCreateHandlerFunc) Handle(params WeaviateBatchingThingsCreateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateBatchingThingsCreateHandlerFunc) Handle(ctx context.Context, params WeaviateBatchingThingsCreateParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateBatchingThingsCreateHandler interface for that can handle valid weaviate batching things create params
 type WeaviateBatchingThingsCreateHandler interface {
-	Handle(WeaviateBatchingThingsCreateParams) middleware.Responder
+	Handle(context.Context, WeaviateBatchingThingsCreateParams) middleware.Responder
 }
 
 // NewWeaviateBatchingThingsCreate creates a new http.Handler for the weaviate batching things create operation
@@ -73,7 +75,7 @@ func (o *WeaviateBatchingThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

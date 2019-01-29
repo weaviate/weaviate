@@ -20,20 +20,22 @@ package things
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateThingHistoryGetHandlerFunc turns a function with the right signature into a weaviate thing history get handler
-type WeaviateThingHistoryGetHandlerFunc func(WeaviateThingHistoryGetParams) middleware.Responder
+type WeaviateThingHistoryGetHandlerFunc func(context.Context, WeaviateThingHistoryGetParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingHistoryGetHandlerFunc) Handle(params WeaviateThingHistoryGetParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateThingHistoryGetHandlerFunc) Handle(ctx context.Context, params WeaviateThingHistoryGetParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateThingHistoryGetHandler interface for that can handle valid weaviate thing history get params
 type WeaviateThingHistoryGetHandler interface {
-	Handle(WeaviateThingHistoryGetParams) middleware.Responder
+	Handle(context.Context, WeaviateThingHistoryGetParams) middleware.Responder
 }
 
 // NewWeaviateThingHistoryGet creates a new http.Handler for the weaviate thing history get operation
@@ -65,7 +67,7 @@ func (o *WeaviateThingHistoryGet) ServeHTTP(rw http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

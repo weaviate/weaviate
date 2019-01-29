@@ -20,6 +20,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/coreos/etcd/clientv3"
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database"
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
@@ -28,7 +29,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema_migrator"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network"
-	"github.com/coreos/etcd/clientv3"
 	log "github.com/sirupsen/logrus"
 )
 
