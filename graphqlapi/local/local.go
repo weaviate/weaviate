@@ -12,8 +12,6 @@
 package local
 
 import (
-	"fmt"
-
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	local_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
@@ -55,7 +53,6 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 		Type:        localObject,
 		Description: descriptions.WeaviateLocalDesc,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-			fmt.Printf("- localGetAndMetaObjectResolver (pass on source; the resolver)\n")
 			// This step does nothing; all ways allow the resolver to continue
 			return p.Source, nil
 		},

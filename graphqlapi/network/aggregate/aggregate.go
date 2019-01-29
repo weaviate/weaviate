@@ -9,6 +9,7 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
+
 package aggregate
 
 import (
@@ -23,7 +24,7 @@ import (
 	"github.com/graphql-go/graphql"
 )
 
-// Builds the classes below a Network -> Aggregate -> (k kind.Kind)
+// BuildAggregateClasses builds the classes below a Network -> Aggregate -> (k kind.Kind)
 func BuildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *models.SemanticSchema, knownClasses *map[string]*graphql.Object, weaviate string) (*graphql.Object, error) {
 	classFields := graphql.Fields{}
 
@@ -54,8 +55,15 @@ func BuildAggregateClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema 
 
 // Build a single class in Network -> Aggregate -> (k kind.Kind) -> (models.SemanticSchemaClass)
 func buildAggregateClass(dbSchema *schema.Schema, k kind.Kind, class *models.SemanticSchemaClass, knownClasses *map[string]*graphql.Object, kindName string, weaviate string) (*graphql.Field, error) {
-	classObject := graphql.NewObject(graphql.ObjectConfig{
 
+	if len(class.Properties) == 0 {
+		// if we don't have class properties, we can't build this particular class,
+		// as it would not have any fields. So we have to return (without an
+		// error), so as not to block the creation of other classes
+		return nil, nil
+	}
+
+	classObject := graphql.NewObject(graphql.ObjectConfig{
 		Name: fmt.Sprintf("Aggregate%s%s", weaviate, class.Class),
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 

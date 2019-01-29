@@ -27,7 +27,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -63,10 +62,6 @@ func (j *Janusgraph) getClass(k kind.Kind, searchUUID strfmt.UUID, atClass *stri
 			refEdges = append(refEdges, ref.AssertEdge())
 		}
 	}
-
-	fmt.Print("\n\n\n\n\n\n")
-	spew.Dump(vertex)
-	fmt.Print("\n\n\n\n\n\n")
 
 	if foundUUID != nil {
 		*foundUUID = strfmt.UUID(vertex.AssertPropertyValue(PROP_UUID).AssertString())
@@ -214,10 +209,6 @@ func (j *Janusgraph) deleteClass(k kind.Kind, UUID strfmt.UUID) error {
 	q := gremlin.G.V().HasString(PROP_KIND, k.Name()).
 		HasString(PROP_UUID, string(UUID)).
 		Drop()
-
-	fmt.Print("\n\n\n\n\n the deletion query:")
-	spew.Dump(q)
-	fmt.Print("\n\n\n\n\n")
 
 	_, err := j.client.Execute(q)
 

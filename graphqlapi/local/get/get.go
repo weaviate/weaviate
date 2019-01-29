@@ -56,7 +56,6 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 			Description: descriptions.LocalGetActionsDesc,
 			Type:        localGetActions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				fmt.Printf("- LocalGetActions (pass on Source)\n")
 				// Does nothing; pass through the filters
 				return p.Source, nil
 			},
@@ -74,7 +73,6 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 			Description: descriptions.LocalGetThingsDesc,
 			Type:        localGetThings,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				fmt.Printf("- LocalGetThings (pass on Source)\n")
 				// Does nothing; pass through the filters
 				return p.Source, nil
 			},
