@@ -317,265 +317,115 @@ function createAggregateSubClasses(ontologyThings, weaviate){
         // declare props that should be returned
         var returnFields = {}
 
-        // add count as field
-        returnFields["count"] = {
-          name: "Aggregate" + weaviate + singleClass.class + "Count",
-          description: function() {
-            return getDesc("AggregateSubClassCount")},
-          type: new GraphQLObjectType({
-            name: "Aggregate" + weaviate + singleClass.class + "CountObj",
-            description: function() {
-              return getDesc("AggregateSubClassCountObj")},
-            fields: function(){
-              var returnProps = {}
-              // loop over properties
-              singleClass.properties.forEach(singleClassProperty => {
-                singleClassProperty["@dataType"].forEach(singleClassPropertyDatatype => {
-                  returnProps[singleClassProperty.name] = {
-                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name,
-                    description: singleClassProperty.description,
-                    type: GraphQLInt
-                  }
-                })
-              });
-              return returnProps
-            }
-          })
-        }
-
-        // checkIfNumericProps
-        var numericProps = []
         singleClass.properties.forEach(singleClassProperty => {
-          singleClassProperty["@dataType"].forEach(singleClassPropertyDatatype => {
-            if(singleClassPropertyDatatype === "int" || singleClassPropertyDatatype === "number") {
-              numericProps.push(singleClassProperty)
-            }
-          })
-        })
+          returnFields[singleClassProperty.name] = {
+            name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1),
+            description: singleClassProperty.description,
+            type: new GraphQLObjectType({
+              name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Obj",
+              description: function() {
+                return getDesc("AggregateSubClassObj")},
+              fields: function(){
+                var returnProps = {}
+                returnProps["count"] = {
+                  name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Count",
+                  description: getDesc("AggregateSubClassCount"),
+                  type: GraphQLInt
+                };
+                returnProps["groupedBy"] = {
+                  name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "GroupedBy",
+                  description: getDesc("AggregateSubClassGroupedBy"),
+                  type: new GraphQLObjectType({
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "GroupedByObj",
+                    description: function() {
+                      return getDesc("AggregateSubClassGroupedByObj")},
+                    fields: {
+                      path: {
+                        name: "AggregateSubClassGroupedByPath",
+                        description: function() {
+                          return getDesc("AggregateSubClassGroupedByPath")},
+                        type: new GraphQLList(GraphQLString)
+                      }, 
+                      value: {
+                        name: "AggregateSubClassGroupedByValue",
+                        description: function() {
+                          return getDesc("AggregateSubClassGroupedByValue")},
+                        type: GraphQLString
+                      }
+                    }
+                  })
+                };
 
-        if (numericProps.length > 0) {
-          // add numeric aggregations as field
-          returnFields["minimum"] = {
-            name: "Aggregate" + weaviate + singleClass.class + "Minimum",
-            description: function() {
-              return getDesc("AggregateSubClassMinimum")},
-            type: new GraphQLObjectType({
-              name: "Aggregate" + weaviate + singleClass.class + "MinimumObj",
-              description: function() {
-                return getDesc("AggregateSubClassMinimumObj")},
-              fields: function(){
-                var returnProps = {}
-                // loop over properties
-                singleClass.properties.forEach(numericProps => {
-                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
-                    if(singleClassPropertyDatatype === "int") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLInt
-                      }
-                    } else if(singleClassPropertyDatatype === "number") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLFloat
-                      }
-                    }
-                  })
-                });
-                return returnProps
-              }
-            })
-          },
-          returnFields["maximum"] = {
-            name: "Aggregate" + weaviate + singleClass.class + "Maximum",
-            description: function() {
-              return getDesc("AggregateSubClassMaximum")},
-            type: new GraphQLObjectType({
-              name: "Aggregate" + weaviate + singleClass.class + "MaximumObj",
-              description: function() {
-                return getDesc("AggregateSubClassMaximumObj")},
-              fields: function(){
-                var returnProps = {}
-                // loop over properties
-                singleClass.properties.forEach(numericProps => {
-                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
-                    if(singleClassPropertyDatatype === "int") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLInt
-                      }
-                    } else if(singleClassPropertyDatatype === "number") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLFloat
-                      }
-                    }
-                  })
-                });
-                return returnProps
-              }
-            })
-          },
-          returnFields["mode"] = {
-            name: "Aggregate" + weaviate + singleClass.class + "Mode",
-            description: function() {
-              return getDesc("AggregateSubClassMode")},
-            type: new GraphQLObjectType({
-              name: "Aggregate" + weaviate + singleClass.class + "ModeObj",
-              description: function() {
-                return getDesc("AggregateSubClassModeObj")},
-              fields: function(){
-                var returnProps = {}
-                // loop over properties
-                singleClass.properties.forEach(numericProps => {
-                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
-                    if(singleClassPropertyDatatype === "int") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLInt
-                      }
-                    } else if(singleClassPropertyDatatype === "number") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLFloat
-                      }
-                    }
-                  })
-                });
-                return returnProps
-              }
-            })
-          },
-          returnFields["median"] = {
-            name: "Aggregate" + weaviate + singleClass.class + "Median",
-            description: function() {
-              return getDesc("AggregateSubClassMedian")},
-            type: new GraphQLObjectType({
-              name: "Aggregate" + weaviate + singleClass.class + "MedianObj",
-              description: function() {
-                return getDesc("AggregateSubClassMedianObj")},
-              fields: function(){
-                var returnProps = {}
-                // loop over properties
-                singleClass.properties.forEach(numericProps => {
-                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
-                    if(singleClassPropertyDatatype === "int") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLInt
-                      }
-                    } else if(singleClassPropertyDatatype === "number") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLFloat
-                      }
-                    }
-                  })
-                });
-                return returnProps
-              }
-            })
-          },
-          returnFields["sum"] = {
-            name: "Aggregate" + weaviate + singleClass.class + "Sum",
-            description: function() {
-              return getDesc("AggregateSubClassSum")},
-            type: new GraphQLObjectType({
-              name: "Aggregate" + weaviate + singleClass.class + "SumObj",
-              description: function() {
-                return getDesc("AggregateSubClassSumObj")},
-              fields: function(){
-                var returnProps = {}
-                // loop over properties
-                singleClass.properties.forEach(numericProps => {
-                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
-                    if(singleClassPropertyDatatype === "int") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLInt
-                      }
-                    } else if(singleClassPropertyDatatype === "number") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLFloat
-                      }
-                    }
-                  })
-                });
-                return returnProps
-              }
-            })
-          }, 
-          returnFields["mean"] = {
-            name: "Aggregate" + weaviate + singleClass.class + "Mean",
-            description: function() {
-              return getDesc("AggregateSubClassMean")},
-            type: new GraphQLObjectType({
-              name: "Aggregate" + weaviate + singleClass.class + "MeanObj",
-              description: function() {
-                return getDesc("AggregateSubClassMeanObj")},
-              fields: function(){
-                var returnProps = {}
-                // loop over properties
-                singleClass.properties.forEach(numericProps => {
-                  numericProps["@dataType"].forEach(singleClassPropertyDatatype => {
-                    if(singleClassPropertyDatatype === "int") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLInt
-                      }
-                    } else if(singleClassPropertyDatatype === "number") {
-                      returnProps[numericProps.name] = {
-                        name: "Aggregate" + weaviate + singleClass.class + numericProps.name,
-                        description: numericProps.description,
-                        type: GraphQLFloat
-                      }
-                    }
-                  })
-                });
+                // numeric properties have additional aggregation values to return
+                if (singleClassProperty["@dataType"] == "number") {
+                  returnProps["minimum"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Minimum",
+                    description: getDesc("AggregateSubClassMinimum"),
+                    type: GraphQLFloat
+                  };
+                  returnProps["maxumum"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Maximum",
+                    description: getDesc("AggregateSubClassMaximum"),
+                    type: GraphQLFloat
+                  };
+                  returnProps["mean"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Mean",
+                    description: getDesc("AggregateSubClassMean"),
+                    type: GraphQLFloat
+                  };
+                  returnProps["median"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Median",
+                    description: getDesc("AggregateSubClassMedian"),
+                    type: GraphQLFloat
+                  };
+                  returnProps["mode"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Mode",
+                    description: getDesc("AggregateSubClassMode"),
+                    type: GraphQLFloat
+                  };
+                  returnProps["sum"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Sum",
+                    description: getDesc("AggregateSubClassSum"),
+                    type: GraphQLFloat
+                  };
+                }
+                if (singleClassProperty["@dataType"] == "int") {
+                  returnProps["minimum"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Minimum",
+                    description: getDesc("AggregateSubClassMinimum"),
+                    type: GraphQLInt
+                  };
+                  returnProps["maxumum"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Maximum",
+                    description: getDesc("AggregateSubClassMaximum"),
+                    type: GraphQLInt
+                  };
+                  returnProps["mean"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Mean",
+                    description: getDesc("AggregateSubClassMean"),
+                    type: GraphQLFloat
+                  };
+                  returnProps["median"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Median",
+                    description: getDesc("AggregateSubClassMedian"),
+                    type: GraphQLInt
+                  };
+                  returnProps["mode"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Mode",
+                    description: getDesc("AggregateSubClassMode"),
+                    type: GraphQLInt
+                  };
+                  returnProps["sum"] = {
+                    name: "Aggregate" + weaviate + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Sum",
+                    description: getDesc("AggregateSubClassSum"),
+                    type: GraphQLInt
+                  };
+                }
                 return returnProps
               }
             })
           }
-        }
-
-        // add groupedBy as field
-        returnFields["groupedBy"] = { // should actually be the property where there is grouped on
-          name: "Aggregate" + weaviate + singleClass.class + "GroupedByObj",
-          description: function() {
-          return getDesc("AggregateSubClassGrouped")},
-          type: new GraphQLObjectType({
-            name: "Aggregate" + weaviate + singleClass.class + "GroupedByObj",
-            description: function() {
-              return getDesc("AggregateSubClassGroupedObj")},
-            fields: {
-              path: {
-                name: "AggregateSubClassGroupedPath",
-                description: function() {
-                  return getDesc("AggregateSubClassGroupedPath")},
-                type: new GraphQLList(GraphQLString)
-              }, 
-              value: {
-                name: "AggregateSubClassGroupedValue",
-                description: function() {
-                  return getDesc("AggregateSubClassGroupedValue")},
-                type: GraphQLString
-              }
-            }
-          })
-        }
-
-
+        });
         return returnFields
       }
     });
@@ -658,13 +508,13 @@ function createMetaSubClasses(ontologyThings, location='') {
           returntypes = []
           standard_fields = {
             type: {
-              name: location + "Meta" + singleClass.class + singleClassProperty.name + "Type",
+              name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Type",
               description: function() {
                 return getDesc("MetaClassPropertyType")},
               type: GraphQLString,
             },
             count: {
-              name: location + "Meta" + singleClass.class + singleClassProperty.name + "Count",
+              name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Count",
               description: function() {
                 return getDesc("MetaClassPropertyCount")},
               type: GraphQLInt,
@@ -678,12 +528,12 @@ function createMetaSubClasses(ontologyThings, location='') {
                 name: location + "Meta" + singleClass.class + singleClassProperty.name,
                 description: "Meta information about the property \"" + singleClassProperty.name + "\"",
                 type: new GraphQLObjectType({
-                  name: location + "Meta" + singleClass.class + singleClassProperty.name + "Obj",
+                  name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Obj",
                   description: function() {
                     return getDesc("MetaClassPropertyObj")},
                   fields: Object.assign(standard_fields, {
                     pointingTo: {
-                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "PointingTo",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "PointingTo",
                       description: function() {
                         return getDesc("MetaClassPropertyPointingTo")},
                       type: new GraphQLList(GraphQLString)
@@ -693,18 +543,18 @@ function createMetaSubClasses(ontologyThings, location='') {
               }
             } else if(singleClassPropertyDatatype === "string" || singleClassPropertyDatatype === "date" || singleClassPropertyDatatype === "text") {
               topOccurrencesType = new GraphQLObjectType({
-                name: location + "Meta" + singleClass.class + singleClassProperty.name + "TopOccurrencesObj",
+                name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "TopOccurrencesObj",
                 description: function() {
                   return getDesc("MetaClassPropertyTopOccurrencesObj")},
                 fields: {
                   value: {
-                    name: location + "Meta" + singleClass.class + singleClassProperty.name + "TopOccurrencesValue",
+                    name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "TopOccurrencesValue",
                     description: function() {
                       return getDesc("MetaClassPropertyTopOccurrencesValue")},
                     type: GraphQLString
                   },
                   occurs: {
-                    name: location + "Meta" + singleClass.class + singleClassProperty.name + "TopOccurrencesOccurs",
+                    name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "TopOccurrencesOccurs",
                     description: function() {
                       return getDesc("MetaClassPropertyTopOccurrencesOccurs")},
                     type: GraphQLInt
@@ -715,12 +565,12 @@ function createMetaSubClasses(ontologyThings, location='') {
                 name: "Meta" + singleClass.class + singleClassProperty.name,
                 description: location + " Meta information about the property \"" + singleClassProperty.name + "\"",
                 type: new GraphQLObjectType({
-                  name: location + "Meta" + singleClass.class + singleClassProperty.name + "Obj",
+                  name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Obj",
                   description: function() {
                     return getDesc("MetaClassPropertyObj")},
                   fields: Object.assign(standard_fields, {
                     topOccurrences: {
-                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "TopOccurrences",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "TopOccurrences",
                       description: function() {
                         return getDesc("MetaClassPropertyTopOccurrences")},
                       type: new GraphQLList( topOccurrencesType ),
@@ -757,30 +607,30 @@ function createMetaSubClasses(ontologyThings, location='') {
                 name: location + "Meta" + singleClass.class + singleClassProperty.name,
                 description: "Meta information about the property \"" + singleClassProperty.name + "\"",
                 type: new GraphQLObjectType({
-                  name: location + "Meta" + singleClass.class + singleClassProperty.name + "Obj",
+                  name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Obj",
                   description: function() {
                     return getDesc("MetaClassPropertyObj")},
                   fields: Object.assign(standard_fields, {
-                    lowest: {
-                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "Lowest",
+                    minimum: {
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Minimum",
                       description: function() {
-                        return getDesc("MetaClassPropertyLowest")},
+                        return getDesc("MetaClassPropertyMinimum")},
                       type: GraphQLFloat,
                     },
-                    highest: {
-                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "Highest",
+                    maximum: {
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Maximum",
                       description: function() {
-                        return getDesc("MetaClassPropertyHighest")},
+                        return getDesc("MetaClassPropertyMaximum")},
                       type: GraphQLFloat,
                     },
-                    average: {
-                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "Average",
+                    mean: {
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Mean",
                       description: function() {
-                        return getDesc("MetaClassPropertyAverage")},
+                        return getDesc("MetaClassPropertyMean")},
                       type: GraphQLFloat,
                     },
                     sum: {
-                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "Sum",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Sum",
                       description: function() {
                         return getDesc("MetaClassPropertySum")},
                       type: GraphQLFloat,
@@ -793,30 +643,30 @@ function createMetaSubClasses(ontologyThings, location='') {
                 name: location + "Meta" + singleClass.class + singleClassProperty.name,
                 description: "Meta information about the property \"" + singleClassProperty.name + "\"",
                 type: new GraphQLObjectType({
-                  name: location + "Meta" + singleClass.class + singleClassProperty.name + "Obj",
+                  name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "Obj",
                   description: function() {
                     return getDesc("MetaClassPropertyObj")},
                   fields: Object.assign(standard_fields, {
                     totalTrue: {
-                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "TotalTrue",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "TotalTrue",
                       description: function() {
                         return getDesc("MetaClassPropertyTotalTrue")},
                       type: GraphQLInt,
                     },
                     percentageTrue: {
-                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "PercentageTrue",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "PercentageTrue",
                       description: function() {
                         return getDesc("MetaClassPropertyPercentageTrue")},
                       type: GraphQLFloat,
                     },
                     totalFalse: {
-                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "TotalFalse",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "TotalFalse",
                       description: function() {
                         return getDesc("MetaClassPropertyTotalFalse")},
                       type: GraphQLInt,
                     },
                     percentageFalse: {
-                      name: location + "Meta" + singleClass.class + singleClassProperty.name + "PercentageFalse",
+                      name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1) + "PercentageFalse",
                       description: function() {
                         return getDesc("MetaClassPropertyPercentageFalse")},
                       type: GraphQLFloat,
@@ -834,7 +684,7 @@ function createMetaSubClasses(ontologyThings, location='') {
             } else {
               console.error("I DONT KNOW THIS VALUE! " + singleClassProperty["@dataType"][0])
               returnProps[singleClassProperty.name] = {
-                name: location + "Meta" + singleClass.class + singleClassProperty.name,
+                name: location + "Meta" + singleClass.class + singleClassProperty.name[0].toUpperCase() + singleClassProperty.name.substring(1),
                 description: singleClassProperty.description,
                 type: GraphQLString
               }

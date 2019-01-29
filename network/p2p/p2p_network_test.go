@@ -4,11 +4,10 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2019 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@kub.design)
- * See www.creativesoftwarefdn.org for details
- * Contact: @CreativeSofwFdn / bob@kub.design
+ * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+ * CONTACT: hello@creativesoftwarefdn.org
  */
 package p2p
 
@@ -129,13 +128,12 @@ func TestPingPeer(t *testing.T) {
 	})
 
 	t.Run("contain schemaHash in body", func(t *testing.T) {
-		expectedBody := "{\"schemaHash\":\"6f94c1c316dc0c3a9fac3ada08e48507\"}\n"
+		expectedBody := "{\"schemaHash\":\"a6ad75fcd8fac815872c3abecacb31a8\"}\n"
 		matcher := func(t *testing.T, res *http.Request) {
 			defer res.Body.Close()
 			bodyBytes, _ := ioutil.ReadAll(res.Body)
 			if string(bodyBytes) != expectedBody {
-				t.Fatalf("for body, wanted \n%#v\nbut got\n%#v\n", string(bodyBytes),
-					expectedBody)
+				t.Fatalf("for body, wanted \n%#v\nbut got\n%#v\n", expectedBody, string(bodyBytes))
 			}
 		}
 		arrange(matcher)
@@ -144,7 +142,7 @@ func TestPingPeer(t *testing.T) {
 	})
 
 	t.Run("contain an updated schemaHash if the schema changes", func(t *testing.T) {
-		expectedBody := "{\"schemaHash\":\"1be52d8819861376b621a91c17c45d81\"}\n"
+		expectedBody := "{\"schemaHash\":\"b01ba8c02c4b8acb7857efa8067d2998\"}\n"
 		matcher := func(t *testing.T, res *http.Request) {
 			defer res.Body.Close()
 			bodyBytes, _ := ioutil.ReadAll(res.Body)
