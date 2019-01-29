@@ -10,15 +10,12 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
-package local
+package etcd
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/url"
-	"os"
-	"time"
 
 	"github.com/coreos/etcd/clientv3"
 	libcontextionary "github.com/creativesoftwarefdn/weaviate/contextionary"
@@ -32,24 +29,20 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// SchemaStateStorageKey is the etcd key used to store the schema
 const SchemaStateStorageKey = "/weaviate/schema/state"
+
+// ConnectorStateStorageKey is the etcd key used to store the connector state
 const ConnectorStateStorageKey = "/weaviate/connector/state"
 
-type LocalSchemaConfig struct {
-	StateDir *string `json:"state_dir"`
-}
-
-type localSchemaManager struct {
-	// The directory where the state will be stored
-	stateDir       string
-	configStoreURL *url.URL
+type etcdSchemaManager struct {
+	// etcd client to store and retrieve the schema and connector state
+	client *clientv3.Client
 
 	// Persist schema
-	stateFile   *os.File
-	schemaState localSchemaState
+	schemaState state
 
 	// Persist connector specific state.
-	connectorStateFile   *os.File
 	connectorState       json.RawMessage
 	connectorStateSetter connector_state.Connector
 
@@ -64,14 +57,13 @@ type localSchemaManager struct {
 	network network.Network
 }
 
-// The state that will be serialized to/from disk.
-// TODO, see gh-477: refactor to database/schema_manager, so that it can be re-used for distributed version.
-type localSchemaState struct {
+// The state that will be serialized to/from etcd.
+type state struct {
 	ActionSchema *models.SemanticSchema `json:"action"`
 	ThingSchema  *models.SemanticSchema `json:"thing"`
 }
 
-func (l *localSchemaState) SchemaFor(k kind.Kind) *models.SemanticSchema {
+func (l *state) SchemaFor(k kind.Kind) *models.SemanticSchema {
 	switch k {
 	case kind.THING_KIND:
 		return l.ThingSchema
@@ -83,11 +75,10 @@ func (l *localSchemaState) SchemaFor(k kind.Kind) *models.SemanticSchema {
 	}
 }
 
-func New(stateDirName string, configStoreURL *url.URL, connectorMigrator schema_migrator.Migrator, network network.Network) (database.SchemaManager, error) {
-	manager := &localSchemaManager{
-		configStoreURL:    configStoreURL,
-		stateDir:          stateDirName,
-		schemaState:       localSchemaState{},
+func New(client *clientv3.Client, connectorMigrator schema_migrator.Migrator, network network.Network) (database.SchemaManager, error) {
+	manager := &etcdSchemaManager{
+		client:            client,
+		schemaState:       state{},
 		connectorMigrator: connectorMigrator,
 		network:           network,
 	}
@@ -106,19 +97,8 @@ func New(stateDirName string, configStoreURL *url.URL, connectorMigrator schema_
 }
 
 // Load the state from a file, or if the files do not exist yet, initialize an empty schema.
-func (l *localSchemaManager) loadOrInitializeSchema() error {
-
-	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{l.configStoreURL.String()},
-		DialTimeout: 5 * time.Second,
-	})
-	if err != nil {
-		return fmt.Errorf("could not build etcd client: %s", err)
-	}
-
-	defer cli.Close()
-
-	res, err := cli.Get(context.TODO(), SchemaStateStorageKey)
+func (m *etcdSchemaManager) loadOrInitializeSchema() error {
+	res, err := m.client.Get(context.TODO(), SchemaStateStorageKey)
 	if err != nil {
 		return fmt.Errorf("could not retrieve key '%s': %#v", SchemaStateStorageKey, err)
 	}
@@ -126,24 +106,24 @@ func (l *localSchemaManager) loadOrInitializeSchema() error {
 	switch k := len(res.Kvs); {
 	case k == 0:
 		// has not been initialized before
-		l.schemaState.ActionSchema = &models.SemanticSchema{
+		m.schemaState.ActionSchema = &models.SemanticSchema{
 			Classes: []*models.SemanticSchemaClass{},
 			Type:    "action",
 		}
 
-		l.schemaState.ThingSchema = &models.SemanticSchema{
+		m.schemaState.ThingSchema = &models.SemanticSchema{
 			Classes: []*models.SemanticSchemaClass{},
 			Type:    "thing",
 		}
-		return l.saveToDisk()
+		return m.saveToDisk()
 	case k == 1:
 		stateBytes := res.Kvs[0].Value
-		var state localSchemaState
+		var state state
 		err := json.Unmarshal(stateBytes, &state)
 		if err != nil {
 			return fmt.Errorf("Could not parse the schema state: %s", err)
 		}
-		l.schemaState = state
+		m.schemaState = state
 		return nil
 	default:
 		return fmt.Errorf("unexpected number of results for key '%s', expected to have 0 or 1, but got %d: %#v",
@@ -152,18 +132,8 @@ func (l *localSchemaManager) loadOrInitializeSchema() error {
 }
 
 // Load the
-func (l *localSchemaManager) loadOrInitializeConnectorState() error {
-	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{l.configStoreURL.String()},
-		DialTimeout: 5 * time.Second,
-	})
-	if err != nil {
-		return fmt.Errorf("could not build etcd client: %s", err)
-	}
-
-	defer cli.Close()
-
-	res, err := cli.Get(context.TODO(), ConnectorStateStorageKey)
+func (m *etcdSchemaManager) loadOrInitializeConnectorState() error {
+	res, err := m.client.Get(context.TODO(), ConnectorStateStorageKey)
 	if err != nil {
 		return fmt.Errorf("could not retrieve key '%s': %#v", ConnectorStateStorageKey, err)
 	}
@@ -171,70 +141,51 @@ func (l *localSchemaManager) loadOrInitializeConnectorState() error {
 	switch k := len(res.Kvs); {
 	case k == 0:
 		// has not been initialized before
-		l.connectorState = json.RawMessage([]byte("{}"))
-		return l.saveConnectorStateToDisk()
+		m.connectorState = json.RawMessage([]byte("{}"))
+		return m.saveConnectorStateToDisk()
 
 	case k == 1:
 		stateBytes := res.Kvs[0].Value
-		return l.connectorState.UnmarshalJSON(stateBytes)
+		return m.connectorState.UnmarshalJSON(stateBytes)
 	default:
 		return fmt.Errorf("unexpected number of results for key '%s', expected to have 0 or 1, but got %d: %#v",
 			ConnectorStateStorageKey, len(res.Kvs), res.Kvs)
 	}
 }
 
-// Save the schema to the local disk.
+// Save the schema to the etcd disk.
 // Triggers callbacks to all interested observers.
-func (l *localSchemaManager) saveToDisk() error {
+func (m *etcdSchemaManager) saveToDisk() error {
 
-	stateBytes, err := json.Marshal(l.schemaState)
+	stateBytes, err := json.Marshal(m.schemaState)
 	if err != nil {
 		return fmt.Errorf("could not marshal schema state to json: %s", err)
 	}
 
-	log.Info("Updating local schema on etcd")
+	log.Info("Updating etcd schema on etcd")
 
-	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{l.configStoreURL.String()},
-		DialTimeout: 5 * time.Second,
-	})
-	if err != nil {
-		return fmt.Errorf("could not build etcd client: %s", err)
-	}
-
-	defer cli.Close()
-
-	_, err = cli.Put(context.TODO(), "/weaviate/schema/state", string(stateBytes))
+	_, err = m.client.Put(context.TODO(), "/weaviate/schema/state", string(stateBytes))
 	if err != nil {
 		return fmt.Errorf("could not send schema state to etcd: %s", err)
 	}
 
-	l.TriggerSchemaUpdateCallbacks()
+	m.TriggerSchemaUpdateCallbacks()
 
 	return nil
 }
 
 // Save the connector state to disk.
-// This local implementation has no side effects (like updating peer weaviate instances)
-func (l *localSchemaManager) saveConnectorStateToDisk() error {
+// This etcd implementation has no side effects (like updating peer weaviate instances)
+func (m *etcdSchemaManager) saveConnectorStateToDisk() error {
 
-	stateBytes, err := l.connectorState.MarshalJSON()
+	stateBytes, err := m.connectorState.MarshalJSON()
 	if err != nil {
 		return fmt.Errorf("could not marshal connector state to json: %s", err)
 	}
 
 	log.Info("Saving connector state to etcd")
-	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{l.configStoreURL.String()},
-		DialTimeout: 5 * time.Second,
-	})
-	if err != nil {
-		return fmt.Errorf("could not build etcd client: %s", err)
-	}
 
-	defer cli.Close()
-
-	_, err = cli.Put(context.TODO(), "/weaviate/connector/state", string(stateBytes))
+	_, err = m.client.Put(context.TODO(), "/weaviate/connector/state", string(stateBytes))
 	if err != nil {
 		return fmt.Errorf("could not send schema state to etcd: %s", err)
 	}
