@@ -30,7 +30,7 @@ branches:
     - poc/etcd_locking_for_horizontal_scaling
 dist: xenial
 go: 
-  - "1.11"
+  - "1.11.5"
 env:
   matrix:
   # Force using modules.
