@@ -51,7 +51,7 @@ import (
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/connectors/listing"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	db_local_schema_manager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/local"
+	etcdSchemaManager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/etcd"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
@@ -770,27 +770,18 @@ func configureServer(s *http.Server, scheme, addr string) {
 	}
 
 	// Construct a (distributed lock)
-	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
+	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// create two separate sessions for lock competition
-	s1, err := concurrency.NewSession(cli)
+	s1, err := concurrency.NewSession(etcdClient)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// m1 := recipe.NewRWMutex(s1, "/weaviate/schema-connector-rw-lock")
-	// dbLock := database.RWLocker(m1)
-
-	// Configure schema manager
-	if serverConfig.Environment.Database.LocalSchemaConfig == nil {
-		messaging.ExitError(78, "Local schema manager is not configured.")
-	}
-
-	manager, err := db_local_schema_manager.New(
-		serverConfig.Environment.Database.LocalSchemaConfig.StateDir, configStore, dbConnector, network)
+	manager, err := etcdSchemaManager.New(etcdClient, dbConnector, network)
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
 	}

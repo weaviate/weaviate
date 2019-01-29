@@ -10,7 +10,7 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
-package local
+package etcd
 
 import (
 	"fmt"
@@ -24,7 +24,7 @@ import (
 )
 
 // Validate if a class can be added to the schema
-func (l *localSchemaManager) validateCanAddClass(knd kind.Kind, class *models.SemanticSchemaClass) error {
+func (l *etcdSchemaManager) validateCanAddClass(knd kind.Kind, class *models.SemanticSchemaClass) error {
 	// First check if there is a name clash.
 	err := l.validateClassNameUniqueness(class.Class)
 	if err != nil {
@@ -62,7 +62,7 @@ func (l *localSchemaManager) validateCanAddClass(knd kind.Kind, class *models.Se
 	return nil
 }
 
-func (l *localSchemaManager) validateClassNameUniqueness(className string) error {
+func (l *etcdSchemaManager) validateClassNameUniqueness(className string) error {
 	for _, otherClass := range l.schemaState.SchemaFor(kind.ACTION_KIND).Classes {
 		if className == otherClass.Class {
 			return fmt.Errorf("Name '%s' already used as a name for an Action class", className)
@@ -80,7 +80,7 @@ func (l *localSchemaManager) validateClassNameUniqueness(className string) error
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (l *localSchemaManager) validateClassNameOrKeywordsCorrect(knd kind.Kind, className string, keywords models.SemanticSchemaKeywords) error {
+func (l *etcdSchemaManager) validateClassNameOrKeywordsCorrect(knd kind.Kind, className string, keywords models.SemanticSchemaKeywords) error {
 	err, _ := schema.ValidateClassName(className)
 	if err != nil {
 		return err
@@ -114,7 +114,7 @@ func (l *localSchemaManager) validateClassNameOrKeywordsCorrect(knd kind.Kind, c
 
 // Verify if we can add the passed property to the passed in class.
 // We need the total schema state to be able to check that references etc are valid.
-func (l *localSchemaManager) validateCanAddProperty(property *models.SemanticSchemaClassProperty, class *models.SemanticSchemaClass) error {
+func (l *etcdSchemaManager) validateCanAddProperty(property *models.SemanticSchemaClassProperty, class *models.SemanticSchemaClass) error {
 	// Verify format of property.
 	err, _ := schema.ValidatePropertyName(property.Name)
 	if err != nil {
@@ -159,7 +159,7 @@ func validatePropertyNameUniqueness(propertyName string, class *models.SemanticS
 
 // Check that the format of the name is correct
 // Check that the name is acceptable according to the contextionary
-func (l *localSchemaManager) validatePropertyNameOrKeywordsCorrect(className string, propertyName string, keywords models.SemanticSchemaKeywords) error {
+func (l *etcdSchemaManager) validatePropertyNameOrKeywordsCorrect(className string, propertyName string, keywords models.SemanticSchemaKeywords) error {
 	err, _ := schema.ValidatePropertyName(propertyName)
 	if err != nil {
 		return err
@@ -191,7 +191,7 @@ func (l *localSchemaManager) validatePropertyNameOrKeywordsCorrect(className str
 	return nil
 }
 
-func (l *localSchemaManager) validateNetworkCrossRefs(dataTypes []string) error {
+func (l *etcdSchemaManager) validateNetworkCrossRefs(dataTypes []string) error {
 	for _, dataType := range dataTypes {
 		if !crossrefs.ValidClassName(dataType) {
 			// we don't know anything about the validity of non-network-refs

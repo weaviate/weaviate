@@ -80,13 +80,8 @@ type Broker struct {
 
 // Database is the outline of the database
 type Database struct {
-	Name              string             `json:"name"`
-	DatabaseConfig    interface{}        `json:"database_config"`
-	LocalSchemaConfig *LocalSchemaConfig `json:"local_schema"`
-}
-
-type LocalSchemaConfig struct {
-	StateDir string `json:"state_dir"`
+	Name           string      `json:"name"`
+	DatabaseConfig interface{} `json:"database_config"`
 }
 
 // Schemas contains the schema for 'things' and for 'actions'

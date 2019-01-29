@@ -6,9 +6,6 @@
         "name": "janusgraph",
         "database_config": {
           "url": "http://localhost:8182"
-        },
-        "local_schema": {
-          "state_dir": "."
         }
       },
       "configuration_storage": {
@@ -46,9 +43,6 @@
         "name": "janusgraph",
         "database_config": {
           "url": "http://localhost:8182"
-        },
-        "local_schema": {
-          "state_dir": "."
         }
       },
       "configuration_storage": {
@@ -72,9 +66,6 @@
         "name": "janusgraph",
         "database_config": {
           "url": "http://janus:8182"
-        },
-        "local_schema": {
-          "state_dir": "."
         }
       },
       "configuration_storage": {
@@ -112,9 +103,6 @@
         "name": "janusgraph",
         "database_config": {
           "url": "http://weaviate-janusgraph:8182"
-        },
-        "local_schema": {
-          "state_dir": "."
         }
       },
       "contextionary": {

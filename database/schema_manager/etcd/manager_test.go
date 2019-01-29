@@ -10,11 +10,10 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
-package local
+package etcd
 
 import (
 	"io/ioutil"
-	"net/url"
 	"os"
 	"testing"
 
@@ -29,7 +28,7 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// The local manager requires a backend for now (to prevent lots of nil checks).
+// The etcd manager requires a backend for now (to prevent lots of nil checks).
 type NilMigrator struct{}
 
 func (n *NilMigrator) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
@@ -479,11 +478,11 @@ func TestSchema(t *testing.T) {
 	t.Run("group", func(t *testing.T) {
 		for _, testCase := range schemaTests {
 
-			// Create a test case, and inject the local schema manager in there
+			// Create a test case, and inject the etcd schema manager in there
 			// to reduce boilerplate in each separate test.
 			t.Run(testCase.name, func(t *testing.T) {
-				lsm := newLSM(tempDir)
-				testCase.fn(t, lsm)
+				sm := newSchemaManager()
+				testCase.fn(t, sm)
 			})
 		}
 	})
@@ -492,18 +491,13 @@ func TestSchema(t *testing.T) {
 }
 
 // New Local Schema Manager
-func newLSM(baseTempDir string) database.SchemaManager {
-	tempDir, err := ioutil.TempDir(baseTempDir, "test-schema-manager")
-	if err != nil {
-		log.Fatalf("Could not initialize temporary directory: %v\n", err)
-	}
-	configStore, _ := url.Parse("localhost:12345")
-	lsm, err := New(tempDir, configStore, &NilMigrator{}, nil)
+func newSchemaManager() database.SchemaManager {
+	sm, err := New(nil, &NilMigrator{}, nil)
 	if err != nil {
 		panic(err)
 	}
 
-	return lsm
+	return sm
 }
 
 func testGetClasses(l database.SchemaManager, k kind.Kind) []*models.SemanticSchemaClass {

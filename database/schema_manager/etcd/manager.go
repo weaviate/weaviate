@@ -10,7 +10,7 @@
  * See www.creativesoftwarefdn.org for details
  * Contact: @CreativeSofwFdn / bob@kub.design
  */
-package local
+package etcd
 
 import (
 	"fmt"
@@ -22,14 +22,14 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-func (l *localSchemaManager) GetSchema() schema.Schema {
+func (l *etcdSchemaManager) GetSchema() schema.Schema {
 	return schema.Schema{
 		Actions: l.schemaState.ActionSchema,
 		Things:  l.schemaState.ThingSchema,
 	}
 }
 
-func (l *localSchemaManager) UpdateMeta(kind kind.Kind, atContext strfmt.URI, maintainer strfmt.Email, name string) error {
+func (l *etcdSchemaManager) UpdateMeta(kind kind.Kind, atContext strfmt.URI, maintainer strfmt.Email, name string) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	semanticSchema.AtContext = atContext
 	semanticSchema.Maintainer = maintainer
@@ -38,11 +38,11 @@ func (l *localSchemaManager) UpdateMeta(kind kind.Kind, atContext strfmt.URI, ma
 	return l.saveToDisk()
 }
 
-func (l *localSchemaManager) SetContextionary(context contextionary.Contextionary) {
+func (l *etcdSchemaManager) SetContextionary(context contextionary.Contextionary) {
 	l.contextionary = context
 }
 
-func (l *localSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (l *etcdSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
 	err := l.validateCanAddClass(kind, class)
 	if err != nil {
 		return err
@@ -58,7 +58,7 @@ func (l *localSchemaManager) AddClass(kind kind.Kind, class *models.SemanticSche
 	}
 }
 
-func (l *localSchemaManager) DropClass(kind kind.Kind, className string) error {
+func (l *etcdSchemaManager) DropClass(kind kind.Kind, className string) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 
 	var classIdx int = -1
@@ -85,7 +85,7 @@ func (l *localSchemaManager) DropClass(kind kind.Kind, className string) error {
 	return l.connectorMigrator.DropClass(kind, className)
 }
 
-func (l *localSchemaManager) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (l *etcdSchemaManager) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 
 	class, err := schema.GetClassByName(semanticSchema, className)
@@ -125,7 +125,7 @@ func (l *localSchemaManager) UpdateClass(kind kind.Kind, className string, newCl
 	return l.connectorMigrator.UpdateClass(kind, className, newClassName, newKeywords)
 }
 
-func (l *localSchemaManager) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (l *etcdSchemaManager) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
@@ -148,7 +148,7 @@ func (l *localSchemaManager) AddProperty(kind kind.Kind, className string, prop 
 	return l.connectorMigrator.AddProperty(kind, className, prop)
 }
 
-func (l *localSchemaManager) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (l *etcdSchemaManager) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
@@ -192,7 +192,7 @@ func (l *localSchemaManager) UpdateProperty(kind kind.Kind, className string, pr
 	return l.connectorMigrator.UpdateProperty(kind, className, propName, newName, newKeywords)
 }
 
-func (l *localSchemaManager) UpdatePropertyAddDataType(kind kind.Kind, className string, propName string, newDataType string) error {
+func (l *etcdSchemaManager) UpdatePropertyAddDataType(kind kind.Kind, className string, propName string, newDataType string) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
@@ -227,7 +227,7 @@ func dataTypeAlreadyContained(haystack []string, needle string) bool {
 	return false
 }
 
-func (l *localSchemaManager) DropProperty(kind kind.Kind, className string, propName string) error {
+func (l *etcdSchemaManager) DropProperty(kind kind.Kind, className string, propName string) error {
 	semanticSchema := l.schemaState.SchemaFor(kind)
 	class, err := schema.GetClassByName(semanticSchema, className)
 	if err != nil {
