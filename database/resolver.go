@@ -12,9 +12,9 @@
 package database
 
 import (
-	graphql_local_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
-	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
-	graphql_local_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 )
 
 type dbClosingResolver struct {
@@ -25,17 +25,17 @@ func (dbcr *dbClosingResolver) Close() {
 	dbcr.connectorLock.Unlock()
 }
 
-func (dbcr *dbClosingResolver) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (interface{}, error) {
+func (dbcr *dbClosingResolver) LocalGetClass(info *get.Params) (interface{}, error) {
 	connector := dbcr.connectorLock.Connector()
 	return connector.LocalGetClass(info)
 }
 
-func (dbcr *dbClosingResolver) LocalGetMeta(info *graphql_local_getmeta.Params) (interface{}, error) {
+func (dbcr *dbClosingResolver) LocalGetMeta(info *getmeta.Params) (interface{}, error) {
 	connector := dbcr.connectorLock.Connector()
 	return connector.LocalGetMeta(info)
 }
 
-func (dbcr *dbClosingResolver) LocalAggregate(info *graphql_local_aggregate.Params) (interface{}, error) {
+func (dbcr *dbClosingResolver) LocalAggregate(info *aggregate.Params) (interface{}, error) {
 	connector := dbcr.connectorLock.Connector()
 	return connector.LocalAggregate(info)
 }

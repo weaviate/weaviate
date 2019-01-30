@@ -39,7 +39,7 @@ func newMockResolver(peers peers.Peers) *mockResolver {
 	return mocker
 }
 
-func (m *mockResolver) LocalGetClass(params *LocalGetClassParams) (interface{}, error) {
+func (m *mockResolver) LocalGetClass(params *Params) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
 }
