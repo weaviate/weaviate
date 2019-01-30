@@ -15,7 +15,7 @@ package dbconnector
 import (
 	"context"
 
-	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/go-openapi/strfmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
