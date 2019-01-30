@@ -42,7 +42,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	graphql_local_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"

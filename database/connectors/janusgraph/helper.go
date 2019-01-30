@@ -19,7 +19,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/filters"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
