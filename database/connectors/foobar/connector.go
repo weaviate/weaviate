@@ -446,7 +446,6 @@ func (f *Foobar) LocalGetMeta(info *getmeta.Params) (interface{}, error) {
 //			},
 //		},
 //	}
-
 func (f *Foobar) LocalAggregate(info *aggregate.Params) (interface{}, error) {
 	return nil, nil
 }
