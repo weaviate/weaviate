@@ -20,9 +20,9 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/config"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network"
 )
