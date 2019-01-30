@@ -374,7 +374,6 @@ func (f *Foobar) SetStateManager(manager connector_state.StateManager) {
 //	  "population": 600000,
 //	 },
 //	}
-
 func (f *Foobar) LocalGetClass(info *get.Params) (interface{}, error) {
 	return nil, nil
 }
