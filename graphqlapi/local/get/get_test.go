@@ -26,7 +26,7 @@ func TestSimpleFieldParamsOK(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &LocalGetClassParams{
+	expectedParams := &Params{
 		Kind:       kind.ACTION_KIND,
 		ClassName:  "SomeAction",
 		Properties: []SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -43,7 +43,7 @@ func TestExtractIntField(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &LocalGetClassParams{
+	expectedParams := &Params{
 		Kind:       kind.ACTION_KIND,
 		ClassName:  "SomeAction",
 		Properties: []SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -61,7 +61,7 @@ func TestExtractPagination(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &LocalGetClassParams{
+	expectedParams := &Params{
 		Kind:       kind.ACTION_KIND,
 		ClassName:  "SomeAction",
 		Properties: []SelectProperty{{Name: "intField", IsPrimitive: true}},
@@ -83,7 +83,7 @@ func TestGetRelation(t *testing.T) {
 
 	resolver := newMockResolver(emptyPeers())
 
-	expectedParams := &LocalGetClassParams{
+	expectedParams := &Params{
 		Kind:      kind.ACTION_KIND,
 		ClassName: "SomeAction",
 		Properties: []SelectProperty{

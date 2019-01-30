@@ -363,7 +363,7 @@ func (f *Foobar) SetStateManager(manager connector_state.StateManager) {
 // information.  Based on this info, the foobar connector can resolve the
 // request.  It should resolve to a map[string]interface{} that can be consumed
 // by the respective resolver in graphqlapi/local/get
-func (f *Foobar) LocalGetClass(info *get.LocalGetClassParams) (interface{}, error) {
+func (f *Foobar) LocalGetClass(info *get.Params) (interface{}, error) {
 	return nil, nil
 }
 
@@ -396,8 +396,8 @@ func (f *Foobar) LocalGetMeta(info *getmeta.Params) (interface{}, error) {
 // wants to known what is the mean population of cities which are capitals and
 // what is the mean population of cities which are not capitals? This
 // information is contained in the Params, together with pagination and filter
-// information.  Based on this info, the foobar connector can resolve the
-// request.  It should resolve to a map[string]interface{} that can be consumed
+// information. Based on this info, the foobar connector can resolve the
+// request. It should resolve to a map[string]interface{} that can be consumed
 // by the respective resolver in graphqlapi/local/aggregate
 func (f *Foobar) LocalAggregate(info *aggregate.Params) (interface{}, error) {
 	return nil, nil

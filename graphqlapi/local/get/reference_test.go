@@ -71,7 +71,7 @@ func TestLocalGetWithNetworkRefResolvesCorrectly(t *testing.T) {
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &LocalGetClassParams{
+	expectedParams := &Params{
 		Kind:      kind.THING_KIND,
 		ClassName: "SomeThing",
 		Properties: []SelectProperty{
@@ -170,7 +170,7 @@ func TestLocalGetNoNetworkRequestIsMadeWhenUserDoesntWantNetworkRef(t *testing.T
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &LocalGetClassParams{
+	expectedParams := &Params{
 		Kind:      kind.THING_KIND,
 		ClassName: "SomeThing",
 		Properties: []SelectProperty{
