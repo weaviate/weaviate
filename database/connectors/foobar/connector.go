@@ -361,8 +361,20 @@ func (f *Foobar) SetStateManager(manager connector_state.StateManager) {
 // above the user asked to resolve one property named "population". This
 // information is contained in the Params, together with pagination and filter
 // information.  Based on this info, the foobar connector can resolve the
-// request.  It should resolve to a map[string]interface{} that can be consumed
-// by the respective resolver in graphqlapi/local/get
+// request.  It should resolve to a []map[string]interface{} that can be consumed
+// by the respective resolver in graphqlapi/local/get.
+//
+// An example matching the return value to the query above could look like:
+//
+//	[]interface{}{
+//	 map[string]interface {}{
+//	  "population": 1800000,
+//	 },
+//	 map[string]interface {}{
+//	  "population": 600000,
+//	 },
+//	}
+
 func (f *Foobar) LocalGetClass(info *get.Params) (interface{}, error) {
 	return nil, nil
 }
@@ -379,7 +391,15 @@ func (f *Foobar) LocalGetClass(info *get.Params) (interface{}, error) {
 // Params, together with pagination and filter information.  Based on this
 // info, the foobar connector can resolve the request.  It should resolve to a
 // map[string]interface{} that can be consumed by the respective resolver in
-// graphqlapi/local/getmeta
+// graphqlapi/local/getmeta.
+//
+// An example for a return value matching the above query could look like:
+//
+//	map[string]interface{}{
+//		"population": map[string]interface{}{
+//			"count": 4,
+//		},
+//	}
 func (f *Foobar) LocalGetMeta(info *getmeta.Params) (interface{}, error) {
 	return nil, nil
 }
@@ -397,8 +417,36 @@ func (f *Foobar) LocalGetMeta(info *getmeta.Params) (interface{}, error) {
 // what is the mean population of cities which are not capitals? This
 // information is contained in the Params, together with pagination and filter
 // information. Based on this info, the foobar connector can resolve the
-// request. It should resolve to a map[string]interface{} that can be consumed
+// request. It should resolve to a []map[string]interface{} that can be consumed
 // by the respective resolver in graphqlapi/local/aggregate
+//
+// An example for a return value matching the above query could look like:
+//
+//	[]interface{}{
+//		map[string]interface{}{
+//			"population": map[string]interface{}{
+//				"mean": 1.2e+06,
+//			},
+//			"groupedBy": map[string]interface{}{
+//				"value": "false",
+//				"path": []interface{}{
+//					"isCapital",
+//				},
+//			},
+//		},
+//		map[string]interface{}{
+//			"population": map[string]interface{}{
+//				"mean": 2.635e+06,
+//			},
+//			"groupedBy": map[string]interface{}{
+//				"value": "true",
+//				"path": []interface{}{
+//					"isCapital",
+//				},
+//			},
+//		},
+//	}
+
 func (f *Foobar) LocalAggregate(info *aggregate.Params) (interface{}, error) {
 	return nil, nil
 }
