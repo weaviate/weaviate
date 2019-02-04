@@ -18,22 +18,20 @@ package things
 import (
 	"net/http"
 
-	context "golang.org/x/net/context"
-
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateThingsGetHandlerFunc turns a function with the right signature into a weaviate things get handler
-type WeaviateThingsGetHandlerFunc func(context.Context, WeaviateThingsGetParams) middleware.Responder
+type WeaviateThingsGetHandlerFunc func(WeaviateThingsGetParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsGetHandlerFunc) Handle(ctx context.Context, params WeaviateThingsGetParams) middleware.Responder {
-	return fn(ctx, params)
+func (fn WeaviateThingsGetHandlerFunc) Handle(params WeaviateThingsGetParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateThingsGetHandler interface for that can handle valid weaviate things get params
 type WeaviateThingsGetHandler interface {
-	Handle(context.Context, WeaviateThingsGetParams) middleware.Responder
+	Handle(WeaviateThingsGetParams) middleware.Responder
 }
 
 // NewWeaviateThingsGet creates a new http.Handler for the weaviate things get operation
@@ -65,7 +63,7 @@ func (o *WeaviateThingsGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

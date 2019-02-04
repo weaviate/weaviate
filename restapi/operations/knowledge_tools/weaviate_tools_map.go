@@ -18,22 +18,20 @@ package knowledge_tools
 import (
 	"net/http"
 
-	context "golang.org/x/net/context"
-
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateToolsMapHandlerFunc turns a function with the right signature into a weaviate tools map handler
-type WeaviateToolsMapHandlerFunc func(context.Context, WeaviateToolsMapParams) middleware.Responder
+type WeaviateToolsMapHandlerFunc func(WeaviateToolsMapParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateToolsMapHandlerFunc) Handle(ctx context.Context, params WeaviateToolsMapParams) middleware.Responder {
-	return fn(ctx, params)
+func (fn WeaviateToolsMapHandlerFunc) Handle(params WeaviateToolsMapParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateToolsMapHandler interface for that can handle valid weaviate tools map params
 type WeaviateToolsMapHandler interface {
-	Handle(context.Context, WeaviateToolsMapParams) middleware.Responder
+	Handle(WeaviateToolsMapParams) middleware.Responder
 }
 
 // NewWeaviateToolsMap creates a new http.Handler for the weaviate tools map operation
@@ -65,7 +63,7 @@ func (o *WeaviateToolsMap) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

@@ -18,22 +18,20 @@ package schema
 import (
 	"net/http"
 
-	context "golang.org/x/net/context"
-
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateSchemaThingsDeleteHandlerFunc turns a function with the right signature into a weaviate schema things delete handler
-type WeaviateSchemaThingsDeleteHandlerFunc func(context.Context, WeaviateSchemaThingsDeleteParams) middleware.Responder
+type WeaviateSchemaThingsDeleteHandlerFunc func(WeaviateSchemaThingsDeleteParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateSchemaThingsDeleteHandlerFunc) Handle(ctx context.Context, params WeaviateSchemaThingsDeleteParams) middleware.Responder {
-	return fn(ctx, params)
+func (fn WeaviateSchemaThingsDeleteHandlerFunc) Handle(params WeaviateSchemaThingsDeleteParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateSchemaThingsDeleteHandler interface for that can handle valid weaviate schema things delete params
 type WeaviateSchemaThingsDeleteHandler interface {
-	Handle(context.Context, WeaviateSchemaThingsDeleteParams) middleware.Responder
+	Handle(WeaviateSchemaThingsDeleteParams) middleware.Responder
 }
 
 // NewWeaviateSchemaThingsDelete creates a new http.Handler for the weaviate schema things delete operation
@@ -63,7 +61,7 @@ func (o *WeaviateSchemaThingsDelete) ServeHTTP(rw http.ResponseWriter, r *http.R
 		return
 	}
 
-	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
