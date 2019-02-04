@@ -27,7 +27,6 @@ branches:
   only: 
     - master
     - develop
-    - poc/etcd_locking_for_horizontal_scaling
 dist: xenial
 go: 
   - "1.11.5"
