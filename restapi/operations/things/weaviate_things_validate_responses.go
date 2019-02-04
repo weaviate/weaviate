@@ -138,3 +138,47 @@ func (o *WeaviateThingsValidateUnprocessableEntity) WriteResponse(rw http.Respon
 		}
 	}
 }
+
+// WeaviateThingsValidateInternalServerErrorCode is the HTTP code returned for type WeaviateThingsValidateInternalServerError
+const WeaviateThingsValidateInternalServerErrorCode int = 500
+
+/*WeaviateThingsValidateInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response weaviateThingsValidateInternalServerError
+*/
+type WeaviateThingsValidateInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateThingsValidateInternalServerError creates WeaviateThingsValidateInternalServerError with default headers values
+func NewWeaviateThingsValidateInternalServerError() *WeaviateThingsValidateInternalServerError {
+
+	return &WeaviateThingsValidateInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate things validate internal server error response
+func (o *WeaviateThingsValidateInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateThingsValidateInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate things validate internal server error response
+func (o *WeaviateThingsValidateInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateThingsValidateInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

@@ -9,23 +9,25 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
-package local
+package etcd
 
 import (
+	"context"
 	"encoding/json"
+
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 )
 
 // Only supposed to be used during initialization of the connector.
-func (l *localSchemaManager) GetInitialConnectorState() json.RawMessage {
+func (l *etcdSchemaManager) GetInitialConnectorState() json.RawMessage {
 	return l.connectorState
 }
 
-func (l *localSchemaManager) SetState(state json.RawMessage) error {
+func (l *etcdSchemaManager) SetState(ctx context.Context, state json.RawMessage) error {
 	l.connectorState = state
-	return l.saveConnectorStateToDisk()
+	return l.saveConnectorState(ctx)
 }
 
-func (l *localSchemaManager) SetStateConnector(stateConnector connector_state.Connector) {
+func (l *etcdSchemaManager) SetStateConnector(stateConnector connector_state.Connector) {
 	l.connectorStateSetter = stateConnector
 }

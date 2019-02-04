@@ -172,8 +172,10 @@ func (n *network) ping() {
 		return
 	}
 
-	currentSchema := n.schemaGetter.Schema()
-	_ = currentSchema
+	currentSchema, err := n.schemaGetter.Schema()
+	if err != nil {
+		n.messaging.InfoMessage(fmt.Sprintf("can not ping Genesis server; %+v", err))
+	}
 
 	n.Lock()
 	params := client_ops.NewGenesisPeersPingParams()

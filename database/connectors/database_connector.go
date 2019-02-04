@@ -31,7 +31,7 @@ type BaseConnector interface {
 	schema_migrator.Migrator
 
 	Connect() error
-	Init() error
+	Init(ctx context.Context) error
 	SetServerAddress(serverAddress string)
 	SetSchema(s schema.Schema)
 	SetMessaging(m *messages.Messaging)

@@ -12,6 +12,7 @@
 package janusgraph
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
@@ -24,7 +25,7 @@ import (
 )
 
 // Called during initialization of the connector.
-func (j *Janusgraph) ensureBasicSchema() error {
+func (j *Janusgraph) ensureBasicSchema(ctx context.Context) error {
 	// No basic schema has been created yet.
 	if j.state.Version == 0 {
 		query := gremlin_schema_query.New()
@@ -83,13 +84,13 @@ func (j *Janusgraph) ensureBasicSchema() error {
 		j.state.LastId = 0
 		j.state.ClassMap = make(map[schema.ClassName]state.MappedClassName)
 		j.state.PropertyMap = make(map[schema.ClassName]map[schema.PropertyName]state.MappedPropertyName)
-		j.UpdateStateInStateManager()
+		j.UpdateStateInStateManager(ctx)
 	}
 	return nil
 }
 
 // Add a class to the Thing or Action schema, depending on the kind parameter.
-func (j *Janusgraph) AddClass(kind kind.Kind, class *models.SemanticSchemaClass) error {
+func (j *Janusgraph) AddClass(ctx context.Context, kind kind.Kind, class *models.SemanticSchemaClass) error {
 	log.Debugf("Adding class '%v' in JanusGraph", class.Class)
 	// Extra sanity check
 	sanitizedClassName := schema.AssertValidClassName(class.Class)
@@ -127,12 +128,12 @@ func (j *Janusgraph) AddClass(kind kind.Kind, class *models.SemanticSchemaClass)
 	}
 
 	// Update mapping
-	j.UpdateStateInStateManager()
+	j.UpdateStateInStateManager(ctx)
 	return nil
 }
 
 // Drop a class from the schema.
-func (j *Janusgraph) DropClass(kind kind.Kind, name string) error {
+func (j *Janusgraph) DropClass(ctx context.Context, kind kind.Kind, name string) error {
 	log.Debugf("Removing class '%v' in JanusGraph", name)
 	sanitizedClassName := schema.AssertValidClassName(name)
 
@@ -148,23 +149,23 @@ func (j *Janusgraph) DropClass(kind kind.Kind, name string) error {
 
 	// Update mapping
 	j.state.RemoveMappedClassName(sanitizedClassName)
-	j.UpdateStateInStateManager()
+	j.UpdateStateInStateManager(ctx)
 
 	return nil
 }
 
-func (j *Janusgraph) UpdateClass(kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (j *Janusgraph) UpdateClass(ctx context.Context, kind kind.Kind, className string, newClassName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	if newClassName != nil {
 		oldName := schema.AssertValidClassName(className)
 		newName := schema.AssertValidClassName(*newClassName)
 		j.state.RenameClass(oldName, newName)
-		j.UpdateStateInStateManager()
+		j.UpdateStateInStateManager(ctx)
 	}
 
 	return nil
 }
 
-func (j *Janusgraph) AddProperty(kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
+func (j *Janusgraph) AddProperty(ctx context.Context, kind kind.Kind, className string, prop *models.SemanticSchemaClassProperty) error {
 	// Extra sanity check
 	sanitizedClassName := schema.AssertValidClassName(className)
 
@@ -195,26 +196,26 @@ func (j *Janusgraph) AddProperty(kind kind.Kind, className string, prop *models.
 	}
 
 	// Update mapping
-	j.UpdateStateInStateManager()
+	j.UpdateStateInStateManager(ctx)
 	return nil
 }
 
-func (j *Janusgraph) UpdateProperty(kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
+func (j *Janusgraph) UpdateProperty(ctx context.Context, kind kind.Kind, className string, propName string, newName *string, newKeywords *models.SemanticSchemaKeywords) error {
 	if newName != nil {
 		sanitizedClassName := schema.AssertValidClassName(className)
 		oldName := schema.AssertValidPropertyName(propName)
 		newName := schema.AssertValidPropertyName(*newName)
 		j.state.RenameProperty(sanitizedClassName, oldName, newName)
-		j.UpdateStateInStateManager()
+		j.UpdateStateInStateManager(ctx)
 	}
 	return nil
 }
 
-func (j *Janusgraph) UpdatePropertyAddDataType(kind kind.Kind, className string, propName string, newDataType string) error {
+func (j *Janusgraph) UpdatePropertyAddDataType(ctx context.Context, kind kind.Kind, className string, propName string, newDataType string) error {
 	return nil
 }
 
-func (j *Janusgraph) DropProperty(kind kind.Kind, className string, propName string) error {
+func (j *Janusgraph) DropProperty(ctx context.Context, kind kind.Kind, className string, propName string) error {
 	sanitizedClassName := schema.AssertValidClassName(className)
 	sanitizedPropName := schema.AssertValidPropertyName(propName)
 
@@ -254,7 +255,7 @@ func (j *Janusgraph) DropProperty(kind kind.Kind, className string, propName str
 	}
 
 	j.state.RemoveMappedPropertyName(sanitizedClassName, sanitizedPropName)
-	j.UpdateStateInStateManager()
+	j.UpdateStateInStateManager(ctx)
 	return nil
 }
 

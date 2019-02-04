@@ -22,12 +22,15 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/coreos/etcd/clientv3"
+	"github.com/coreos/etcd/clientv3/concurrency"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/knowledge_tools"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
@@ -46,7 +49,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database"
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/listing"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
-	db_local_schema_manager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/local"
+	etcdSchemaManager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/etcd"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
@@ -176,8 +179,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupThingsHandlers(api)
 	setupActionsHandlers(api)
 
-	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(ctx context.Context, params meta.WeaviateMetaGetParams) middleware.Responder {
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return meta.NewWeaviateMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 		defer dbLock.Unlock()
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
 		// Create response object
@@ -191,7 +197,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
 	})
 
-	api.P2PWeaviateP2pGenesisUpdateHandler = p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
+	api.P2PWeaviateP2pGenesisUpdateHandler = p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(ctx context.Context, params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
 		newPeers := make([]peers.Peer, 0)
 
 		for _, genesisPeer := range params.Peers {
@@ -213,12 +219,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()
 	})
 
-	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
+	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(ctx context.Context, params p2_p.WeaviateP2pHealthParams) middleware.Responder {
 		// For now, always just return success.
 		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 	})
 
-	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams) middleware.Responder {
+	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(ctx context.Context, params graphql.WeaviateGraphqlPostParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL resolving")
 
@@ -285,7 +291,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE BATCHING
 	 */
 
-	api.GraphqlWeaviateGraphqlBatchHandler = graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams) middleware.Responder {
+	api.GraphqlWeaviateGraphqlBatchHandler = graphql.WeaviateGraphqlBatchHandlerFunc(func(ctx context.Context, params graphql.WeaviateGraphqlBatchParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL batch resolving")
 
@@ -319,10 +325,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return graphql.NewWeaviateGraphqlBatchOK().WithPayload(batchedRequestResponse)
 	})
 
-	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(func(params operations.WeaviateBatchingActionsCreateParams) middleware.Responder {
+	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(func(ctx context.Context, params operations.WeaviateBatchingActionsCreateParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 
-		dbLock := db.ConnectorLock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+		}
 		requestLocks := rest_api_utils.RequestLocks{
 			DBLock:      dbLock,
 			DelayedLock: delayed_unlock.New(dbLock),
@@ -330,9 +339,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		defer requestLocks.DelayedLock.Unlock()
-
-		// Get context from request
-		ctx := params.HTTPRequest.Context()
 
 		amountOfBatchedRequests := len(params.Body.Actions)
 		errorResponse := &models.ErrorResponse{}
@@ -371,10 +377,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	})
 
-	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(func(params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
+	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(func(ctx context.Context, params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 
-		dbLock := db.ConnectorLock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+		}
 		requestLocks := rest_api_utils.RequestLocks{
 			DBLock:      dbLock,
 			DelayedLock: delayed_unlock.New(dbLock),
@@ -382,9 +391,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		}
 
 		defer requestLocks.DelayedLock.Unlock()
-
-		// Get context from request
-		ctx := params.HTTPRequest.Context()
 
 		amountOfBatchedRequests := len(params.Body.Things)
 		errorResponse := &models.ErrorResponse{}
@@ -425,7 +431,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	/*
 	 * HANDLE KNOWLEDGE TOOLS
 	 */
-	api.KnowledgeToolsWeaviateToolsMapHandler = knowledge_tools.WeaviateToolsMapHandlerFunc(func(params knowledge_tools.WeaviateToolsMapParams) middleware.Responder {
+	api.KnowledgeToolsWeaviateToolsMapHandler = knowledge_tools.WeaviateToolsMapHandlerFunc(func(ctx context.Context, params knowledge_tools.WeaviateToolsMapParams) middleware.Responder {
 		return middleware.NotImplemented("operation knowledge_tools.WeaviateToolsMap has not yet been implemented")
 	})
 
@@ -723,6 +729,17 @@ func configureTLS(tlsConfig *tls.Config) {
 // This function can be called multiple times, depending on the number of serving schemes.
 // scheme value will be set accordingly: "http", "https" or "unix"
 func configureServer(s *http.Server, scheme, addr string) {
+	// context for the startup procedure. (So far the only subcommand respecting
+	// the context is the schema initialization, as this uses the etcd client
+	// requiring context. Nevertheless it would make sense to have everything
+	// that goes on in here pay attention to the context, so we can have a
+	// "startup in x seconds or fail")
+	ctx := context.Background()
+	// The timeout is arbitrary we have to adjust it as we go along, if we
+	// realize it is to big/small
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	// Create message service
 	messaging = &messages.Messaging{}
 
@@ -754,17 +771,25 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, err.Error())
 	}
 
-	// Construct a (distributed lock)
-	localMutex := sync.RWMutex{}
-	dbLock := database.RWLocker(&localMutex)
-
-	// Configure schema manager
-	if serverConfig.Environment.Database.LocalSchemaConfig == nil {
-		messaging.ExitError(78, "Local schema manager is not configured.")
+	// parse config store URL
+	configStore, err := url.Parse(serverConfig.Environment.ConfigStore.URL)
+	if err != nil {
+		messaging.ExitError(78, fmt.Sprintf("cannot parse config store URL: %s", err))
 	}
 
-	manager, err := db_local_schema_manager.New(
-		serverConfig.Environment.Database.LocalSchemaConfig.StateDir, dbConnector, network)
+	// Construct a (distributed lock)
+	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// create two separate sessions for lock competition
+	s1, err := concurrency.NewSession(etcdClient)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	manager, err := etcdSchemaManager.New(ctx, etcdClient, dbConnector, network)
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
 	}
@@ -792,12 +817,20 @@ func configureServer(s *http.Server, scheme, addr string) {
 	})
 
 	// Now instantiate a database, with the configured lock, manager and connector.
-	err, db = database.New(messaging, dbLock, manager, dbConnector, contextionary)
+	dbParams := &database.Params{
+		LockerKey:     "/weaviate/schema-connector-rw-lock",
+		LockerSession: s1,
+		SchemaManager: manager,
+		Connector:     dbConnector,
+		Contextionary: contextionary,
+		Messaging:     messaging,
+	}
+	db, err = database.New(ctx, dbParams)
 	if err != nil {
 		messaging.ExitError(1, fmt.Sprintf("Could not initialize the database: %s", err.Error()))
 	}
-	manager.TriggerSchemaUpdateCallbacks()
 
+	manager.TriggerSchemaUpdateCallbacks()
 	network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
 		manager.TriggerSchemaUpdateCallbacks()
 	})
@@ -809,10 +842,14 @@ type schemaGetter struct {
 	db database.Database
 }
 
-func (s *schemaGetter) Schema() schema.Schema {
-	dbLock := s.db.ConnectorLock()
+func (s *schemaGetter) Schema() (schema.Schema, error) {
+	dbLock, err := s.db.ConnectorLock()
+	if err != nil {
+		return schema.Schema{}, err
+	}
+
 	defer dbLock.Unlock()
-	return dbLock.GetSchema()
+	return dbLock.GetSchema(), nil
 }
 
 // The middleware configuration is for the handler executors. These do not apply to the swagger.json document.
@@ -939,4 +976,10 @@ func connectToNetwork() {
 			network = *new_net
 		}
 	}
+}
+
+func errPayloadFromSingleErr(err error) *models.ErrorResponse {
+	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
+		Message: fmt.Sprintf("%s", err),
+	}}}
 }

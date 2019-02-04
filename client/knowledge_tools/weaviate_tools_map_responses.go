@@ -63,6 +63,13 @@ func (o *WeaviateToolsMapReader) ReadResponse(response runtime.ClientResponse, c
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateToolsMapInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	case 501:
 		result := NewWeaviateToolsMapNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -163,6 +170,35 @@ func (o *WeaviateToolsMapNotFound) Error() string {
 }
 
 func (o *WeaviateToolsMapNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateToolsMapInternalServerError creates a WeaviateToolsMapInternalServerError with default headers values
+func NewWeaviateToolsMapInternalServerError() *WeaviateToolsMapInternalServerError {
+	return &WeaviateToolsMapInternalServerError{}
+}
+
+/*WeaviateToolsMapInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateToolsMapInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateToolsMapInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /tools/map][%d] weaviateToolsMapInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateToolsMapInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

@@ -63,6 +63,13 @@ func (o *WeaviateThingsListReader) ReadResponse(response runtime.ClientResponse,
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateThingsListInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -156,6 +163,35 @@ func (o *WeaviateThingsListNotFound) Error() string {
 }
 
 func (o *WeaviateThingsListNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateThingsListInternalServerError creates a WeaviateThingsListInternalServerError with default headers values
+func NewWeaviateThingsListInternalServerError() *WeaviateThingsListInternalServerError {
+	return &WeaviateThingsListInternalServerError{}
+}
+
+/*WeaviateThingsListInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateThingsListInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateThingsListInternalServerError) Error() string {
+	return fmt.Sprintf("[GET /things][%d] weaviateThingsListInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateThingsListInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

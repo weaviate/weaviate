@@ -12,13 +12,14 @@
 package connector_state
 
 import (
+	"context"
 	"encoding/json"
 )
 
 // Internal connector state
 type StateManager interface {
 	// Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.
-	SetState(state json.RawMessage) error
+	SetState(ctx context.Context, state json.RawMessage) error
 
 	// Used by a connector to get the initial state.
 	GetInitialConnectorState() json.RawMessage
@@ -31,7 +32,7 @@ type StateManager interface {
 // Implemented by a connector
 type Connector interface {
 	// Called by the state manager, when an external state update is happening.
-	SetState(state json.RawMessage)
+	SetState(ctx context.Context, state json.RawMessage)
 
 	// Link a StateManager to this connector, so that when a connector is updating it's own state, it can propagate these changes to othr Weaviate instances.
 	SetStateManager(manager StateManager)

@@ -12,12 +12,13 @@
 package janusgraph
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 )
 
 // Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.
-func (j *Janusgraph) SetState(state json.RawMessage) {
+func (j *Janusgraph) SetState(ctx context.Context, state json.RawMessage) {
 	err := json.Unmarshal(state, &j.state)
 
 	// Extra assertions if the connector has been initialized already.
@@ -35,12 +36,12 @@ func (j *Janusgraph) SetState(state json.RawMessage) {
 	}
 }
 
-func (j *Janusgraph) UpdateStateInStateManager() {
+func (j *Janusgraph) UpdateStateInStateManager(ctx context.Context) {
 	rawState, err := json.Marshal(j.state)
 
 	if err != nil {
 		panic("Could not serialize internal state to json")
 	}
 
-	j.stateManager.SetState(rawState)
+	j.stateManager.SetState(ctx, rawState)
 }

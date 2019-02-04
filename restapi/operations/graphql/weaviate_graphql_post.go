@@ -18,20 +18,22 @@ package graphql
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateGraphqlPostHandlerFunc turns a function with the right signature into a weaviate graphql post handler
-type WeaviateGraphqlPostHandlerFunc func(WeaviateGraphqlPostParams) middleware.Responder
+type WeaviateGraphqlPostHandlerFunc func(context.Context, WeaviateGraphqlPostParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateGraphqlPostHandlerFunc) Handle(params WeaviateGraphqlPostParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateGraphqlPostHandlerFunc) Handle(ctx context.Context, params WeaviateGraphqlPostParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateGraphqlPostHandler interface for that can handle valid weaviate graphql post params
 type WeaviateGraphqlPostHandler interface {
-	Handle(WeaviateGraphqlPostParams) middleware.Responder
+	Handle(context.Context, WeaviateGraphqlPostParams) middleware.Responder
 }
 
 // NewWeaviateGraphqlPost creates a new http.Handler for the weaviate graphql post operation
@@ -63,7 +65,7 @@ func (o *WeaviateGraphqlPost) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

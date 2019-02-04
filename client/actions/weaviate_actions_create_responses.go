@@ -72,6 +72,13 @@ func (o *WeaviateActionsCreateReader) ReadResponse(response runtime.ClientRespon
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateActionsCreateInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -195,6 +202,35 @@ func (o *WeaviateActionsCreateUnprocessableEntity) Error() string {
 }
 
 func (o *WeaviateActionsCreateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewWeaviateActionsCreateInternalServerError creates a WeaviateActionsCreateInternalServerError with default headers values
+func NewWeaviateActionsCreateInternalServerError() *WeaviateActionsCreateInternalServerError {
+	return &WeaviateActionsCreateInternalServerError{}
+}
+
+/*WeaviateActionsCreateInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateActionsCreateInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateActionsCreateInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /actions][%d] weaviateActionsCreateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateActionsCreateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

@@ -19,6 +19,8 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateP2pHealthOKCode is the HTTP code returned for type WeaviateP2pHealthOK
@@ -48,11 +50,16 @@ func (o *WeaviateP2pHealthOK) WriteResponse(rw http.ResponseWriter, producer run
 // WeaviateP2pHealthInternalServerErrorCode is the HTTP code returned for type WeaviateP2pHealthInternalServerError
 const WeaviateP2pHealthInternalServerErrorCode int = 500
 
-/*WeaviateP2pHealthInternalServerError Not healthy (yet).
+/*WeaviateP2pHealthInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response weaviateP2pHealthInternalServerError
 */
 type WeaviateP2pHealthInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
 // NewWeaviateP2pHealthInternalServerError creates WeaviateP2pHealthInternalServerError with default headers values
@@ -61,10 +68,25 @@ func NewWeaviateP2pHealthInternalServerError() *WeaviateP2pHealthInternalServerE
 	return &WeaviateP2pHealthInternalServerError{}
 }
 
+// WithPayload adds the payload to the weaviate p2p health internal server error response
+func (o *WeaviateP2pHealthInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateP2pHealthInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate p2p health internal server error response
+func (o *WeaviateP2pHealthInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
 // WriteResponse to the client
 func (o *WeaviateP2pHealthInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
-
 	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }

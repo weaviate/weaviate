@@ -65,6 +65,13 @@ func (o *WeaviateSchemaActionsPropertiesUpdateReader) ReadResponse(response runt
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateSchemaActionsPropertiesUpdateInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -151,6 +158,35 @@ func (o *WeaviateSchemaActionsPropertiesUpdateUnprocessableEntity) Error() strin
 }
 
 func (o *WeaviateSchemaActionsPropertiesUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewWeaviateSchemaActionsPropertiesUpdateInternalServerError creates a WeaviateSchemaActionsPropertiesUpdateInternalServerError with default headers values
+func NewWeaviateSchemaActionsPropertiesUpdateInternalServerError() *WeaviateSchemaActionsPropertiesUpdateInternalServerError {
+	return &WeaviateSchemaActionsPropertiesUpdateInternalServerError{}
+}
+
+/*WeaviateSchemaActionsPropertiesUpdateInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateSchemaActionsPropertiesUpdateInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateSchemaActionsPropertiesUpdateInternalServerError) Error() string {
+	return fmt.Sprintf("[PUT /schema/actions/{className}/properties/{propertyName}][%d] weaviateSchemaActionsPropertiesUpdateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateSchemaActionsPropertiesUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

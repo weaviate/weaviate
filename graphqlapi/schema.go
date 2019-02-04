@@ -58,7 +58,11 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 		panic("Empty resolver provider")
 	}
 
-	resolver := g.resolverProvider.GetResolver()
+	resolver, err := g.resolverProvider.GetResolver()
+	if err != nil {
+		panic(err)
+	}
+
 	networkResolver := g.resolverProvider.GetNetworkResolver()
 	defer resolver.Close()
 

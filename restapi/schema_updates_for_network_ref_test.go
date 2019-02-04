@@ -12,6 +12,7 @@
 package restapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -27,14 +28,14 @@ import (
 )
 
 func TestSchemaUpdaterWithEmtpyRefSchema(t *testing.T) {
-	err := newReferenceSchemaUpdater(nil, nil, "FooThing", kind.THING_KIND).
+	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.THING_KIND).
 		addNetworkDataTypes(nil)
 
 	assert.Nil(t, err, "it does not error with an empty schema")
 }
 
 func TestSchemaUpdaterWithOnlyPrimitiveProps(t *testing.T) {
-	err := newReferenceSchemaUpdater(nil, nil, "FooThing", kind.THING_KIND).
+	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.THING_KIND).
 		addNetworkDataTypes(map[string]interface{}{
 			"foo":  "bar",
 			"baz":  int64(100),
@@ -46,7 +47,7 @@ func TestSchemaUpdaterWithOnlyPrimitiveProps(t *testing.T) {
 
 func TestSchemaUpdaterWithOnlyLocalRefs(t *testing.T) {
 	loc := "weaviate://localhost/things/fcc72dff-7feb-4a84-b580-fa0261aea776"
-	err := newReferenceSchemaUpdater(nil, nil, "FooThing", kind.THING_KIND).
+	err := newReferenceSchemaUpdater(context.TODO(), nil, nil, "FooThing", kind.THING_KIND).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
 				NrDollarCref: strfmt.URI(loc),
@@ -66,7 +67,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromThingToThing(t *testing.T) {
 	// act
 	refID := "30ad9bd2-1e33-460a-bea7-dcce72d086a1"
 	loc := "http://BestWeaviate/things/" + refID
-	err := newReferenceSchemaUpdater(schemaManager, network, "FooThing", kind.THING_KIND).
+	err := newReferenceSchemaUpdater(context.TODO(), schemaManager, network, "FooThing", kind.THING_KIND).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
 				NrDollarCref: strfmt.URI(loc),
@@ -97,7 +98,7 @@ func TestSchemaUpdaterWithSingleNetworkRefFromActinToThing(t *testing.T) {
 
 	// act
 	loc := "http://BestWeaviate/things/fbe157e9-3e4c-4be6-995d-d6d5ab49a84b"
-	err := newReferenceSchemaUpdater(schemaManager, network, "FooAction", kind.ACTION_KIND).
+	err := newReferenceSchemaUpdater(context.TODO(), schemaManager, network, "FooAction", kind.ACTION_KIND).
 		addNetworkDataTypes(map[string]interface{}{
 			"fooRef": &models.SingleRef{
 				NrDollarCref: strfmt.URI(loc),
@@ -152,7 +153,7 @@ type fakeSchemaManager struct {
 	}
 }
 
-func (f *fakeSchemaManager) UpdatePropertyAddDataType(k kind.Kind, fromClass, property, toClass string) error {
+func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, k kind.Kind, fromClass, property, toClass string) error {
 	f.CalledWith = struct {
 		kind      kind.Kind
 		fromClass string

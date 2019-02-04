@@ -103,3 +103,27 @@ services:
      - "9300:9300"
     volumes:
      - ./data/elasticsearch/data:/usr/share/elasticsearch/data
+  etcd:
+    image: gcr.io/etcd-development/etcd:v3.3.8
+    ports:
+      - "2379:2379"
+    entrypoint: /usr/local/bin/etcd
+    command: 
+      - "--name"
+      - "s1"
+      - "--data-dir"
+      - "/etcd-data"
+      - "--listen-client-urls"
+      - "http://0.0.0.0:2379"
+      - "--advertise-client-urls"
+      - "http://0.0.0.0:2379"
+      - "--listen-peer-urls"
+      - "http://0.0.0.0:2380"
+      - "--initial-advertise-peer-urls"
+      - "http://0.0.0.0:2380"
+      - "--initial-cluster"
+      - "s1=http://0.0.0.0:2380"
+      - "--initial-cluster-token"
+      - "tkn"
+      - "--initial-cluster-state"
+      - "new"

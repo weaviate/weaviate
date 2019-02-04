@@ -18,20 +18,22 @@ package p2_p
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateP2pHealthHandlerFunc turns a function with the right signature into a weaviate p2p health handler
-type WeaviateP2pHealthHandlerFunc func(WeaviateP2pHealthParams) middleware.Responder
+type WeaviateP2pHealthHandlerFunc func(context.Context, WeaviateP2pHealthParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateP2pHealthHandlerFunc) Handle(params WeaviateP2pHealthParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateP2pHealthHandlerFunc) Handle(ctx context.Context, params WeaviateP2pHealthParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateP2pHealthHandler interface for that can handle valid weaviate p2p health params
 type WeaviateP2pHealthHandler interface {
-	Handle(WeaviateP2pHealthParams) middleware.Responder
+	Handle(context.Context, WeaviateP2pHealthParams) middleware.Responder
 }
 
 // NewWeaviateP2pHealth creates a new http.Handler for the weaviate p2p health operation
@@ -63,7 +65,7 @@ func (o *WeaviateP2pHealth) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

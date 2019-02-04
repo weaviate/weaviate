@@ -15,6 +15,10 @@ function main() {
   rm -rf data
   echo "Done!"
 
+  echo_green "First run all unit tests"
+  run_unit_tests
+  echo_green "Unit tests successful"
+
   echo_green "Stop any running docker-compose containers..."
   surpress_on_success docker-compose -f docker-compose-test.yml down --remove-orphans
 
@@ -34,6 +38,10 @@ function main() {
   echo_green "Prepare coverage output for code climate"
   prepare_coverage_for_cc
   echo "Done!"
+}
+
+function run_unit_tests() {
+  go test -race -count 1 $(go list ./... | grep -v 'test/acceptance') | grep -v '\[no test files\]'
 }
 
 function run_acceptance_tests() {

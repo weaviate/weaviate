@@ -18,20 +18,22 @@ package actions
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateActionsPropertiesCreateHandlerFunc turns a function with the right signature into a weaviate actions properties create handler
-type WeaviateActionsPropertiesCreateHandlerFunc func(WeaviateActionsPropertiesCreateParams) middleware.Responder
+type WeaviateActionsPropertiesCreateHandlerFunc func(context.Context, WeaviateActionsPropertiesCreateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateActionsPropertiesCreateHandlerFunc) Handle(params WeaviateActionsPropertiesCreateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateActionsPropertiesCreateHandlerFunc) Handle(ctx context.Context, params WeaviateActionsPropertiesCreateParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateActionsPropertiesCreateHandler interface for that can handle valid weaviate actions properties create params
 type WeaviateActionsPropertiesCreateHandler interface {
-	Handle(WeaviateActionsPropertiesCreateParams) middleware.Responder
+	Handle(context.Context, WeaviateActionsPropertiesCreateParams) middleware.Responder
 }
 
 // NewWeaviateActionsPropertiesCreate creates a new http.Handler for the weaviate actions properties create operation
@@ -63,7 +65,7 @@ func (o *WeaviateActionsPropertiesCreate) ServeHTTP(rw http.ResponseWriter, r *h
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
