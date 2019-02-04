@@ -47,7 +47,7 @@ func TestLocalGetWithNetworkRef(t *testing.T) {
 	}
 	resolver := newMockResolver(peers)
 
-	expectedParams := &LocalGetClassParams{
+	expectedParams := &Params{
 		Kind:      kind.THING_KIND,
 		ClassName: "SomeThing",
 		Properties: []SelectProperty{
