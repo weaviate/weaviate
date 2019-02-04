@@ -90,7 +90,7 @@ func Test_Resolve(t *testing.T) {
 			resolverReturn: map[string]interface{}{
 				"horsepower": map[string]interface{}{
 					"maximum": 610.0,
-					"minimum":  89.0,
+					"minimum": 89.0,
 					"count":   23,
 					"sum":     6343.0,
 				},
