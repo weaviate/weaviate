@@ -97,15 +97,15 @@ func TestNetworkGetMeta(t *testing.T) {
 						"horsepower": map[string]interface{}{
 							"sum":     json.Number("10000"),
 							"maximum": json.Number("10000"),
-							"minimum":  json.Number("10000"),
-							"mean": json.Number("10000"),
+							"minimum": json.Number("10000"),
+							"mean":    json.Number("10000"),
 							"count":   json.Number("10000"),
 						},
 						"weight": map[string]interface{}{
 							"sum":     json.Number("10000"),
 							"maximum": json.Number("10000"),
-							"minimum":  json.Number("10000"),
-							"mean": json.Number("10000"),
+							"minimum": json.Number("10000"),
+							"mean":    json.Number("10000"),
 							"count":   json.Number("10000"),
 						},
 						"stillInProduction": map[string]interface{}{
@@ -138,8 +138,8 @@ func TestNetworkGetMeta(t *testing.T) {
 					expectedValue: map[string]interface{}{
 						"sum":     10000.0,
 						"maximum": 10000.0,
-						"minimum":  10000.0,
-						"mean": 10000.0,
+						"minimum": 10000.0,
+						"mean":    10000.0,
 						"count":   10000,
 					},
 				},
@@ -148,8 +148,8 @@ func TestNetworkGetMeta(t *testing.T) {
 					expectedValue: map[string]interface{}{
 						"sum":     10000.0,
 						"maximum": 10000.0,
-						"minimum":  10000.0,
-						"mean": 10000.0,
+						"minimum": 10000.0,
+						"mean":    10000.0,
 						"count":   10000,
 					},
 				},
