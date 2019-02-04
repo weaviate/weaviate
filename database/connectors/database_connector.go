@@ -4,11 +4,10 @@
  * \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
  *  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
  *
- * Copyright © 2016 - 2018 Weaviate. All rights reserved.
+ * Copyright © 2016 - 2019 Weaviate. All rights reserved.
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
- * AUTHOR: Bob van Luijt (bob@kub.design)
- * See www.creativesoftwarefdn.org for details
- * Contact: @CreativeSofwFdn / bob@kub.design
+ * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
+ * CONTACT: hello@creativesoftwarefdn.org
  */
 
 package dbconnector
@@ -18,7 +17,6 @@ import (
 
 	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/go-openapi/strfmt"
-	"github.com/graphql-go/graphql"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -53,8 +51,6 @@ type BaseConnector interface {
 	DeleteAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
 	HistoryAction(ctx context.Context, UUID strfmt.UUID, history *models.ActionHistory) error
 	MoveToHistoryAction(ctx context.Context, action *models.Action, UUID strfmt.UUID, deleted bool) error
-
-	GetGraph(request graphql.ResolveParams) (interface{}, error)
 }
 
 // DatabaseConnector is the interface that all DB-connectors should have
