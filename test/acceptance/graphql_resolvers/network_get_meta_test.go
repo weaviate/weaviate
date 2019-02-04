@@ -29,9 +29,9 @@ func TestNetworkGetMeta(t *testing.T) {
 						Things {
 							Instruments {
 								volume {
-									highest
-									lowest
-									average
+									maximum
+									minimum
+									mean
 								}
 							}
 						}
@@ -46,9 +46,9 @@ func TestNetworkGetMeta(t *testing.T) {
 	spew.Dump(result.Result)
 	fmt.Print("\n\n\n")
 	expected := map[string]interface{}{
-		"average": json.Number("82"),
-		"highest": json.Number("110"),
-		"lowest":  json.Number("65"),
+		"mean": json.Number("82"),
+		"maximum": json.Number("110"),
+		"minimum":  json.Number("65"),
 	}
 	assert.Equal(t, expected, volume)
 }

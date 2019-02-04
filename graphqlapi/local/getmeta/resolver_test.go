@@ -39,21 +39,21 @@ func Test_Resolve(t *testing.T) {
 
 	tests := testCases{
 		testCase{
-			name:  "single prop: average",
-			query: "{ GetMeta { Things { Car { horsepower { average } } } } }",
+			name:  "single prop: mean",
+			query: "{ GetMeta { Things { Car { horsepower { mean } } } } }",
 			expectedProps: []MetaProperty{
 				{
 					Name:                "horsepower",
-					StatisticalAnalyses: []StatisticalAnalysis{Average},
+					StatisticalAnalyses: []StatisticalAnalysis{Mean},
 				},
 			},
 			resolverReturn: map[string]interface{}{
 				"horsepower": map[string]interface{}{
-					"average": 275.7773,
+					"mean": 275.7773,
 				},
 			},
 			expectedResults: []result{{
-				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "average"},
+				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "mean"},
 				expectedValue: 275.7773,
 			}},
 		},
@@ -79,27 +79,27 @@ func Test_Resolve(t *testing.T) {
 		},
 
 		testCase{
-			name:  "two props: highest, lowest, remaining int props",
-			query: "{ GetMeta { Things { Car { horsepower { highest, lowest, count, sum } } } } }",
+			name:  "two props: maximum, minimum, remaining int props",
+			query: "{ GetMeta { Things { Car { horsepower { maximum, minimum, count, sum } } } } }",
 			expectedProps: []MetaProperty{
 				{
 					Name:                "horsepower",
-					StatisticalAnalyses: []StatisticalAnalysis{Highest, Lowest, Count, Sum},
+					StatisticalAnalyses: []StatisticalAnalysis{Maximum, Minimum, Count, Sum},
 				},
 			},
 			resolverReturn: map[string]interface{}{
 				"horsepower": map[string]interface{}{
-					"highest": 610.0,
-					"lowest":  89.0,
+					"maximum": 610.0,
+					"minimum":  89.0,
 					"count":   23,
 					"sum":     6343.0,
 				},
 			},
 			expectedResults: []result{{
-				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "highest"},
+				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "maximum"},
 				expectedValue: 610.0,
 			}, {
-				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "lowest"},
+				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "minimum"},
 				expectedValue: 89.0,
 			}, {
 				pathToField:   []string{"GetMeta", "Things", "Car", "horsepower", "count"},
