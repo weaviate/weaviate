@@ -36,7 +36,7 @@ func Test_QueryBuilder_MultipleProps(t *testing.T) {
 				gm.MetaProperty{
 					Name: "population",
 					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Average, gm.Sum, gm.Highest, gm.Lowest, gm.Count,
+						gm.Mean, gm.Sum, gm.Maximum, gm.Minimum, gm.Count,
 					},
 				},
 			},
@@ -50,8 +50,8 @@ func Test_QueryBuilder_MultipleProps(t *testing.T) {
 					)
 						.as("isCapital").project("isCapital").by(select("isCapital")),
 					aggregate("aggregation").by("population").cap("aggregation").limit(1)
-						.as("average", "sum", "highest", "lowest", "count")
-						.select("average", "sum", "highest", "lowest", "count")
+						.as("mean", "sum", "maximum", "minimum", "count")
+						.select("mean", "sum", "maximum", "minimum", "count")
 						.by(mean(local)).by(sum(local)).by(max(local)).by(min(local)).by(count(local))
 						.as("population").project("population").by(select("population"))
 				)
@@ -76,7 +76,7 @@ func Test_QueryBuilder_MultiplePropsWithFilter(t *testing.T) {
 				gm.MetaProperty{
 					Name: "population",
 					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Average, gm.Sum, gm.Highest, gm.Lowest, gm.Count,
+						gm.Mean, gm.Sum, gm.Maximum, gm.Minimum, gm.Count,
 					},
 				},
 			},
@@ -91,8 +91,8 @@ func Test_QueryBuilder_MultiplePropsWithFilter(t *testing.T) {
 					)
 						.as("isCapital").project("isCapital").by(select("isCapital")),
 					aggregate("aggregation").by("population").cap("aggregation").limit(1)
-						.as("average", "sum", "highest", "lowest", "count")
-						.select("average", "sum", "highest", "lowest", "count")
+						.as("mean", "sum", "maximum", "minimum", "count")
+						.select("mean", "sum", "maximum", "minimum", "count")
 						.by(mean(local)).by(sum(local)).by(max(local)).by(min(local)).by(count(local))
 						.as("population").project("population").by(select("population"))
 				)

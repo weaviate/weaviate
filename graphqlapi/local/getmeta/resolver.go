@@ -56,14 +56,14 @@ const (
 	// Sum of all the values of the prop (i.e. sum of all Ints or Numbers)
 	Sum StatisticalAnalysis = "sum"
 
-	// Average calculates the average of an Int or Number
-	Average StatisticalAnalysis = "average"
+	// Mean calculates the mean of an Int or Number
+	Mean StatisticalAnalysis = "mean"
 
-	// Highest selects the highest value of an Int or Number
-	Highest StatisticalAnalysis = "highest"
+	// Maximum selects the maximum value of an Int or Number
+	Maximum StatisticalAnalysis = "maximum"
 
-	// Lowest selects the highest value of an Int or Number
-	Lowest StatisticalAnalysis = "lowest"
+	// Minimum selects the maximum value of an Int or Number
+	Minimum StatisticalAnalysis = "minimum"
 
 	// TotalTrue is the sum of all boolean fields, that are true
 	TotalTrue StatisticalAnalysis = "totalTrue"
@@ -190,12 +190,12 @@ func parseAnalysisProp(name string) (StatisticalAnalysis, error) {
 	switch name {
 	case string(Type):
 		return Type, nil
-	case string(Average):
-		return Average, nil
-	case string(Highest):
-		return Highest, nil
-	case string(Lowest):
-		return Lowest, nil
+	case string(Mean):
+		return Mean, nil
+	case string(Maximum):
+		return Maximum, nil
+	case string(Minimum):
+		return Minimum, nil
 	case string(Count):
 		return Count, nil
 	case string(Sum):

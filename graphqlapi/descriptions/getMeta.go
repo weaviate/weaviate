@@ -30,9 +30,9 @@ const GetMetaPropertyCountDesc string = "The total amount of found instances for
 const GetMetaPropertyTopOccurrencesDesc string = "An object containing data about the most frequently occuring values for this property"
 const GetMetaPropertyTopOccurrencesValueDesc string = "The most frequently occurring value for this property"
 const GetMetaPropertyTopOccurrencesOccursDesc string = "How often the most frequently occuring value for this property occurs" // TODO check this with @lauraham
-const GetMetaPropertyLowestDesc string = "The lowest value for this property"
-const GetMetaPropertyHighestDesc string = "The highest value for this property"
-const GetMetaPropertyAverageDesc string = "The average of all values for this property"
+const GetMetaPropertyMinimumDesc string = "The minimum value for this property"
+const GetMetaPropertyMaximumDesc string = "The maximum value for this property"
+const GetMetaPropertyMeanDesc string = "The mean of all values for this property"
 const GetMetaPropertySumDesc string = "The sum of all values for this property"
 const GetMetaPropertyObjectDesc string = "An object containing meta information about this property"
 

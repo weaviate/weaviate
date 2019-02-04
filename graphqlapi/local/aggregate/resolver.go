@@ -66,10 +66,10 @@ const (
 	// Median calculates the median (most occurring value) of an Int or Number
 	Median Aggregator = "median"
 
-	// Maximum selects the highest value of an Int or Number
+	// Maximum selects the maximum value of an Int or Number
 	Maximum Aggregator = "maximum"
 
-	// Minimum selects the highest value of an Int or Number
+	// Minimum selects the maximum value of an Int or Number
 	Minimum Aggregator = "minimum"
 )
 
