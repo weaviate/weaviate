@@ -39,10 +39,10 @@ func TestLocalGetMetaWithoutFilters(t *testing.T) {
 								type
 							}
 							population {
-								average
+								mean
 								count
-								highest
-								lowest
+								maximum
+								minimum
 								sum
 								type
 							}
@@ -87,10 +87,10 @@ func TestLocalGetMetaWithoutFilters(t *testing.T) {
 	t.Run("int/number props", func(t *testing.T) {
 		isCapital := result.Get("Local", "GetMeta", "Things", "City", "population").Result
 		expected := map[string]interface{}{
-			"average": json.Number("1917500"),
+			"mean": json.Number("1917500"),
 			"count":   json.Number("4"),
-			"highest": json.Number("3470000"),
-			"lowest":  json.Number("600000"),
+			"maximum": json.Number("3470000"),
+			"minimum":  json.Number("600000"),
 			"sum":     json.Number("7670000"),
 			"type":    "int",
 		}
@@ -155,10 +155,10 @@ func TestLocalGetMetaWithFilters(t *testing.T) {
 								type
 							}
 							population {
-								average
+								mean
 								count
-								highest
-								lowest
+								maximum
+								minimum
 								sum
 								type
 							}
@@ -203,10 +203,10 @@ func TestLocalGetMetaWithFilters(t *testing.T) {
 	t.Run("int/number props", func(t *testing.T) {
 		isCapital := result.Get("Local", "GetMeta", "Things", "City", "population").Result
 		expected := map[string]interface{}{
-			"average": json.Number("2635000"),
+			"mean": json.Number("2635000"),
 			"count":   json.Number("2"),
-			"highest": json.Number("3470000"),
-			"lowest":  json.Number("1800000"),
+			"maximum": json.Number("3470000"),
+			"minimum":  json.Number("1800000"),
 			"sum":     json.Number("5270000"),
 			"type":    "int",
 		}

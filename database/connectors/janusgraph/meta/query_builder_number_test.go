@@ -45,15 +45,15 @@ func Test_QueryBuilder_NumberProps(t *testing.T) {
 				gm.MetaProperty{
 					Name: "area",
 					StatisticalAnalyses: []gm.StatisticalAnalysis{
-						gm.Average, gm.Sum, gm.Highest, gm.Lowest, gm.Count, gm.Type,
+						gm.Mean, gm.Sum, gm.Maximum, gm.Minimum, gm.Count, gm.Type,
 					},
 				},
 			},
 			expectedQuery: `
 				.union(
 					aggregate("aggregation").by("area").cap("aggregation").limit(1)
-						.as("average", "sum", "highest", "lowest", "count")
-						.select("average", "sum", "highest", "lowest", "count")
+						.as("mean", "sum", "maximum", "minimum", "count")
+						.select("mean", "sum", "maximum", "minimum", "count")
 						.by(mean(local)).by(sum(local)).by(max(local)).by(min(local)).by(count(local))
 						.as("area").project("area").by(select("area"))
 				)

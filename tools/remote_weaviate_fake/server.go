@@ -49,7 +49,7 @@ func main() {
 		parsed := removeAllWhiteSpace(body["query"])
 
 		getQuery := fmt.Sprintf("%s", `{ Local { Get { Things { Instruments { name } } } } }`)
-		getMetaQuery := fmt.Sprintf("%s", `{ Local { GetMeta { Things { Instruments { volume { highest lowest average } } } } } }`)
+		getMetaQuery := fmt.Sprintf("%s", `{ Local { GetMeta { Things { Instruments { volume { maximum minimum mean } } } } } }`)
 		switch parsed {
 		case removeAllWhiteSpace(getQuery):
 			w.Header().Set("Content-Type", "application/json")
@@ -99,9 +99,9 @@ var graphQLGetMetaResponse = `{
         "Things": {
           "Instruments": {
             "volume": {
-              "highest": 110,
-              "lowest": 65,
-              "average": 82
+              "maximum": 110,
+              "minimum": 65,
+              "mean": 82
             }
           }
         }

@@ -34,21 +34,21 @@ func numericalPropertyField(class *models.SemanticSchemaClass,
 			Description: descriptions.GetMetaPropertyTypeDesc,
 			Type:        graphql.String,
 		},
-		"lowest": &graphql.Field{
-			Name:        fmt.Sprintf("%s%s%sLowest", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyLowestDesc,
+		"minimum": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sMinimum", prefix, class.Class, property.Name),
+			Description: descriptions.GetMetaPropertyMinimumDesc,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
-		"highest": &graphql.Field{
-			Name:        fmt.Sprintf("%s%s%sHighest", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyHighestDesc,
+		"maximum": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sMaximum", prefix, class.Class, property.Name),
+			Description: descriptions.GetMetaPropertyMaximumDesc,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
-		"average": &graphql.Field{
-			Name:        fmt.Sprintf("%s%s%sAverage", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyAverageDesc,
+		"mean": &graphql.Field{
+			Name:        fmt.Sprintf("%s%s%sMean", prefix, class.Class, property.Name),
+			Description: descriptions.GetMetaPropertyMeanDesc,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
