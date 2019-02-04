@@ -18,6 +18,8 @@ package schema
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	errors "github.com/go-openapi/errors"
 	middleware "github.com/go-openapi/runtime/middleware"
 	strfmt "github.com/go-openapi/strfmt"
@@ -27,16 +29,16 @@ import (
 )
 
 // WeaviateSchemaThingsUpdateHandlerFunc turns a function with the right signature into a weaviate schema things update handler
-type WeaviateSchemaThingsUpdateHandlerFunc func(WeaviateSchemaThingsUpdateParams) middleware.Responder
+type WeaviateSchemaThingsUpdateHandlerFunc func(context.Context, WeaviateSchemaThingsUpdateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateSchemaThingsUpdateHandlerFunc) Handle(params WeaviateSchemaThingsUpdateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateSchemaThingsUpdateHandlerFunc) Handle(ctx context.Context, params WeaviateSchemaThingsUpdateParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateSchemaThingsUpdateHandler interface for that can handle valid weaviate schema things update params
 type WeaviateSchemaThingsUpdateHandler interface {
-	Handle(WeaviateSchemaThingsUpdateParams) middleware.Responder
+	Handle(context.Context, WeaviateSchemaThingsUpdateParams) middleware.Responder
 }
 
 // NewWeaviateSchemaThingsUpdate creates a new http.Handler for the weaviate schema things update operation
@@ -66,7 +68,7 @@ func (o *WeaviateSchemaThingsUpdate) ServeHTTP(rw http.ResponseWriter, r *http.R
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

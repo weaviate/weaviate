@@ -63,6 +63,13 @@ func (o *WeaviateThingsValidateReader) ReadResponse(response runtime.ClientRespo
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateThingsValidateInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -149,6 +156,35 @@ func (o *WeaviateThingsValidateUnprocessableEntity) Error() string {
 }
 
 func (o *WeaviateThingsValidateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewWeaviateThingsValidateInternalServerError creates a WeaviateThingsValidateInternalServerError with default headers values
+func NewWeaviateThingsValidateInternalServerError() *WeaviateThingsValidateInternalServerError {
+	return &WeaviateThingsValidateInternalServerError{}
+}
+
+/*WeaviateThingsValidateInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateThingsValidateInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateThingsValidateInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /things/validate][%d] weaviateThingsValidateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateThingsValidateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

@@ -63,6 +63,13 @@ func (o *WeaviateActionHistoryGetReader) ReadResponse(response runtime.ClientRes
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateActionHistoryGetInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	case 501:
 		result := NewWeaviateActionHistoryGetNotImplemented()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -163,6 +170,35 @@ func (o *WeaviateActionHistoryGetNotFound) Error() string {
 }
 
 func (o *WeaviateActionHistoryGetNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewWeaviateActionHistoryGetInternalServerError creates a WeaviateActionHistoryGetInternalServerError with default headers values
+func NewWeaviateActionHistoryGetInternalServerError() *WeaviateActionHistoryGetInternalServerError {
+	return &WeaviateActionHistoryGetInternalServerError{}
+}
+
+/*WeaviateActionHistoryGetInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateActionHistoryGetInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateActionHistoryGetInternalServerError) Error() string {
+	return fmt.Sprintf("[GET /actions/{actionId}/history][%d] weaviateActionHistoryGetInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateActionHistoryGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

@@ -17,10 +17,13 @@ package p2_p
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/go-openapi/runtime"
 
 	strfmt "github.com/go-openapi/strfmt"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateP2pHealthReader is a Reader for the WeaviateP2pHealth structure.
@@ -79,16 +82,24 @@ func NewWeaviateP2pHealthInternalServerError() *WeaviateP2pHealthInternalServerE
 
 /*WeaviateP2pHealthInternalServerError handles this case with default header values.
 
-Not healthy (yet).
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
 */
 type WeaviateP2pHealthInternalServerError struct {
+	Payload *models.ErrorResponse
 }
 
 func (o *WeaviateP2pHealthInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /p2p/health][%d] weaviateP2pHealthInternalServerError ", 500)
+	return fmt.Sprintf("[GET /p2p/health][%d] weaviateP2pHealthInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *WeaviateP2pHealthInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

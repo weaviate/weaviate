@@ -63,6 +63,13 @@ func (o *WeaviateSchemaThingsPropertiesAddReader) ReadResponse(response runtime.
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateSchemaThingsPropertiesAddInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -149,6 +156,35 @@ func (o *WeaviateSchemaThingsPropertiesAddUnprocessableEntity) Error() string {
 }
 
 func (o *WeaviateSchemaThingsPropertiesAddUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewWeaviateSchemaThingsPropertiesAddInternalServerError creates a WeaviateSchemaThingsPropertiesAddInternalServerError with default headers values
+func NewWeaviateSchemaThingsPropertiesAddInternalServerError() *WeaviateSchemaThingsPropertiesAddInternalServerError {
+	return &WeaviateSchemaThingsPropertiesAddInternalServerError{}
+}
+
+/*WeaviateSchemaThingsPropertiesAddInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateSchemaThingsPropertiesAddInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateSchemaThingsPropertiesAddInternalServerError) Error() string {
+	return fmt.Sprintf("[POST /schema/things/{className}/properties][%d] weaviateSchemaThingsPropertiesAddInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateSchemaThingsPropertiesAddInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

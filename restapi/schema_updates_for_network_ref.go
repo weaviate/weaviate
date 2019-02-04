@@ -12,6 +12,7 @@
 package restapi
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
@@ -26,7 +27,7 @@ type peersLister interface {
 }
 
 type schemaManager interface {
-	UpdatePropertyAddDataType(kind.Kind, string, string, string) error
+	UpdatePropertyAddDataType(context.Context, kind.Kind, string, string, string) error
 }
 
 type referenceSchemaUpdater struct {
@@ -34,11 +35,12 @@ type referenceSchemaUpdater struct {
 	network       peersLister
 	fromClass     string
 	kind          kind.Kind
+	ctx           context.Context
 }
 
-func newReferenceSchemaUpdater(schemaManager schemaManager, network peersLister,
+func newReferenceSchemaUpdater(ctx context.Context, schemaManager schemaManager, network peersLister,
 	fromClass string, kind kind.Kind) *referenceSchemaUpdater {
-	return &referenceSchemaUpdater{schemaManager, network, fromClass, kind}
+	return &referenceSchemaUpdater{schemaManager, network, fromClass, kind, ctx}
 }
 
 // make sure this only ever called AFTER validtion as it skips
@@ -105,14 +107,14 @@ func (u *referenceSchemaUpdater) updateSchema(remoteKind interface{}, peerName s
 	switch thingOrAction := remoteKind.(type) {
 	case models.Thing:
 		remoteClass := fmt.Sprintf("%s/%s", peerName, thingOrAction.AtClass)
-		err := u.schemaManager.UpdatePropertyAddDataType(u.kind, u.fromClass, propName, remoteClass)
+		err := u.schemaManager.UpdatePropertyAddDataType(u.ctx, u.kind, u.fromClass, propName, remoteClass)
 		if err != nil {
 			return fmt.Errorf("could not add network thing class %s to %s.%s: %s",
 				remoteClass, u.fromClass, propName, err)
 		}
 	case models.Action:
 		remoteClass := fmt.Sprintf("%s/%s", peerName, thingOrAction.AtClass)
-		err := u.schemaManager.UpdatePropertyAddDataType(u.kind, u.fromClass, propName, remoteClass)
+		err := u.schemaManager.UpdatePropertyAddDataType(u.ctx, u.kind, u.fromClass, propName, remoteClass)
 		if err != nil {
 			return fmt.Errorf("could not add network action class %s to %s.%s: %s",
 				remoteClass, u.fromClass, propName, err)

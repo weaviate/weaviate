@@ -18,6 +18,8 @@ package things
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	errors "github.com/go-openapi/errors"
 	middleware "github.com/go-openapi/runtime/middleware"
 	strfmt "github.com/go-openapi/strfmt"
@@ -27,16 +29,16 @@ import (
 )
 
 // WeaviateThingsCreateHandlerFunc turns a function with the right signature into a weaviate things create handler
-type WeaviateThingsCreateHandlerFunc func(WeaviateThingsCreateParams) middleware.Responder
+type WeaviateThingsCreateHandlerFunc func(context.Context, WeaviateThingsCreateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsCreateHandlerFunc) Handle(params WeaviateThingsCreateParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateThingsCreateHandlerFunc) Handle(ctx context.Context, params WeaviateThingsCreateParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateThingsCreateHandler interface for that can handle valid weaviate things create params
 type WeaviateThingsCreateHandler interface {
-	Handle(WeaviateThingsCreateParams) middleware.Responder
+	Handle(context.Context, WeaviateThingsCreateParams) middleware.Responder
 }
 
 // NewWeaviateThingsCreate creates a new http.Handler for the weaviate things create operation
@@ -68,7 +70,7 @@ func (o *WeaviateThingsCreate) ServeHTTP(rw http.ResponseWriter, r *http.Request
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

@@ -29,7 +29,7 @@ branches:
     - develop
 dist: xenial
 go: 
-  - "1.11"
+  - "1.11.5"
 env:
   matrix:
   # Force using modules.

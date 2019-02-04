@@ -8,7 +8,9 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
- */ // Package getmeta aims to reduce the repition between loca/getmeta and
+ */
+
+// Package getmeta aims to reduce the repition between loca/getmeta and
 // network/getmeta
 package getmeta
 

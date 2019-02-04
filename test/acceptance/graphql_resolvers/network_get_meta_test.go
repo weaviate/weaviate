@@ -8,7 +8,9 @@
  * LICENSE: https://github.com/creativesoftwarefdn/weaviate/blob/develop/LICENSE.md
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
- */package test
+ */
+
+package test
 
 import (
 	"encoding/json"

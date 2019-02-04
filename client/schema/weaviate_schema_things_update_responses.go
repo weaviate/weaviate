@@ -65,6 +65,13 @@ func (o *WeaviateSchemaThingsUpdateReader) ReadResponse(response runtime.ClientR
 		}
 		return nil, result
 
+	case 500:
+		result := NewWeaviateSchemaThingsUpdateInternalServerError()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+
 	default:
 		return nil, runtime.NewAPIError("unknown error", response, response.Code())
 	}
@@ -151,6 +158,35 @@ func (o *WeaviateSchemaThingsUpdateUnprocessableEntity) Error() string {
 }
 
 func (o *WeaviateSchemaThingsUpdateUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewWeaviateSchemaThingsUpdateInternalServerError creates a WeaviateSchemaThingsUpdateInternalServerError with default headers values
+func NewWeaviateSchemaThingsUpdateInternalServerError() *WeaviateSchemaThingsUpdateInternalServerError {
+	return &WeaviateSchemaThingsUpdateInternalServerError{}
+}
+
+/*WeaviateSchemaThingsUpdateInternalServerError handles this case with default header values.
+
+An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+*/
+type WeaviateSchemaThingsUpdateInternalServerError struct {
+	Payload *models.ErrorResponse
+}
+
+func (o *WeaviateSchemaThingsUpdateInternalServerError) Error() string {
+	return fmt.Sprintf("[PUT /schema/things/{className}][%d] weaviateSchemaThingsUpdateInternalServerError  %+v", 500, o.Payload)
+}
+
+func (o *WeaviateSchemaThingsUpdateInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

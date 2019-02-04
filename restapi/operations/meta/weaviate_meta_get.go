@@ -18,20 +18,22 @@ package meta
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateMetaGetHandlerFunc turns a function with the right signature into a weaviate meta get handler
-type WeaviateMetaGetHandlerFunc func(WeaviateMetaGetParams) middleware.Responder
+type WeaviateMetaGetHandlerFunc func(context.Context, WeaviateMetaGetParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateMetaGetHandlerFunc) Handle(params WeaviateMetaGetParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateMetaGetHandlerFunc) Handle(ctx context.Context, params WeaviateMetaGetParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateMetaGetHandler interface for that can handle valid weaviate meta get params
 type WeaviateMetaGetHandler interface {
-	Handle(WeaviateMetaGetParams) middleware.Responder
+	Handle(context.Context, WeaviateMetaGetParams) middleware.Responder
 }
 
 // NewWeaviateMetaGet creates a new http.Handler for the weaviate meta get operation
@@ -63,7 +65,7 @@ func (o *WeaviateMetaGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

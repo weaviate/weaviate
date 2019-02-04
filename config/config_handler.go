@@ -51,6 +51,7 @@ type Environment struct {
 	Debug         bool          `json:"debug"`
 	Development   Development   `json:"development"`
 	Contextionary Contextionary `json:"contextionary"`
+	ConfigStore   ConfigStore   `json:"configuration_storage"`
 }
 
 type Contextionary struct {
@@ -65,6 +66,11 @@ type Network struct {
 	PeerName   string `json:"peer_name"`
 }
 
+type ConfigStore struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+}
+
 // Broker checks if broker details are set
 type Broker struct {
 	Host string `json:"host"`
@@ -73,13 +79,8 @@ type Broker struct {
 
 // Database is the outline of the database
 type Database struct {
-	Name              string             `json:"name"`
-	DatabaseConfig    interface{}        `json:"database_config"`
-	LocalSchemaConfig *LocalSchemaConfig `json:"local_schema"`
-}
-
-type LocalSchemaConfig struct {
-	StateDir string `json:"state_dir"`
+	Name           string      `json:"name"`
+	DatabaseConfig interface{} `json:"database_config"`
 }
 
 // Schemas contains the schema for 'things' and for 'actions'

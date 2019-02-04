@@ -12,6 +12,7 @@
 package janusgraph
 
 import (
+	"context"
 	errors_ "errors"
 	"fmt"
 
@@ -112,10 +113,10 @@ func (f *Janusgraph) SetServerAddress(addr string) {
 }
 
 // Init 1st initializes the schema in the database and 2nd creates a root key.
-func (f *Janusgraph) Init() error {
+func (f *Janusgraph) Init(ctx context.Context) error {
 	f.messaging.DebugMessage("Initializeing JanusGraph")
 
-	err := f.ensureBasicSchema()
+	err := f.ensureBasicSchema(ctx)
 	if err != nil {
 		return err
 	}

@@ -19,6 +19,8 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+
+	models "github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // WeaviateSchemaDumpOKCode is the HTTP code returned for type WeaviateSchemaDumpOK
@@ -87,4 +89,48 @@ func (o *WeaviateSchemaDumpUnauthorized) WriteResponse(rw http.ResponseWriter, p
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
+}
+
+// WeaviateSchemaDumpInternalServerErrorCode is the HTTP code returned for type WeaviateSchemaDumpInternalServerError
+const WeaviateSchemaDumpInternalServerErrorCode int = 500
+
+/*WeaviateSchemaDumpInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+
+swagger:response weaviateSchemaDumpInternalServerError
+*/
+type WeaviateSchemaDumpInternalServerError struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewWeaviateSchemaDumpInternalServerError creates WeaviateSchemaDumpInternalServerError with default headers values
+func NewWeaviateSchemaDumpInternalServerError() *WeaviateSchemaDumpInternalServerError {
+
+	return &WeaviateSchemaDumpInternalServerError{}
+}
+
+// WithPayload adds the payload to the weaviate schema dump internal server error response
+func (o *WeaviateSchemaDumpInternalServerError) WithPayload(payload *models.ErrorResponse) *WeaviateSchemaDumpInternalServerError {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the weaviate schema dump internal server error response
+func (o *WeaviateSchemaDumpInternalServerError) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *WeaviateSchemaDumpInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(500)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
 }

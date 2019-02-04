@@ -12,6 +12,7 @@
 package restapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -30,8 +31,11 @@ import (
 )
 
 func setupActionsHandlers(api *operations.WeaviateAPI) {
-	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsGetParams) middleware.Responder {
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return actions.NewWeaviateActionsGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
 
@@ -39,11 +43,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
 
-		// Get context from request
-		ctx := params.HTTPRequest.Context()
-
 		// Get item from database
-		err := dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
+		err = dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
 
 		// Object is deleted
 		if err != nil {
@@ -53,8 +54,11 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Get is successful
 		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
-	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(ctx context.Context, params actions.WeaviateActionHistoryGetParams) middleware.Responder {
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return actions.NewWeaviateActionHistoryGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
 
@@ -64,9 +68,6 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		// Set UUID var for easy usage
 		UUID := strfmt.UUID(params.ActionID)
-
-		// Get context from request
-		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
 		errGet := dbConnector.GetAction(ctx, UUID, &responseObject)
@@ -91,19 +92,19 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		return actions.NewWeaviateActionHistoryGetOK().WithPayload(historyResponse)
 	})
-	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
-		delayedLock := delayed_unlock.New(dbLock)
-		defer delayedLock.Unlock()
+	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsPatchParams) middleware.Responder {
+		schemaLock, err := db.SchemaLock()
+		if err != nil {
+			return actions.NewWeaviateActionsPatchInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
+		delayedLock := delayed_unlock.New(schemaLock)
+		defer unlock(delayedLock)
 
-		dbConnector := dbLock.Connector()
+		dbConnector := schemaLock.Connector()
 
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
-
-		// Get context from request
-		ctx := params.HTTPRequest.Context()
 
 		// Get and transform object
 		UUID := strfmt.UUID(params.ActionID)
@@ -145,23 +146,18 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		json.Unmarshal([]byte(updatedJSON), &action)
 
 		// Validate schema made after patching with the weaviate schema
-		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
+		databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), &action.ActionCreate,
 			databaseSchema, dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
-		go func() {
-			schemaLock := db.SchemaLock()
-			defer schemaLock.Unlock()
-
-			err := newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, action.AtClass, kind.ACTION_KIND).
-				addNetworkDataTypes(action.Schema)
-			if err != nil {
-				messaging.DebugMessage(fmt.Sprintf("Async network ref update failed: %s", err.Error()))
-			}
-		}()
+		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, action.AtClass, kind.ACTION_KIND).
+			addNetworkDataTypes(action.Schema)
+		if err != nil {
+			return actions.NewWeaviateActionsPatchUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+		}
 
 		if params.Async != nil && *params.Async == true {
 			// Move the current properties to the history
@@ -202,19 +198,20 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
 		}
 	})
-	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(params actions.WeaviateActionsPropertiesCreateParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsPropertiesCreateParams) middleware.Responder {
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
 
 		dbConnector := dbLock.Connector()
 
-		ctx := params.HTTPRequest.Context()
-
 		UUID := strfmt.UUID(params.ActionID)
 
 		class := models.ActionGetResponse{}
-		err := dbConnector.GetAction(ctx, UUID, &class)
+		err = dbConnector.GetAction(ctx, UUID, &class)
 
 		if err != nil {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
@@ -286,25 +283,26 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsPropertiesCreateOK()
 	})
-	api.ActionsWeaviateActionsPropertiesDeleteHandler = actions.WeaviateActionsPropertiesDeleteHandlerFunc(func(params actions.WeaviateActionsPropertiesDeleteParams) middleware.Responder {
+	api.ActionsWeaviateActionsPropertiesDeleteHandler = actions.WeaviateActionsPropertiesDeleteHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsPropertiesDeleteParams) middleware.Responder {
 		if params.Body == nil {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a no valid reference", params.PropertyName)))
 		}
 
 		// Delete a specific SingleRef from the selected property.
-		dbLock := db.ConnectorLock()
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
 
 		dbConnector := dbLock.Connector()
 
-		ctx := params.HTTPRequest.Context()
-
 		UUID := strfmt.UUID(params.ActionID)
 
 		class := models.ActionGetResponse{}
-		err := dbConnector.GetAction(ctx, UUID, &class)
+		err = dbConnector.GetAction(ctx, UUID, &class)
 
 		if err != nil {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
@@ -382,19 +380,20 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsPropertiesDeleteNoContent()
 	})
-	api.ActionsWeaviateActionsPropertiesUpdateHandler = actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(params actions.WeaviateActionsPropertiesUpdateParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+	api.ActionsWeaviateActionsPropertiesUpdateHandler = actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsPropertiesUpdateParams) middleware.Responder {
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return actions.NewWeaviateActionsPropertiesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
 
 		dbConnector := dbLock.Connector()
 
-		ctx := params.HTTPRequest.Context()
-
 		UUID := strfmt.UUID(params.ActionID)
 
 		class := models.ActionGetResponse{}
-		err := dbConnector.GetAction(ctx, UUID, &class)
+		err = dbConnector.GetAction(ctx, UUID, &class)
 
 		if err != nil {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
@@ -453,8 +452,11 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsPropertiesCreateOK()
 	})
-	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionUpdateParams) middleware.Responder {
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return actions.NewWeaviateActionUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
 		dbConnector := dbLock.Connector()
@@ -462,9 +464,6 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
-
-		// Get context from request
-		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
 		UUID := params.ActionID
@@ -516,13 +515,13 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return actions.NewWeaviateActionUpdateAccepted().WithPayload(responseObject)
 	})
-	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsValidateParams) middleware.Responder {
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return actions.NewWeaviateActionsValidateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 		defer dbLock.Unlock()
 		dbConnector := dbLock.Connector()
-
-		// Get context from request
-		ctx := params.HTTPRequest.Context()
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
@@ -534,36 +533,31 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		return actions.NewWeaviateActionsValidateOK()
 	})
-	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
-		delayedLock := delayed_unlock.New(dbLock)
+	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsCreateParams) middleware.Responder {
+		schemaLock, err := db.SchemaLock()
+		if err != nil {
+			return actions.NewWeaviateActionsCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
+		delayedLock := delayed_unlock.New(schemaLock)
 		defer delayedLock.Unlock()
-		dbConnector := dbLock.Connector()
-
-		// Get context from request
-		ctx := params.HTTPRequest.Context()
+		dbConnector := schemaLock.Connector()
 
 		// Generate UUID for the new object
 		UUID := connutils.GenerateUUID()
 
 		// Validate schema given in body with the weaviate schema
-		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
+		databaseSchema := schema.HackFromDatabaseSchema(schemaLock.GetSchema())
 		validatedErr := validation.ValidateActionBody(params.HTTPRequest.Context(), params.Body.Action,
 			databaseSchema, dbConnector, network, serverConfig)
 		if validatedErr != nil {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
-		go func() {
-			schemaLock := db.SchemaLock()
-			defer schemaLock.Unlock()
-
-			err := newReferenceSchemaUpdater(schemaLock.SchemaManager(), network, params.Body.Action.AtClass, kind.ACTION_KIND).
-				addNetworkDataTypes(params.Body.Action.Schema)
-			if err != nil {
-				messaging.DebugMessage(fmt.Sprintf("Async network ref update failed: %s", err.Error()))
-			}
-		}()
+		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.Action.AtClass, kind.ACTION_KIND).
+			addNetworkDataTypes(params.Body.Action.Schema)
+		if err != nil {
+			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
+		}
 
 		// Make Action-Object
 		action := &models.Action{}
@@ -593,8 +587,11 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
 		}
 	})
-	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsDeleteParams) middleware.Responder {
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return actions.NewWeaviateActionsDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 		delayedLock := delayed_unlock.New(dbLock)
 		defer delayedLock.Unlock()
 
@@ -603,9 +600,6 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Initialize response
 		actionGetResponse := models.ActionGetResponse{}
 		actionGetResponse.Schema = map[string]models.JSONObject{}
-
-		// Get context from request
-		ctx := params.HTTPRequest.Context()
 
 		// Get item from database
 		errGet := dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
@@ -638,8 +632,11 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		return actions.NewWeaviateActionsDeleteNoContent()
 	})
 
-	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams) middleware.Responder {
-		dbLock := db.ConnectorLock()
+	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsListParams) middleware.Responder {
+		dbLock, err := db.ConnectorLock()
+		if err != nil {
+			return actions.NewWeaviateActionsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+		}
 		defer dbLock.Unlock()
 
 		dbConnector := dbLock.Connector()
@@ -648,15 +645,12 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		limit := getLimit(params.MaxResults)
 		page := getPage(params.Page)
 
-		// Get context from request
-		ctx := params.HTTPRequest.Context()
-
 		// Initialize response
 		actionsResponse := models.ActionsListResponse{}
 		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
-		err := dbConnector.ListActions(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
+		err = dbConnector.ListActions(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
 
 		if err != nil {
 			messaging.ErrorMessage(err)

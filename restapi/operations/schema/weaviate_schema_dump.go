@@ -18,6 +18,8 @@ package schema
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	errors "github.com/go-openapi/errors"
 	middleware "github.com/go-openapi/runtime/middleware"
 	strfmt "github.com/go-openapi/strfmt"
@@ -27,16 +29,16 @@ import (
 )
 
 // WeaviateSchemaDumpHandlerFunc turns a function with the right signature into a weaviate schema dump handler
-type WeaviateSchemaDumpHandlerFunc func(WeaviateSchemaDumpParams) middleware.Responder
+type WeaviateSchemaDumpHandlerFunc func(context.Context, WeaviateSchemaDumpParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateSchemaDumpHandlerFunc) Handle(params WeaviateSchemaDumpParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateSchemaDumpHandlerFunc) Handle(ctx context.Context, params WeaviateSchemaDumpParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateSchemaDumpHandler interface for that can handle valid weaviate schema dump params
 type WeaviateSchemaDumpHandler interface {
-	Handle(WeaviateSchemaDumpParams) middleware.Responder
+	Handle(context.Context, WeaviateSchemaDumpParams) middleware.Responder
 }
 
 // NewWeaviateSchemaDump creates a new http.Handler for the weaviate schema dump operation
@@ -66,7 +68,7 @@ func (o *WeaviateSchemaDump) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

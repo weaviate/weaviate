@@ -843,6 +843,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Get a list of Actions related to this key.",
@@ -898,6 +904,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Create Actions between two Things (object and subject).",
@@ -937,6 +949,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Validate an Action based on a schema.",
@@ -973,6 +991,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Delete an Action based on its UUID related to this key.",
@@ -1010,6 +1034,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Get a specific Action based on its UUID and a Thing UUID related to this key. Also available as Websocket bus.",
@@ -1080,6 +1110,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Update an Action based on its UUID (using patch semantics) related to this key.",
@@ -1131,6 +1167,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Update an Action based on its UUID related to this key.",
@@ -1170,6 +1212,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -1227,6 +1275,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
@@ -1279,6 +1333,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Replace all references to a class-property.",
@@ -1328,6 +1388,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1410,6 +1476,12 @@
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1496,6 +1568,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Creates new Actions based on an Action template related to this key as a batch.",
@@ -1537,6 +1615,12 @@
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1583,6 +1667,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Get a response based on GraphQL.",
@@ -1609,6 +1699,12 @@
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Returns meta information of the current Weaviate instance.",
@@ -1628,7 +1724,10 @@
             "description": "Alive and kicking!"
           },
           "500": {
-            "description": "Not healthy (yet)."
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "security": [],
@@ -1662,7 +1761,10 @@
             "description": "Unauthorized update."
           },
           "500": {
-            "description": "Internal error."
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "security": [],
@@ -1697,6 +1799,12 @@
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -1727,6 +1835,12 @@
           },
           "422": {
             "description": "Invalid Action class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1761,6 +1875,12 @@
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -1810,6 +1930,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -1852,6 +1978,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -1886,6 +2018,12 @@
           },
           "403": {
             "description": "Could not find the Action class or property."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -1941,6 +2079,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -1971,6 +2115,12 @@
           },
           "422": {
             "description": "Invalid Thing class.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2005,6 +2155,12 @@
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -2054,6 +2210,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -2096,6 +2258,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -2130,6 +2298,12 @@
           },
           "403": {
             "description": "Could not find the Thing class or property."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -2185,6 +2359,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -2216,6 +2396,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Get a list of Things related to this key.",
@@ -2271,6 +2457,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Create a new Thing based on a Thing template related to this key.",
@@ -2310,6 +2502,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Validate Things schema.",
@@ -2346,6 +2544,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Delete a Thing based on its UUID related to this key.",
@@ -2383,6 +2587,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Get a Thing based on its UUID related to this key.",
@@ -2453,6 +2663,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Update a Thing based on its UUID (using patch semantics) related to this key.",
@@ -2504,6 +2720,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Update a Thing based on its UUID related to this key.",
@@ -2543,6 +2765,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."
@@ -2600,6 +2828,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
@@ -2649,6 +2883,12 @@
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -2704,6 +2944,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
@@ -2743,6 +2989,12 @@
           },
           "404": {
             "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "501": {
             "description": "Not (yet) implemented."

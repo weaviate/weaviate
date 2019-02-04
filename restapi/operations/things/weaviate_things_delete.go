@@ -18,20 +18,22 @@ package things
 import (
 	"net/http"
 
+	context "golang.org/x/net/context"
+
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateThingsDeleteHandlerFunc turns a function with the right signature into a weaviate things delete handler
-type WeaviateThingsDeleteHandlerFunc func(WeaviateThingsDeleteParams) middleware.Responder
+type WeaviateThingsDeleteHandlerFunc func(context.Context, WeaviateThingsDeleteParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsDeleteHandlerFunc) Handle(params WeaviateThingsDeleteParams) middleware.Responder {
-	return fn(params)
+func (fn WeaviateThingsDeleteHandlerFunc) Handle(ctx context.Context, params WeaviateThingsDeleteParams) middleware.Responder {
+	return fn(ctx, params)
 }
 
 // WeaviateThingsDeleteHandler interface for that can handle valid weaviate things delete params
 type WeaviateThingsDeleteHandler interface {
-	Handle(WeaviateThingsDeleteParams) middleware.Responder
+	Handle(context.Context, WeaviateThingsDeleteParams) middleware.Responder
 }
 
 // NewWeaviateThingsDelete creates a new http.Handler for the weaviate things delete operation
@@ -63,7 +65,7 @@ func (o *WeaviateThingsDelete) ServeHTTP(rw http.ResponseWriter, r *http.Request
 		return
 	}
 
-	res := o.Handler.Handle(Params) // actually handle the request
+	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
