@@ -46,13 +46,13 @@ func (b *Query) intPropAnalysis(analysis getmeta.StatisticalAnalysis) (*intAnaly
 	switch analysis {
 	case getmeta.Count:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().CountLocal()}, nil
-	case getmeta.Average:
+	case getmeta.Mean:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().MeanLocal()}, nil
 	case getmeta.Sum:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().SumLocal()}, nil
-	case getmeta.Highest:
+	case getmeta.Maximum:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().MaxLocal()}, nil
-	case getmeta.Lowest:
+	case getmeta.Minimum:
 		return &intAnalysis{label: string(analysis), aggregation: gremlin.New().MinLocal()}, nil
 	case getmeta.Type:
 		// skip type as it's handled by the type inspector

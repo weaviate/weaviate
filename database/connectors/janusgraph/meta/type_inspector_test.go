@@ -203,7 +203,7 @@ func Test_TypeInspector_WithPrimitiveProps(t *testing.T) {
 			Properties: []gm.MetaProperty{
 				gm.MetaProperty{
 					Name:                "population",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Average, gm.Type, gm.Count},
+					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Mean, gm.Type, gm.Count},
 				},
 			},
 		}
@@ -232,7 +232,7 @@ func Test_TypeInspector_WithMultiplePropsOfDifferentTypes(t *testing.T) {
 				},
 				gm.MetaProperty{
 					Name:                "population",
-					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Average, gm.Type, gm.Count},
+					StatisticalAnalyses: []gm.StatisticalAnalysis{gm.Mean, gm.Type, gm.Count},
 				},
 			},
 		}
