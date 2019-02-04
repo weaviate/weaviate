@@ -18,22 +18,20 @@ package graphql
 import (
 	"net/http"
 
-	context "golang.org/x/net/context"
-
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateGraphqlBatchHandlerFunc turns a function with the right signature into a weaviate graphql batch handler
-type WeaviateGraphqlBatchHandlerFunc func(context.Context, WeaviateGraphqlBatchParams) middleware.Responder
+type WeaviateGraphqlBatchHandlerFunc func(WeaviateGraphqlBatchParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateGraphqlBatchHandlerFunc) Handle(ctx context.Context, params WeaviateGraphqlBatchParams) middleware.Responder {
-	return fn(ctx, params)
+func (fn WeaviateGraphqlBatchHandlerFunc) Handle(params WeaviateGraphqlBatchParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateGraphqlBatchHandler interface for that can handle valid weaviate graphql batch params
 type WeaviateGraphqlBatchHandler interface {
-	Handle(context.Context, WeaviateGraphqlBatchParams) middleware.Responder
+	Handle(WeaviateGraphqlBatchParams) middleware.Responder
 }
 
 // NewWeaviateGraphqlBatch creates a new http.Handler for the weaviate graphql batch operation
@@ -65,7 +63,7 @@ func (o *WeaviateGraphqlBatch) ServeHTTP(rw http.ResponseWriter, r *http.Request
 		return
 	}
 
-	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

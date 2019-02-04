@@ -18,8 +18,6 @@ package schema
 import (
 	"net/http"
 
-	context "golang.org/x/net/context"
-
 	errors "github.com/go-openapi/errors"
 	middleware "github.com/go-openapi/runtime/middleware"
 	strfmt "github.com/go-openapi/strfmt"
@@ -29,16 +27,16 @@ import (
 )
 
 // WeaviateSchemaActionsPropertiesUpdateHandlerFunc turns a function with the right signature into a weaviate schema actions properties update handler
-type WeaviateSchemaActionsPropertiesUpdateHandlerFunc func(context.Context, WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder
+type WeaviateSchemaActionsPropertiesUpdateHandlerFunc func(WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateSchemaActionsPropertiesUpdateHandlerFunc) Handle(ctx context.Context, params WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder {
-	return fn(ctx, params)
+func (fn WeaviateSchemaActionsPropertiesUpdateHandlerFunc) Handle(params WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateSchemaActionsPropertiesUpdateHandler interface for that can handle valid weaviate schema actions properties update params
 type WeaviateSchemaActionsPropertiesUpdateHandler interface {
-	Handle(context.Context, WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder
+	Handle(WeaviateSchemaActionsPropertiesUpdateParams) middleware.Responder
 }
 
 // NewWeaviateSchemaActionsPropertiesUpdate creates a new http.Handler for the weaviate schema actions properties update operation
@@ -68,7 +66,7 @@ func (o *WeaviateSchemaActionsPropertiesUpdate) ServeHTTP(rw http.ResponseWriter
 		return
 	}
 
-	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

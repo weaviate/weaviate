@@ -18,22 +18,20 @@ package things
 import (
 	"net/http"
 
-	context "golang.org/x/net/context"
-
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateThingsListHandlerFunc turns a function with the right signature into a weaviate things list handler
-type WeaviateThingsListHandlerFunc func(context.Context, WeaviateThingsListParams) middleware.Responder
+type WeaviateThingsListHandlerFunc func(WeaviateThingsListParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateThingsListHandlerFunc) Handle(ctx context.Context, params WeaviateThingsListParams) middleware.Responder {
-	return fn(ctx, params)
+func (fn WeaviateThingsListHandlerFunc) Handle(params WeaviateThingsListParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateThingsListHandler interface for that can handle valid weaviate things list params
 type WeaviateThingsListHandler interface {
-	Handle(context.Context, WeaviateThingsListParams) middleware.Responder
+	Handle(WeaviateThingsListParams) middleware.Responder
 }
 
 // NewWeaviateThingsList creates a new http.Handler for the weaviate things list operation
@@ -65,7 +63,7 @@ func (o *WeaviateThingsList) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 

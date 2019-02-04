@@ -18,22 +18,20 @@ package actions
 import (
 	"net/http"
 
-	context "golang.org/x/net/context"
-
 	middleware "github.com/go-openapi/runtime/middleware"
 )
 
 // WeaviateActionsGetHandlerFunc turns a function with the right signature into a weaviate actions get handler
-type WeaviateActionsGetHandlerFunc func(context.Context, WeaviateActionsGetParams) middleware.Responder
+type WeaviateActionsGetHandlerFunc func(WeaviateActionsGetParams) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn WeaviateActionsGetHandlerFunc) Handle(ctx context.Context, params WeaviateActionsGetParams) middleware.Responder {
-	return fn(ctx, params)
+func (fn WeaviateActionsGetHandlerFunc) Handle(params WeaviateActionsGetParams) middleware.Responder {
+	return fn(params)
 }
 
 // WeaviateActionsGetHandler interface for that can handle valid weaviate actions get params
 type WeaviateActionsGetHandler interface {
-	Handle(context.Context, WeaviateActionsGetParams) middleware.Responder
+	Handle(WeaviateActionsGetParams) middleware.Responder
 }
 
 // NewWeaviateActionsGet creates a new http.Handler for the weaviate actions get operation
@@ -65,7 +63,7 @@ func (o *WeaviateActionsGet) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	res := o.Handler.Handle(r.Context(), Params) // actually handle the request
+	res := o.Handler.Handle(Params) // actually handle the request
 
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
