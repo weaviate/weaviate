@@ -23,7 +23,8 @@ When starting Weaviate, functions are called in the following order;
 
 All other function are called on the API request
 
-After creating the connector, make sure to add the name of the connector to: func GetAllConnectors() in configure_weaviate.go
+After creating the connector, make sure to add the name of the connector to:
+func GetAllConnectors() in configure_weaviate.go
 
 */
 
@@ -42,12 +43,12 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/connector_state"
 	dbconnector "github.com/creativesoftwarefdn/weaviate/database/connectors"
-	connutils "github.com/creativesoftwarefdn/weaviate/database/connectors/utils"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	graphql_local_aggregate "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
-	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
-	graphql_local_getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
+	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
@@ -94,8 +95,9 @@ func (f *Foobar) trace() {
 	fmt.Printf("THIS FUNCTION RUNS: %s\n", f2.Name())
 }
 
-// setConfig sets variables, which can be placed in the config file section "database_config: {}"
-// can be custom for any connector, in the example below there is only host and port available.
+// setConfig sets variables, which can be placed in the config file section
+// "database_config: {}" can be custom for any connector, in the example below
+// there is only host and port available.
 //
 // Important to bear in mind;
 // 1. You need to add these to the struct Config in this document.
@@ -122,28 +124,31 @@ func (f *Foobar) setConfig(config interface{}) error {
 	return nil
 }
 
-// SetSchema takes actionSchema and thingsSchema as an input and makes them available globally at f.schema
+// SetSchema takes actionSchema and thingsSchema as an input and makes them
+// available globally at f.schema
 func (f *Foobar) SetSchema(schemaInput schema.Schema) {
 	f.schema = schemaInput
 }
 
-// SetMessaging is used to send messages to the service
-// Available message types are: f.messaging.Infomessage ...DebugMessage ...ErrorMessage ...ExitError (also exits the service) ...InfoMessage
+// SetMessaging is used to send messages to the service Available message types
+// are: f.messaging.Infomessage ...DebugMessage ...ErrorMessage ...ExitError
+// (also exits the service) ...InfoMessage
 func (f *Foobar) SetMessaging(m *messages.Messaging) {
 
 	// mandatory, adds the message functions to f.messaging to make them globally accessible.
 	f.messaging = m
 }
 
-// SetServerAddress is used to fill in a global variable with the server address, but can also be used
-// to do some custom actions.
-// Does not return anything
+// SetServerAddress is used to fill in a global variable with the server
+// address, but can also be used to do some custom actions.  Does not return
+// anything
 func (f *Foobar) SetServerAddress(addr string) {
 	f.serverAddress = addr
 }
 
-// Connect creates a connection to the database and tables if not already available.
-// The connections could not be closed because it is used more often.
+// Connect creates a connection to the database and tables if not already
+// available. The connections could not be closed because it is used more
+// often.
 func (f *Foobar) Connect() error {
 
 	/*
@@ -212,16 +217,16 @@ func (f *Foobar) DropProperty(ctx context.Context, kind kind.Kind, className str
 	return errors_.New("Not supported")
 }
 
-// AddThing adds a thing to the Foobar database with the given UUID.
-// Takes the thing and a UUID as input.
-// Thing is already validated against the ontology
+// AddThing adds a thing to the Foobar database with the given UUID. Takes the
+// thing and a UUID as input. Thing is already validated against the ontology
 func (f *Foobar) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
 
 	// If success return nil, otherwise return the error
 	return nil
 }
 
-// GetThing fills the given ThingGetResponse with the values from the database, based on the given UUID.
+// GetThing fills the given ThingGetResponse with the values from the database,
+// based on the given UUID.
 func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
 
 	// thingResponse should be populated with the response that comes from the DB.
@@ -231,7 +236,8 @@ func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *
 	return nil
 }
 
-// GetThings fills the given ThingsListResponse with the values from the database, based on the given UUIDs.
+// GetThings fills the given ThingsListResponse with the values from the
+// database, based on the given UUIDs.
 func (f *Foobar) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingResponse *models.ThingsListResponse) error {
 	f.messaging.DebugMessage(fmt.Sprintf("GetThings: %s", UUIDs))
 
@@ -239,7 +245,8 @@ func (f *Foobar) GetThings(ctx context.Context, UUIDs []strfmt.UUID, thingRespon
 	return nil
 }
 
-// ListThings fills the given ThingsListResponse with the values from the database, based on the given parameters.
+// ListThings fills the given ThingsListResponse with the values from the
+// database, based on the given parameters.
 func (f *Foobar) ListThings(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error {
 
 	// thingsResponse should be populated with the response that comes from the DB.
@@ -277,16 +284,17 @@ func (f *Foobar) MoveToHistoryThing(ctx context.Context, thing *models.Thing, UU
 	return nil
 }
 
-// AddAction adds an action to the Foobar database with the given UUID.
-// Takes the action and a UUID as input.
-// Action is already validated against the ontology
+// AddAction adds an action to the Foobar database with the given UUID. Takes
+// the action and a UUID as input. Action is already validated against the
+// ontology
 func (f *Foobar) AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 
 	// If success return nil, otherwise return the error
 	return nil
 }
 
-// GetAction fills the given ActionGetResponse with the values from the database, based on the given UUID.
+// GetAction fills the given ActionGetResponse with the values from the
+// database, based on the given UUID.
 func (f *Foobar) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
 	// actionResponse should be populated with the response that comes from the DB.
 	// actionResponse = based on the ontology
@@ -295,7 +303,8 @@ func (f *Foobar) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse
 	return nil
 }
 
-// GetActions fills the given ActionsListResponse with the values from the database, based on the given UUIDs.
+// GetActions fills the given ActionsListResponse with the values from the
+// database, based on the given UUIDs.
 func (f *Foobar) GetActions(ctx context.Context, UUIDs []strfmt.UUID, actionsResponse *models.ActionsListResponse) error {
 	// If success return nil, otherwise return the error
 	return nil
@@ -333,23 +342,109 @@ func (f *Foobar) MoveToHistoryAction(ctx context.Context, action *models.Action,
 	return nil
 }
 
-// Called by a connector when it has updated it's internal state that needs to be shared across all connectors in other Weaviate instances.
+// SetState is called by a connector when it has updated it's internal state that needs to
+// be shared across all connectors in other Weaviate instances.
 func (f *Foobar) SetState(ctx context.Context, state json.RawMessage) {
 }
 
-// Link a connector to this state manager.
-// When the internal state of some connector is updated, this state connector will call SetState on the provided conn.
+// SetStateManager links a connector to this state manager. When the internal
+// state of some connector is updated, this state connector will call SetState
+// on the provided conn.
 func (f *Foobar) SetStateManager(manager connector_state.StateManager) {
 }
 
-func (f *Foobar) LocalGetClass(info *graphql_local_get.LocalGetClassParams) (interface{}, error) {
+// LocalGetClass resolves a GraphQL request about a single Class like so
+//
+//	`{ Local { Get { Things { City { population } } } } }`
+//
+// Where "City" is the particular className of kind "Thing". In the example
+// above the user asked to resolve one property named "population". This
+// information is contained in the Params, together with pagination and filter
+// information.  Based on this info, the foobar connector can resolve the
+// request.  It should resolve to a []map[string]interface{} that can be consumed
+// by the respective resolver in graphqlapi/local/get.
+//
+// An example matching the return value to the query above could look like:
+//
+//	[]interface{}{
+//	 map[string]interface {}{
+//	  "population": 1800000,
+//	 },
+//	 map[string]interface {}{
+//	  "population": 600000,
+//	 },
+//	}
+func (f *Foobar) LocalGetClass(info *get.Params) (interface{}, error) {
 	return nil, nil
 }
 
-func (f *Foobar) LocalGetMeta(info *graphql_local_getmeta.Params) (interface{}, error) {
+// LocalGetMeta resolves a GraphQL request to retrieve meta info about a single
+// Class like so:
+//
+//	`{ Local { GetMeta { Things { City { population { count } } } } } }`
+//
+// Where "City" is the particular className of kind "Thing". In the example
+// above the user asked to resolve one property named "population". On this
+// particular property the meta info "count" is requested, i.e. how many "City"
+// classes have the property "count" set? This information is contained in the
+// Params, together with pagination and filter information.  Based on this
+// info, the foobar connector can resolve the request.  It should resolve to a
+// map[string]interface{} that can be consumed by the respective resolver in
+// graphqlapi/local/getmeta.
+//
+// An example for a return value matching the above query could look like:
+//
+//	map[string]interface{}{
+//		"population": map[string]interface{}{
+//			"count": 4,
+//		},
+//	}
+func (f *Foobar) LocalGetMeta(info *getmeta.Params) (interface{}, error) {
 	return nil, nil
 }
 
-func (f *Foobar) LocalAggregate(info *graphql_local_aggregate.Params) (interface{}, error) {
+// LocalAggregate resolves a GraphQL request to aggregate info about a single
+// Class grouped by a property like so:
+//
+//	`{ Local { Aggregate { Things { City(groupBy: ["isCapital"]) { population { mean } } } } } }`
+//
+// Where "City" is the particular className of kind "Thing". In the example
+// above the user asked to resolve one property named "population". On this
+// particular property the aggregation info "mean" is requested. In addition
+// the "City" class is grouped by the "isCapital" property. So overall the user
+// wants to known what is the mean population of cities which are capitals and
+// what is the mean population of cities which are not capitals? This
+// information is contained in the Params, together with pagination and filter
+// information. Based on this info, the foobar connector can resolve the
+// request. It should resolve to a []map[string]interface{} that can be consumed
+// by the respective resolver in graphqlapi/local/aggregate
+//
+// An example for a return value matching the above query could look like:
+//
+//	[]interface{}{
+//		map[string]interface{}{
+//			"population": map[string]interface{}{
+//				"mean": 1.2e+06,
+//			},
+//			"groupedBy": map[string]interface{}{
+//				"value": "false",
+//				"path": []interface{}{
+//					"isCapital",
+//				},
+//			},
+//		},
+//		map[string]interface{}{
+//			"population": map[string]interface{}{
+//				"mean": 2.635e+06,
+//			},
+//			"groupedBy": map[string]interface{}{
+//				"value": "true",
+//				"path": []interface{}{
+//					"isCapital",
+//				},
+//			},
+//		},
+//	}
+func (f *Foobar) LocalAggregate(info *aggregate.Params) (interface{}, error) {
 	return nil, nil
 }

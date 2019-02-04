@@ -23,10 +23,10 @@ import (
 )
 
 type Resolver interface {
-	LocalGetClass(info *LocalGetClassParams) (interface{}, error)
+	LocalGetClass(info *Params) (interface{}, error)
 }
 
-type LocalGetClassParams struct {
+type Params struct {
 	Kind       kind.Kind
 	Filters    *common_filters.LocalFilter
 	ClassName  string

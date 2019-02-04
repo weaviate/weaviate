@@ -182,7 +182,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 			return nil, fmt.Errorf("could not extract filters: %s", err)
 		}
 
-		params := LocalGetClassParams{
+		params := Params{
 			Filters:    filters,
 			Kind:       k,
 			ClassName:  className,

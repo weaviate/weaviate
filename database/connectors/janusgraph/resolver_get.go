@@ -20,7 +20,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	graphql_local_common_filters "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
-	graphql_local_get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 	"github.com/go-openapi/strfmt"
@@ -32,7 +32,7 @@ type resolveResult struct {
 }
 
 // Implement the Local->Get->KIND->CLASS lookup.
-func (j *Janusgraph) LocalGetClass(params *graphql_local_get.LocalGetClassParams) (interface{}, error) {
+func (j *Janusgraph) LocalGetClass(params *get.Params) (interface{}, error) {
 	first := 100
 	offset := 0
 
@@ -69,7 +69,7 @@ func (j *Janusgraph) LocalGetClass(params *graphql_local_get.LocalGetClassParams
 	return result.results, nil
 }
 
-func (j *Janusgraph) doLocalGetClass(first, offset int, params *graphql_local_get.LocalGetClassParams) ([]interface{}, error) {
+func (j *Janusgraph) doLocalGetClass(first, offset int, params *get.Params) ([]interface{}, error) {
 	results := []interface{}{}
 
 	className := schema.AssertValidClassName(params.ClassName)
@@ -96,7 +96,7 @@ func (j *Janusgraph) doLocalGetClass(first, offset int, params *graphql_local_ge
 }
 
 func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className schema.ClassName,
-	foundUUID strfmt.UUID, selectProperties []graphql_local_get.SelectProperty,
+	foundUUID strfmt.UUID, selectProperties []get.SelectProperty,
 	rawSchema models.Schema) map[string]interface{} {
 	propertiesMap := rawSchema.(map[string]interface{})
 
@@ -126,7 +126,7 @@ func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className sch
 }
 
 func (j *Janusgraph) doLocalGetClassResolveRefClassProp(knd kind.Kind, className schema.ClassName,
-	selectProperty graphql_local_get.SelectProperty, propertiesMap map[string]interface{}) []interface{} {
+	selectProperty get.SelectProperty, propertiesMap map[string]interface{}) []interface{} {
 	propertyName := schema.AssertValidPropertyName(
 		strings.ToLower(selectProperty.Name[0:1]) + selectProperty.Name[1:len(selectProperty.Name)])
 
@@ -183,7 +183,7 @@ func (j *Janusgraph) doLocalGetClassResolveRefClassProp(knd kind.Kind, className
 	return refResults
 }
 
-func (j *Janusgraph) doLocalGetClassResolveLocalRef(selectProperty graphql_local_get.SelectProperty,
+func (j *Janusgraph) doLocalGetClassResolveLocalRef(selectProperty get.SelectProperty,
 	kind kind.Kind, refID strfmt.UUID) []interface{} {
 	var refAtClass string
 	var refPropertiesSchema models.Schema
@@ -207,14 +207,14 @@ func (j *Janusgraph) doLocalGetClassResolveLocalRef(selectProperty graphql_local
 	}
 
 	return []interface{}{
-		graphql_local_get.LocalRef{
+		get.LocalRef{
 			Fields:  localRef,
 			AtClass: refAtClass,
 		}}
 }
 
 func extractNetworkRef(k kind.Kind, refID strfmt.UUID, peerName string,
-	selectProperty graphql_local_get.SelectProperty) []interface{} {
+	selectProperty get.SelectProperty) []interface{} {
 
 	// We cannot do an exact check of whether the user specified that
 	// they wanted this class as part of their SelectProperties because
@@ -233,7 +233,7 @@ func extractNetworkRef(k kind.Kind, refID strfmt.UUID, peerName string,
 	}
 
 	return []interface{}{
-		graphql_local_get.NetworkRef{
+		get.NetworkRef{
 			NetworkKind: crossrefs.NetworkKind{
 				PeerName: peerName,
 				ID:       refID,
