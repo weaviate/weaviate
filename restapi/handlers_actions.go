@@ -12,7 +12,6 @@
 package restapi
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -31,7 +30,7 @@ import (
 )
 
 func setupActionsHandlers(api *operations.WeaviateAPI) {
-	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsGetParams) middleware.Responder {
+	api.ActionsWeaviateActionsGetHandler = actions.WeaviateActionsGetHandlerFunc(func(params actions.WeaviateActionsGetParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -44,6 +43,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		actionGetResponse.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
+		ctx := params.HTTPRequest.Context()
 		err = dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
 
 		// Object is deleted
@@ -54,7 +54,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Get is successful
 		return actions.NewWeaviateActionsGetOK().WithPayload(&actionGetResponse)
 	})
-	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(ctx context.Context, params actions.WeaviateActionHistoryGetParams) middleware.Responder {
+	api.ActionsWeaviateActionHistoryGetHandler = actions.WeaviateActionHistoryGetHandlerFunc(func(params actions.WeaviateActionHistoryGetParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionHistoryGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -70,6 +70,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		UUID := strfmt.UUID(params.ActionID)
 
 		// Get item from database
+		ctx := params.HTTPRequest.Context()
 		errGet := dbConnector.GetAction(ctx, UUID, &responseObject)
 
 		// Init the response variables
@@ -92,7 +93,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		return actions.NewWeaviateActionHistoryGetOK().WithPayload(historyResponse)
 	})
-	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsPatchParams) middleware.Responder {
+	api.ActionsWeaviateActionsPatchHandler = actions.WeaviateActionsPatchHandlerFunc(func(params actions.WeaviateActionsPatchParams) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return actions.NewWeaviateActionsPatchInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -108,6 +109,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		// Get and transform object
 		UUID := strfmt.UUID(params.ActionID)
+		ctx := params.HTTPRequest.Context()
 		errGet := dbConnector.GetAction(ctx, UUID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
@@ -198,7 +200,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsPatchOK().WithPayload(&actionGetResponse)
 		}
 	})
-	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsPropertiesCreateParams) middleware.Responder {
+	api.ActionsWeaviateActionsPropertiesCreateHandler = actions.WeaviateActionsPropertiesCreateHandlerFunc(func(params actions.WeaviateActionsPropertiesCreateParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsPropertiesCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -211,6 +213,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		UUID := strfmt.UUID(params.ActionID)
 
 		class := models.ActionGetResponse{}
+		ctx := params.HTTPRequest.Context()
 		err = dbConnector.GetAction(ctx, UUID, &class)
 
 		if err != nil {
@@ -283,7 +286,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsPropertiesCreateOK()
 	})
-	api.ActionsWeaviateActionsPropertiesDeleteHandler = actions.WeaviateActionsPropertiesDeleteHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsPropertiesDeleteParams) middleware.Responder {
+	api.ActionsWeaviateActionsPropertiesDeleteHandler = actions.WeaviateActionsPropertiesDeleteHandlerFunc(func(params actions.WeaviateActionsPropertiesDeleteParams) middleware.Responder {
 		if params.Body == nil {
 			return actions.NewWeaviateActionsPropertiesCreateUnprocessableEntity().
 				WithPayload(createErrorResponseObject(fmt.Sprintf("Property '%s' has a no valid reference", params.PropertyName)))
@@ -302,6 +305,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		UUID := strfmt.UUID(params.ActionID)
 
 		class := models.ActionGetResponse{}
+		ctx := params.HTTPRequest.Context()
 		err = dbConnector.GetAction(ctx, UUID, &class)
 
 		if err != nil {
@@ -380,7 +384,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsPropertiesDeleteNoContent()
 	})
-	api.ActionsWeaviateActionsPropertiesUpdateHandler = actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsPropertiesUpdateParams) middleware.Responder {
+	api.ActionsWeaviateActionsPropertiesUpdateHandler = actions.WeaviateActionsPropertiesUpdateHandlerFunc(func(params actions.WeaviateActionsPropertiesUpdateParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsPropertiesUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -393,6 +397,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		UUID := strfmt.UUID(params.ActionID)
 
 		class := models.ActionGetResponse{}
+		ctx := params.HTTPRequest.Context()
 		err = dbConnector.GetAction(ctx, UUID, &class)
 
 		if err != nil {
@@ -452,7 +457,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Returns accepted so a Go routine can process in the background
 		return actions.NewWeaviateActionsPropertiesCreateOK()
 	})
-	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionUpdateParams) middleware.Responder {
+	api.ActionsWeaviateActionUpdateHandler = actions.WeaviateActionUpdateHandlerFunc(func(params actions.WeaviateActionUpdateParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionUpdateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -467,6 +472,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		// Get item from database
 		UUID := params.ActionID
+		ctx := params.HTTPRequest.Context()
 		errGet := dbConnector.GetAction(ctx, UUID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
@@ -515,7 +521,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return actions.NewWeaviateActionUpdateAccepted().WithPayload(responseObject)
 	})
-	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsValidateParams) middleware.Responder {
+	api.ActionsWeaviateActionsValidateHandler = actions.WeaviateActionsValidateHandlerFunc(func(params actions.WeaviateActionsValidateParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsValidateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -525,6 +531,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		// Validate schema given in body with the weaviate schema
 		databaseSchema := schema.HackFromDatabaseSchema(dbLock.GetSchema())
+		ctx := params.HTTPRequest.Context()
 		validatedErr := validation.ValidateActionBody(ctx, &params.Body.ActionCreate, databaseSchema,
 			dbConnector, network, serverConfig)
 		if validatedErr != nil {
@@ -533,7 +540,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 
 		return actions.NewWeaviateActionsValidateOK()
 	})
-	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsCreateParams) middleware.Responder {
+	api.ActionsWeaviateActionsCreateHandler = actions.WeaviateActionsCreateHandlerFunc(func(params actions.WeaviateActionsCreateParams) middleware.Responder {
 		schemaLock, err := db.SchemaLock()
 		if err != nil {
 			return actions.NewWeaviateActionsCreateInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -553,6 +560,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
 
+		ctx := params.HTTPRequest.Context()
 		err = newReferenceSchemaUpdater(ctx, schemaLock.SchemaManager(), network, params.Body.Action.AtClass, kind.ACTION_KIND).
 			addNetworkDataTypes(params.Body.Action.Schema)
 		if err != nil {
@@ -587,7 +595,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 			return actions.NewWeaviateActionsCreateOK().WithPayload(responseObject)
 		}
 	})
-	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsDeleteParams) middleware.Responder {
+	api.ActionsWeaviateActionsDeleteHandler = actions.WeaviateActionsDeleteHandlerFunc(func(params actions.WeaviateActionsDeleteParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsDeleteInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -602,6 +610,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		actionGetResponse.Schema = map[string]models.JSONObject{}
 
 		// Get item from database
+		ctx := params.HTTPRequest.Context()
 		errGet := dbConnector.GetAction(ctx, params.ActionID, &actionGetResponse)
 
 		// Save the old-aciton in a variable
@@ -632,7 +641,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		return actions.NewWeaviateActionsDeleteNoContent()
 	})
 
-	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(ctx context.Context, params actions.WeaviateActionsListParams) middleware.Responder {
+	api.ActionsWeaviateActionsListHandler = actions.WeaviateActionsListHandlerFunc(func(params actions.WeaviateActionsListParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return actions.NewWeaviateActionsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -650,6 +659,7 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		actionsResponse.Actions = []*models.ActionGetResponse{}
 
 		// List all results
+		ctx := params.HTTPRequest.Context()
 		err = dbConnector.ListActions(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
 
 		if err != nil {
