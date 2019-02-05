@@ -179,7 +179,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupThingsHandlers(api)
 	setupActionsHandlers(api)
 
-	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(ctx context.Context, params meta.WeaviateMetaGetParams) middleware.Responder {
+	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
 		if err != nil {
 			return meta.NewWeaviateMetaGetInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -197,7 +197,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
 	})
 
-	api.P2PWeaviateP2pGenesisUpdateHandler = p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(ctx context.Context, params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
+	api.P2PWeaviateP2pGenesisUpdateHandler = p2_p.WeaviateP2pGenesisUpdateHandlerFunc(func(params p2_p.WeaviateP2pGenesisUpdateParams) middleware.Responder {
 		newPeers := make([]peers.Peer, 0)
 
 		for _, genesisPeer := range params.Peers {
@@ -219,12 +219,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()
 	})
 
-	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(ctx context.Context, params p2_p.WeaviateP2pHealthParams) middleware.Responder {
+	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
 		// For now, always just return success.
 		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 	})
 
-	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(ctx context.Context, params graphql.WeaviateGraphqlPostParams) middleware.Responder {
+	api.GraphqlWeaviateGraphqlPostHandler = graphql.WeaviateGraphqlPostHandlerFunc(func(params graphql.WeaviateGraphqlPostParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL resolving")
 
@@ -291,7 +291,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	 * HANDLE BATCHING
 	 */
 
-	api.GraphqlWeaviateGraphqlBatchHandler = graphql.WeaviateGraphqlBatchHandlerFunc(func(ctx context.Context, params graphql.WeaviateGraphqlBatchParams) middleware.Responder {
+	api.GraphqlWeaviateGraphqlBatchHandler = graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL batch resolving")
 
@@ -325,7 +325,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return graphql.NewWeaviateGraphqlBatchOK().WithPayload(batchedRequestResponse)
 	})
 
-	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(func(ctx context.Context, params operations.WeaviateBatchingActionsCreateParams) middleware.Responder {
+	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(func(params operations.WeaviateBatchingActionsCreateParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 
 		dbLock, err := db.ConnectorLock()
@@ -356,6 +356,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		async := params.Body.Async
 
+		ctx := params.HTTPRequest.Context()
+
 		// Generate a goroutine for each separate request
 		for requestIndex, batchedRequest := range params.Body.Actions {
 			wg.Add(1)
@@ -377,7 +379,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	})
 
-	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(func(ctx context.Context, params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
+	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(func(params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 
 		dbLock, err := db.ConnectorLock()
@@ -408,6 +410,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		async := params.Body.Async
 
+		ctx := params.HTTPRequest.Context()
 		// Generate a goroutine for each separate request
 		for requestIndex, batchedRequest := range params.Body.Things {
 			wg.Add(1)
@@ -431,7 +434,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	/*
 	 * HANDLE KNOWLEDGE TOOLS
 	 */
-	api.KnowledgeToolsWeaviateToolsMapHandler = knowledge_tools.WeaviateToolsMapHandlerFunc(func(ctx context.Context, params knowledge_tools.WeaviateToolsMapParams) middleware.Responder {
+	api.KnowledgeToolsWeaviateToolsMapHandler = knowledge_tools.WeaviateToolsMapHandlerFunc(func(params knowledge_tools.WeaviateToolsMapParams) middleware.Responder {
 		return middleware.NotImplemented("operation knowledge_tools.WeaviateToolsMap has not yet been implemented")
 	})
 
