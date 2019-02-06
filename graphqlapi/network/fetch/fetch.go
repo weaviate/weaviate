@@ -174,12 +174,12 @@ func fuzzyFieldsObj() *graphql.Object {
 
 func thingsActionsWhereFilterFields(filterContainer *utils.FilterContainer) *graphql.ArgumentConfig {
 	whereFilterFields := &graphql.ArgumentConfig{
-		Description: descriptions.FetchWhereFilterFieldsDesc,
+		Description: descriptions.FetchWhereFilterFields,
 		Type: graphql.NewNonNull(graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        "WeaviateNetworkFetchWhereInpObj",
 				Fields:      thingsAndActionsFilterFields(filterContainer),
-				Description: descriptions.FetchWhereFilterFieldsInpObjDesc,
+				Description: descriptions.FetchWhereFilterFieldsInpObj,
 			},
 		)),
 	}

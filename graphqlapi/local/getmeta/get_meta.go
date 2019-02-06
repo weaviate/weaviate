@@ -37,7 +37,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 		getMetaKinds["Actions"] = &graphql.Field{
 			Name:        "WeaviateLocalGetMetaActions",
-			Description: descriptions.LocalGetMetaActionsDesc,
+			Description: descriptions.LocalGetMetaActions,
 			Type:        localGetMetaActions,
 			Resolve:     passThroughResolver,
 		}
@@ -51,7 +51,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 		getMetaKinds["Things"] = &graphql.Field{
 			Name:        "WeaviateLocalGetMetaThings",
-			Description: descriptions.LocalGetMetaThingsDesc,
+			Description: descriptions.LocalGetMetaThings,
 			Type:        localGetMetaThings,
 			Resolve:     passThroughResolver,
 		}
@@ -60,13 +60,13 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 	getMetaObj := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateLocalGetMetaObj",
 		Fields:      getMetaKinds,
-		Description: descriptions.LocalGetObjDesc,
+		Description: descriptions.LocalGetObj,
 	})
 
 	localField := &graphql.Field{
 		Name:        "WeaviateLocalGetMeta",
 		Type:        getMetaObj,
-		Description: descriptions.LocalGetMetaDesc,
+		Description: descriptions.LocalGetMeta,
 		Resolve:     passThroughResolver,
 	}
 
