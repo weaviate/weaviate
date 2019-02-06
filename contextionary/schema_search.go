@@ -32,7 +32,6 @@ func (r SearchResults) Len() int {
 // value
 func (mi *MemoryIndex) SchemaSearch(p SearchParams) (SearchResults, error) {
 	result := SearchResults{}
-	// TODO: Validation
 	if err := p.Validate(); err != nil {
 		return result, fmt.Errorf("invalid search params: %s", err)
 	}
@@ -51,7 +50,9 @@ func (mi *MemoryIndex) SchemaSearch(p SearchParams) (SearchResults, error) {
 		return mi.handleClassSearch(p, rawResults)
 	}
 
-	return result, nil
+	// since we have passed validation we know that anything that's not a class
+	// search must be a property search
+	return mi.handlePropertySearch(p, rawResults)
 }
 
 func (mi *MemoryIndex) centroidFromNameAndKeywords(p SearchParams) (*Vector, error) {
@@ -106,6 +107,13 @@ func (mi *MemoryIndex) handleClassSearch(p SearchParams, search rawResults) (Sea
 	}, nil
 }
 
+func (mi *MemoryIndex) handlePropertySearch(p SearchParams, search rawResults) (SearchResults, error) {
+	return SearchResults{
+		Type:    p.SearchType,
+		Results: search.extractPropertyNames(),
+	}, nil
+}
+
 func (mi *MemoryIndex) knnSearch(vector Vector) (rawResults, error) {
 	list, distances, err := mi.GetNnsByVector(vector, 10000, 3)
 	if err != nil {
@@ -154,6 +162,49 @@ func (r rawResults) extractClassNames(k kind.Kind) []SearchResult {
 	}
 
 	return results
+}
+
+func (r rawResults) extractPropertyNames() []SearchResult {
+	var results []SearchResult
+	regex := regexp.MustCompile("^\\$[A-Za-z]+\\[([A-Za-z]+)\\]$")
+
+	propsMap := map[string][]SearchResult{}
+
+	for _, rawRes := range r {
+		if regex.MatchString(rawRes.name) {
+			name := regex.FindStringSubmatch(rawRes.name)[1] //safe because we ran .MatchString before
+			certainty := distanceToCertainty(rawRes.distance)
+			res := SearchResult{
+				Name:      name,
+				Certainty: certainty,
+			}
+
+			if _, ok := propsMap[name]; !ok {
+				propsMap[name] = []SearchResult{res}
+			} else {
+				propsMap[name] = append(propsMap[name], res)
+			}
+		}
+	}
+
+	// now calculate mean of duplicate results
+	for _, resultsPerName := range propsMap {
+		results = append(results, SearchResult{
+			Name:      resultsPerName[0].Name,
+			Certainty: meanCertainty(resultsPerName),
+		})
+	}
+
+	return results
+}
+
+func meanCertainty(rs []SearchResult) float32 {
+	var compound float32
+	for _, r := range rs {
+		compound += r.Certainty
+	}
+
+	return compound / float32(len(rs))
 }
 
 func distanceToCertainty(d float32) float32 {

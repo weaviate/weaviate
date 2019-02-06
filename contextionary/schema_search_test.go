@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func Test__SchemaSearch(t *testing.T) {
+func Test__SchemaSearch_Classes(t *testing.T) {
 	tests := schemaSearchTests{
 		{
 			name: "className exactly in the contextionary, no keywords, no close other results",
@@ -30,6 +30,30 @@ func Test__SchemaSearch(t *testing.T) {
 					SearchResult{
 						Name:      "Car",
 						Kind:      kind.THING_KIND,
+						Certainty: 0.9699532,
+					},
+				},
+			},
+		},
+		{
+			name: "with an action instead of a thing",
+			words: map[string][]float32{
+				"$ACTION[Drive]": {5, 5, 5},
+				"drive":          {4.7, 5.2, 5},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeClass,
+				Name:       "Drive",
+				Kind:       kind.ACTION_KIND,
+				Certainty:  0.9,
+			},
+			expectedError: nil,
+			expectedResult: SearchResults{
+				Type: SearchTypeClass,
+				Results: []SearchResult{
+					SearchResult{
+						Name:      "Drive",
+						Kind:      kind.ACTION_KIND,
 						Certainty: 0.9699532,
 					},
 				},
@@ -97,6 +121,128 @@ func Test__SchemaSearch(t *testing.T) {
 				SearchType: SearchTypeClass,
 				Name:       "Car",
 				Kind:       kind.THING_KIND,
+				Certainty:  0.9,
+				Keywords: models.SemanticSchemaKeywords{
+					{
+						Keyword: "bicycle",
+						Weight:  0.8,
+					},
+				},
+			},
+			expectedError: errors.New("could not build centroid from name and keywords: " +
+				"invalid keyword in search: " +
+				"the word 'bicycle' is not present in the contextionary and therefore not a valid search term"),
+		},
+	}
+
+	tests.Assert(t)
+}
+
+func Test__SchemaSearch_Properties(t *testing.T) {
+	tests := schemaSearchTests{
+		{
+			name: "property name exactly in the contextionary, no keywords, no close other results",
+			words: map[string][]float32{
+				"$Car[horsepower]": {5, 5, 5},
+				"horsepower":       {4.7, 5.2, 5},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeProperty,
+				Name:       "horsepower",
+				Certainty:  0.9,
+			},
+			expectedError: nil,
+			expectedResult: SearchResults{
+				Type: SearchTypeProperty,
+				Results: []SearchResult{
+					SearchResult{
+						Name:      "horsepower",
+						Certainty: 0.9699532,
+					},
+				},
+			},
+		},
+		{
+			name: "with duplicated property names", // this occurs when several classes have potential properties
+			words: map[string][]float32{
+				"$Car[horsepower]":        {5, 5, 5},
+				"$Automobile[horsepower]": {5.1, 5.1, 5.1},
+				"horsepower":              {4.7, 5.2, 5},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeProperty,
+				Name:       "horsepower",
+				Certainty:  0.9,
+			},
+			expectedError: nil,
+			expectedResult: SearchResults{
+				Type: SearchTypeProperty,
+				Results: []SearchResult{
+					SearchResult{
+						Name:      "horsepower",
+						Certainty: 0.9672985, // note: this is the mean certainty of Car.horsepower and Autombile.horsepower
+					},
+				},
+			},
+		},
+		{
+			name: "propertyName is not a word in the contextionary",
+			words: map[string][]float32{
+				"$Car[horsepower]": {5, 5, 5},
+				"horsepower":       {4.7, 5.2, 5},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeProperty,
+				Name:       "Spaceship",
+				Certainty:  0.9,
+			},
+			expectedError: errors.New("could not build centroid from name and keywords: " +
+				"invalid name in search: " +
+				"the word 'spaceship' is not present in the contextionary and therefore not a valid search term"),
+		},
+		{
+			name: "with additional keywords, all contained",
+			words: map[string][]float32{
+				"$Car[horsepower]": {5, 5, 5},
+				"horsepower":       {4.7, 5.2, 5},
+				"transportation":   {5, 3, 3},
+				"automobile":       {5.2, 5.0, 4},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeProperty,
+				Name:       "horsepower",
+				Certainty:  0.9,
+				Keywords: models.SemanticSchemaKeywords{
+					{
+						Keyword: "automobile",
+						Weight:  0.8,
+					},
+					{
+						Keyword: "transportation",
+						Weight:  0.5,
+					},
+				},
+			},
+			expectedError: nil,
+			expectedResult: SearchResults{
+				Type: SearchTypeProperty,
+				Results: []SearchResult{
+					SearchResult{
+						Name:      "horsepower",
+						Certainty: 0.9284513,
+					},
+				},
+			},
+		},
+		{
+			name: "with a keyword that's not in the contextinary",
+			words: map[string][]float32{
+				"$Car[horsepower]": {5, 5, 5},
+				"horsepower":       {4.7, 5.2, 5},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeProperty,
+				Name:       "horsepower",
 				Certainty:  0.9,
 				Keywords: models.SemanticSchemaKeywords{
 					{
