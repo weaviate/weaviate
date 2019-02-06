@@ -103,14 +103,14 @@ func (mi *MemoryIndex) wordToVector(w string) (*Vector, error) {
 func (mi *MemoryIndex) handleClassSearch(p SearchParams, search rawResults) (SearchResults, error) {
 	return SearchResults{
 		Type:    p.SearchType,
-		Results: search.extractClassNames(p.Kind),
+		Results: search.extractClassNames(p),
 	}, nil
 }
 
 func (mi *MemoryIndex) handlePropertySearch(p SearchParams, search rawResults) (SearchResults, error) {
 	return SearchResults{
 		Type:    p.SearchType,
-		Results: search.extractPropertyNames(),
+		Results: search.extractPropertyNames(p),
 	}, nil
 }
 
@@ -147,16 +147,21 @@ type rawResult struct {
 
 type rawResults []rawResult
 
-func (r rawResults) extractClassNames(k kind.Kind) []SearchResult {
+func (r rawResults) extractClassNames(p SearchParams) []SearchResult {
 	var results []SearchResult
-	regex := regexp.MustCompile(fmt.Sprintf("^\\$%s\\[([A-Za-z]+)\\]$", k.AllCapsName()))
+	regex := regexp.MustCompile(fmt.Sprintf("^\\$%s\\[([A-Za-z]+)\\]$", p.Kind.AllCapsName()))
 
 	for _, rawRes := range r {
 		if regex.MatchString(rawRes.name) {
+			certainty := distanceToCertainty(rawRes.distance)
+			if certainty < p.Certainty {
+				continue
+			}
+
 			results = append(results, SearchResult{
 				Name:      regex.FindStringSubmatch(rawRes.name)[1], //safe because we ran .MatchString before
-				Certainty: distanceToCertainty(rawRes.distance),
-				Kind:      k,
+				Certainty: certainty,
+				Kind:      p.Kind,
 			})
 		}
 	}
@@ -164,7 +169,7 @@ func (r rawResults) extractClassNames(k kind.Kind) []SearchResult {
 	return results
 }
 
-func (r rawResults) extractPropertyNames() []SearchResult {
+func (r rawResults) extractPropertyNames(p SearchParams) []SearchResult {
 	var results []SearchResult
 	regex := regexp.MustCompile("^\\$[A-Za-z]+\\[([A-Za-z]+)\\]$")
 
@@ -174,11 +179,14 @@ func (r rawResults) extractPropertyNames() []SearchResult {
 		if regex.MatchString(rawRes.name) {
 			name := regex.FindStringSubmatch(rawRes.name)[1] //safe because we ran .MatchString before
 			certainty := distanceToCertainty(rawRes.distance)
+			if certainty < p.Certainty {
+				continue
+			}
+
 			res := SearchResult{
 				Name:      name,
 				Certainty: certainty,
 			}
-
 			if _, ok := propsMap[name]; !ok {
 				propsMap[name] = []SearchResult{res}
 			} else {
