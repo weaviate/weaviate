@@ -7,8 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-type SearchType string
-
 type schemaSearchTest struct {
 	name           string
 	words          map[string][]float32

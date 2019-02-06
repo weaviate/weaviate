@@ -27,6 +27,7 @@ branches:
   only: 
     - master
     - develop
+    - feature/networf_fetch_kind
 dist: xenial
 go: 
   - "1.11.5"
