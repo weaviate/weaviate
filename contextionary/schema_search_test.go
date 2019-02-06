@@ -1,6 +1,7 @@
 package contextionary
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
@@ -33,6 +34,22 @@ func Test__SchemaSearch(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			name: "className is not a word in the contextionary",
+			words: map[string][]float32{
+				"$THING[Car]": {5, 5, 5},
+				"car":         {4.7, 5.2, 5},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeClass,
+				Name:       "Spaceship",
+				Kind:       kind.THING_KIND,
+				Certainty:  0.9,
+			},
+			expectedError: errors.New("could not build centroid from name and keywords: " +
+				"invalid name in search: " +
+				"the word 'spaceship' is not present in the contextionary and therefore not a valid search term"),
 		},
 		{
 			name: "with additional keywords, all contained",
@@ -69,6 +86,28 @@ func Test__SchemaSearch(t *testing.T) {
 					},
 				},
 			},
+		},
+		{
+			name: "with a keyword that's not in the contextinary",
+			words: map[string][]float32{
+				"$THING[Car]": {5, 5, 5},
+				"car":         {4.7, 5.2, 5},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeClass,
+				Name:       "Car",
+				Kind:       kind.THING_KIND,
+				Certainty:  0.9,
+				Keywords: models.SemanticSchemaKeywords{
+					{
+						Keyword: "bicycle",
+						Weight:  0.8,
+					},
+				},
+			},
+			expectedError: errors.New("could not build centroid from name and keywords: " +
+				"invalid keyword in search: " +
+				"the word 'bicycle' is not present in the contextionary and therefore not a valid search term"),
 		},
 	}
 
