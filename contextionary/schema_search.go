@@ -6,44 +6,7 @@ import (
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/models"
 )
-
-// SearchType to search for either class names or property names
-type SearchType string
-
-const (
-	// SearchTypeClass to search the contextionary for class names
-	SearchTypeClass SearchType = "class"
-	// SearchTypeProperty to search the contextionary for property names
-	SearchTypeProperty SearchType = "property"
-)
-
-// SearchParams to be used for a SchemaSearch. See individual properties for
-// additional documentation on what they do
-type SearchParams struct {
-	// SearchType can be SearchTypeClass or SearchTypeProperty
-	SearchType SearchType
-
-	// Name is the string-representation of the class or property name
-	Name string
-
-	// Keywords (optional). If no keywords are specified, only the class name
-	// will be used as a search query.
-	Keywords models.SemanticSchemaKeywords
-
-	// Kind as in Thing or Class, not required if SearchType == SearchTypeProperty
-	Kind kind.Kind
-
-	// Certaintiy must be a value between 0 and 1. The higher it is the narrower
-	// is the search, the lower it is, the wider the search is
-	Certainty float32
-}
-
-// Validate the feasibility of the specified arguments
-func (p SearchParams) Validate() error {
-	return nil
-}
 
 // SearchResult is a single search result. See wrapping Search Results for the Type
 type SearchResult struct {
@@ -110,7 +73,7 @@ func (mi *MemoryIndex) centroidFromNameAndKeywords(p SearchParams) (*Vector, err
 	for i, keyword := range p.Keywords {
 		kwVector, err := mi.wordToVector(keyword.Keyword)
 		if err != nil {
-			return nil, fmt.Errorf("invalid name in search: %s", err)
+			return nil, fmt.Errorf("invalid keyword in search: %s", err)
 		}
 		vectors[i] = *kwVector
 		weights[i] = keyword.Weight
