@@ -9,6 +9,9 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
+// SearchType to search for either class names or property names
+type SearchType string
+
 const (
 	// SearchTypeClass to search the contextionary for class names
 	SearchTypeClass SearchType = "class"
