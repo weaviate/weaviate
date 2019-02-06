@@ -113,7 +113,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 		"Fetch": &graphql.Field{
 			Name:        "WeaviateNetworkFetch",
 			Type:        graphQLNetworkFieldContents.NetworkFetchObject,
-			Description: descriptions.NetworkFetchDesc,
+			Description: descriptions.NetworkFetch,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
 			},

@@ -13,8 +13,6 @@
 // Package descriptions provides the descriptions as used by the graphql endpoint for Weaviate
 package descriptions
 
-import ()
-
 // Where filter elements
 const LocalGetWhereDesc string = "Filter options for a local Get query, used to convert the result to the specified filters"
 const LocalGetWhereInpObjDesc string = "An object containing filter options for a local Get query, used to convert the result to the specified filters"
@@ -70,8 +68,8 @@ const WhereInpObjDesc string = "Specify which classes and properties to filter o
 const FetchWhereFilterFieldsDesc string = "An object containing filter options for a network Fetch search, used to convert the result to the specified filters"
 const FetchWhereFilterFieldsInpObjDesc string = "Filter options for a network Fetch search, used to convert the result to the specified filters"
 
-const FetchFuzzyValueDesc string = "Specify the concept that will be used to fetch Things or Actions on the network (e.g. 'Airplane', or 'City')"
-const FetchFuzzyCertaintyDesc string = "Specify how much a Beacon's characteristics must match the provided concept on a scale of 0 to 1"
+const FetchFuzzyValue string = "Specify the concept that will be used to fetch Things or Actions on the network (e.g. 'Airplane', or 'City')"
+const FetchFuzzyCertainty string = "Specify how much a Beacon's characteristics must match the provided concept on a scale of 0 to 1"
 
 // Unique Introspect filter elements
 const IntrospectWhereFilterFieldsDesc string = "An object containing filter options for a network Fetch search, used to convert the result to the specified filters"
