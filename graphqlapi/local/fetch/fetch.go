@@ -28,6 +28,7 @@ func Build() *graphql.Field {
 		Name:        "WeaviateLocalFetch",
 		Description: descriptions.LocalFetch,
 		Type:        fetchObj(nil),
+		Resolve:     bubbleUpResolver,
 	}
 }
 
@@ -41,9 +42,7 @@ func fetchObj(filterContainer *utils.FilterContainer) *graphql.Object {
 			Args: graphql.FieldConfigArgument{
 				"where": whereFilterField(kind.ACTION_KIND),
 			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve: makeResolveClass(kind.ACTION_KIND),
 		},
 
 		"Things": &graphql.Field{
@@ -53,9 +52,7 @@ func fetchObj(filterContainer *utils.FilterContainer) *graphql.Object {
 			Args: graphql.FieldConfigArgument{
 				"where": whereFilterField(kind.THING_KIND),
 			},
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
+			Resolve: makeResolveClass(kind.THING_KIND),
 		},
 	}
 
@@ -72,18 +69,12 @@ func kindFieldsObj(k kind.Kind) *graphql.Object {
 			Name:        fmt.Sprintf("WeaviateLocalFetch%sBeacon", k.TitleizedName()),
 			Description: descriptions.LocalFetchBeacon,
 			Type:        graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 
 		"certainty": &graphql.Field{
 			Name:        fmt.Sprintf("WeaviateLocalFetch%sCertainty", k.TitleizedName()),
 			Description: descriptions.LocalFetchCertainty,
 			Type:        graphql.Float,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return nil, fmt.Errorf("not supported")
-			},
 		},
 	}
 
@@ -115,4 +106,8 @@ func whereFilterField(k kind.Kind) *graphql.ArgumentConfig {
 	}
 
 	return whereFilterFields
+}
+
+func bubbleUpResolver(p graphql.ResolveParams) (interface{}, error) {
+	return p.Source, nil
 }
