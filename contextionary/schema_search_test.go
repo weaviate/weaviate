@@ -4,8 +4,76 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/stretchr/testify/assert"
 )
+
+func Test__SchemaSearch(t *testing.T) {
+	tests := schemaSearchTests{
+		{
+			name: "className exactly in the contextionary, no keywords, no close other results",
+			words: map[string][]float32{
+				"$THING[Car]": {5, 5, 5},
+				"car":         {4.7, 5.2, 5},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeClass,
+				Name:       "Car",
+				Kind:       kind.THING_KIND,
+				Certainty:  0.9,
+			},
+			expectedError: nil,
+			expectedResult: SearchResults{
+				Type: SearchTypeClass,
+				Results: []SearchResult{
+					SearchResult{
+						Name:      "Car",
+						Kind:      kind.THING_KIND,
+						Certainty: 0.9699532,
+					},
+				},
+			},
+		},
+		{
+			name: "with additional keywords, all contained",
+			words: map[string][]float32{
+				"$THING[Car]":    {5, 5, 5},
+				"car":            {4.7, 5.2, 5},
+				"transportation": {5, 3, 3},
+				"automobile":     {5.2, 5.0, 4},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeClass,
+				Name:       "Car",
+				Kind:       kind.THING_KIND,
+				Certainty:  0.9,
+				Keywords: models.SemanticSchemaKeywords{
+					{
+						Keyword: "automobile",
+						Weight:  0.8,
+					},
+					{
+						Keyword: "transportation",
+						Weight:  0.5,
+					},
+				},
+			},
+			expectedError: nil,
+			expectedResult: SearchResults{
+				Type: SearchTypeClass,
+				Results: []SearchResult{
+					SearchResult{
+						Name:      "Car",
+						Kind:      kind.THING_KIND,
+						Certainty: 0.9284513,
+					},
+				},
+			},
+		},
+	}
+
+	tests.Assert(t)
+}
 
 type schemaSearchTest struct {
 	name           string
@@ -38,34 +106,4 @@ func (s schemaSearchTests) Assert(t *testing.T) {
 			assert.Equal(t, test.expectedResult, res, "should match the expected result")
 		})
 	}
-
-}
-
-func Test__SchemaSearch(t *testing.T) {
-	tests := schemaSearchTests{{
-		name: "className exactly in the contextionary, no keywords, no close other results",
-		words: map[string][]float32{
-			"$THING[Car]": {5, 5, 5},
-			"car":         {4.7, 5.2, 5},
-		},
-		searchParams: SearchParams{
-			SearchType: SearchTypeClass,
-			Name:       "Car",
-			Kind:       kind.THING_KIND,
-			Certainty:  0.9,
-		},
-		expectedError: nil,
-		expectedResult: SearchResults{
-			Type: SearchTypeClass,
-			Results: []SearchResult{
-				SearchResult{
-					Name:      "Car",
-					Kind:      kind.THING_KIND,
-					Certainty: 0.9699532,
-				},
-			},
-		},
-	}}
-
-	tests.Assert(t)
 }

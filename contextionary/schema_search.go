@@ -74,7 +74,12 @@ func (mi *MemoryIndex) SchemaSearch(p SearchParams) (SearchResults, error) {
 		return result, fmt.Errorf("invalid search params: %s", err)
 	}
 
-	rawResults, err := mi.knnSearch(p.Name)
+	centroid, err := mi.centroidFromNameAndKeywords(p)
+	if err != nil {
+		return result, fmt.Errorf("could not build centroid from name and keywords: %s", err)
+	}
+
+	rawResults, err := mi.knnSearch(*centroid)
 	if err != nil {
 		return result, fmt.Errorf("could not perform knn search: %s", err)
 	}
@@ -86,6 +91,51 @@ func (mi *MemoryIndex) SchemaSearch(p SearchParams) (SearchResults, error) {
 	return result, nil
 }
 
+func (mi *MemoryIndex) centroidFromNameAndKeywords(p SearchParams) (*Vector, error) {
+	nameVector, err := mi.wordToVector(p.Name)
+	if err != nil {
+		return nil, fmt.Errorf("invalid name in search: %s", err)
+	}
+
+	if len(p.Keywords) == 0 {
+		return nameVector, nil
+	}
+
+	vectors := make([]Vector, len(p.Keywords)+1, len(p.Keywords)+1)
+	weights := make([]float32, len(p.Keywords)+1, len(p.Keywords)+1)
+	// set last vector to className which always has weight=1
+	vectors[len(vectors)-1] = *nameVector
+	weights[len(vectors)-1] = 1
+
+	for i, keyword := range p.Keywords {
+		kwVector, err := mi.wordToVector(keyword.Keyword)
+		if err != nil {
+			return nil, fmt.Errorf("invalid name in search: %s", err)
+		}
+		vectors[i] = *kwVector
+		weights[i] = keyword.Weight
+	}
+
+	return ComputeWeightedCentroid(vectors, weights)
+}
+
+func (mi *MemoryIndex) wordToVector(w string) (*Vector, error) {
+	w = strings.ToLower(w)
+	itemIndex := mi.WordToItemIndex(w)
+	if ok := itemIndex.IsPresent(); !ok {
+		return nil, fmt.Errorf(
+			"the word '%s' is not present in the contextionary and therefore not a valid search term", w)
+	}
+
+	vector, err := mi.GetVectorForItemIndex(itemIndex)
+	if err != nil {
+		return nil, fmt.Errorf("could not get vector for word '%s' with itemIndex '%d': %s",
+			w, itemIndex, err)
+	}
+
+	return vector, nil
+}
+
 func (mi *MemoryIndex) handleClassSearch(p SearchParams, search rawResults) (SearchResults, error) {
 	return SearchResults{
 		Type:    p.SearchType,
@@ -93,17 +143,10 @@ func (mi *MemoryIndex) handleClassSearch(p SearchParams, search rawResults) (Sea
 	}, nil
 }
 
-func (mi *MemoryIndex) knnSearch(name string) (rawResults, error) {
-	name = strings.ToLower(name)
-	itemIndex := mi.WordToItemIndex(name)
-	if ok := itemIndex.IsPresent(); !ok {
-		return nil, fmt.Errorf(
-			"the word '%s' is not present in the contextionary and therefore not a valid search term", name)
-	}
-
-	list, distances, err := mi.GetNnsByItem(itemIndex, 1000000, 3)
+func (mi *MemoryIndex) knnSearch(vector Vector) (rawResults, error) {
+	list, distances, err := mi.GetNnsByVector(vector, 10000, 3)
 	if err != nil {
-		return nil, fmt.Errorf("could not get nearest neighbors for '%s': %s", name, err)
+		return nil, fmt.Errorf("could not get nearest neighbors for vector '%v': %s", vector, err)
 	}
 
 	results := make(rawResults, len(list), len(list))
