@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/fatih/camelcase"
 )
 
 // SearchResult is a single search result. See wrapping Search Results for the Type
@@ -56,7 +57,7 @@ func (mi *MemoryIndex) SchemaSearch(p SearchParams) (SearchResults, error) {
 }
 
 func (mi *MemoryIndex) centroidFromNameAndKeywords(p SearchParams) (*Vector, error) {
-	nameVector, err := mi.wordToVector(p.Name)
+	nameVector, err := mi.camelCaseWordToVector(p.Name)
 	if err != nil {
 		return nil, fmt.Errorf("invalid name in search: %s", err)
 	}
@@ -78,6 +79,28 @@ func (mi *MemoryIndex) centroidFromNameAndKeywords(p SearchParams) (*Vector, err
 		}
 		vectors[i] = *kwVector
 		weights[i] = keyword.Weight
+	}
+
+	return ComputeWeightedCentroid(vectors, weights)
+}
+
+func (mi *MemoryIndex) camelCaseWordToVector(w string) (*Vector, error) {
+	parts := camelcase.Split(w)
+	if len(parts) == 1 {
+		// no camelcasing, no need to build a centroid
+		return mi.wordToVector(w)
+	}
+
+	vectors := make([]Vector, len(parts), len(parts))
+	weights := make([]float32, len(parts), len(parts))
+	for i, part := range parts {
+		v, err := mi.wordToVector(part)
+		if err != nil {
+			return nil, fmt.Errorf("invalid camelCased compound word: %s", err)
+		}
+
+		vectors[i] = *v
+		weights[i] = 1 // on camel-casing all parts are weighted equally
 	}
 
 	return ComputeWeightedCentroid(vectors, weights)
