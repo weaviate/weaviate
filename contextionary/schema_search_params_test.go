@@ -95,6 +95,21 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			expectedError: errors.New("invalid keyword at position 0: invalid Weight: " +
 				"must be between 0 and 1, but got '1.300000'"),
 		},
+		{
+			name: "CamelCased keywords",
+			searchParams: SearchParams{
+				SearchType: SearchTypeClass,
+				Name:       "foo",
+				Certainty:  1.0,
+				Keywords: models.SemanticSchemaKeywords{{
+					Keyword: "worstKeyword",
+					Weight:  0.8,
+				}},
+			},
+			expectedError: errors.New("invalid keyword at position 0: invalid Keyword: " +
+				"keywords cannot be camelCased - instead split your keyword up into several keywords, " +
+				"this way each word of your camelCased string can have its own weight, got 'worstKeyword'"),
+		},
 	}
 
 	tests.AssertValidation(t)

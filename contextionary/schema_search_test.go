@@ -36,6 +36,31 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 			},
 		},
 		{
+			name: "with a camel cased seach string",
+			words: map[string][]float32{
+				"$THING[Driver]": {3, 3, 5},
+				"car":            {4.7, 5.2, 5},
+				"driver":         {3, 3, 3},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeClass,
+				Name:       "CarDriver",
+				Kind:       kind.THING_KIND,
+				Certainty:  0.5,
+			},
+			expectedError: nil,
+			expectedResult: SearchResults{
+				Type: SearchTypeClass,
+				Results: []SearchResult{
+					SearchResult{
+						Name:      "Driver",
+						Kind:      kind.THING_KIND,
+						Certainty: 0.8572954,
+					},
+				},
+			},
+		},
+		{
 			name: "with another class, that's somewhat related, but not enough the meet the desired certainty",
 			words: map[string][]float32{
 				"$THING[Car]":   {5, 5, 5},

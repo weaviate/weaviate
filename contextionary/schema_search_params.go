@@ -5,6 +5,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/fatih/camelcase"
 )
 
 // SearchType to search for either class names or property names
@@ -65,6 +66,12 @@ func (p SearchParams) Validate() error {
 func (p SearchParams) validateKeyword(kw *models.SemanticSchemaKeywordsItems0) error {
 	if kw.Keyword == "" {
 		return fmt.Errorf("Keyword cannot be empty")
+	}
+
+	if len(camelcase.Split(kw.Keyword)) > 1 {
+		return fmt.Errorf("invalid Keyword: keywords cannot be camelCased - "+
+			"instead split your keyword up into several keywords, this way each word "+
+			"of your camelCased string can have its own weight, got '%s'", kw.Keyword)
 	}
 
 	if err := p.validateCertaintyOrWeight(kw.Weight); err != nil {
