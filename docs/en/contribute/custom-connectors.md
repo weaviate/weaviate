@@ -20,7 +20,7 @@ The [foobar](../../../database/connectors/foobar/connector.go) connector is an e
 
 ## Making Your Connector Known
 
-If you have created a new connector in the [/database/connectors/*])(#) folder, you need to edit the [/database/listing/connectors.go](#) file to include your connector.
+If you have created a new connector in the [/database/connectors/*])(../../../database/connectors) folder, you need to edit the [/database/listing/connectors.go](../../../database/connectors/connectors.go) file to include your connector.
 
 For example, adding a new `sampleconnector` would look like this:
 
@@ -39,7 +39,7 @@ switch name {
 
 ## Running Weaviate with your connection.
 
-When [running Weaviate], the flag `--config-file=`  needs to be set. In this configuration file you can add the following parameters:
+When [running Weaviate](../use/running-weaviate.md), the flag `--config-file=`  needs to be set. In this configuration file you can add the following parameters:
 
 ```go
 "database": {
@@ -56,8 +56,8 @@ Misc:<br>
 You are free to add new keys to the object `database_config`. This configuration becomes available in the `config`  variable inside your connector.
 
 Misc:<br>
-- Look at [this](#) configuration file to see how `"database":{}` is being used.
-- See how the config is set in a [docker compose](#) file.
+- Look at [this](../../../weaviate.conf.json#L4-L10) configuration file to see how `"database":{}` is being used.
+- See how the config is set in a [docker compose](../../../Dockerfile-prod#L46) file.
 
 ## Building Your Connector
 
