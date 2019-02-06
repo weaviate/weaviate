@@ -36,6 +36,31 @@ func Test__SchemaSearch_Classes(t *testing.T) {
 			},
 		},
 		{
+			name: "with another class, that's somewhat related, but not enough the meet the desired certainty",
+			words: map[string][]float32{
+				"$THING[Car]":   {5, 5, 5},
+				"$THING[Train]": {2, 2, 2},
+				"car":           {4.7, 5.2, 5},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeClass,
+				Name:       "Car",
+				Kind:       kind.THING_KIND,
+				Certainty:  0.9,
+			},
+			expectedError: nil,
+			expectedResult: SearchResults{
+				Type: SearchTypeClass,
+				Results: []SearchResult{
+					SearchResult{
+						Name:      "Car",
+						Kind:      kind.THING_KIND,
+						Certainty: 0.9699532,
+					},
+				},
+			},
+		},
+		{
 			name: "with an action instead of a thing",
 			words: map[string][]float32{
 				"$ACTION[Drive]": {5, 5, 5},
@@ -145,6 +170,30 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 			words: map[string][]float32{
 				"$Car[horsepower]": {5, 5, 5},
 				"horsepower":       {4.7, 5.2, 5},
+			},
+			searchParams: SearchParams{
+				SearchType: SearchTypeProperty,
+				Name:       "horsepower",
+				Certainty:  0.9,
+			},
+			expectedError: nil,
+			expectedResult: SearchResults{
+				Type: SearchTypeProperty,
+				Results: []SearchResult{
+					SearchResult{
+						Name:      "horsepower",
+						Certainty: 0.9699532,
+					},
+				},
+			},
+		},
+		{
+			name: "with two potential properties, that are somewhat related, " +
+				"but not close enough to meet the certainty threshold",
+			words: map[string][]float32{
+				"$Car[horsepower]":   {5, 5, 5},
+				"$Powerdrill[power]": {2, 2, 2},
+				"horsepower":         {4.7, 5.2, 5},
 			},
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
