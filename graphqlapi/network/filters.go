@@ -34,7 +34,7 @@ func genNetworkWhereOperatorEnum() *graphql.Enum {
 			"LessThan":         &graphql.EnumValueConfig{},
 			"LessThanEqual":    &graphql.EnumValueConfig{},
 		},
-		Description: descriptions.WhereOperatorEnumDesc,
+		Description: descriptions.WhereOperatorEnum,
 	}
 
 	return graphql.NewEnum(enumConf)
@@ -53,14 +53,14 @@ func genWeaviateNetworkWhereNameKeywordsInpObj() *graphql.InputObject {
 			Fields: graphql.InputObjectConfigFieldMap{
 				"value": &graphql.InputObjectFieldConfig{
 					Type:        graphql.String,
-					Description: descriptions.WhereKeywordsValueDesc,
+					Description: descriptions.WhereKeywordsValue,
 				},
 				"weight": &graphql.InputObjectFieldConfig{
 					Type:        graphql.Float,
-					Description: descriptions.WhereKeywordsWeightDesc,
+					Description: descriptions.WhereKeywordsWeight,
 				},
 			},
-			Description: descriptions.WhereKeywordsInpObjDesc,
+			Description: descriptions.WhereKeywordsInpObj,
 		},
 	)
 	return weaviateNetworkWhereNameKeywordsInpObj

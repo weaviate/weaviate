@@ -25,15 +25,15 @@ func thingsAndActionsFilterFields(filterContainer *utils.FilterContainer) graphq
 	networkFetchThingsAndActionsFilterFields := graphql.InputObjectConfigFieldMap{
 		"class": &graphql.InputObjectFieldConfig{
 			Type:        graphql.NewList(networkFetchWhereInpObjClassInpObj),
-			Description: descriptions.WhereClassDesc,
+			Description: descriptions.WhereClass,
 		},
 		"properties": &graphql.InputObjectFieldConfig{
 			Type:        graphql.NewList(networkFetchWhereInpObjPropertiesObj),
-			Description: descriptions.WherePropertiesDesc,
+			Description: descriptions.WhereProperties,
 		},
 		"first": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Int,
-			Description: descriptions.FirstDesc,
+			Description: descriptions.First,
 		},
 	}
 
@@ -49,22 +49,22 @@ func whereInpObjPropertiesObj(filterContainer *utils.FilterContainer) *graphql.I
 
 	filterPropertiesElements["certainty"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.Float,
-		Description: descriptions.WhereCertaintyDesc,
+		Description: descriptions.WhereCertainty,
 	}
 	filterPropertiesElements["name"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.String,
-		Description: descriptions.WhereNameDesc,
+		Description: descriptions.WhereName,
 	}
 	filterPropertiesElements["keywords"] = &graphql.InputObjectFieldConfig{
 		Type:        graphql.NewList(wherePropertyWhereKeywordsInpObj()),
-		Description: descriptions.WhereKeywordsDesc,
+		Description: descriptions.WhereKeywords,
 	}
 
 	networkFetchWhereInpObjPropertiesObj := graphql.NewInputObject(
 		graphql.InputObjectConfig{
 			Name:        "WeaviateNetworkFetchWhereInpObjProperties",
 			Fields:      filterPropertiesElements,
-			Description: descriptions.WherePropertiesDesc,
+			Description: descriptions.WhereProperties,
 		},
 	)
 
@@ -78,14 +78,14 @@ func wherePropertyWhereKeywordsInpObj() *graphql.InputObject {
 			Fields: graphql.InputObjectConfigFieldMap{
 				"value": &graphql.InputObjectFieldConfig{
 					Type:        graphql.String,
-					Description: descriptions.WhereKeywordsValueDesc,
+					Description: descriptions.WhereKeywordsValue,
 				},
 				"weight": &graphql.InputObjectFieldConfig{
 					Type:        graphql.Float,
-					Description: descriptions.WhereKeywordsWeightDesc,
+					Description: descriptions.WhereKeywordsWeight,
 				},
 			},
-			Description: descriptions.WhereKeywordsInpObjDesc,
+			Description: descriptions.WhereKeywordsInpObj,
 		},
 	)
 	return outputObject
@@ -95,19 +95,19 @@ func whereInpObjClassInpObj(filterContainer *utils.FilterContainer) *graphql.Inp
 	filterClassElements := graphql.InputObjectConfigFieldMap{
 		"name": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
-			Description: descriptions.WhereNameDesc,
+			Description: descriptions.WhereName,
 		},
 		"certainty": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Float,
-			Description: descriptions.WhereCertaintyDesc,
+			Description: descriptions.WhereCertainty,
 		},
 		"keywords": &graphql.InputObjectFieldConfig{
 			Type:        graphql.NewList(filterContainer.WeaviateNetworkWhereKeywordsInpObj),
-			Description: descriptions.WhereKeywordsDesc,
+			Description: descriptions.WhereKeywords,
 		},
 		"first": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Int,
-			Description: descriptions.FirstDesc,
+			Description: descriptions.First,
 		},
 	}
 
@@ -115,7 +115,7 @@ func whereInpObjClassInpObj(filterContainer *utils.FilterContainer) *graphql.Inp
 		graphql.InputObjectConfig{
 			Name:        "WeaviateNetworkFetchWhereInpObjClassInpObj",
 			Fields:      filterClassElements,
-			Description: descriptions.WhereClassDesc,
+			Description: descriptions.WhereClass,
 		},
 	)
 	return networkFetchWhereInpObjClassInpObj

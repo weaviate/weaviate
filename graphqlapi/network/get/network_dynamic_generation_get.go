@@ -38,7 +38,7 @@ func ActionClassFieldsFromSchema(dbSchema *schema.Schema, getActionsAndThings *m
 	getActions := graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGet", weaviate, "ActionsObj"),
 		Fields:      actionClassFields,
-		Description: descriptions.NetworkGetWeaviateActionsObjDesc,
+		Description: descriptions.NetworkGetWeaviateActionsObj,
 	}
 
 	return graphql.NewObject(getActions), nil
@@ -66,20 +66,20 @@ func actionClassField(class *models.SemanticSchemaClass, getActionsAndThings *ma
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
-				Description: descriptions.FirstDesc,
+				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
 			"after": &graphql.ArgumentConfig{
-				Description: descriptions.AfterDesc,
+				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{
-				Description: descriptions.NetworkGetWhereDesc,
+				Description: descriptions.NetworkGetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        fmt.Sprintf("WeaviateNetworkGet%sActions%sWhereInpObj", weaviate, class.Class),
 						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGet%sActions%s", weaviate, class.Class)),
-						Description: descriptions.NetworkGetWhereInpObjDesc,
+						Description: descriptions.NetworkGetWhereInpObj,
 					},
 				),
 			},
@@ -144,7 +144,7 @@ func actionClassPropertyFields(class *models.SemanticSchemaClass, getActionsAndT
 	}
 
 	actionClassPropertyFields["uuid"] = &graphql.Field{
-		Description: descriptions.NetworkGetClassUUIDDesc,
+		Description: descriptions.NetworkGetClassUUID,
 		Type:        graphql.String,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return nil, fmt.Errorf("not supported")
@@ -168,7 +168,7 @@ func ThingClassFieldsFromSchema(dbSchema *schema.Schema, actionsAndThings *map[s
 	getThings := graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%s", "WeaviateNetworkGet", weaviate, "ThingsObj"),
 		Fields:      thingClassFields,
-		Description: descriptions.NetworkGetWeaviateThingsObjDesc,
+		Description: descriptions.NetworkGetWeaviateThingsObj,
 	}
 
 	return graphql.NewObject(getThings), nil
@@ -193,20 +193,20 @@ func thingClassField(class *models.SemanticSchemaClass, getActionsAndThings *map
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
-				Description: descriptions.FirstDesc,
+				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
 			"after": &graphql.ArgumentConfig{
-				Description: descriptions.AfterDesc,
+				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{
-				Description: descriptions.NetworkGetWhereDesc,
+				Description: descriptions.NetworkGetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        fmt.Sprintf("WeaviateNetworkGet%sThings%sWhereInpObj", weaviate, class.Class),
 						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkGet%sThings%s", weaviate, class.Class)),
-						Description: descriptions.NetworkGetWhereInpObjDesc,
+						Description: descriptions.NetworkGetWhereInpObj,
 					},
 				),
 			},
@@ -272,7 +272,7 @@ func thingClassPropertyFields(class *models.SemanticSchemaClass, actionsAndThing
 	}
 
 	fields["uuid"] = &graphql.Field{
-		Description: descriptions.NetworkGetClassUUIDDesc,
+		Description: descriptions.NetworkGetClassUUID,
 		Type:        graphql.String,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return nil, fmt.Errorf("not supported")

@@ -47,7 +47,7 @@ func buildGetClassObject(kindName string, class *models.SemanticSchemaClass, dbS
 			classProperties := graphql.Fields{}
 
 			classProperties["uuid"] = &graphql.Field{
-				Description: descriptions.LocalGetClassUUIDDesc,
+				Description: descriptions.LocalGetClassUUID,
 				Type:        graphql.String,
 			}
 
@@ -135,20 +135,20 @@ func buildGetClassField(classObject *graphql.Object, k kind.Kind,
 		Description: class.Description,
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
-				Description: descriptions.FirstDesc,
+				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
 			"after": &graphql.ArgumentConfig{
-				Description: descriptions.AfterDesc,
+				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{
-				Description: descriptions.LocalGetWhereDesc,
+				Description: descriptions.LocalGetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        fmt.Sprintf("WeaviateLocalGet%ss%sWhereInpObj", kindName, class.Class),
 						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGet%ss%s", kindName, class.Class)),
-						Description: descriptions.LocalGetWhereInpObjDesc,
+						Description: descriptions.LocalGetWhereInpObj,
 					},
 				),
 			},

@@ -104,12 +104,12 @@ func kindFieldsObj(k kind.Kind) *graphql.Object {
 
 func whereFilterField(k kind.Kind) *graphql.ArgumentConfig {
 	whereFilterFields := &graphql.ArgumentConfig{
-		Description: descriptions.FetchWhereFilterFieldsDesc,
+		Description: descriptions.FetchWhereFilterFields,
 		Type: graphql.NewNonNull(graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        fmt.Sprintf("WeaviateLocalFetch%sWhereInpObj", k.TitleizedName()),
 				Fields:      whereFilterFields(k),
-				Description: descriptions.FetchWhereFilterFieldsInpObjDesc,
+				Description: descriptions.FetchWhereFilterFieldsInpObj,
 			},
 		)),
 	}

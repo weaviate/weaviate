@@ -39,7 +39,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 		getKinds["Actions"] = &graphql.Field{
 			Name:        "WeaviateLocalAggregateActions",
-			Description: descriptions.LocalAggregateActionsDesc,
+			Description: descriptions.LocalAggregateActions,
 			Type:        localAggregateActions,
 			Resolve:     passThroughResolver,
 		}
@@ -53,7 +53,7 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 		getKinds["Things"] = &graphql.Field{
 			Name:        "WeaviateLocalAggregateThings",
-			Description: descriptions.LocalAggregateThingsDesc,
+			Description: descriptions.LocalAggregateThings,
 			Type:        localAggregateThings,
 			Resolve:     passThroughResolver,
 		}
@@ -61,11 +61,11 @@ func Build(dbSchema *schema.Schema) (*graphql.Field, error) {
 
 	field := graphql.Field{
 		Name:        "WeaviateLocalAggregate",
-		Description: descriptions.LocalAggregateWhereDesc,
+		Description: descriptions.LocalAggregateWhere,
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name:        "WeaviateLocalAggregateObj",
 			Fields:      getKinds,
-			Description: descriptions.LocalAggregateObjDesc,
+			Description: descriptions.LocalAggregateObj,
 		}),
 		Resolve: passThroughResolver,
 	}
@@ -88,7 +88,7 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*gr
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("WeaviateLocalAggregate%ssObj", k.TitleizedName()),
 		Fields:      fields,
-		Description: descriptions.LocalAggregateThingsActionsObjDesc,
+		Description: descriptions.LocalAggregateThingsActionsObj,
 	}), nil
 }
 
@@ -123,27 +123,27 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 		Description: description,
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
-				Description: descriptions.FirstDesc,
+				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
 			"after": &graphql.ArgumentConfig{
-				Description: descriptions.AfterDesc,
+				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{
-				Description: descriptions.LocalGetWhereDesc,
+				Description: descriptions.LocalGetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name: fmt.Sprintf("WeaviateLocalAggregate%ss%sWhereInpObj",
 							k.TitleizedName(), class.Class),
 						Fields: common_filters.BuildNew(fmt.Sprintf("WeaviateLocalAggregate%ss%s",
 							k.TitleizedName(), class.Class)),
-						Description: descriptions.LocalGetWhereInpObjDesc,
+						Description: descriptions.LocalGetWhereInpObj,
 					},
 				),
 			},
 			"groupBy": &graphql.ArgumentConfig{
-				Description: descriptions.GroupByDesc,
+				Description: descriptions.GroupBy,
 				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
 			},
 		},
@@ -175,7 +175,7 @@ func classPropertyFields(class *models.SemanticSchemaClass) (graphql.Fields, err
 
 	// Always append Grouped By field
 	fields["groupedBy"] = &graphql.Field{
-		Description: descriptions.LocalAggregateGroupedByDesc,
+		Description: descriptions.LocalAggregateGroupedBy,
 		Type:        groupedByProperty(class),
 	}
 
@@ -210,7 +210,7 @@ func makePropertyField(class *models.SemanticSchemaClass, property *models.Seman
 	fieldMaker propertyFieldMaker) (*graphql.Field, error) {
 	prefix := "LocalAggregate"
 	return &graphql.Field{
-		Description: fmt.Sprintf(`%s"%s"`, descriptions.AggregatePropertyDesc, property.Name),
+		Description: fmt.Sprintf(`%s"%s"`, descriptions.AggregateProperty, property.Name),
 		Type:        fieldMaker(class, property, prefix),
 	}, nil
 }

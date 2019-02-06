@@ -51,12 +51,12 @@ func (b *Builder) PeerField() (*graphql.Field, error) {
 	object := graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("WeaviateNetworkGet%sObj", b.peerName),
 		Fields:      kinds,
-		Description: fmt.Sprintf("%s%s", descriptions.NetworkGetWeaviateObjDesc, b.peerName),
+		Description: fmt.Sprintf("%s%s", descriptions.NetworkGetWeaviateObj, b.peerName),
 	})
 
 	field := &graphql.Field{
 		Name:        fmt.Sprintf("%s%s", "Meta", b.peerName),
-		Description: fmt.Sprintf("%s%s", descriptions.NetworkWeaviateDesc, b.peerName),
+		Description: fmt.Sprintf("%s%s", descriptions.NetworkWeaviate, b.peerName),
 		Type:        object,
 		Resolve:     NetworkGetInstanceResolve,
 	}
@@ -90,7 +90,7 @@ func (b *Builder) buildKinds() (graphql.Fields, error) {
 func newActionsField(actions *graphql.Object) *graphql.Field {
 	return &graphql.Field{
 		Name:        "WeaviateNetworkGetActions",
-		Description: descriptions.NetworkGetActionsDesc,
+		Description: descriptions.NetworkGetActions,
 		Type:        actions,
 		Resolve:     passThroughResolver,
 	}
@@ -99,7 +99,7 @@ func newActionsField(actions *graphql.Object) *graphql.Field {
 func newThingsField(things *graphql.Object) *graphql.Field {
 	return &graphql.Field{
 		Name:        "WeaviateNetworkGetThings",
-		Description: descriptions.NetworkGetThingsDesc,
+		Description: descriptions.NetworkGetThings,
 		Type:        things,
 		Resolve:     passThroughResolver,
 	}

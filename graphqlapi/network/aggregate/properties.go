@@ -23,37 +23,37 @@ func numericPropertyFields(class *models.SemanticSchemaClass, property *models.S
 	getMetaIntFields := graphql.Fields{
 		"sum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sSum", prefix, class.Class, property.Name),
-			Description: descriptions.NetworkAggregateSumDesc,
+			Description: descriptions.NetworkAggregateSum,
 			Type:        graphql.Float,
 		},
 		"minimum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMinimum", prefix, class.Class, property.Name),
-			Description: descriptions.NetworkAggregateMinDesc,
+			Description: descriptions.NetworkAggregateMin,
 			Type:        graphql.Float,
 		},
 		"maximum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMaximum", prefix, class.Class, property.Name),
-			Description: descriptions.NetworkAggregateMaxDesc,
+			Description: descriptions.NetworkAggregateMax,
 			Type:        graphql.Float,
 		},
 		"mean": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMean", prefix, class.Class, property.Name),
-			Description: descriptions.NetworkAggregateMeanDesc,
+			Description: descriptions.NetworkAggregateMean,
 			Type:        graphql.Float,
 		},
 		"mode": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMode", prefix, class.Class, property.Name),
-			Description: descriptions.NetworkAggregateModeDesc,
+			Description: descriptions.NetworkAggregateMode,
 			Type:        graphql.Float,
 		},
 		"median": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMedian", prefix, class.Class, property.Name),
-			Description: descriptions.NetworkAggregateMedianDesc,
+			Description: descriptions.NetworkAggregateMedian,
 			Type:        graphql.Float,
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
-			Description: descriptions.NetworkAggregateCountDesc,
+			Description: descriptions.NetworkAggregateCount,
 			Type:        graphql.Int,
 		},
 	}
@@ -61,7 +61,7 @@ func numericPropertyFields(class *models.SemanticSchemaClass, property *models.S
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaIntFields,
-		Description: descriptions.NetworkAggregatePropertyObjectDesc,
+		Description: descriptions.NetworkAggregatePropertyObject,
 	})
 }
 
@@ -70,7 +70,7 @@ func nonNumericPropertyFields(class *models.SemanticSchemaClass,
 	getMetaPointingFields := graphql.Fields{
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
-			Description: descriptions.NetworkAggregateCountDesc,
+			Description: descriptions.NetworkAggregateCount,
 			Type:        graphql.Int,
 		},
 	}
@@ -78,18 +78,18 @@ func nonNumericPropertyFields(class *models.SemanticSchemaClass,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaPointingFields,
-		Description: descriptions.NetworkAggregatePropertyObjectDesc,
+		Description: descriptions.NetworkAggregatePropertyObject,
 	})
 }
 
 func groupedByProperty(class *models.SemanticSchemaClass, peerName string) *graphql.Object {
 	classProperties := graphql.Fields{
 		"path": &graphql.Field{
-			Description: descriptions.NetworkAggregateGroupedByGroupedByPathDesc,
+			Description: descriptions.NetworkAggregateGroupedByGroupedByPath,
 			Type:        graphql.NewList(graphql.String),
 		},
 		"value": &graphql.Field{
-			Description: descriptions.NetworkAggregateGroupedByGroupedByValueDesc,
+			Description: descriptions.NetworkAggregateGroupedByGroupedByValue,
 			Type:        graphql.String,
 		},
 	}
@@ -97,7 +97,7 @@ func groupedByProperty(class *models.SemanticSchemaClass, peerName string) *grap
 	classPropertiesObj := graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("Aggregate%s%sGroupedByObj", peerName, class.Class),
 		Fields:      classProperties,
-		Description: descriptions.NetworkAggregateGroupedByObjDesc,
+		Description: descriptions.NetworkAggregateGroupedByObj,
 	})
 
 	return classPropertiesObj

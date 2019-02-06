@@ -37,47 +37,47 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 					"LessThan":         &graphql.EnumValueConfig{},
 					"LessThanEqual":    &graphql.EnumValueConfig{},
 				},
-				Description: descriptions.WhereOperatorEnumDesc,
+				Description: descriptions.WhereOperatorEnum,
 			}),
-			Description: descriptions.WhereOperatorDesc,
+			Description: descriptions.WhereOperator,
 		},
 		"path": &graphql.InputObjectFieldConfig{
 			Type:        graphql.NewList(graphql.String),
-			Description: descriptions.WherePathDesc,
+			Description: descriptions.WherePath,
 		},
 		"valueInt": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Int,
-			Description: descriptions.WhereValueIntDesc,
+			Description: descriptions.WhereValueInt,
 		},
 		"valueNumber": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Float,
-			Description: descriptions.WhereValueNumberDesc,
+			Description: descriptions.WhereValueNumber,
 		},
 		"valueBoolean": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Boolean,
-			Description: descriptions.WhereValueBooleanDesc,
+			Description: descriptions.WhereValueBoolean,
 		},
 		"valueString": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
-			Description: descriptions.WhereValueStringDesc,
+			Description: descriptions.WhereValueString,
 		},
 		"valueText": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
-			Description: descriptions.WhereValueTextDesc,
+			Description: descriptions.WhereValueText,
 		},
 		"valueDate": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
-			Description: descriptions.WhereValueStringDesc,
+			Description: descriptions.WhereValueString,
 		},
 	}
 
 	// Recurse into the same time.
 	commonFilters["operands"] = &graphql.InputObjectFieldConfig{
-		Description: descriptions.WhereOperandsDesc,
+		Description: descriptions.WhereOperands,
 		Type: graphql.NewList(graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        fmt.Sprintf("%sWhereOperandsInpObj", path),
-				Description: descriptions.WhereOperandsInpObjDesc,
+				Description: descriptions.WhereOperandsInpObj,
 				Fields: (graphql.InputObjectConfigFieldMapThunk)(func() graphql.InputObjectConfigFieldMap {
 					return commonFilters
 				}),

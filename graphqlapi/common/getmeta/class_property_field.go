@@ -48,7 +48,7 @@ type propertyFieldMaker func(class *models.SemanticSchemaClass,
 func makePropertyField(class *models.SemanticSchemaClass, property *models.SemanticSchemaClassProperty,
 	fieldMaker propertyFieldMaker, prefix string) (*graphql.Field, error) {
 	return &graphql.Field{
-		Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaPropertyDesc, property.Name),
+		Description: fmt.Sprintf(`%s"%s"`, descriptions.GetMetaProperty, property.Name),
 		Type:        fieldMaker(class, property, prefix),
 	}, nil
 }
@@ -57,7 +57,7 @@ func makePropertyField(class *models.SemanticSchemaClass, property *models.Seman
 // info to a GetMeta Query regardless of the underlying schema
 func MetaPropertyField(class *models.SemanticSchemaClass, prefix string) (*graphql.Field, error) {
 	return &graphql.Field{
-		Description: descriptions.GetMetaMetaPropertyDesc,
+		Description: descriptions.GetMetaMetaProperty,
 		Type:        metaPropertyObj(class, prefix),
 	}, nil
 }
@@ -66,7 +66,7 @@ func metaPropertyObj(class *models.SemanticSchemaClass, prefix string) *graphql.
 	getMetaPropertyFields := graphql.Fields{
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sMetaCount", prefix, class.Class),
-			Description: descriptions.GetMetaClassMetaCountDesc,
+			Description: descriptions.GetMetaClassMetaCount,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
@@ -75,7 +75,7 @@ func metaPropertyObj(class *models.SemanticSchemaClass, prefix string) *graphql.
 	metaPropertyFields := graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%sMetaObj", prefix, class.Class),
 		Fields:      getMetaPropertyFields,
-		Description: descriptions.GetMetaClassMetaObjDesc,
+		Description: descriptions.GetMetaClassMetaObj,
 	}
 
 	return graphql.NewObject(metaPropertyFields)

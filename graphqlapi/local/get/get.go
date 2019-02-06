@@ -53,7 +53,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 
 		getKinds["Actions"] = &graphql.Field{
 			Name:        "WeaviateLocalGetActions",
-			Description: descriptions.LocalGetActionsDesc,
+			Description: descriptions.LocalGetActions,
 			Type:        localGetActions,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				// Does nothing; pass through the filters
@@ -70,7 +70,7 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 
 		getKinds["Things"] = &graphql.Field{
 			Name:        "WeaviateLocalGetThings",
-			Description: descriptions.LocalGetThingsDesc,
+			Description: descriptions.LocalGetThings,
 			Type:        localGetThings,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				// Does nothing; pass through the filters
@@ -81,11 +81,11 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 
 	field := graphql.Field{
 		Name:        "WeaviateLocalGet",
-		Description: descriptions.LocalGetDesc,
+		Description: descriptions.LocalGet,
 		Type: graphql.NewObject(graphql.ObjectConfig{
 			Name:        "WeaviateLocalGetObj",
 			Fields:      getKinds,
-			Description: descriptions.LocalGetObjDesc,
+			Description: descriptions.LocalGetObj,
 		}),
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			resolver := p.Source.(map[string]interface{})["Resolver"].(Resolver)
@@ -117,7 +117,7 @@ func buildGetClasses(dbSchema *schema.Schema, k kind.Kind, semanticSchema *model
 	classes := graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("WeaviateLocalGet%ssObj", kindName),
 		Fields:      classFields,
-		Description: fmt.Sprintf(descriptions.LocalGetThingsActionsObjDesc, kindName),
+		Description: fmt.Sprintf(descriptions.LocalGetThingsActionsObj, kindName),
 	})
 
 	return classes, nil

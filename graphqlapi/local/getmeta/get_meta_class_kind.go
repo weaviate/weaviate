@@ -35,9 +35,9 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind) (*gr
 
 	switch k {
 	case kind.THING_KIND:
-		description = descriptions.LocalGetMetaThingsObjDesc
+		description = descriptions.LocalGetMetaThingsObj
 	case kind.ACTION_KIND:
-		description = descriptions.LocalGetMetaActionsObjDesc
+		description = descriptions.LocalGetMetaActionsObj
 	default:
 		return nil, fmt.Errorf("unrecoginzed kind '%#v", k)
 	}
@@ -82,20 +82,20 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 		Description: description,
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
-				Description: descriptions.FirstDesc,
+				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
 			"after": &graphql.ArgumentConfig{
-				Description: descriptions.AfterDesc,
+				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{
-				Description: descriptions.LocalGetWhereDesc,
+				Description: descriptions.LocalGetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name:        fmt.Sprintf("WeaviateLocalGetMeta%s%sWhereInpObj", k.Name(), class.Class),
 						Fields:      common_filters.BuildNew(fmt.Sprintf("WeaviateLocalGetMeta%s%s", k.Name(), class.Class)),
-						Description: descriptions.LocalGetWhereInpObjDesc,
+						Description: descriptions.LocalGetWhereInpObj,
 					},
 				),
 			},

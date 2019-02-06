@@ -49,12 +49,12 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 	localObject := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateLocalObj",
 		Fields:      localFields,
-		Description: descriptions.LocalObjDesc,
+		Description: descriptions.LocalObj,
 	})
 
 	localField := graphql.Field{
 		Type:        localObject,
-		Description: descriptions.WeaviateLocalDesc,
+		Description: descriptions.WeaviateLocal,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			// This step does nothing; all ways allow the resolver to continue
 			return p.Source, nil
