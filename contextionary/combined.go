@@ -169,7 +169,7 @@ func (ci *CombinedIndex) GetDistance(a ItemIndex, b ItemIndex) (float32, error) 
 func (ci *CombinedIndex) GetNnsByItem(item ItemIndex, n int, k int) ([]ItemIndex, []float32, error) {
 	vec, err := ci.GetVectorForItemIndex(item)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("could not get vector for item index: %s", err)
 	}
 
 	return ci.GetNnsByVector(*vec, n, k)
@@ -220,7 +220,6 @@ func (ci *CombinedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemInde
 
 	for _, item := range ci.indices {
 		indices, floats, err := (*item.index).GetNnsByVector(vector, n, k)
-
 		if err != nil {
 			return nil, nil, err
 		} else {
