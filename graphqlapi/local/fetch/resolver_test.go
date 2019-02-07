@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/stretchr/testify/assert"
 )
@@ -104,6 +106,13 @@ func Test_Resolve(t *testing.T) {
 								Name:      "bestpropertyalternative",
 								Certainty: 0.85,
 							}},
+						},
+						Match: PropertyMatch{
+							Value: &common_filters.Value{
+								Value: "some-value",
+								Type:  schema.DataTypeString,
+							},
+							Operator: common_filters.OperatorEqual,
 						},
 					},
 				},

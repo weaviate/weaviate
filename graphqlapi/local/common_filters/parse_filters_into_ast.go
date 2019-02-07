@@ -89,7 +89,7 @@ func parseCompareOp(args map[string]interface{}, operator Operator, rootClass st
 		return nil, err
 	}
 
-	value, err := parseValue(args)
+	value, err := ParseValue(args)
 	if err != nil {
 		return nil, err
 	}
@@ -169,8 +169,8 @@ func parsePathFromArgs(args map[string]interface{}, rootClass string) (*Path, er
 	return path, nil
 }
 
-// Parse a value used in a comparator operator.
-func parseValue(args map[string]interface{}) (*Value, error) {
+// ParseValue used in a comparator operator.
+func ParseValue(args map[string]interface{}) (*Value, error) {
 	// Split into this two parts:
 	// 1. This function that loops over the extractors and ensures exactly one value is found
 	// 2. A list of extractors that test if any of them matches (valueExtractors)
