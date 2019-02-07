@@ -12,23 +12,55 @@
 package fetch
 
 import (
+	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	testhelper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
+	"github.com/stretchr/testify/mock"
 )
 
 type mockResolver struct {
 	testhelper.MockResolver
 }
 
-func newMockResolver() *mockResolver {
+func newMockResolver(c11y Contextionary) *mockResolver {
 	field := Build()
 	mocker := &mockResolver{}
 	mocker.RootFieldName = "Fetch"
 	mocker.RootField = field
-	mocker.RootObject = map[string]interface{}{"Resolver": Resolver(mocker)}
+	mocker.RootObject = map[string]interface{}{
+		"Resolver":      Resolver(mocker),
+		"Contextionary": c11y,
+	}
 	return mocker
 }
 
 func (m *mockResolver) LocalFetchKindClass(params *Params) (interface{}, error) {
 	args := m.Called(params)
 	return args.Get(0), args.Error(1)
+}
+
+func newMockContextionary() *mockContextionary {
+	return &mockContextionary{}
+}
+
+type mockContextionary struct {
+	mock.Mock
+}
+
+func (m *mockContextionary) SchemaSearch(p contextionary.SearchParams) (contextionary.SearchResults, error) {
+	m.Called(p)
+	return contextionary.SearchResults{
+		Type: p.SearchType,
+		Results: []contextionary.SearchResult{
+			{
+				Name:      p.Name,
+				Certainty: 0.95,
+				Kind:      p.Kind,
+			},
+			{
+				Name:      p.Name + "alternative",
+				Certainty: 0.85,
+				Kind:      p.Kind,
+			},
+		},
+	}, nil
 }
