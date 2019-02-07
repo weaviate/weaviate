@@ -17,6 +17,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/graphql-go/graphql"
 )
 
@@ -27,13 +28,19 @@ type Resolver interface {
 	LocalFetchKindClass(info *Params) (interface{}, error)
 }
 
+// Contextionary is a local abstraction on the contextionary that needs to be
+// provided to the graphQL API in order to resolve Local.Fetch queries.
+type Contextionary interface {
+	SchemaSearch(p contextionary.SearchParams) (contextionary.SearchResults, error)
+}
+
 // Params to describe the Local->GetMeta->Kind->Class query. Will be passed to
 // the individual connector methods responsible for resolving the GetMeta
 // query.
 type Params struct {
 	Kind                  kind.Kind
-	PossibleClassNames    contextionary.SearchResult
-	PossiblePropertyNames contextionary.SearchResult
+	PossibleClassNames    contextionary.SearchResults
+	PossiblePropertyNames contextionary.SearchResults
 	PropertyMatch         PropertyMatch
 }
 
@@ -44,42 +51,120 @@ type PropertyMatch struct {
 
 func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
-		source, ok := p.Source.(map[string]interface{})
-		if !ok {
-			return nil, fmt.Errorf("expected source to be a map, but was %t", p.Source)
+		resources, err := newResources(p.Source)
+		if err != nil {
+			return nil, err
 		}
 
-		resolver, ok := source["Resolver"].(Resolver)
-		if !ok {
-			return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %t", p.Source)
+		where, err := parseWhere(p.Args)
+		if err != nil {
+			return nil, fmt.Errorf("invalid where filter: %s", err)
 		}
 
-		// There can only be exactly one ast.Field; it is the class name.
-		if len(p.Info.FieldASTs) != 1 {
-			panic("Only one Field expected here")
+		possibleClasses, err := resources.contextionary.SchemaSearch(where.class)
+		if err != nil {
+			return nil, err
+		}
+
+		possibleProperties, err := resources.contextionary.SchemaSearch(where.property)
+		if err != nil {
+			return nil, err
+		}
+
+		params := &Params{
+			PossibleClassNames:    possibleClasses,
+			PossiblePropertyNames: possibleProperties,
 		}
 
 		return func() (interface{}, error) {
-			return resolver.LocalFetchKindClass(&Params{})
+			return resources.resolver.LocalFetchKindClass(params)
 		}, nil
-
-		// selections := p.Info.FieldASTs[0].SelectionSet
-		// properties, err := extractMetaProperties(selections)
-		// if err != nil {
-		// 	return nil, fmt.Errorf("could not extract properties for class '%s': %s", className, err)
-		// }
-
-		// filters, err := common_filters.ExtractFilters(p.Args, p.Info.FieldName)
-		// if err != nil {
-		// 	return nil, fmt.Errorf("could not extract filters: %s", err)
-		// }
-
-		// params := &Params{
-		// 	Kind:       kind,
-		// 	Filters:    filters,
-		// 	ClassName:  className,
-		// 	Properties: properties,
-		// }
-		// return resolver.LocalGetMeta(params)
 	}
+}
+
+type resources struct {
+	resolver      Resolver
+	contextionary Contextionary
+}
+
+func newResources(s interface{}) (*resources, error) {
+	source, ok := s.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected source to be a map, but was %T", source)
+	}
+
+	resolver, ok := source["Resolver"].(Resolver)
+	if !ok {
+		return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %T", source)
+	}
+
+	contextionary, ok := source["Contextionary"].(Contextionary)
+	if !ok {
+		return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %T", source)
+	}
+
+	return &resources{
+		resolver:      resolver,
+		contextionary: contextionary,
+	}, nil
+}
+
+type whereFilter struct {
+	class         contextionary.SearchParams
+	property      contextionary.SearchParams
+	propertyMatch PropertyMatch
+}
+
+func parseWhere(args map[string]interface{}) (*whereFilter, error) {
+	// the structure is already guaranteed by graphQL, we can therefore make
+	// plenty of assertions without having to check. If required fields are not
+	// set, graphQL will error before already and we won't get here.
+	where := args["where"].(map[string]interface{})
+
+	class, _ := where["class"].([]interface{})
+	if len(class) > 1 {
+		panic("only one class supported for now")
+	}
+	classMap := class[0].(map[string]interface{})
+	classKeywords := extractKeywords(classMap["keywords"])
+
+	properties, _ := where["properties"].([]interface{})
+	if len(properties) > 1 {
+		panic("only one property supported for now")
+	}
+	propertiesMap := properties[0].(map[string]interface{})
+	propertiesKeywords := extractKeywords(propertiesMap["keywords"])
+
+	return &whereFilter{
+		class: contextionary.SearchParams{
+			SearchType: contextionary.SearchTypeClass,
+			Name:       classMap["name"].(string),
+			Certainty:  float32(classMap["certainty"].(float64)),
+			Keywords:   classKeywords,
+		},
+		property: contextionary.SearchParams{
+			SearchType: contextionary.SearchTypeProperty,
+			Name:       propertiesMap["name"].(string),
+			Certainty:  float32(propertiesMap["certainty"].(float64)),
+			Keywords:   propertiesKeywords,
+		},
+	}, nil
+}
+
+func extractKeywords(kw interface{}) models.SemanticSchemaKeywords {
+	if kw == nil {
+		return nil
+	}
+
+	asSlice := kw.([]interface{})
+	result := make(models.SemanticSchemaKeywords, len(asSlice), len(asSlice))
+	for i, keyword := range asSlice {
+		keywordMap := keyword.(map[string]interface{})
+		result[i] = &models.SemanticSchemaKeywordsItems0{
+			Keyword: keywordMap["value"].(string),
+			Weight:  float32(keywordMap["weight"].(float64)),
+		}
+	}
+
+	return result
 }
