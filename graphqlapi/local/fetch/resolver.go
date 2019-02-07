@@ -17,7 +17,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/graphql-go/graphql"
 )
 
@@ -54,8 +54,8 @@ type Property struct {
 // PropertyMatch defines how in the db connector this property should be used
 // as a filter
 type PropertyMatch struct {
-	Operator string
-	Value    interface{}
+	Operator common_filters.Operator
+	Value    *common_filters.Value
 }
 
 func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
@@ -133,69 +133,4 @@ func addPossibleNamesToProperties(whereProperties []whereProperty,
 	}
 
 	return properties, nil
-}
-
-type whereFilter struct {
-	class      contextionary.SearchParams
-	properties []whereProperty
-}
-
-type whereProperty struct {
-	search contextionary.SearchParams
-	match  PropertyMatch
-}
-
-func parseWhere(args map[string]interface{}) (*whereFilter, error) {
-	// the structure is already guaranteed by graphQL, we can therefore make
-	// plenty of assertions without having to check. If required fields are not
-	// set, graphQL will error before already and we won't get here.
-	where := args["where"].(map[string]interface{})
-	classMap := where["class"].(map[string]interface{})
-	classKeywords := extractKeywords(classMap["keywords"])
-
-	propertiesRaw := where["properties"].([]interface{})
-	properties := make([]whereProperty, len(propertiesRaw), len(propertiesRaw))
-
-	for i, prop := range propertiesRaw {
-		propertiesMap := prop.(map[string]interface{})
-		propertiesKeywords := extractKeywords(propertiesMap["keywords"])
-		search := contextionary.SearchParams{
-			SearchType: contextionary.SearchTypeProperty,
-			Name:       propertiesMap["name"].(string),
-			Certainty:  float32(propertiesMap["certainty"].(float64)),
-			Keywords:   propertiesKeywords,
-		}
-
-		properties[i] = whereProperty{
-			search: search,
-		}
-	}
-
-	return &whereFilter{
-		class: contextionary.SearchParams{
-			SearchType: contextionary.SearchTypeClass,
-			Name:       classMap["name"].(string),
-			Certainty:  float32(classMap["certainty"].(float64)),
-			Keywords:   classKeywords,
-		},
-		properties: properties,
-	}, nil
-}
-
-func extractKeywords(kw interface{}) models.SemanticSchemaKeywords {
-	if kw == nil {
-		return nil
-	}
-
-	asSlice := kw.([]interface{})
-	result := make(models.SemanticSchemaKeywords, len(asSlice), len(asSlice))
-	for i, keyword := range asSlice {
-		keywordMap := keyword.(map[string]interface{})
-		result[i] = &models.SemanticSchemaKeywordsItems0{
-			Keyword: keywordMap["value"].(string),
-			Weight:  float32(keywordMap["weight"].(float64)),
-		}
-	}
-
-	return result
 }
