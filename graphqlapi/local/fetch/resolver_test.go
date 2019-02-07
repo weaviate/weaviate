@@ -93,15 +93,19 @@ func Test_Resolve(t *testing.T) {
 						Certainty: 0.85,
 					}},
 				},
-				PossiblePropertyNames: contextionary.SearchResults{
-					Type: contextionary.SearchTypeProperty,
-					Results: []contextionary.SearchResult{{
-						Name:      "bestproperty",
-						Certainty: 0.95,
-					}, {
-						Name:      "bestpropertyalternative",
-						Certainty: 0.85,
-					}},
+				Properties: []Property{
+					{
+						PossibleNames: contextionary.SearchResults{
+							Type: contextionary.SearchTypeProperty,
+							Results: []contextionary.SearchResult{{
+								Name:      "bestproperty",
+								Certainty: 0.95,
+							}, {
+								Name:      "bestpropertyalternative",
+								Certainty: 0.85,
+							}},
+						},
+					},
 				},
 			},
 			resolverReturn: []interface{}{

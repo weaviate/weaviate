@@ -38,12 +38,21 @@ type Contextionary interface {
 // the individual connector methods responsible for resolving the GetMeta
 // query.
 type Params struct {
-	Kind                  kind.Kind
-	PossibleClassNames    contextionary.SearchResults
-	PossiblePropertyNames contextionary.SearchResults
-	PropertyMatch         PropertyMatch
+	Kind               kind.Kind
+	PossibleClassNames contextionary.SearchResults
+	Properties         []Property
 }
 
+// Property is a combination of possible names to use for the property as well
+// as a match object to perform filtering actions in the db connector based on
+// this property
+type Property struct {
+	PossibleNames contextionary.SearchResults
+	Match         PropertyMatch
+}
+
+// PropertyMatch defines how in the db connector this property should be used
+// as a filter
 type PropertyMatch struct {
 	Operator string
 	Value    interface{}
@@ -66,14 +75,14 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, err
 		}
 
-		possibleProperties, err := resources.contextionary.SchemaSearch(where.property)
+		properties, err := addPossibleNamesToProperties(where.properties, resources.contextionary)
 		if err != nil {
 			return nil, err
 		}
 
 		params := &Params{
-			PossibleClassNames:    possibleClasses,
-			PossiblePropertyNames: possibleProperties,
+			PossibleClassNames: possibleClasses,
+			Properties:         properties,
 		}
 
 		return func() (interface{}, error) {
@@ -109,10 +118,31 @@ func newResources(s interface{}) (*resources, error) {
 	}, nil
 }
 
+func addPossibleNamesToProperties(whereProperties []whereProperty,
+	contextionary Contextionary) ([]Property, error) {
+	properties := make([]Property, len(whereProperties), len(whereProperties))
+	for i, whereProp := range whereProperties {
+		possibleNames, err := contextionary.SchemaSearch(whereProp.search)
+		if err != nil {
+			return nil, err
+		}
+		properties[i] = Property{
+			PossibleNames: possibleNames,
+			Match:         whereProp.match,
+		}
+	}
+
+	return properties, nil
+}
+
 type whereFilter struct {
-	class         contextionary.SearchParams
-	property      contextionary.SearchParams
-	propertyMatch PropertyMatch
+	class      contextionary.SearchParams
+	properties []whereProperty
+}
+
+type whereProperty struct {
+	search contextionary.SearchParams
+	match  PropertyMatch
 }
 
 func parseWhere(args map[string]interface{}) (*whereFilter, error) {
@@ -123,12 +153,23 @@ func parseWhere(args map[string]interface{}) (*whereFilter, error) {
 	classMap := where["class"].(map[string]interface{})
 	classKeywords := extractKeywords(classMap["keywords"])
 
-	properties, _ := where["properties"].([]interface{})
-	if len(properties) > 1 {
-		panic("only one property supported for now")
+	propertiesRaw := where["properties"].([]interface{})
+	properties := make([]whereProperty, len(propertiesRaw), len(propertiesRaw))
+
+	for i, prop := range propertiesRaw {
+		propertiesMap := prop.(map[string]interface{})
+		propertiesKeywords := extractKeywords(propertiesMap["keywords"])
+		search := contextionary.SearchParams{
+			SearchType: contextionary.SearchTypeProperty,
+			Name:       propertiesMap["name"].(string),
+			Certainty:  float32(propertiesMap["certainty"].(float64)),
+			Keywords:   propertiesKeywords,
+		}
+
+		properties[i] = whereProperty{
+			search: search,
+		}
 	}
-	propertiesMap := properties[0].(map[string]interface{})
-	propertiesKeywords := extractKeywords(propertiesMap["keywords"])
 
 	return &whereFilter{
 		class: contextionary.SearchParams{
@@ -137,12 +178,7 @@ func parseWhere(args map[string]interface{}) (*whereFilter, error) {
 			Certainty:  float32(classMap["certainty"].(float64)),
 			Keywords:   classKeywords,
 		},
-		property: contextionary.SearchParams{
-			SearchType: contextionary.SearchTypeProperty,
-			Name:       propertiesMap["name"].(string),
-			Certainty:  float32(propertiesMap["certainty"].(float64)),
-			Keywords:   propertiesKeywords,
-		},
+		properties: properties,
 	}, nil
 }
 
