@@ -120,12 +120,7 @@ func parseWhere(args map[string]interface{}) (*whereFilter, error) {
 	// plenty of assertions without having to check. If required fields are not
 	// set, graphQL will error before already and we won't get here.
 	where := args["where"].(map[string]interface{})
-
-	class, _ := where["class"].([]interface{})
-	if len(class) > 1 {
-		panic("only one class supported for now")
-	}
-	classMap := class[0].(map[string]interface{})
+	classMap := where["class"].(map[string]interface{})
 	classKeywords := extractKeywords(classMap["keywords"])
 
 	properties, _ := where["properties"].([]interface{})
