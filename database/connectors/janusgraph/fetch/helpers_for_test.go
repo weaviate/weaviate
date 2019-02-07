@@ -46,7 +46,7 @@ func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
 		}
 	case "Town":
 		switch propName {
-		case schema.PropertyName("name"):
+		case schema.PropertyName("title"):
 			return "prop_11"
 		case schema.PropertyName("inhabitants"):
 			return "prop_12"
@@ -77,19 +77,37 @@ type fakeTypeSource struct{}
 func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
 	propName schema.PropertyName) (error, *models.SemanticSchemaClassProperty) {
 
-	switch propName {
-	case "isCapital":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"bool"}}
-	case "population", "inhabitants":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"int"}}
-	case "area":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
-	case "name":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
-	case "dateOfFirstApperance":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
-	case "inCountry":
-		return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
+	switch className {
+	case "City":
+		switch propName {
+		case "isCapital":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"bool"}}
+		case "population":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"int"}}
+		case "area":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
+		case "name":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
+		case "dateOfFirstApperance":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
+		case "inCountry":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
+		}
+	case "Town":
+		switch propName {
+		case "isCapital":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"bool"}}
+		case "inhabitants":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"int"}}
+		case "area":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
+		case "title":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
+		case "dateOfFirstApperance":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
+		case "inCountry":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
+		}
 	}
 
 	return fmt.Errorf("fake type source does not have an implementation for prop '%s'", propName), nil
