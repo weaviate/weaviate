@@ -37,7 +37,7 @@ functions that you need to populate.
 ## Making Your Connector Known
 
 If you have created a new connector in the
-[/database/connectors/<sampleconnector>])(../../../database/connectors) folder,
+[/database/connectors/\<sampleconnector\>](../../../database/connectors) folder,
 you need to edit the
 [/database/listing/connectors.go](../../../database/connectors/connectors.go)
 file to include your connector.
