@@ -24,11 +24,11 @@ import (
 func whereFilterFields(k kind.Kind) graphql.InputObjectConfigFieldMap {
 	return graphql.InputObjectConfigFieldMap{
 		"class": &graphql.InputObjectFieldConfig{
-			Type:        graphql.NewList(whereInpObjClassInpObj(k)),
+			Type:        graphql.NewNonNull(whereInpObjClassInpObj(k)),
 			Description: descriptions.WhereClass,
 		},
 		"properties": &graphql.InputObjectFieldConfig{
-			Type:        graphql.NewList(whereInpObjPropertiesObj(k)),
+			Type:        graphql.NewNonNull(graphql.NewList(whereInpObjPropertiesObj(k))),
 			Description: descriptions.WhereProperties,
 		},
 		"first": &graphql.InputObjectFieldConfig{
