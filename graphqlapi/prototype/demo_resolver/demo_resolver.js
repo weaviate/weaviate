@@ -525,8 +525,8 @@ module.exports = {
 		}
 	},
 	resolveNetworkFetch: function(args){
-		var argsClassName = args.where.class[0].name
-		var argsKeywordsValue = args.where.class[0].keywords[0].value
+		var argsClassName = args.where.class.name
+		var argsKeywordsValue = args.where.class.keywords[0].value
 		var returnlist = []
 
 		for (var i in networkNodes) {
@@ -558,8 +558,8 @@ module.exports = {
 		return returnlist
 	},
 	resolveNetworkIntrospect: function(args){
-		var argsClassName = args.where[0].class[0].name
-		var argsKeywordsValue = args.where[0].class[0].keywords[0].value
+		var argsClassName = args.where[0].class.name
+		var argsKeywordsValue = args.where[0].class.keywords[0].value
 		var returnlist = []
 
 		for (var i in networkNodes) {

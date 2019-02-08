@@ -67,14 +67,14 @@ Beacons and certainty values will then be returned.
   Network{
     Fetch{
       Things(where: {
-        class: [{
+        class: {
           name: "City",
           keywords: [{
             value: "Place",
             weight: 0.9
           }],
           certainty: 0.9
-        }],
+        },
         properties: [{
           name: "name",
           keywords: [{
@@ -120,14 +120,14 @@ The following query is an example when you want to know if there are any classes
   Network {
     Introspect {
       Things(where: {
-        class: [{
+        class: {
           name: "City",
           keywords: [{
             value: "Place",
             weight: 0.9
           }],
           certainty: 0.9
-        }],
+        },
         properties: [{
           name: "name",
           keywords: [{
