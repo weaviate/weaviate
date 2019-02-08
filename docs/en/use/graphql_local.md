@@ -199,7 +199,6 @@ More generally, the `where` filter is an algrebraic object, which takes the foll
 - `Operator`: Takes one of the following values: 
   - `And`
   - `Or`
-  - `Not`
   - `Equal`
   - `NotEqual`
   - `GreaterThan`
@@ -215,10 +214,9 @@ More generally, the `where` filter is an algrebraic object, which takes the foll
 - `ValueDate`: The date (ISO 8601 timestamp) value that the `Path`'s last property name should be compared to
 
 The following 'rules' for using the `where` filter apply:
-- If the operator is `And`, `Or` or `Not`, the `Operands` must be filled.
+- If the operator is `And` or `Or`, the `Operands` must be filled.
 - If one of the other operators is filled, the `Path` and a `value<Type>` must be filled.
 
-So, the `Not` operator only works on operands, while `NotEqual` only works on values.
 
 ```graphql
 {

@@ -368,7 +368,7 @@ const solve_operands = function (list, operator, operands, location="Local") {
 	for (var i in operands) {
 		operand = operands[i]
 
-		if (operand.operator == 'And' || operand.operator == 'Or' || operand.operator == 'Not') {
+		if (operand.operator == 'And' || operand.operator == 'Or') {
 			result = solve_operands(list, operand.operator, operand.operands, location)
 		}
 		else {
@@ -403,17 +403,13 @@ const solve_operands = function (list, operator, operands, location="Local") {
 			return_data = _.union(result, return_data)
 
 		}
-		else if (operator == 'Not') {
-			// list min result
-			return_data =  _.difference(list, result)
-		}
 	}
 	return return_data
 }
 
 
 const resolve_where = function (list, filter) {
-	if (filter.operator == 'And' || filter.operator == 'Or' || filter.operator == 'Not') {
+	if (filter.operator == 'And' || filter.operator == 'Or') {
 		return solve_operands(list, filter.operator, filter.operands)
 	}
 	else {
@@ -493,12 +489,9 @@ module.exports = {
 		all_data = _.clone(data);
 		if (filter) {
 			path = filter.path
-			if (filter.operator == 'And' || filter.operator == 'Or' || filter.operator == 'Not') {
+			if (filter.operator == 'And' || filter.operator == 'Or') {
 				return solve_operands(filter.operator, filter.operands, location=filter.operands[0].path[0])
 			}
-			// else if ((filter.operator == 'Not' || filter.operator == 'NotEqual') && filter.operands) {
-			// 	return solve_operands(filter.operator, filter.operands, filter.operands[0].path[0])
-			// }
 			else {
 				if (filter.valueString) {
 					return solve_path(filter.operator, filter.path, filter.valueString, location=path[0])

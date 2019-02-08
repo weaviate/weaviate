@@ -76,9 +76,6 @@ function getDesc(name) {
 		"Equal": {
 		  value: "Equal"
 		}, 
-		"Not": {
-		  value: "Not"
-		}, 
 		"NotEqual": {
 		  value: "NotEqual"
 		}, 
