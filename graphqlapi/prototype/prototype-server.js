@@ -1388,7 +1388,7 @@ var NetworkIntrospectWhereFilterFields = {
           name: "WeaviateNetworkIntrospectWhereClass",
           description: function() {
             return getDesc("WeaviateNetworkIntrospectWhereClass")},
-          type: new GraphQLList(new GraphQLInputObjectType({
+          type: new GraphQLNonNull(new GraphQLInputObjectType({
             name: "WeaviateNetworkIntrospectWhereClassInpObj",
             description: function() {
               return getDesc("WeaviateNetworkIntrospectWhereClassInpObj")},
@@ -1426,7 +1426,7 @@ var NetworkFetchFilterFields = {
           name: "WeaviateNetworkFetchWhereInpObjClass",
           description: function() {
             return getDesc("NetworkFetchWhereInpObjClass")},
-          type: new GraphQLList(new GraphQLInputObjectType({
+          type: new GraphQLNonNull(new GraphQLInputObjectType({
             name: "WeaviateNetworkFetchWhereInpObjClassInpObj",
             description: function() {
               return getDesc("NetworkFetchWhereInpObjClassInpObj")},

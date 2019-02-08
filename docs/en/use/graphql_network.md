@@ -102,14 +102,14 @@ Example request:
   Network {
     Fetch {
       Things(where: {
-        class: [{
+        class: {
           name: "Animal",
           keywords: [{
             value: "Mammal",
             weight: 0.9
           }],
           certainty: 0.8
-        }],
+        },
         properties: [{
           name: "name",
           keywords: [{
@@ -162,14 +162,14 @@ If you want to introspect `Things` or `Actions` in the network, you need to spec
   Network {
     Introspect {
       Things(where: {
-        class: [{
+        class: {
           name: "Animal",
           keywords: [{
             value: "Mammal",
             weight: 0.9
           }],
           certainty: 0.9
-        }],
+        },
         properties: [{
           name: "name",
           keywords: [{
