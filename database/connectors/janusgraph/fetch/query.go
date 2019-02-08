@@ -11,7 +11,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/davecgh/go-spew/spew"
 )
 
 // Query prepares a Local->Fetch Query. Can be built with String(). Create with
@@ -114,10 +113,26 @@ func (b *Query) combineClassWithPropName(className string, propName string,
 	class := schema.ClassName(className)
 	prop := schema.PropertyName(propName)
 
-	err, _ := b.typeSource.GetProperty(b.params.Kind, class, prop)
+	err, schemaProp := b.typeSource.GetProperty(b.params.Kind, class, prop)
 	if err != nil {
 		// this class property combination does not exist, simply skip it
-		spew.Dump(err)
+		return nil
+	}
+
+	propType, err := b.typeSource.FindPropertyDataType(schemaProp.AtDataType)
+	if err != nil {
+		// this class property combination does not exist, simply skip it
+		return nil
+	}
+
+	if !propType.IsPrimitive() {
+		// skip reference props
+		return nil
+	}
+
+	if propType.AsPrimitive() != match.Value.Type {
+		// this prop is of a different type than the match we provided. we have to
+		// skip it our we would run into type errors in the db
 		return nil
 	}
 
