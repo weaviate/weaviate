@@ -6,14 +6,14 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	cf "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 )
 
 func Test_QueryBuilder(t *testing.T) {
 	tests := testCases{
 		{
-			name: "with a single class name, single property name, correct type",
+			name: "with a single class name, single property name, string type",
 			inputParams: fetch.Params{
 				Kind: kind.THING_KIND,
 				PossibleClassNames: contextionary.SearchResults{
@@ -24,30 +24,34 @@ func Test_QueryBuilder(t *testing.T) {
 						},
 					},
 				},
-				Properties: []fetch.Property{
-					{
-						PossibleNames: contextionary.SearchResults{
-							Results: []contextionary.SearchResult{
-								{
-									Name:      "name",
-									Certainty: 1.0,
-								},
-							},
-						},
-						Match: fetch.PropertyMatch{
-							Operator: common_filters.OperatorEqual,
-							Value: &common_filters.Value{
-								Value: "Amsterdam",
-								Type:  schema.DataTypeString,
-							},
-						},
-					},
-				},
+				Properties: singleProp("name", schema.DataTypeString, cf.OperatorEqual, "Amsterdam"),
 			},
 			expectedQuery: `
 				g.V().has("kind", "thing").and(
 					or(
 						has("classId", "class_18").has("prop_1", eq("Amsterdam"))
+					)
+				).valueMap("uuid", "classId")
+			`,
+		},
+		{
+			name: "with a single class name, single property name, int type, operator Equal",
+			inputParams: fetch.Params{
+				Kind: kind.THING_KIND,
+				PossibleClassNames: contextionary.SearchResults{
+					Results: []contextionary.SearchResult{
+						{
+							Name:      "City",
+							Certainty: 1.0,
+						},
+					},
+				},
+				Properties: singleProp("population", schema.DataTypeInt, cf.OperatorEqual, 2000),
+			},
+			expectedQuery: `
+				g.V().has("kind", "thing").and(
+					or(
+						has("classId", "class_18").has("prop_2", eq(2000))
 					)
 				).valueMap("uuid", "classId")
 			`,
@@ -79,8 +83,8 @@ func Test_QueryBuilder(t *testing.T) {
 							},
 						},
 						Match: fetch.PropertyMatch{
-							Operator: common_filters.OperatorEqual,
-							Value: &common_filters.Value{
+							Operator: cf.OperatorEqual,
+							Value: &cf.Value{
 								Value: "Amsterdam",
 								Type:  schema.DataTypeString,
 							},
@@ -127,8 +131,8 @@ func Test_QueryBuilder(t *testing.T) {
 							},
 						},
 						Match: fetch.PropertyMatch{
-							Operator: common_filters.OperatorEqual,
-							Value: &common_filters.Value{
+							Operator: cf.OperatorEqual,
+							Value: &cf.Value{
 								Value: "Amsterdam",
 								Type:  schema.DataTypeString,
 							},
@@ -148,4 +152,27 @@ func Test_QueryBuilder(t *testing.T) {
 	}
 
 	tests.AssertQuery(t)
+}
+
+func singleProp(propName string, dataType schema.DataType, operator cf.Operator,
+	searchValue interface{}) []fetch.Property {
+	return []fetch.Property{
+		{
+			PossibleNames: contextionary.SearchResults{
+				Results: []contextionary.SearchResult{
+					{
+						Name:      propName,
+						Certainty: 1.0,
+					},
+				},
+			},
+			Match: fetch.PropertyMatch{
+				Operator: operator,
+				Value: &cf.Value{
+					Value: searchValue,
+					Type:  dataType,
+				},
+			},
+		},
+	}
 }
