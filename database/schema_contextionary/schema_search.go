@@ -1,10 +1,11 @@
-package contextionary
+package schema
 
 import (
 	"fmt"
 	"regexp"
 	"strings"
 
+	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/fatih/camelcase"
 )
@@ -31,33 +32,33 @@ func (r SearchResults) Len() int {
 // documentation of SearchParams for more details on how to use it and
 // documentation on SearchResults for more details on how to use the return
 // value
-func (mi *MemoryIndex) SchemaSearch(p SearchParams) (SearchResults, error) {
+func (con *Contextionary) SchemaSearch(p SearchParams) (SearchResults, error) {
 	result := SearchResults{}
 	if err := p.Validate(); err != nil {
 		return result, fmt.Errorf("invalid search params: %s", err)
 	}
 
-	centroid, err := mi.centroidFromNameAndKeywords(p)
+	centroid, err := con.centroidFromNameAndKeywords(p)
 	if err != nil {
 		return result, fmt.Errorf("could not build centroid from name and keywords: %s", err)
 	}
 
-	rawResults, err := mi.knnSearch(*centroid)
+	rawResults, err := con.knnSearch(*centroid)
 	if err != nil {
 		return result, fmt.Errorf("could not perform knn search: %s", err)
 	}
 
 	if p.SearchType == SearchTypeClass {
-		return mi.handleClassSearch(p, rawResults)
+		return con.handleClassSearch(p, rawResults)
 	}
 
 	// since we have passed validation we know that anything that's not a class
 	// search must be a property search
-	return mi.handlePropertySearch(p, rawResults)
+	return con.handlePropertySearch(p, rawResults)
 }
 
-func (mi *MemoryIndex) centroidFromNameAndKeywords(p SearchParams) (*Vector, error) {
-	nameVector, err := mi.camelCaseWordToVector(p.Name)
+func (con *Contextionary) centroidFromNameAndKeywords(p SearchParams) (*contextionary.Vector, error) {
+	nameVector, err := con.camelCaseWordToVector(p.Name)
 	if err != nil {
 		return nil, fmt.Errorf("invalid name in search: %s", err)
 	}
@@ -66,14 +67,14 @@ func (mi *MemoryIndex) centroidFromNameAndKeywords(p SearchParams) (*Vector, err
 		return nameVector, nil
 	}
 
-	vectors := make([]Vector, len(p.Keywords)+1, len(p.Keywords)+1)
+	vectors := make([]contextionary.Vector, len(p.Keywords)+1, len(p.Keywords)+1)
 	weights := make([]float32, len(p.Keywords)+1, len(p.Keywords)+1)
 	// set last vector to className which always has weight=1
 	vectors[len(vectors)-1] = *nameVector
 	weights[len(vectors)-1] = 1
 
 	for i, keyword := range p.Keywords {
-		kwVector, err := mi.wordToVector(keyword.Keyword)
+		kwVector, err := con.wordToVector(keyword.Keyword)
 		if err != nil {
 			return nil, fmt.Errorf("invalid keyword in search: %s", err)
 		}
@@ -81,20 +82,20 @@ func (mi *MemoryIndex) centroidFromNameAndKeywords(p SearchParams) (*Vector, err
 		weights[i] = keyword.Weight
 	}
 
-	return ComputeWeightedCentroid(vectors, weights)
+	return contextionary.ComputeWeightedCentroid(vectors, weights)
 }
 
-func (mi *MemoryIndex) camelCaseWordToVector(w string) (*Vector, error) {
+func (con *Contextionary) camelCaseWordToVector(w string) (*contextionary.Vector, error) {
 	parts := camelcase.Split(w)
 	if len(parts) == 1 {
 		// no camelcasing, no need to build a centroid
-		return mi.wordToVector(w)
+		return con.wordToVector(w)
 	}
 
-	vectors := make([]Vector, len(parts), len(parts))
+	vectors := make([]contextionary.Vector, len(parts), len(parts))
 	weights := make([]float32, len(parts), len(parts))
 	for i, part := range parts {
-		v, err := mi.wordToVector(part)
+		v, err := con.wordToVector(part)
 		if err != nil {
 			return nil, fmt.Errorf("invalid camelCased compound word: %s", err)
 		}
@@ -103,18 +104,18 @@ func (mi *MemoryIndex) camelCaseWordToVector(w string) (*Vector, error) {
 		weights[i] = 1 // on camel-casing all parts are weighted equally
 	}
 
-	return ComputeWeightedCentroid(vectors, weights)
+	return contextionary.ComputeWeightedCentroid(vectors, weights)
 }
 
-func (mi *MemoryIndex) wordToVector(w string) (*Vector, error) {
+func (con *Contextionary) wordToVector(w string) (*contextionary.Vector, error) {
 	w = strings.ToLower(w)
-	itemIndex := mi.WordToItemIndex(w)
+	itemIndex := con.WordToItemIndex(w)
 	if ok := itemIndex.IsPresent(); !ok {
 		return nil, fmt.Errorf(
 			"the word '%s' is not present in the contextionary and therefore not a valid search term", w)
 	}
 
-	vector, err := mi.GetVectorForItemIndex(itemIndex)
+	vector, err := con.GetVectorForItemIndex(itemIndex)
 	if err != nil {
 		return nil, fmt.Errorf("could not get vector for word '%s' with itemIndex '%d': %s",
 			w, itemIndex, err)
@@ -123,29 +124,29 @@ func (mi *MemoryIndex) wordToVector(w string) (*Vector, error) {
 	return vector, nil
 }
 
-func (mi *MemoryIndex) handleClassSearch(p SearchParams, search rawResults) (SearchResults, error) {
+func (con *Contextionary) handleClassSearch(p SearchParams, search rawResults) (SearchResults, error) {
 	return SearchResults{
 		Type:    p.SearchType,
 		Results: search.extractClassNames(p),
 	}, nil
 }
 
-func (mi *MemoryIndex) handlePropertySearch(p SearchParams, search rawResults) (SearchResults, error) {
+func (con *Contextionary) handlePropertySearch(p SearchParams, search rawResults) (SearchResults, error) {
 	return SearchResults{
 		Type:    p.SearchType,
 		Results: search.extractPropertyNames(p),
 	}, nil
 }
 
-func (mi *MemoryIndex) knnSearch(vector Vector) (rawResults, error) {
-	list, distances, err := mi.GetNnsByVector(vector, 10000, 3)
+func (con *Contextionary) knnSearch(vector contextionary.Vector) (rawResults, error) {
+	list, distances, err := con.GetNnsByVector(vector, 10000, 3)
 	if err != nil {
 		return nil, fmt.Errorf("could not get nearest neighbors for vector '%v': %s", vector, err)
 	}
 
 	results := make(rawResults, len(list), len(list))
 	for i := range list {
-		word, err := mi.ItemIndexToWord(list[i])
+		word, err := con.ItemIndexToWord(list[i])
 		if err != nil {
 			return results, fmt.Errorf("got a result from kNN search, but don't have a word for this index: %s", err)
 		}

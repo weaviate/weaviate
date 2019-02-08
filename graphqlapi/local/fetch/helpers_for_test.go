@@ -12,7 +12,7 @@
 package fetch
 
 import (
-	"github.com/creativesoftwarefdn/weaviate/contextionary"
+	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	testhelper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
 	"github.com/stretchr/testify/mock"
 )

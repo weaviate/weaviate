@@ -13,6 +13,7 @@ package graphqlapi
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 )
 
@@ -34,6 +35,7 @@ type ClosingResolver interface {
 type ResolverProvider interface {
 	DatabaseResolverProvider
 	NetworkResolverProvider
+	ContextionaryProvider
 }
 
 type DatabaseResolverProvider interface {
@@ -42,4 +44,8 @@ type DatabaseResolverProvider interface {
 
 type NetworkResolverProvider interface {
 	GetNetworkResolver() network.Resolver
+}
+
+type ContextionaryProvider interface {
+	GetContextionary() fetch.Contextionary
 }

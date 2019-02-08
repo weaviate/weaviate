@@ -15,8 +15,8 @@ package fetch
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
+	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/graphql-go/graphql"
 )

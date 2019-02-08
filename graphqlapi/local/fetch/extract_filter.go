@@ -3,7 +3,7 @@ package fetch
 import (
 	"fmt"
 
-	"github.com/creativesoftwarefdn/weaviate/contextionary"
+	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
 )

@@ -1,9 +1,10 @@
-package contextionary
+package schema
 
 import (
 	"errors"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/stretchr/testify/assert"
@@ -348,15 +349,16 @@ func (s schemaSearchTests) Assert(t *testing.T) {
 	for _, test := range s {
 		t.Run(test.name, func(t *testing.T) {
 			// build c11y
-			builder := InMemoryBuilder(3)
+			builder := contextionary.InMemoryBuilder(3)
 			for word, vectors := range test.words {
-				builder.AddWord(word, NewVector(vectors))
+				builder.AddWord(word, contextionary.NewVector(vectors))
 			}
 
-			c11y := builder.Build(3)
+			rawC11y := builder.Build(3)
+			schemaC11y := New(rawC11y)
 
 			// perform search
-			res, err := c11y.SchemaSearch(test.searchParams)
+			res, err := schemaC11y.SchemaSearch(test.searchParams)
 
 			// assert error
 			assert.Equal(t, test.expectedError, err, "should match the expected error")

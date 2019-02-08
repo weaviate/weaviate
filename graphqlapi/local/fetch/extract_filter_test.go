@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/stretchr/testify/mock"
 )

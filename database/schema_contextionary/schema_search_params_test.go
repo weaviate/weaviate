@@ -1,4 +1,4 @@
-package contextionary
+package schema
 
 import (
 	"errors"
