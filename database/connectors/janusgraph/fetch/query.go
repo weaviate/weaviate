@@ -139,7 +139,13 @@ func (b *Query) combineClassWithPropName(className string, propName string,
 	mappedClass := b.nameSource.GetMappedClassName(class)
 	mappedProp := b.nameSource.GetMappedPropertyName(class, prop)
 
+	condition, err := b.conditionQuery(match)
+	if err != nil {
+		// if the combination is not possible, don't include this alternative
+		return nil
+	}
+
 	return gremlin.New().
 		HasString("classId", string(mappedClass)).
-		Has(string(mappedProp), gremlin.EqString(match.Value.Value.(string)))
+		Has(string(mappedProp), condition)
 }
