@@ -52,8 +52,4 @@ type Contextionary interface {
 	// Get the n nearest neighbours of item, examining k trees.
 	// Returns an array of indices, and of distances between item and the n-nearest neighbors.
 	GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex, []float32, error)
-
-	// SchemaSearch is a relatively high abstraction on top of the contextionary
-	// than can be used to find related class names or properties
-	// SchemaSearch(p SearchParams) (SearchResults, error)
 }

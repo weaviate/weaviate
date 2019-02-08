@@ -50,9 +50,11 @@ import (
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/listing"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	databaseSchema "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
+	schemaContextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	etcdSchemaManager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/etcd"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -91,13 +93,18 @@ var messaging *messages.Messaging
 
 var db database.Database
 
-type dbAndNetwork struct {
+type graphQLRoot struct {
 	database.Database
 	libnetwork.Network
+	contextionary *schemaContextionary.Contextionary
 }
 
-func (d dbAndNetwork) GetNetworkResolver() graphqlnetwork.Resolver {
-	return d.Network
+func (r graphQLRoot) GetNetworkResolver() graphqlnetwork.Resolver {
+	return r.Network
+}
+
+func (r graphQLRoot) GetContextionary() fetch.Contextionary {
+	return r.contextionary
 }
 
 type keyTokenHeader struct {
@@ -866,7 +873,9 @@ func rebuildGraphQL(updatedSchema schema.Schema) {
 		return
 	}
 
-	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, dbAndNetwork{Database: db, Network: network}, messaging)
+	c11y := schemaContextionary.New(contextionary)
+	root := graphQLRoot{Database: db, Network: network, contextionary: c11y}
+	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging)
 	if err != nil {
 		// TODO: turn on safe mode gh-520
 		graphQL = nil
