@@ -7,11 +7,11 @@
   "dependencies": {
     "apollo-fetch": "^0.7.0",
     "cors": "^2.8.4",
-    "expect": "^23.2.0",
+    "expect": "^24.1.0",
     "express": "^4.16.4",
-    "express-graphql": "^0.6.6",
+    "express-graphql": "^0.7.1",
     "graphiql": "",
-    "graphql": "^0.10.5",
+    "graphql": "^14.1.1",
     "graphql-docs": "^0.2.0",
     "graphql-to-json-schema": "^1.0.0",
     "graphql-union-input-type": "^0.4.0",
@@ -23,10 +23,10 @@
     "test": "^0.6.0"
   },
   "optionalDependencies": {
-    "react": "^15.4.2",
-    "react-dom": "^15.4.2"
+    "react": "^16.8.1",
+    "react-dom": "^16.8.1"
   },
   "devDependencies": {
-    "graphql-markdown": "^3.2.0"
+    "graphql-markdown": "^5.0.1"
   }
 }
