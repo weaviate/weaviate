@@ -64,3 +64,19 @@ func (m *mockContextionary) SchemaSearch(p contextionary.SearchParams) (contexti
 		},
 	}, nil
 }
+
+func newEmptyContextionary() *emptyContextionary {
+	return &emptyContextionary{}
+}
+
+type emptyContextionary struct {
+	mock.Mock
+}
+
+func (m *emptyContextionary) SchemaSearch(p contextionary.SearchParams) (contextionary.SearchResults, error) {
+	m.Called(p)
+	return contextionary.SearchResults{
+		Type:    p.SearchType,
+		Results: []contextionary.SearchResult{},
+	}, nil
+}
