@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -42,7 +43,7 @@ func Test_Resolve(t *testing.T) {
 
 	tests := testCases{
 		testCase{
-			name: "single prop: mean",
+			name: "Resolve Local Fetch (entire unit)",
 			query: `
 			{
 				Fetch {
@@ -68,6 +69,7 @@ func Test_Resolve(t *testing.T) {
 				{
 					SearchType: contextionary.SearchTypeClass,
 					Name:       "bestclass",
+					Kind:       kind.THING_KIND,
 					Certainty:  0.8,
 					Keywords: models.SemanticSchemaKeywords{{
 						Keyword: "foo",
@@ -77,6 +79,7 @@ func Test_Resolve(t *testing.T) {
 				{
 					SearchType: contextionary.SearchTypeProperty,
 					Name:       "bestproperty",
+					Kind:       kind.THING_KIND,
 					Certainty:  0.8,
 					Keywords: models.SemanticSchemaKeywords{{
 						Keyword: "bar",
@@ -85,13 +88,16 @@ func Test_Resolve(t *testing.T) {
 				},
 			},
 			expectedParamsToConnector: &Params{
+				Kind: kind.THING_KIND,
 				PossibleClassNames: contextionary.SearchResults{
 					Type: contextionary.SearchTypeClass,
 					Results: []contextionary.SearchResult{{
 						Name:      "bestclass",
+						Kind:      kind.THING_KIND,
 						Certainty: 0.95,
 					}, {
 						Name:      "bestclassalternative",
+						Kind:      kind.THING_KIND,
 						Certainty: 0.85,
 					}},
 				},
@@ -102,9 +108,11 @@ func Test_Resolve(t *testing.T) {
 							Results: []contextionary.SearchResult{{
 								Name:      "bestproperty",
 								Certainty: 0.95,
+								Kind:      kind.THING_KIND,
 							}, {
 								Name:      "bestpropertyalternative",
 								Certainty: 0.85,
+								Kind:      kind.THING_KIND,
 							}},
 						},
 						Match: PropertyMatch{

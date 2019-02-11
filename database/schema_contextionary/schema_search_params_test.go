@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/stretchr/testify/assert"
 )
@@ -15,6 +16,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "foo",
+				Kind:       kind.THING_KIND,
 				Certainty:  1.0,
 			},
 			expectedError: nil,
@@ -24,6 +26,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "",
+				Kind:       kind.THING_KIND,
 				Certainty:  0.0,
 			},
 			expectedError: errors.New("Name cannot be empty"),
@@ -33,6 +36,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "bestName",
+				Kind:       kind.THING_KIND,
 				Certainty:  -4,
 			},
 			expectedError: errors.New("invalid Certainty: must be between 0 and 1, but got '-4.000000'"),
@@ -42,6 +46,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "bestName",
+				Kind:       kind.THING_KIND,
 				Certainty:  4,
 			},
 			expectedError: errors.New("invalid Certainty: must be between 0 and 1, but got '4.000000'"),
@@ -51,15 +56,26 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchType("invalid"),
 				Name:       "bestName",
+				Kind:       kind.THING_KIND,
 				Certainty:  0.5,
 			},
 			expectedError: errors.New("SearchType must be SearchTypeClass or SearchTypeProperty, but got 'invalid'"),
+		},
+		{
+			name: "missing kind on class search",
+			searchParams: SearchParams{
+				SearchType: SearchTypeClass,
+				Name:       "bestName",
+				Certainty:  0.5,
+			},
+			expectedError: errors.New("Kind cannot be empty"),
 		},
 		{
 			name: "valid keywords",
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "foo",
+				Kind:       kind.THING_KIND,
 				Certainty:  1.0,
 				Keywords: models.SemanticSchemaKeywords{{
 					Keyword: "foobar",
@@ -73,6 +89,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "foo",
+				Kind:       kind.THING_KIND,
 				Certainty:  1.0,
 				Keywords: models.SemanticSchemaKeywords{{
 					Keyword: "",
@@ -86,6 +103,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "foo",
+				Kind:       kind.THING_KIND,
 				Certainty:  1.0,
 				Keywords: models.SemanticSchemaKeywords{{
 					Keyword: "bestkeyword",
@@ -100,6 +118,7 @@ func Test__SchemaSearch_Validation(t *testing.T) {
 			searchParams: SearchParams{
 				SearchType: SearchTypeClass,
 				Name:       "foo",
+				Kind:       kind.THING_KIND,
 				Certainty:  1.0,
 				Keywords: models.SemanticSchemaKeywords{{
 					Keyword: "worstKeyword",

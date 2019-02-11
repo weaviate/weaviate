@@ -54,6 +54,10 @@ func (p SearchParams) Validate() error {
 			"SearchType must be SearchTypeClass or SearchTypeProperty, but got '%s'", p.SearchType)
 	}
 
+	if p.Kind == "" {
+		return fmt.Errorf("Kind cannot be empty")
+	}
+
 	for i, keyword := range p.Keywords {
 		if err := p.validateKeyword(keyword); err != nil {
 			return fmt.Errorf("invalid keyword at position %d: %s", i, err)

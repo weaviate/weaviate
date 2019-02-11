@@ -195,7 +195,7 @@ func (r rawResults) extractClassNames(p SearchParams) []SearchResult {
 
 func (r rawResults) extractPropertyNames(p SearchParams) []SearchResult {
 	var results []SearchResult
-	regex := regexp.MustCompile("^\\$[A-Za-z]+\\[([A-Za-z]+)\\]$")
+	regex := regexp.MustCompile("^\\$[A-Za-z]+\\[[A-Za-z]+\\]\\[([A-Za-z]+)\\]$")
 
 	propsMap := map[string][]SearchResult{}
 
@@ -210,6 +210,7 @@ func (r rawResults) extractPropertyNames(p SearchParams) []SearchResult {
 			res := SearchResult{
 				Name:      name,
 				Certainty: certainty,
+				Kind:      p.Kind,
 			}
 			if _, ok := propsMap[name]; !ok {
 				propsMap[name] = []SearchResult{res}
@@ -223,6 +224,7 @@ func (r rawResults) extractPropertyNames(p SearchParams) []SearchResult {
 	for _, resultsPerName := range propsMap {
 		results = append(results, SearchResult{
 			Name:      resultsPerName[0].Name,
+			Kind:      resultsPerName[0].Kind,
 			Certainty: meanCertainty(resultsPerName),
 		})
 	}
