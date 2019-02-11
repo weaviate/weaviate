@@ -43,6 +43,10 @@ func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
 			return "prop_4"
 		case schema.PropertyName("inContinent"):
 			return "prop_5"
+		case schema.PropertyName("area"):
+			return "prop_6"
+		case schema.PropertyName("dateOfFirstAppearance"):
+			return "prop_7"
 		}
 	case "Town":
 		switch propName {
@@ -56,6 +60,10 @@ func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
 			return "prop_14"
 		case schema.PropertyName("inContinent"):
 			return "prop_15"
+		case schema.PropertyName("area"):
+			return "prop_16"
+		case schema.PropertyName("dateOfFirstAppearance"):
+			return "prop_17"
 		}
 	}
 	panic(fmt.Sprintf("fake name source does not contain a fake for '%s.%s'", className, propName))
@@ -88,7 +96,7 @@ func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
 			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
 		case "name":
 			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
-		case "dateOfFirstApperance":
+		case "dateOfFirstAppearance":
 			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
 		case "inCountry":
 			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
@@ -103,7 +111,7 @@ func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
 			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
 		case "title":
 			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
-		case "dateOfFirstApperance":
+		case "dateOfFirstAppearance":
 			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
 		case "inCountry":
 			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
