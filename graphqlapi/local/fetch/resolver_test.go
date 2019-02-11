@@ -20,6 +20,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 )
 
 type testCase struct {
@@ -173,4 +175,36 @@ func (tests testCases) AssertExtraction(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test__Resolve_NoResultsFromContextionary(t *testing.T) {
+	query := `
+			{
+				Fetch {
+					Things(where: {
+						class: {
+							name: "bestclass"
+							certainty: 0.8
+							keywords: [{value: "foo", weight: 0.9}]
+						},
+						properties: {
+							name: "bestproperty"
+							certainty: 0.8
+							keywords: [{value: "bar", weight: 0.9}]
+							operator: Equal
+							valueString: "some-value"
+						},
+					}) {
+						beacon certainty
+					}
+				}
+			}`
+	c11y := newEmptyContextionary()
+	c11y.On("SchemaSearch", mock.Anything).Twice()
+	resolver := newMockResolver(c11y)
+	res := resolver.Resolve(query)
+	require.Len(t, res.Errors, 1)
+	assert.Equal(t, res.Errors[0].Message,
+		"the contextionary contains no close matches to the provided class name. "+
+			"Try using different search terms or lowering the desired certainty")
 }

@@ -86,6 +86,18 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			Properties:         properties,
 		}
 
+		if len(possibleClasses.Results) == 0 {
+			return nil, fmt.Errorf("the contextionary contains no close matches to " +
+				"the provided class name. Try using different search terms or lowering the " +
+				"desired certainty")
+		}
+
+		if len(properties) == 0 {
+			return nil, fmt.Errorf("the contextionary contains no close matches to " +
+				"the provided property name. Try using different search terms or lowering " +
+				"the desired certainty")
+		}
+
 		return func() (interface{}, error) {
 			return resources.resolver.LocalFetchKindClass(params)
 		}, nil
