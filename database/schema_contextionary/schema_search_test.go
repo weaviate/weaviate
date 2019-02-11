@@ -194,12 +194,13 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 		{
 			name: "property name exactly in the contextionary, no keywords, no close other results",
 			words: map[string][]float32{
-				"$Car[horsepower]": {5, 5, 5},
-				"horsepower":       {4.7, 5.2, 5},
+				"$THING[Car][horsepower]": {5, 5, 5},
+				"horsepower":              {4.7, 5.2, 5},
 			},
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "horsepower",
+				Kind:       kind.THING_KIND,
 				Certainty:  0.9,
 			},
 			expectedError: nil,
@@ -208,6 +209,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "horsepower",
+						Kind:      kind.THING_KIND,
 						Certainty: 0.9699532,
 					},
 				},
@@ -217,13 +219,14 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 			name: "with two potential properties, that are somewhat related, " +
 				"but not close enough to meet the certainty threshold",
 			words: map[string][]float32{
-				"$Car[horsepower]":   {5, 5, 5},
-				"$Powerdrill[power]": {2, 2, 2},
-				"horsepower":         {4.7, 5.2, 5},
+				"$THING[Car][horsepower]":   {5, 5, 5},
+				"$THING[Powerdrill][power]": {2, 2, 2},
+				"horsepower":                {4.7, 5.2, 5},
 			},
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "horsepower",
+				Kind:       kind.THING_KIND,
 				Certainty:  0.9,
 			},
 			expectedError: nil,
@@ -232,6 +235,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "horsepower",
+						Kind:      kind.THING_KIND,
 						Certainty: 0.9699532,
 					},
 				},
@@ -240,13 +244,14 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 		{
 			name: "with duplicated property names", // this occurs when several classes have potential properties
 			words: map[string][]float32{
-				"$Car[horsepower]":        {5, 5, 5},
-				"$Automobile[horsepower]": {5.1, 5.1, 5.1},
-				"horsepower":              {4.7, 5.2, 5},
+				"$THING[Car][horsepower]":        {5, 5, 5},
+				"$THING[Automobile][horsepower]": {5.1, 5.1, 5.1},
+				"horsepower":                     {4.7, 5.2, 5},
 			},
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "horsepower",
+				Kind:       kind.THING_KIND,
 				Certainty:  0.9,
 			},
 			expectedError: nil,
@@ -255,6 +260,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "horsepower",
+						Kind:      kind.THING_KIND,
 						Certainty: 0.9672985, // note: this is the mean certainty of Car.horsepower and Autombile.horsepower
 					},
 				},
@@ -263,12 +269,13 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 		{
 			name: "propertyName is not a word in the contextionary",
 			words: map[string][]float32{
-				"$Car[horsepower]": {5, 5, 5},
-				"horsepower":       {4.7, 5.2, 5},
+				"$THING[Car][horsepower]": {5, 5, 5},
+				"horsepower":              {4.7, 5.2, 5},
 			},
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "Spaceship",
+				Kind:       kind.THING_KIND,
 				Certainty:  0.9,
 			},
 			expectedError: errors.New("could not build centroid from name and keywords: " +
@@ -278,14 +285,15 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 		{
 			name: "with additional keywords, all contained",
 			words: map[string][]float32{
-				"$Car[horsepower]": {5, 5, 5},
-				"horsepower":       {4.7, 5.2, 5},
-				"transportation":   {5, 3, 3},
-				"automobile":       {5.2, 5.0, 4},
+				"$THING[Car][horsepower]": {5, 5, 5},
+				"horsepower":              {4.7, 5.2, 5},
+				"transportation":          {5, 3, 3},
+				"automobile":              {5.2, 5.0, 4},
 			},
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "horsepower",
+				Kind:       kind.THING_KIND,
 				Certainty:  0.9,
 				Keywords: models.SemanticSchemaKeywords{
 					{
@@ -304,6 +312,7 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 				Results: []SearchResult{
 					SearchResult{
 						Name:      "horsepower",
+						Kind:      kind.THING_KIND,
 						Certainty: 0.9284513,
 					},
 				},
@@ -312,12 +321,13 @@ func Test__SchemaSearch_Properties(t *testing.T) {
 		{
 			name: "with a keyword that's not in the contextinary",
 			words: map[string][]float32{
-				"$Car[horsepower]": {5, 5, 5},
-				"horsepower":       {4.7, 5.2, 5},
+				"$THING[Car][horsepower]": {5, 5, 5},
+				"horsepower":              {4.7, 5.2, 5},
 			},
 			searchParams: SearchParams{
 				SearchType: SearchTypeProperty,
 				Name:       "horsepower",
+				Kind:       kind.THING_KIND,
 				Certainty:  0.9,
 				Keywords: models.SemanticSchemaKeywords{
 					{

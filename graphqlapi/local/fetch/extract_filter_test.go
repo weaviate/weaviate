@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/stretchr/testify/mock"
@@ -159,13 +160,16 @@ func (tests filterTestCases) AssertExtraction(t *testing.T) {
 			resolver := newMockResolver(c11y)
 
 			expectedParamsToConnector := &Params{
+				Kind: kind.THING_KIND,
 				PossibleClassNames: contextionary.SearchResults{
 					Type: contextionary.SearchTypeClass,
 					Results: []contextionary.SearchResult{{
 						Name:      "bestclass",
+						Kind:      kind.THING_KIND,
 						Certainty: 0.95,
 					}, {
 						Name:      "bestclassalternative",
+						Kind:      kind.THING_KIND,
 						Certainty: 0.85,
 					}},
 				},
@@ -175,9 +179,11 @@ func (tests filterTestCases) AssertExtraction(t *testing.T) {
 							Type: contextionary.SearchTypeProperty,
 							Results: []contextionary.SearchResult{{
 								Name:      "bestproperty",
+								Kind:      kind.THING_KIND,
 								Certainty: 0.95,
 							}, {
 								Name:      "bestpropertyalternative",
+								Kind:      kind.THING_KIND,
 								Certainty: 0.85,
 							}},
 						},

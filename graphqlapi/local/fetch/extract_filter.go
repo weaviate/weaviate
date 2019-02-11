@@ -3,6 +3,7 @@ package fetch
 import (
 	"fmt"
 
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	contextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -18,7 +19,7 @@ type whereProperty struct {
 	match  PropertyMatch
 }
 
-func parseWhere(args map[string]interface{}) (*whereFilter, error) {
+func parseWhere(args map[string]interface{}, kind kind.Kind) (*whereFilter, error) {
 	// the structure is already guaranteed by graphQL, we can therefore make
 	// plenty of assertions without having to check. If required fields are not
 	// set, graphQL will error before already and we won't get here.
@@ -37,6 +38,7 @@ func parseWhere(args map[string]interface{}) (*whereFilter, error) {
 			Name:       propertiesMap["name"].(string),
 			Certainty:  float32(propertiesMap["certainty"].(float64)),
 			Keywords:   propertiesKeywords,
+			Kind:       kind,
 		}
 
 		match, err := extractMatch(propertiesMap)
@@ -56,6 +58,7 @@ func parseWhere(args map[string]interface{}) (*whereFilter, error) {
 			Name:       classMap["name"].(string),
 			Certainty:  float32(classMap["certainty"].(float64)),
 			Keywords:   classKeywords,
+			Kind:       kind,
 		},
 		properties: properties,
 	}, nil

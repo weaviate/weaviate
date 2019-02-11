@@ -65,7 +65,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 			return nil, err
 		}
 
-		where, err := parseWhere(p.Args)
+		where, err := parseWhere(p.Args, kind)
 		if err != nil {
 			return nil, fmt.Errorf("invalid where filter: %s", err)
 		}
@@ -81,6 +81,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		}
 
 		params := &Params{
+			Kind:               kind,
 			PossibleClassNames: possibleClasses,
 			Properties:         properties,
 		}
@@ -104,12 +105,12 @@ func newResources(s interface{}) (*resources, error) {
 
 	resolver, ok := source["Resolver"].(Resolver)
 	if !ok {
-		return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %T", source)
+		return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %#v", source)
 	}
 
 	contextionary, ok := source["Contextionary"].(Contextionary)
 	if !ok {
-		return nil, fmt.Errorf("expected source to contain a usable Resolver, but was %T", source)
+		return nil, fmt.Errorf("expected source to contain a usable Contextionary, but was %#v", source)
 	}
 
 	return &resources{

@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -225,7 +224,6 @@ func TestLocalGetMetaWithFilters(t *testing.T) {
 	t.Run("string prop", func(t *testing.T) {
 		typeField := result.Get("Local", "GetMeta", "Things", "City", "name", "type").Result
 		count := result.Get("Local", "GetMeta", "Things", "City", "name", "count").Result
-		spew.Dump(count)
 		topOccurrences := result.Get("Local", "GetMeta", "Things", "City", "name", "topOccurrences").Result
 
 		assert.Equal(t, json.Number("2"), count)
