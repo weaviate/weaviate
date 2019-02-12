@@ -13,6 +13,8 @@
 package janusgraph
 
 import (
+	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/fetch"
 	graphqlfetch "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
@@ -22,10 +24,12 @@ import (
 // LocalFetchKindClass based on GraphQL Query params
 func (j *Janusgraph) LocalFetchKindClass(params *graphqlfetch.Params) (interface{}, error) {
 	q, err := fetch.NewQuery(*params, &j.state, &j.schema).String()
-	spew.Dump(q)
+	if err != nil {
+		return nil, fmt.Errorf("could not build query: %s", err)
+	}
 
-	res, err := j.client.Execute(gremlin.New().Raw(q))
-
+	res, err := fetch.NewProcessor(j.client, params.Kind, "localhost").
+		Process(gremlin.New().Raw(q))
 	spew.Dump(res)
 	return res, err
 }
