@@ -50,6 +50,12 @@ func (b *Query) String() (string, error) {
 		return "", err
 	}
 
+	if len(properties) == 0 {
+		return "", fmt.Errorf("could not find a viable combination of class names, properties and search filters, " +
+			"try using different classNames or properties, lowering the certainty on either of them or change the " +
+			"specified filtering requirements (operator or value<Type>)")
+	}
+
 	q := gremlin.New().
 		Raw("g.V()").
 		HasString("kind", b.params.Kind.Name()).
@@ -68,7 +74,15 @@ func (b *Query) properties() ([]*gremlin.Query, error) {
 			return nil, fmt.Errorf("could not build property '%v': %s", prop, err)
 		}
 
+		if q == nil {
+			continue
+		}
+
 		queries = append(queries, q)
+	}
+
+	if len(queries) == 0 {
+		return nil, nil
 	}
 
 	return queries, nil
@@ -84,6 +98,10 @@ func (b *Query) property(prop fetch.Property) (*gremlin.Query, error) {
 		}
 
 		filterAlternatives = append(filterAlternatives, alternative)
+	}
+
+	if len(filterAlternatives) == 0 {
+		return nil, nil
 	}
 
 	q := gremlin.New().
