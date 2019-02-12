@@ -105,6 +105,10 @@ func (b *Query) combineClassWithPropNames(className string, propNames []contexti
 		combinations = append(combinations, combination.String())
 	}
 
+	if len(combinations) == 0 {
+		return nil
+	}
+
 	return gremlin.New().Raw(strings.Join(combinations, ", "))
 }
 
