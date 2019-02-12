@@ -172,6 +172,7 @@ type testCase struct {
 	name          string
 	inputParams   fetch.Params
 	expectedQuery string
+	expectedErr   error
 }
 
 type testCases []testCase
@@ -180,7 +181,7 @@ func (tests testCases) AssertQuery(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			query, err := NewQuery(test.inputParams, &fakeNameSource{}, &fakeTypeSource{}).String()
-			require.Nil(t, err, "should not error")
+			require.Equal(t, test.expectedErr, err, "should match expected error")
 			assert.Equal(t, breakOnDot(stripAll(test.expectedQuery)), breakOnDot(stripAll(query)), "should match the query")
 		})
 	}

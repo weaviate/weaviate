@@ -1,6 +1,7 @@
 package fetch
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -148,6 +149,44 @@ func Test_QueryBuilder(t *testing.T) {
 					)
 				).valueMap("uuid", "classId")
 			`,
+		},
+		{
+			name: "with a single property with no valid combination of class and props",
+			inputParams: fetch.Params{
+				Kind: kind.THING_KIND,
+				PossibleClassNames: contextionary.SearchResults{
+					Results: []contextionary.SearchResult{
+						{
+							Name:      "City",
+							Certainty: 1.0,
+						},
+					},
+				},
+				Properties: []fetch.Property{
+					{
+						PossibleNames: contextionary.SearchResults{
+							Results: []contextionary.SearchResult{
+								{
+									Name:      "potato",
+									Certainty: 1.0,
+								},
+							},
+						},
+						Match: fetch.PropertyMatch{
+							Operator: cf.OperatorEqual,
+							Value: &cf.Value{
+								Value: "Amsterdam",
+								Type:  schema.DataTypeString,
+							},
+						},
+					},
+				},
+			},
+			expectedQuery: "",
+			expectedErr: errors.New("could not find a viable combination of class names, " +
+				"properties and search filters, try using different classNames or properties, " +
+				"lowering the certainty on either of them or change the specified filtering " +
+				"requirements (operator or value<Type>)"),
 		},
 	}
 
