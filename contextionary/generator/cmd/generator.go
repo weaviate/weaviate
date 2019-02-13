@@ -12,42 +12,11 @@
 package main
 
 import (
-	"bufio"
-	"fmt"
-	"log"
 	"os"
 
-	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	"github.com/creativesoftwarefdn/weaviate/contextionary/generator"
 	flags "github.com/jessevdk/go-flags"
 )
-
-func validate(fileName string) bool {
-
-	c13y, err := contextionary.LoadVectorFromDisk(fileName+".knn", fileName+".idx")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// load the vocab file line by line
-	vocabFile, err := os.Open(fileName + ".vocab")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer vocabFile.Close()
-	scanner := bufio.NewScanner(vocabFile)
-
-	for scanner.Scan() {
-		wordToCheck := scanner.Text()
-		itemIndex := c13y.WordToItemIndex(wordToCheck)
-		if ok := itemIndex.IsPresent(); !ok {
-			log.Fatal(fmt.Errorf("item index for %s is not present", wordToCheck))
-			return false
-		}
-	}
-
-	return true
-}
 
 func main() {
 	var options generator.Options
@@ -65,7 +34,7 @@ func main() {
 	generator.Generate(options)
 
 	// validate
-	if validate(options.OutputPrefix) == true {
+	if Validate(options.OutputPrefix) == true {
 		os.Exit(0)
 	} else {
 		os.Exit(1)

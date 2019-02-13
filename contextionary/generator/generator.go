@@ -17,12 +17,14 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/creativesoftwarefdn/weaviate/contextionary"
 	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
 	"github.com/syndtr/goleveldb/leveldb"
 )
@@ -75,6 +77,36 @@ func Generate(options Options) {
 	os.RemoveAll(options.TempDBPath)
 }
 
+// Validates if all words are availabe, returns true if available
+func Validate(fileName string) bool {
+	c13y, err := contextionary.LoadVectorFromDisk(fileName+".knn", fileName+".idx")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// load the vocab file line by line
+	vocabFile, err := os.Open(fileName + ".vocab")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer vocabFile.Close()
+	scanner := bufio.NewScanner(vocabFile)
+
+	// loop over the words
+	for scanner.Scan() {
+		wordToCheck := scanner.Text()
+
+		// check if the word is present
+		itemIndex := c13y.WordToItemIndex(wordToCheck)
+		if ok := itemIndex.IsPresent(); !ok {
+			log.Fatal(fmt.Errorf("item index for %s is not present", wordToCheck))
+			return false
+		}
+	}
+
+	return true
+}
+
 // read word vectors, insert them into level db, also return the dimension of the vectors.
 func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File, words_file string) WordVectorInfo {
 	var vector_length int = -1
@@ -104,7 +136,7 @@ func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File, word
 			continue
 		}
 
-		// validate if the word should be used
+		// validate if the word should be used, this includes capitals for names but no other than that
 		var validRegex = regexp.MustCompile(`^[A-Za-z][\ A-Za-z0-9]*$`)
 		if validRegex.MatchString(word) == false {
 			skipped_words++
