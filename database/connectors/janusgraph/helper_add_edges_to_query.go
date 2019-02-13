@@ -147,6 +147,13 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 			q = q.Int64Property(janusPropertyName, int64(t))
 		case float64:
 			q = q.Int64Property(janusPropertyName, int64(t))
+		case json.Number:
+			asInt, err := t.Int64()
+			if err != nil {
+				return q, fmt.Errorf("Illegal json.Number value for property %s, could not be converted to int64: %s", sanitizedPropertyName, err)
+			}
+
+			q = q.Int64Property(janusPropertyName, asInt)
 		default:
 			return q, fmt.Errorf("Illegal primitive value for property %s, value is %#v", sanitizedPropertyName, t)
 		}
