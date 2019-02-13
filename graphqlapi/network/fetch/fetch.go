@@ -28,7 +28,7 @@ func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 	fields := graphql.Fields{
 		"Actions": &graphql.Field{
 			Name:        "WeaviateNetworkFetchActions",
-			Description: descriptions.NetworkFetchActionsDesc,
+			Description: descriptions.NetworkFetchActions,
 			Type:        graphql.NewList(actionsFields),
 			Args: graphql.FieldConfigArgument{
 				"where": whereFilterFields,
@@ -40,7 +40,7 @@ func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 
 		"Things": &graphql.Field{
 			Name:        "WeaviateNetworkFetchThings",
-			Description: descriptions.NetworkFetchThingsDesc,
+			Description: descriptions.NetworkFetchThings,
 			Type:        graphql.NewList(thingsFields),
 			Args: graphql.FieldConfigArgument{
 				"where": whereFilterFields,
@@ -52,15 +52,15 @@ func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 
 		"Fuzzy": &graphql.Field{
 			Name:        "WeaviateNetworkFetchFuzzy",
-			Description: descriptions.NetworkFetchFuzzyDesc,
+			Description: descriptions.NetworkFetchFuzzy,
 			Type:        graphql.NewList(fuzzyFields),
 			Args: graphql.FieldConfigArgument{
 				"value": &graphql.ArgumentConfig{
-					Description: descriptions.FetchFuzzyValueDesc,
+					Description: descriptions.FetchFuzzyValue,
 					Type:        graphql.NewNonNull(graphql.String),
 				},
 				"certainty": &graphql.ArgumentConfig{
-					Description: descriptions.FetchFuzzyCertaintyDesc,
+					Description: descriptions.FetchFuzzyCertainty,
 					Type:        graphql.NewNonNull(graphql.Float),
 				},
 			},
@@ -73,7 +73,7 @@ func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 	fieldsObj := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkFetchObj",
 		Fields:      fields,
-		Description: descriptions.NetworkFetchObjDesc,
+		Description: descriptions.NetworkFetchObj,
 	}
 
 	return graphql.NewObject(fieldsObj)
@@ -84,7 +84,7 @@ func actionsFieldsObj() *graphql.Object {
 
 		"beacon": &graphql.Field{
 			Name:        "WeaviateNetworkFetchActionsBeacon",
-			Description: descriptions.NetworkFetchActionBeaconDesc,
+			Description: descriptions.NetworkFetchActionBeacon,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -93,7 +93,7 @@ func actionsFieldsObj() *graphql.Object {
 
 		"certainty": &graphql.Field{
 			Name:        "WeaviateNetworkFetchActionsCertainty",
-			Description: descriptions.NetworkFetchActionCertaintyDesc,
+			Description: descriptions.NetworkFetchActionCertainty,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -104,7 +104,7 @@ func actionsFieldsObj() *graphql.Object {
 	getNetworkFetchActionsFieldsObject := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkFetchActionsObj",
 		Fields:      getNetworkFetchActionsFields,
-		Description: descriptions.NetworkFetchActionsObjDesc,
+		Description: descriptions.NetworkFetchActionsObj,
 	}
 
 	return graphql.NewObject(getNetworkFetchActionsFieldsObject)
@@ -115,7 +115,7 @@ func thingsFieldsObj() *graphql.Object {
 
 		"beacon": &graphql.Field{
 			Name:        "WeaviateNetworkFetchThingsBeacon",
-			Description: descriptions.NetworkFetchThingBeaconDesc,
+			Description: descriptions.NetworkFetchThingBeacon,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -124,7 +124,7 @@ func thingsFieldsObj() *graphql.Object {
 
 		"certainty": &graphql.Field{
 			Name:        "WeaviateNetworkFetchThingsCertainty",
-			Description: descriptions.NetworkFetchThingCertaintyDesc,
+			Description: descriptions.NetworkFetchThingCertainty,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -135,7 +135,7 @@ func thingsFieldsObj() *graphql.Object {
 	getNetworkFetchThingsFieldsObject := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkFetchThingsObj",
 		Fields:      getNetworkFetchThingsFields,
-		Description: descriptions.NetworkFetchThingsObjDesc,
+		Description: descriptions.NetworkFetchThingsObj,
 	}
 
 	return graphql.NewObject(getNetworkFetchThingsFieldsObject)
@@ -146,7 +146,7 @@ func fuzzyFieldsObj() *graphql.Object {
 
 		"beacon": &graphql.Field{
 			Name:        "WeaviateNetworkFetchFuzzyBeacon",
-			Description: descriptions.NetworkFetchFuzzyBeaconDesc,
+			Description: descriptions.NetworkFetchFuzzyBeacon,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -155,7 +155,7 @@ func fuzzyFieldsObj() *graphql.Object {
 
 		"certainty": &graphql.Field{
 			Name:        "WeaviateNetworkFetchFuzzyCertainty",
-			Description: descriptions.NetworkFetchFuzzyCertaintyDesc,
+			Description: descriptions.NetworkFetchFuzzyCertainty,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -166,7 +166,7 @@ func fuzzyFieldsObj() *graphql.Object {
 	getNetworkFetchFuzzyFieldsObject := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkFetchFuzzyObj",
 		Fields:      getNetworkFetchFuzzyFields,
-		Description: descriptions.NetworkFetchFuzzyObjDesc,
+		Description: descriptions.NetworkFetchFuzzyObj,
 	}
 
 	return graphql.NewObject(getNetworkFetchFuzzyFieldsObject)
@@ -174,12 +174,12 @@ func fuzzyFieldsObj() *graphql.Object {
 
 func thingsActionsWhereFilterFields(filterContainer *utils.FilterContainer) *graphql.ArgumentConfig {
 	whereFilterFields := &graphql.ArgumentConfig{
-		Description: descriptions.FetchWhereFilterFieldsDesc,
+		Description: descriptions.FetchWhereFilterFields,
 		Type: graphql.NewNonNull(graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        "WeaviateNetworkFetchWhereInpObj",
 				Fields:      thingsAndActionsFilterFields(filterContainer),
-				Description: descriptions.FetchWhereFilterFieldsInpObjDesc,
+				Description: descriptions.FetchWhereFilterFieldsInpObj,
 			},
 		)),
 	}

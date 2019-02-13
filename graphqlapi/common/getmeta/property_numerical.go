@@ -25,36 +25,36 @@ func numericalPropertyField(class *models.SemanticSchemaClass,
 	getMetaNumberFields := graphql.Fields{
 		"sum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sSum", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertySumDesc,
+			Description: descriptions.GetMetaPropertySum,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyTypeDesc,
+			Description: descriptions.GetMetaPropertyType,
 			Type:        graphql.String,
 		},
 		"minimum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMinimum", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyMinimumDesc,
+			Description: descriptions.GetMetaPropertyMinimum,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"maximum": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMaximum", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyMaximumDesc,
+			Description: descriptions.GetMetaPropertyMaximum,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"mean": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sMean", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyMeanDesc,
+			Description: descriptions.GetMetaPropertyMean,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyCountDesc,
+			Description: descriptions.GetMetaPropertyCount,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
@@ -63,6 +63,6 @@ func numericalPropertyField(class *models.SemanticSchemaClass,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaNumberFields,
-		Description: descriptions.GetMetaPropertyObjectDesc,
+		Description: descriptions.GetMetaPropertyObject,
 	})
 }

@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/graphql-go/graphql"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -64,7 +65,7 @@ func (mr *MockResolver) Resolve(query string) *graphql.Result {
 func (mr *MockResolver) AssertResolve(t *testing.T, query string) *GraphQLResult {
 	result := mr.Resolve(query)
 	if len(result.Errors) > 0 {
-		t.Fatalf("Failed to resolve; %#v", result.Errors)
+		t.Fatalf("Failed to resolve; %s", spew.Sdump(result.Errors))
 	}
 
 	mr.AssertExpectations(t)

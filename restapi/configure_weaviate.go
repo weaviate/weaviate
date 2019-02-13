@@ -49,9 +49,12 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database"
 	dblisting "github.com/creativesoftwarefdn/weaviate/database/listing"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	databaseSchema "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
+	schemaContextionary "github.com/creativesoftwarefdn/weaviate/database/schema_contextionary"
 	etcdSchemaManager "github.com/creativesoftwarefdn/weaviate/database/schema_manager/etcd"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -74,6 +77,14 @@ const pageOverride int = 1
 const error422 string = "The request is well-formed but was unable to be followed due to semantic errors."
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
+
+// rawContextionary is the contextionary as we read it from the files. It is
+// not extended by schema builds. It is important to keep this untouched copy,
+// so that we can rebuild a clean contextionary on every schema change based on
+// this contextionary and the current schema
+var rawContextionary libcontextionary.Contextionary
+
+// contextionary is the contextionary we keep amending on every schema change
 var contextionary libcontextionary.Contextionary
 var network libnetwork.Network
 var serverConfig *config.WeaviateConfig
@@ -82,13 +93,18 @@ var messaging *messages.Messaging
 
 var db database.Database
 
-type dbAndNetwork struct {
+type graphQLRoot struct {
 	database.Database
 	libnetwork.Network
+	contextionary *schemaContextionary.Contextionary
 }
 
-func (d dbAndNetwork) GetNetworkResolver() graphqlnetwork.Resolver {
-	return d.Network
+func (r graphQLRoot) GetNetworkResolver() graphqlnetwork.Resolver {
+	return r.Network
+}
+
+func (r graphQLRoot) GetContextionary() fetch.Contextionary {
+	return r.contextionary
 }
 
 type keyTokenHeader struct {
@@ -768,7 +784,6 @@ func configureServer(s *http.Server, scheme, addr string) {
 
 	// Create the database connector usint the config
 	err, dbConnector := dblisting.NewConnector(serverConfig.Environment.Database.Name, serverConfig.Environment.Database.DatabaseConfig)
-
 	// Could not find, or configure connector.
 	if err != nil {
 		messaging.ExitError(78, err.Error())
@@ -780,13 +795,12 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, fmt.Sprintf("cannot parse config store URL: %s", err))
 	}
 
-	// Construct a (distributed lock)
+	// Construct a distributed lock
 	etcdClient, err := clientv3.New(clientv3.Config{Endpoints: []string{configStore.String()}})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// create two separate sessions for lock competition
 	s1, err := concurrency.NewSession(etcdClient)
 	if err != nil {
 		log.Fatal(err)
@@ -797,27 +811,10 @@ func configureServer(s *http.Server, scheme, addr string) {
 		messaging.ExitError(78, fmt.Sprintf("Could not initialize local database state: %v", err))
 	}
 
-	manager.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {
-		// Note that this is thread safe; we're running in a single go-routine, because the event
-		// handlers are called when the SchemaLock is still held.
+	manager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
-		peers, err := network.ListPeers()
-		if err != nil {
-			graphQL = nil
-			messaging.ErrorMessage(fmt.Sprintf("could not list network peers to regenerate schema:\n%#v\n", err))
-			return
-		}
-
-		updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, dbAndNetwork{Database: db, Network: network}, messaging)
-		if err != nil {
-			// TODO: turn on safe mode gh-520
-			graphQL = nil
-			messaging.ErrorMessage(fmt.Sprintf("Could not re-generate GraphQL schema, because:\n%#v\n", err))
-		} else {
-			messaging.InfoMessage("Updated GraphQL schema")
-			graphQL = updatedGraphQL
-		}
-	})
+	// initialize the contextinoary with the rawContextionary, it will get updated on each schema update
+	contextionary = rawContextionary
 
 	// Now instantiate a database, with the configured lock, manager and connector.
 	dbParams := &database.Params{
@@ -839,6 +836,54 @@ func configureServer(s *http.Server, scheme, addr string) {
 	})
 
 	network.RegisterSchemaGetter(&schemaGetter{db: db})
+}
+
+func updateSchemaCallback(updatedSchema schema.Schema) {
+	// Note that this is thread safe; we're running in a single go-routine, because the event
+	// handlers are called when the SchemaLock is still held.
+	rebuildContextionary(updatedSchema)
+	rebuildGraphQL(updatedSchema)
+}
+
+func rebuildContextionary(updatedSchema schema.Schema) {
+	// build new contextionary extended by the local schema
+	schemaContextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(updatedSchema, &rawContextionary)
+	if err != nil {
+		messaging.ExitError(78, fmt.Sprintf("Could not build in-memory contextionary from schema; %+v", err))
+	}
+
+	// Combine contextionaries
+	contextionaries := []libcontextionary.Contextionary{rawContextionary, *schemaContextionary}
+	combined, err := libcontextionary.CombineVectorIndices(contextionaries)
+
+	if err != nil {
+		messaging.ExitError(78, fmt.Sprintf("Could not combine the contextionary database with the in-memory generated contextionary; %+v", err))
+	}
+
+	messaging.InfoMessage("Contextionary extended with names in the schema")
+
+	contextionary = libcontextionary.Contextionary(combined)
+}
+
+func rebuildGraphQL(updatedSchema schema.Schema) {
+	peers, err := network.ListPeers()
+	if err != nil {
+		graphQL = nil
+		messaging.ErrorMessage(fmt.Sprintf("could not list network peers to regenerate schema:\n%#v\n", err))
+		return
+	}
+
+	c11y := schemaContextionary.New(contextionary)
+	root := graphQLRoot{Database: db, Network: network, contextionary: c11y}
+	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging)
+	if err != nil {
+		// TODO: turn on safe mode gh-520
+		graphQL = nil
+		messaging.ErrorMessage(fmt.Sprintf("Could not re-generate GraphQL schema, because:\n%#v\n", err))
+	} else {
+		messaging.InfoMessage("Updated GraphQL schema")
+		graphQL = updatedGraphQL
+	}
 }
 
 type schemaGetter struct {
@@ -927,7 +972,7 @@ func loadContextionary() {
 		messaging.ExitError(78, "Contextionary IDX file not specified")
 	}
 
-	mmaped_contextionary, err := libcontextionary.LoadVectorFromDisk(serverConfig.Environment.Contextionary.KNNFile, serverConfig.Environment.Contextionary.IDXFile)
+	mmapedContextionary, err := libcontextionary.LoadVectorFromDisk(serverConfig.Environment.Contextionary.KNNFile, serverConfig.Environment.Contextionary.IDXFile)
 
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("Could not load Contextionary; %+v", err))
@@ -935,31 +980,7 @@ func loadContextionary() {
 
 	messaging.InfoMessage("Contextionary loaded from disk")
 
-	//TODO gh-618: update on schema change.
-	//// Now create the in-memory contextionary based on the classes / properties.
-	//databaseSchema :=
-	//in_memory_contextionary, err := databaseSchema.BuildInMemoryContextionaryFromSchema(mmaped_contextionary)
-	//if err != nil {
-	//	messaging.ExitError(78, fmt.Sprintf("Could not build in-memory contextionary from schema; %+v", err))
-	//}
-
-	//// Combine contextionaries
-	//contextionaries := []libcontextionary.Contextionary{*in_memory_contextionary, *mmaped_contextionary}
-	//combined, err := libcontextionary.CombineVectorIndices(contextionaries)
-	//
-	// if err != nil {
-	// 	messaging.ExitError(78, fmt.Sprintf("Could not combine the contextionary database with the in-memory generated contextionary; %+v", err))
-	// }
-
-	// messaging.InfoMessage("Contextionary extended with names in the schema")
-
-	// // urgh, go.
-	// x := libcontextionary.Contextionary(combined)
-	// contextionary = &x
-
-	// // whoop!
-
-	contextionary = mmaped_contextionary
+	rawContextionary = mmapedContextionary
 }
 
 func connectToNetwork() {

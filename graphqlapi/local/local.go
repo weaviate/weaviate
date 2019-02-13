@@ -15,6 +15,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/descriptions"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -36,22 +37,24 @@ func Build(dbSchema *schema.Schema, peers peers.Peers, logger *messages.Messagin
 	if err != nil {
 		return nil, err
 	}
+	fetchField := fetch.Build()
 
 	localFields := graphql.Fields{
 		"Get":       getField,
 		"GetMeta":   getMetaField,
 		"Aggregate": getAggregateField,
+		"Fetch":     fetchField,
 	}
 
 	localObject := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateLocalObj",
 		Fields:      localFields,
-		Description: descriptions.LocalObjDesc,
+		Description: descriptions.LocalObj,
 	})
 
 	localField := graphql.Field{
 		Type:        localObject,
-		Description: descriptions.WeaviateLocalDesc,
+		Description: descriptions.WeaviateLocal,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			// This step does nothing; all ways allow the resolver to continue
 			return p.Source, nil

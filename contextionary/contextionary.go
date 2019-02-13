@@ -9,16 +9,22 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
+
+// Package contextionary provides the toolset to add context to words.
 package contextionary
 
-// Opaque type that models an index number used to identify a word.
+// ItemIndex is an opaque type that models an index number used to identify a
+// word.
 type ItemIndex int
 
+// IsPresent can be used after retrieving a word index (which does not error on
+// its own), to see if the word was actually present in the contextionary.
 func (i *ItemIndex) IsPresent() bool {
 	return *i >= 0
 }
 
-// API to decouple the K-nn interface that is needed for Weaviate from a concrete implementation.
+// Contextionary is the API to decouple the K-nn interface that is needed for
+// Weaviate from a concrete implementation.
 type Contextionary interface {
 	// Return the number of items that is stored in the index.
 	GetNumberOfItems() int

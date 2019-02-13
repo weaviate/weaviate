@@ -9,10 +9,12 @@
  * DESIGN & CONCEPT: Bob van Luijt (@bobvanluijt)
  * CONTACT: hello@creativesoftwarefdn.org
  */
+
 package database
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 )
@@ -38,4 +40,9 @@ func (dbcr *dbClosingResolver) LocalGetMeta(info *getmeta.Params) (interface{}, 
 func (dbcr *dbClosingResolver) LocalAggregate(info *aggregate.Params) (interface{}, error) {
 	connector := dbcr.connectorLock.Connector()
 	return connector.LocalAggregate(info)
+}
+
+func (dbcr *dbClosingResolver) LocalFetchKindClass(info *fetch.Params) (interface{}, error) {
+	connector := dbcr.connectorLock.Connector()
+	return connector.LocalFetchKindClass(info)
 }

@@ -28,7 +28,7 @@ func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 	fields := graphql.Fields{
 		"Actions": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectActions",
-			Description: descriptions.NetworkIntrospectActionsDesc,
+			Description: descriptions.NetworkIntrospectActions,
 			Type:        graphql.NewList(actionsFields),
 			Args: graphql.FieldConfigArgument{
 				"where": whereFilterFields,
@@ -40,7 +40,7 @@ func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 
 		"Things": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectThings",
-			Description: descriptions.NetworkIntrospectThingsDesc,
+			Description: descriptions.NetworkIntrospectThings,
 			Type:        graphql.NewList(thingsFields),
 			Args: graphql.FieldConfigArgument{
 				"where": whereFilterFields,
@@ -52,11 +52,11 @@ func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 
 		"Beacon": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectBeacon",
-			Description: descriptions.NetworkIntrospectBeaconDesc,
+			Description: descriptions.NetworkIntrospectBeacon,
 			Type:        beaconFields,
 			Args: graphql.FieldConfigArgument{
 				"id": &graphql.ArgumentConfig{
-					Description: descriptions.IntrospectBeaconIdDesc,
+					Description: descriptions.IntrospectBeaconId,
 					Type:        graphql.NewNonNull(graphql.String),
 				},
 			},
@@ -69,7 +69,7 @@ func FieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 	fieldsObj := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkIntrospectObj",
 		Fields:      fields,
-		Description: descriptions.NetworkIntrospectObjDesc,
+		Description: descriptions.NetworkIntrospectObj,
 	}
 
 	return graphql.NewObject(fieldsObj)
@@ -79,7 +79,7 @@ func actionsFieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 	fields := graphql.Fields{
 		"weaviate": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectActionsWeaviate",
-			Description: descriptions.NetworkIntrospectWeaviateDesc,
+			Description: descriptions.NetworkIntrospectWeaviate,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -88,7 +88,7 @@ func actionsFieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 
 		"className": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectActionsClassName",
-			Description: descriptions.NetworkIntrospectClassNameDesc,
+			Description: descriptions.NetworkIntrospectClassName,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -97,7 +97,7 @@ func actionsFieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 
 		"certainty": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectActionsCertainty",
-			Description: descriptions.NetworkIntrospectCertaintyDesc,
+			Description: descriptions.NetworkIntrospectCertainty,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -110,7 +110,7 @@ func actionsFieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 	fieldsObject := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkIntrospectActionsObj",
 		Fields:      fields,
-		Description: descriptions.NetworkIntrospectActionsObjDesc,
+		Description: descriptions.NetworkIntrospectActionsObj,
 	}
 
 	return graphql.NewObject(fieldsObject)
@@ -120,7 +120,7 @@ func thingsFieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 	fields := graphql.Fields{
 		"weaviate": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectThingsWeaviate",
-			Description: descriptions.NetworkIntrospectWeaviateDesc,
+			Description: descriptions.NetworkIntrospectWeaviate,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -129,7 +129,7 @@ func thingsFieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 
 		"className": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectThingsClassName",
-			Description: descriptions.NetworkIntrospectClassNameDesc,
+			Description: descriptions.NetworkIntrospectClassName,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -138,7 +138,7 @@ func thingsFieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 
 		"certainty": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectThingsCertainty",
-			Description: descriptions.NetworkIntrospectCertaintyDesc,
+			Description: descriptions.NetworkIntrospectCertainty,
 			Type:        graphql.Float,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -151,7 +151,7 @@ func thingsFieldsObj(filterContainer *utils.FilterContainer) *graphql.Object {
 	fieldsObject := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkIntrospectThingsObj",
 		Fields:      fields,
-		Description: descriptions.NetworkIntrospectThingsObjDesc,
+		Description: descriptions.NetworkIntrospectThingsObj,
 	}
 
 	return graphql.NewObject(fieldsObject)
@@ -164,7 +164,7 @@ func beaconFieldsObj() *graphql.Object {
 
 		"weaviate": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectBeaconWeaviate",
-			Description: descriptions.NetworkIntrospectWeaviateDesc,
+			Description: descriptions.NetworkIntrospectWeaviate,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -173,7 +173,7 @@ func beaconFieldsObj() *graphql.Object {
 
 		"className": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectBeaconclassName",
-			Description: descriptions.NetworkIntrospectClassNameDesc,
+			Description: descriptions.NetworkIntrospectClassName,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -182,7 +182,7 @@ func beaconFieldsObj() *graphql.Object {
 
 		"properties": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectBeaconPropertiesObj",
-			Description: descriptions.NetworkIntrospectBeaconPropertiesDesc,
+			Description: descriptions.NetworkIntrospectBeaconProperties,
 			Type:        graphql.NewList(beaconPropertiesObj),
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -193,7 +193,7 @@ func beaconFieldsObj() *graphql.Object {
 	fetchFuzzyFieldsObject := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkIntrospectBeaconObj",
 		Fields:      introspectBeaconFields,
-		Description: descriptions.NetworkIntrospectBeaconObjDesc,
+		Description: descriptions.NetworkIntrospectBeaconObj,
 	}
 
 	return graphql.NewObject(fetchFuzzyFieldsObject)
@@ -204,7 +204,7 @@ func genWeaviateNetworkIntrospectBeaconPropertiesObj() *graphql.Object {
 
 		"propertyName": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospectBeaconPropertiesObjPropertyName",
-			Description: descriptions.NetworkIntrospectBeaconPropertiesPropertyNameDesc,
+			Description: descriptions.NetworkIntrospectBeaconPropertiesPropertyName,
 			Type:        graphql.String,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
@@ -215,7 +215,7 @@ func genWeaviateNetworkIntrospectBeaconPropertiesObj() *graphql.Object {
 	beaconPropertiesObject := graphql.ObjectConfig{
 		Name:        "WeaviateNetworkIntrospectBeaconPropertiesObj",
 		Fields:      beaconPropertiesFields,
-		Description: descriptions.NetworkIntrospectBeaconPropertiesDesc,
+		Description: descriptions.NetworkIntrospectBeaconProperties,
 	}
 
 	return graphql.NewObject(beaconPropertiesObject)
@@ -223,12 +223,12 @@ func genWeaviateNetworkIntrospectBeaconPropertiesObj() *graphql.Object {
 
 func thingsActionsWhereFilterFields(filterContainer *utils.FilterContainer) *graphql.ArgumentConfig {
 	whereFilterFields := &graphql.ArgumentConfig{
-		Description: descriptions.IntrospectWhereFilterFieldsDesc,
+		Description: descriptions.IntrospectWhereFilterFields,
 		Type: graphql.NewNonNull(graphql.NewList(graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        "WeaviateNetworkIntrospectWhereInpObj",
 				Fields:      thingsAndActionsFilterFields(filterContainer),
-				Description: descriptions.IntrospectWhereFilterFieldsInpObjDesc,
+				Description: descriptions.IntrospectWhereFilterFieldsInpObj,
 			},
 		))),
 	}

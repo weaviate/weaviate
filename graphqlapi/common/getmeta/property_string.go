@@ -25,26 +25,26 @@ func stringPropertyFields(class *models.SemanticSchemaClass,
 	getMetaDateFields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sType", prefix, class.Class),
-			Description: descriptions.GetMetaPropertyTypeDesc,
+			Description: descriptions.GetMetaPropertyType,
 			Type:        graphql.String,
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sCount", prefix, class.Class),
-			Description: descriptions.GetMetaPropertyCountDesc,
+			Description: descriptions.GetMetaPropertyCount,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"topOccurrences": &graphql.Field{
 			Name:        fmt.Sprintf("%s%sTopOccurrences", prefix, class.Class),
-			Description: descriptions.GetMetaPropertyTopOccurrencesDesc,
+			Description: descriptions.GetMetaPropertyTopOccurrences,
 			Type:        graphql.NewList(stringTopOccurrences(class, property, prefix)),
 			Args: graphql.FieldConfigArgument{
 				"first": &graphql.ArgumentConfig{
-					Description: descriptions.FirstDesc,
+					Description: descriptions.First,
 					Type:        graphql.Int,
 				},
 				"after": &graphql.ArgumentConfig{
-					Description: descriptions.AfterDesc,
+					Description: descriptions.After,
 					Type:        graphql.Int,
 				},
 			},
@@ -54,7 +54,7 @@ func stringPropertyFields(class *models.SemanticSchemaClass,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaDateFields,
-		Description: descriptions.GetMetaPropertyObjectDesc,
+		Description: descriptions.GetMetaPropertyObject,
 	})
 }
 
@@ -63,12 +63,12 @@ func stringTopOccurrences(class *models.SemanticSchemaClass,
 	getMetaMetaPointingFields := graphql.Fields{
 		"value": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTopOccurrencesValue", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyTopOccurrencesValueDesc,
+			Description: descriptions.GetMetaPropertyTopOccurrencesValue,
 			Type:        graphql.String,
 		},
 		"occurs": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTopOccurrencesOccurs", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyTopOccurrencesOccursDesc,
+			Description: descriptions.GetMetaPropertyTopOccurrencesOccurs,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
@@ -77,7 +77,7 @@ func stringTopOccurrences(class *models.SemanticSchemaClass,
 	getMetaMetaPointing := graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sTopOccurrencesObj", prefix, class.Class, property.Name),
 		Fields:      getMetaMetaPointingFields,
-		Description: descriptions.GetMetaPropertyTopOccurrencesDesc,
+		Description: descriptions.GetMetaPropertyTopOccurrences,
 	}
 
 	return graphql.NewObject(getMetaMetaPointing)

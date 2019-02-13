@@ -14,11 +14,9 @@ package test
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/creativesoftwarefdn/weaviate/test/acceptance/helper"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -44,9 +42,6 @@ func TestNetworkGetMeta(t *testing.T) {
 	`)
 
 	volume := result.Get("Network", "GetMeta", "RemoteWeaviateForAcceptanceTest", "Things", "Instruments", "volume").Result
-	fmt.Print("\n\n\n")
-	spew.Dump(result.Result)
-	fmt.Print("\n\n\n")
 	expected := map[string]interface{}{
 		"mean":    json.Number("82"),
 		"maximum": json.Number("110"),
