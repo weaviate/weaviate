@@ -12,9 +12,10 @@
 package schema
 
 import (
+	"fmt"
+
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	log "github.com/sirupsen/logrus"
 )
 
 // Newtype to denote that this string is used as a Class name
@@ -56,7 +57,6 @@ func (s *Schema) SemanticSchemaFor(k kind.Kind) *models.SemanticSchema {
 	case kind.ACTION_KIND:
 		return s.Actions
 	default:
-		log.Fatalf("No such kind '%s'", k)
-		return nil
+		panic(fmt.Sprintf("No such kind '%s'", k))
 	}
 }

@@ -16,26 +16,26 @@ package descriptions
 import ()
 
 // Local
-const LocalGetActionsDesc string = "Get Actions on a local Weaviate"
-const LocalGetThingsDesc string = "Get Things on a local Weaviate"
+const LocalGetActions string = "Get Actions on a local Weaviate"
+const LocalGetThings string = "Get Things on a local Weaviate"
 
-const LocalGetObjDesc string = "An object used to Get Things or Actions on a local Weaviate"
-const LocalGetDesc string = "Get Things or Actions on a local Weaviate"
+const LocalGetObj string = "An object used to Get Things or Actions on a local Weaviate"
+const LocalGet string = "Get Things or Actions on a local Weaviate"
 
-const LocalGetThingsActionsObjDesc string = "An object used to get %ss on a local Weaviate"
+const LocalGetThingsActionsObj string = "An object used to get %ss on a local Weaviate"
 
-const LocalGetClassUUIDDesc string = "The UUID of a Thing or Action, assigned by its local Weaviate"
+const LocalGetClassUUID string = "The UUID of a Thing or Action, assigned by its local Weaviate"
 
 // Network
-const NetworkGetDesc string = "Get Things or Actions from a Weaviate in a network"
-const NetworkGetObjDesc string = "An object used to Get Things or Actions from a Weaviate in a network"
+const NetworkGet string = "Get Things or Actions from a Weaviate in a network"
+const NetworkGetObj string = "An object used to Get Things or Actions from a Weaviate in a network"
 
-const NetworkGetWeaviateObjDesc string = "An object containing Get Things and Actions fields for network Weaviate instance: "
+const NetworkGetWeaviateObj string = "An object containing Get Things and Actions fields for network Weaviate instance: "
 
-const NetworkGetActionsDesc string = "Get Actions from a Weaviate in a network"
-const NetworkGetThingsDesc string = "Get Things from a Weaviate in a network"
+const NetworkGetActions string = "Get Actions from a Weaviate in a network"
+const NetworkGetThings string = "Get Things from a Weaviate in a network"
 
-const NetworkGetWeaviateActionsObjDesc string = "An object containing the Actions objects on this network Weaviate instance."
-const NetworkGetWeaviateThingsObjDesc string = "An object containing the Things objects on this network Weaviate instance."
+const NetworkGetWeaviateActionsObj string = "An object containing the Actions objects on this network Weaviate instance."
+const NetworkGetWeaviateThingsObj string = "An object containing the Things objects on this network Weaviate instance."
 
-const NetworkGetClassUUIDDesc string = "The UUID of a Thing or Action, assigned by the Weaviate network" // TODO check this with @lauraham
+const NetworkGetClassUUID string = "The UUID of a Thing or Action, assigned by the Weaviate network" // TODO check this with @lauraham

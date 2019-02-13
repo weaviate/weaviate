@@ -47,6 +47,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/messages"
@@ -446,5 +447,10 @@ func (f *Foobar) LocalGetMeta(info *getmeta.Params) (interface{}, error) {
 //		},
 //	}
 func (f *Foobar) LocalAggregate(info *aggregate.Params) (interface{}, error) {
+	return nil, nil
+}
+
+// LocalFetchKindClass TODO: Add proper docs
+func (f *Foobar) LocalFetchKindClass(info *fetch.Params) (interface{}, error) {
 	return nil, nil
 }

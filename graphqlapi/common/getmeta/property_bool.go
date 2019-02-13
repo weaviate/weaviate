@@ -26,36 +26,36 @@ func booleanPropertyFields(class *models.SemanticSchemaClass,
 	getMetaBooleanFields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyTypeDesc,
+			Description: descriptions.GetMetaPropertyType,
 			Type:        graphql.String,
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyCountDesc,
+			Description: descriptions.GetMetaPropertyCount,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"totalTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTotalTrue", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaClassPropertyTotalTrueDesc,
+			Description: descriptions.GetMetaClassPropertyTotalTrue,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"percentageTrue": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sPercentageTrue", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaClassPropertyPercentageTrueDesc,
+			Description: descriptions.GetMetaClassPropertyPercentageTrue,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"totalFalse": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sTotalFalse", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaClassPropertyTotalFalseDesc,
+			Description: descriptions.GetMetaClassPropertyTotalFalse,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"percentageFalse": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sPercentageFalse", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaClassPropertyPercentageFalseDesc,
+			Description: descriptions.GetMetaClassPropertyPercentageFalse,
 			Type:        graphql.Float,
 			Resolve:     common.JSONNumberResolver,
 		},
@@ -64,6 +64,6 @@ func booleanPropertyFields(class *models.SemanticSchemaClass,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      getMetaBooleanFields,
-		Description: descriptions.GetMetaPropertyObjectDesc,
+		Description: descriptions.GetMetaPropertyObject,
 	})
 }

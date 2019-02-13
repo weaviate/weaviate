@@ -7,6 +7,13 @@
     "classes": [
         {
             "class": "City",
+            "keywords": [{
+              "keyword": "town",
+              "weight": 0.8
+            }, {
+              "keyword": "urban",
+              "weight": 0.9
+            }],
             "description": "A city, place or town",
             "properties": [
                 {

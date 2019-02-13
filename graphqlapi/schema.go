@@ -62,9 +62,11 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 	if err != nil {
 		panic(err)
 	}
+	defer resolver.Close()
 
 	networkResolver := g.resolverProvider.GetNetworkResolver()
-	defer resolver.Close()
+
+	contextionary := g.resolverProvider.GetContextionary()
 
 	return graphql.Do(graphql.Params{
 		Schema: g.schema,
@@ -72,6 +74,7 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 			"Resolver":        resolver,
 			"NetworkResolver": networkResolver,
 			"NetworkPeers":    g.networkPeers,
+			"Contextionary":   contextionary,
 		},
 		RequestString:  query,
 		OperationName:  operationName,

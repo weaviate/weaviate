@@ -14,62 +14,62 @@
 package descriptions
 
 // AGGREGATE
-const AggregatePropertyDesc string = "Aggregate this property"
-const LocalAggregateThingsDesc string = "Aggregate Things on a local Weaviate"
-const LocalAggregateActionsDesc string = "Aggregate Things on a local Weaviate"
+const AggregateProperty string = "Aggregate this property"
+const LocalAggregateThings string = "Aggregate Things on a local Weaviate"
+const LocalAggregateActions string = "Aggregate Things on a local Weaviate"
 
-const GroupByDesc string = "Specify which properties to group by"
+const GroupBy string = "Specify which properties to group by"
 
-const LocalAggregateObjDesc string = "An object allowing Aggregation of Things and Actions"
-const LocalAggregatePropertyObjectDesc string = "An object containing Aggregation information about this property"
+const LocalAggregateObj string = "An object allowing Aggregation of Things and Actions"
+const LocalAggregatePropertyObject string = "An object containing Aggregation information about this property"
 
-const LocalAggregateThingsActionsObjDesc string = "An object allowing Aggregation of %ss on a local Weaviate"
+const LocalAggregateThingsActionsObj string = "An object allowing Aggregation of %ss on a local Weaviate"
 
-const LocalAggregateMeanDesc string = "Aggregate on the mean of numeric property values"
-const LocalAggregateSumDesc string = "Aggregate on the sum of numeric property values"
-const LocalAggregateMedianDesc string = "Aggregate on the median of numeric property values"
-const LocalAggregateModeDesc string = "Aggregate on the mode of numeric property values"
-const LocalAggregateMinDesc string = "Aggregate on the minimum of numeric property values"
-const LocalAggregateMaxDesc string = "Aggregate on the maximum of numeric property values"
-const LocalAggregateCountDesc string = "Aggregate on the total amount of found property values"
-const LocalAggregateGroupedByDesc string = "Indicates the group of returned data"
+const LocalAggregateMean string = "Aggregate on the mean of numeric property values"
+const LocalAggregateSum string = "Aggregate on the sum of numeric property values"
+const LocalAggregateMedian string = "Aggregate on the median of numeric property values"
+const LocalAggregateMode string = "Aggregate on the mode of numeric property values"
+const LocalAggregateMin string = "Aggregate on the minimum of numeric property values"
+const LocalAggregateMax string = "Aggregate on the maximum of numeric property values"
+const LocalAggregateCount string = "Aggregate on the total amount of found property values"
+const LocalAggregateGroupedBy string = "Indicates the group of returned data"
 
 const LocalAggregateNumericObj string = "An object containing the %s of numeric properties"
 
 const LocalAggregateCountObj string = "An object containing countable properties"
 
-const LocalAggregateGroupedByObjDesc string = "An object containing the path and value of the grouped property"
+const LocalAggregateGroupedByObj string = "An object containing the path and value of the grouped property"
 
-const LocalAggregateGroupedByGroupedByPathDesc string = "The path of the grouped property"
-const LocalAggregateGroupedByGroupedByValueDesc string = "The value of the grouped property"
+const LocalAggregateGroupedByGroupedByPath string = "The path of the grouped property"
+const LocalAggregateGroupedByGroupedByValue string = "The value of the grouped property"
 
 // NETWORK
-const NetworkAggregateWeaviateObjDesc string = "An object containing Get Things and Actions fields for network Weaviate instance: "
+const NetworkAggregateWeaviateObj string = "An object containing Get Things and Actions fields for network Weaviate instance: "
 
-const NetworkAggregateDesc string = "Perform Aggregation of Things and Actions"
+const NetworkAggregate string = "Perform Aggregation of Things and Actions"
 
-const NetworkAggregateThingsDesc string = "Aggregate Things on a network Weaviate"
-const NetworkAggregateActionsDesc string = "Aggregate Things on a network Weaviate"
+const NetworkAggregateThings string = "Aggregate Things on a network Weaviate"
+const NetworkAggregateActions string = "Aggregate Things on a network Weaviate"
 
-const NetworkAggregateObjDesc string = "An object allowing Aggregation of Things and Actions"
-const NetworkAggregatePropertyObjectDesc string = "An object containing Aggregation information about this property"
+const NetworkAggregateObj string = "An object allowing Aggregation of Things and Actions"
+const NetworkAggregatePropertyObject string = "An object containing Aggregation information about this property"
 
-const NetworkAggregateThingsActionsObjDesc string = "An object allowing Aggregation of %ss on a network Weaviate"
+const NetworkAggregateThingsActionsObj string = "An object allowing Aggregation of %ss on a network Weaviate"
 
-const NetworkAggregateMeanDesc string = "Aggregate on the mean of numeric property values"
-const NetworkAggregateSumDesc string = "Aggregate on the sum of numeric property values"
-const NetworkAggregateMedianDesc string = "Aggregate on the median of numeric property values"
-const NetworkAggregateModeDesc string = "Aggregate on the mode of numeric property values"
-const NetworkAggregateMinDesc string = "Aggregate on the minimum of numeric property values"
-const NetworkAggregateMaxDesc string = "Aggregate on the maximum of numeric property values"
-const NetworkAggregateCountDesc string = "Aggregate on the total amount of found property values"
-const NetworkAggregateGroupedByDesc string = "Indicates the group of returned data"
+const NetworkAggregateMean string = "Aggregate on the mean of numeric property values"
+const NetworkAggregateSum string = "Aggregate on the sum of numeric property values"
+const NetworkAggregateMedian string = "Aggregate on the median of numeric property values"
+const NetworkAggregateMode string = "Aggregate on the mode of numeric property values"
+const NetworkAggregateMin string = "Aggregate on the minimum of numeric property values"
+const NetworkAggregateMax string = "Aggregate on the maximum of numeric property values"
+const NetworkAggregateCount string = "Aggregate on the total amount of found property values"
+const NetworkAggregateGroupedBy string = "Indicates the group of returned data"
 
 const NetworkAggregateNumericObj string = "An object containing the %s of numeric properties"
 
 const NetworkAggregateCountObj string = "An object containing countable properties"
 
-const NetworkAggregateGroupedByObjDesc string = "An object containing the path and value of the grouped property"
+const NetworkAggregateGroupedByObj string = "An object containing the path and value of the grouped property"
 
-const NetworkAggregateGroupedByGroupedByPathDesc string = "The path of the grouped property"
-const NetworkAggregateGroupedByGroupedByValueDesc string = "The value of the grouped property"
+const NetworkAggregateGroupedByGroupedByPath string = "The path of the grouped property"
+const NetworkAggregateGroupedByGroupedByValue string = "The value of the grouped property"

@@ -77,10 +77,10 @@ func Build(peers peers.Peers) (*graphql.Field, error) {
 
 	networkField := &graphql.Field{
 		Type:        object,
-		Description: descriptions.WeaviateNetworkDesc,
+		Description: descriptions.WeaviateNetwork,
 		Args: graphql.FieldConfigArgument{
 			"networkTimeout": &graphql.ArgumentConfig{
-				Description: descriptions.NetworkTimeoutDesc,
+				Description: descriptions.NetworkTimeout,
 				Type:        graphql.Int,
 			},
 		},
@@ -97,23 +97,23 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 	networkGetAndGetMetaFields := graphql.Fields{
 
 		"Get": &graphql.Field{
-			Name:        descriptions.NetworkGetDesc,
+			Name:        descriptions.NetworkGet,
 			Type:        graphQLNetworkFieldContents.NetworkGetObject,
-			Description: descriptions.NetworkGetDesc,
+			Description: descriptions.NetworkGet,
 			Resolve:     passThroughGetFiltersAndResolvers,
 		},
 
 		"GetMeta": &graphql.Field{
 			Name:        "WeaviateNetworkGetMeta",
 			Type:        graphQLNetworkFieldContents.NetworkGetMetaObject,
-			Description: descriptions.NetworkGetMetaDesc,
+			Description: descriptions.NetworkGetMeta,
 			Resolve:     passThroughGetMetaResolvers,
 		},
 
 		"Fetch": &graphql.Field{
 			Name:        "WeaviateNetworkFetch",
 			Type:        graphQLNetworkFieldContents.NetworkFetchObject,
-			Description: descriptions.NetworkFetchDesc,
+			Description: descriptions.NetworkFetch,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
 			},
@@ -122,7 +122,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 		"Introspect": &graphql.Field{
 			Name:        "WeaviateNetworkIntrospection",
 			Type:        graphQLNetworkFieldContents.NetworkIntrospectObject,
-			Description: descriptions.NetworkIntrospectDesc,
+			Description: descriptions.NetworkIntrospect,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
 			},
@@ -130,7 +130,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 		"Aggregate": &graphql.Field{
 			Name:        "WeaviateNetworkAggregate",
 			Type:        graphQLNetworkFieldContents.NetworkAggregateObject,
-			Description: descriptions.NetworkAggregateDesc,
+			Description: descriptions.NetworkAggregate,
 			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 				return nil, fmt.Errorf("not supported")
 			},
@@ -140,7 +140,7 @@ func genNetworkFields(graphQLNetworkFieldContents *utils.GraphQLNetworkFieldCont
 	weaviateNetworkObject := &graphql.ObjectConfig{
 		Name:        "WeaviateNetworkObj",
 		Fields:      networkGetAndGetMetaFields,
-		Description: descriptions.NetworkObjDesc,
+		Description: descriptions.NetworkObj,
 	}
 
 	return graphql.NewObject(*weaviateNetworkObject)
@@ -181,17 +181,17 @@ func buildSchemaDependentObjects(peers peers.Peers) (*schemaDependentObjects, er
 	get := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateNetworkGetObj",
 		Fields:      getPeers,
-		Description: descriptions.NetworkGetObjDesc,
+		Description: descriptions.NetworkGetObj,
 	})
 	getMeta := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateNetworkGetMetaObj",
 		Fields:      metaGetPeers,
-		Description: descriptions.NetworkGetMetaObjDesc,
+		Description: descriptions.NetworkGetMetaObj,
 	})
 	aggregate := graphql.NewObject(graphql.ObjectConfig{
 		Name:        "WeaviateNetworkAggregateObj",
 		Fields:      aggregatePeers,
-		Description: descriptions.NetworkAggregateObjDesc,
+		Description: descriptions.NetworkAggregateObj,
 	})
 
 	return &schemaDependentObjects{
