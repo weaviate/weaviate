@@ -40,7 +40,7 @@ func classFields(databaseSchema []*models.SemanticSchemaClass, k kind.Kind, peer
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("WeaviateNetworkAggregate%s%ssObj", peerName, k.TitleizedName()),
 		Fields:      fields,
-		Description: descriptions.NetworkAggregateThingsActionsObjDesc,
+		Description: descriptions.NetworkAggregateThingsActionsObj,
 	}), nil
 }
 
@@ -75,27 +75,27 @@ func classField(peerName string, k kind.Kind, class *models.SemanticSchemaClass,
 		Description: description,
 		Args: graphql.FieldConfigArgument{
 			"first": &graphql.ArgumentConfig{
-				Description: descriptions.FirstDesc,
+				Description: descriptions.First,
 				Type:        graphql.Int,
 			},
 			"after": &graphql.ArgumentConfig{
-				Description: descriptions.AfterDesc,
+				Description: descriptions.After,
 				Type:        graphql.Int,
 			},
 			"where": &graphql.ArgumentConfig{
-				Description: descriptions.LocalGetWhereDesc,
+				Description: descriptions.LocalGetWhere,
 				Type: graphql.NewInputObject(
 					graphql.InputObjectConfig{
 						Name: fmt.Sprintf("WeaviateNetworkAggregate%s%ss%sWhereInpObj",
 							peerName, k.TitleizedName(), class.Class),
 						Fields: common_filters.BuildNew(fmt.Sprintf("WeaviateNetworkAggregate%s%ss%s",
 							peerName, k.TitleizedName(), class.Class)),
-						Description: descriptions.LocalGetWhereInpObjDesc,
+						Description: descriptions.LocalGetWhereInpObj,
 					},
 				),
 			},
 			"groupBy": &graphql.ArgumentConfig{
-				Description: descriptions.GroupByDesc,
+				Description: descriptions.GroupBy,
 				Type:        graphql.NewNonNull(graphql.NewList(graphql.String)),
 			},
 		},
@@ -129,7 +129,7 @@ func classPropertyFields(peerName string, class *models.SemanticSchemaClass) (gr
 
 	// Always append Grouped By field
 	fields["groupedBy"] = &graphql.Field{
-		Description: descriptions.NetworkAggregateGroupedByDesc,
+		Description: descriptions.NetworkAggregateGroupedBy,
 		Type:        groupedByProperty(class, peerName),
 	}
 
@@ -164,7 +164,7 @@ func makePropertyField(peerName string, class *models.SemanticSchemaClass, prope
 	fieldMaker propertyFieldMaker) (*graphql.Field, error) {
 	prefix := fmt.Sprintf("%sAggregate", peerName)
 	return &graphql.Field{
-		Description: fmt.Sprintf(`%s"%s"`, descriptions.AggregatePropertyDesc, property.Name),
+		Description: fmt.Sprintf(`%s"%s"`, descriptions.AggregateProperty, property.Name),
 		Type:        fieldMaker(class, property, prefix),
 	}, nil
 }

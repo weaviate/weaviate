@@ -14,6 +14,7 @@ package local
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/aggregate"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	get "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	getmeta "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 )
@@ -23,4 +24,5 @@ type Resolver interface {
 	get.Resolver
 	getmeta.Resolver
 	aggregate.Resolver
+	fetch.Resolver
 }

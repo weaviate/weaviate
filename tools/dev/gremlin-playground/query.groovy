@@ -1,1 +1,5 @@
-g.V().has("kind", "thing").has("uuid", "a079a15b-fa12-49d5-b4e8-5d82ec9449e3").as("class").V().has("uuid", "a079a15b-fa12-49d5-b4e8-5d82ec9449e3").optional(outE().has("refId").as("ref")).choose(select("ref"), select("class", "ref"), identity().project("class").by(select("class")))
+g.V().has("kind", "thing").or(
+    has("classId", "class_3").has("prop_15", eq("Amsterdam")),
+    has("classId", "class_4").has("prop_16", eq("Amsterdam")),
+    has("classId", "class_5").has("prop_17", eq("Amsterdam")),
+  ).valueMap("uuid", "prop_15", "classId")

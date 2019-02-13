@@ -47,8 +47,8 @@ env:
   - secure: ai7VYZ3hGQnSuo1cHvmq5ilmSdyXxF16ChUHzz3Rgr2JGanYP9s2qjXcsilz9kQDXWERglSF1BJ46tGsnGeIyInC9aw35cTNnnBkBlem1GwuEMW2NZXm1Jaa6ci6p0saMsLFF84s+IuABHajHLkEUhdcE5J+9SPZcJLi5OTJQEf12iGV34W55cgUHaJ2+pz1alfGrw+lnzfYUtJ2pjNBNWfPzldNuDpog2D1MR2H1S15r02dArN8e8MY6nooXqXoay46W0Vtsu7l05yKdd4sul1BqQRh8OYoFslT9C8wnzgPIClHhEPXz0YmU9g1K3BemGMaqFnM8LUGi5x1S4UTPHUCA78SF/elv+KSdSEKFzQpqsHGk/6u1KmVYhoMKZWYIu81zi6penXIHVXcBQtdgxUpRdsn0hvLtHCuZlEMggQ6OjvCsQNjTFF+doAeKxAv4u61mNPfG4U0OBiz5kZUcI37qmQcrhDby3Rq3Egx7/QNQQEiYZRfBva71/s2n2Dz49mP4VwbsctaFZJMp7mVyYmxO2TcYIeUkoPQHR6Yf71QZlY3TTs3PCckNBbiniSmF/ez2Ny0YRRdybNeC15g/NI3KjRl9IYWQTM7pe1GipEG4MeD1UdN0eTZJRXhPhXAG3cy2wZDI9vQiXXoOfRk28fLV+oRy8bjBR6j9JEc0iw=
 language: go
 install:  
-  - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
-  - chmod +x ./cc-test-reporter
+  # - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+  # - chmod +x ./cc-test-reporter
   - wget https://raw.githubusercontent.com/creativesoftwarefdn/semver-tool/master/src/semver
   - chmod +x semver
 before_script:
@@ -83,9 +83,9 @@ script:
   # Verify dev setup is not broken
   #- ./tools/test/import_journey.sh || travis_terminate 1
   # Run all tests
-  - ./cc-test-reporter before-build
+  # - ./cc-test-reporter before-build
   - ./test/acceptance/run.sh || travis_terminate 1
-  - ./cc-test-reporter after-build
+  # - ./cc-test-reporter after-build
 services: 
   - docker
 sudo: required

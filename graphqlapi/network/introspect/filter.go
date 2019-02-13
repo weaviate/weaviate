@@ -26,20 +26,20 @@ func GenWeaviateNetworkIntrospectPropertiesObjField() *graphql.Field {
 			Fields: graphql.Fields{
 				"propertyName": &graphql.Field{
 					Type:        graphql.String,
-					Description: descriptions.WherePropertiesPropertyNameDesc,
+					Description: descriptions.WherePropertiesPropertyName,
 				},
 				"certainty": &graphql.Field{
 					Type:        graphql.Float,
-					Description: descriptions.WhereCertaintyDesc,
+					Description: descriptions.WhereCertainty,
 				},
 			},
-			Description: descriptions.WherePropertiesObjDesc,
+			Description: descriptions.WherePropertiesObj,
 		},
 	)
 
 	weaviateNetworkIntrospectPropertiesObjField := &graphql.Field{
 		Name:        "WeaviateNetworkIntrospectPropertiesObj",
-		Description: descriptions.WherePropertiesObjDesc,
+		Description: descriptions.WherePropertiesObj,
 		Type:        graphql.NewList(weaviateNetworkIntrospectPropertiesObject),
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
 			return nil, fmt.Errorf("not supported")
@@ -56,11 +56,11 @@ func thingsAndActionsFilterFields(filterContainer *utils.FilterContainer) graphq
 	fields := graphql.InputObjectConfigFieldMap{
 		"class": &graphql.InputObjectFieldConfig{
 			Type:        graphql.NewList(whereClassObj),
-			Description: descriptions.WhereClassDesc,
+			Description: descriptions.WhereClass,
 		},
 		"properties": &graphql.InputObjectFieldConfig{
 			Type:        graphql.NewList(wherePropertiesObj),
-			Description: descriptions.WherePropertiesDesc,
+			Description: descriptions.WhereProperties,
 		},
 	}
 
@@ -71,19 +71,19 @@ func wherePropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputOb
 	filterPropertiesElements := graphql.InputObjectConfigFieldMap{
 		"first": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Int,
-			Description: descriptions.FirstDesc,
+			Description: descriptions.First,
 		},
 		"certainty": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Float,
-			Description: descriptions.WhereCertaintyDesc,
+			Description: descriptions.WhereCertainty,
 		},
 		"name": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
-			Description: descriptions.WhereNameDesc,
+			Description: descriptions.WhereName,
 		},
 		"keywords": &graphql.InputObjectFieldConfig{
 			Type:        graphql.NewList(filterContainer.WeaviateNetworkWhereKeywordsInpObj),
-			Description: descriptions.WhereKeywordsDesc,
+			Description: descriptions.WhereKeywords,
 		},
 	}
 
@@ -91,7 +91,7 @@ func wherePropertiesObj(filterContainer *utils.FilterContainer) *graphql.InputOb
 		graphql.InputObjectConfig{
 			Name:        "WeaviateNetworkIntrospectWherePropertiesInpObj",
 			Fields:      filterPropertiesElements,
-			Description: descriptions.WherePropertiesObjDesc,
+			Description: descriptions.WherePropertiesObj,
 		},
 	)
 
@@ -102,19 +102,19 @@ func whereClassObj(filterContainer *utils.FilterContainer) *graphql.InputObject 
 	filterClassElements := graphql.InputObjectConfigFieldMap{
 		"name": &graphql.InputObjectFieldConfig{
 			Type:        graphql.String,
-			Description: descriptions.WhereNameDesc,
+			Description: descriptions.WhereName,
 		},
 		"certainty": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Float,
-			Description: descriptions.WhereCertaintyDesc,
+			Description: descriptions.WhereCertainty,
 		},
 		"keywords": &graphql.InputObjectFieldConfig{
 			Type:        graphql.NewList(filterContainer.WeaviateNetworkWhereKeywordsInpObj),
-			Description: descriptions.WhereKeywordsDesc,
+			Description: descriptions.WhereKeywords,
 		},
 		"first": &graphql.InputObjectFieldConfig{
 			Type:        graphql.Int,
-			Description: descriptions.FirstDesc,
+			Description: descriptions.First,
 		},
 	}
 
@@ -122,7 +122,7 @@ func whereClassObj(filterContainer *utils.FilterContainer) *graphql.InputObject 
 		graphql.InputObjectConfig{
 			Name:        "WeaviateNetworkIntrospectWhereClassInpObj",
 			Fields:      filterClassElements,
-			Description: descriptions.WherePropertiesObjDesc,
+			Description: descriptions.WherePropertiesObj,
 		},
 	)
 	return classObj

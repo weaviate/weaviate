@@ -25,18 +25,18 @@ func refPropertyObj(class *models.SemanticSchemaClass,
 	fields := graphql.Fields{
 		"type": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sType", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyTypeDesc,
+			Description: descriptions.GetMetaPropertyType,
 			Type:        graphql.String,
 		},
 		"count": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sCount", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaPropertyCountDesc,
+			Description: descriptions.GetMetaPropertyCount,
 			Type:        graphql.Int,
 			Resolve:     common.JSONNumberResolver,
 		},
 		"pointingTo": &graphql.Field{
 			Name:        fmt.Sprintf("%s%s%sPointingTo", prefix, class.Class, property.Name),
-			Description: descriptions.GetMetaClassPropertyPointingToDesc,
+			Description: descriptions.GetMetaClassPropertyPointingTo,
 			Type:        graphql.NewList(graphql.String),
 		},
 	}
@@ -44,6 +44,6 @@ func refPropertyObj(class *models.SemanticSchemaClass,
 	return graphql.NewObject(graphql.ObjectConfig{
 		Name:        fmt.Sprintf("%s%s%sObj", prefix, class.Class, property.Name),
 		Fields:      fields,
-		Description: descriptions.GetMetaPropertyObjectDesc,
+		Description: descriptions.GetMetaPropertyObject,
 	})
 }

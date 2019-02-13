@@ -31,6 +31,10 @@ func (k *Kind) TitleizedName() string {
 	return strings.Title(k.Name())
 }
 
+func (k *Kind) AllCapsName() string {
+	return strings.ToUpper(k.Name())
+}
+
 func KindByName(name string) Kind {
 	switch name {
 	case "thing":

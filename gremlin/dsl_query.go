@@ -202,7 +202,7 @@ func (q *Query) HasLabel(label string) *Query {
 }
 
 func (q *Query) HasString(key string, value string) *Query {
-	return extend_query(q, `.has("%s", "%s")`, EscapeString(key), EscapeString(value))
+	return smartExtendQuery(q, `has("%s", "%s")`, EscapeString(key), EscapeString(value))
 }
 
 func (q *Query) HasBool(key string, value bool) *Query {

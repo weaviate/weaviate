@@ -13,24 +13,40 @@
 // Package descriptions provides the descriptions as used by the graphql endpoint for Weaviate
 package descriptions
 
-import ()
+// Local
+const LocalFetch string = "Fetch Beacons that are similar to a specified concept from the Things and/or Actions subsets on a Weaviate network"
+const LocalFetchObj string = "An object used to perform a Fuzzy Fetch to search for Things and Actions similar to a specified concept on a Weaviate network"
+
+const LocalFetchActions string = "Perform a Fuzzy Fetch to Fetch Beacons similar to a specified concept on a Weaviate network from the Actions subset"
+const LocalFetchThings string = "Perform a Fuzzy Fetch to Fetch Beacons similar to a specified concept on a Weaviate network from the Things subset"
+const LocalFetchFuzzy string = "Perform a Fuzzy Fetch to Fetch Beacons similar to a specified concept on a Weaviate network from both the Things and Actions subsets"
+
+const LocalFetchBeacon string = "A Beacon result from a network Weaviate Fetch query on the Actions subset"
+const LocalFetchCertainty string = "The degree of similarity on a scale of 0-1 between the Beacon's characteristics and the provided concept"
+const LocalFetchActionsObj string = "An object used to Fetch Beacons from the Actions subset of the dataset"
+
+const LocalFetchThingsObj string = "An object used to Fetch Beacons from the Things subset of the dataset"
+
+const LocalFetchFuzzyBeacon string = "A Beacon result from a network Weaviate Fetch Fuzzy query from both the Things and Actions subsets"
+const LocalFetchFuzzyCertainty string = "The degree of similarity on a scale of 0-1 between the Beacon's characteristics and the provided concept"
+const LocalFetchFuzzyObj string = "An object used to Fetch Beacons from both the Things and Actions subsets"
 
 // NETWORK
-const NetworkFetchDesc string = "Fetch Beacons that are similar to a specified concept from the Things and/or Actions subsets on a Weaviate network"
-const NetworkFetchObjDesc string = "An object used to perform a Fuzzy Fetch to search for Things and Actions similar to a specified concept on a Weaviate network"
+const NetworkFetch string = "Fetch Beacons that are similar to a specified concept from the Things and/or Actions subsets on a Weaviate network"
+const NetworkFetchObj string = "An object used to perform a Fuzzy Fetch to search for Things and Actions similar to a specified concept on a Weaviate network"
 
-const NetworkFetchActionsDesc string = "Perform a Fuzzy Fetch to Fetch Beacons similar to a specified concept on a Weaviate network from the Actions subset"
-const NetworkFetchThingsDesc string = "Perform a Fuzzy Fetch to Fetch Beacons similar to a specified concept on a Weaviate network from the Things subset"
-const NetworkFetchFuzzyDesc string = "Perform a Fuzzy Fetch to Fetch Beacons similar to a specified concept on a Weaviate network from both the Things and Actions subsets"
+const NetworkFetchActions string = "Perform a Fuzzy Fetch to Fetch Beacons similar to a specified concept on a Weaviate network from the Actions subset"
+const NetworkFetchThings string = "Perform a Fuzzy Fetch to Fetch Beacons similar to a specified concept on a Weaviate network from the Things subset"
+const NetworkFetchFuzzy string = "Perform a Fuzzy Fetch to Fetch Beacons similar to a specified concept on a Weaviate network from both the Things and Actions subsets"
 
-const NetworkFetchActionBeaconDesc string = "A Beacon result from a network Weaviate Fetch query on the Actions subset"
-const NetworkFetchActionCertaintyDesc string = "The degree of similarity on a scale of 0-1 between the Beacon's characteristics and the provided concept"
-const NetworkFetchActionsObjDesc string = "An object used to Fetch Beacons from the Actions subset of the dataset"
+const NetworkFetchActionBeacon string = "A Beacon result from a network Weaviate Fetch query on the Actions subset"
+const NetworkFetchActionCertainty string = "The degree of similarity on a scale of 0-1 between the Beacon's characteristics and the provided concept"
+const NetworkFetchActionsObj string = "An object used to Fetch Beacons from the Actions subset of the dataset"
 
-const NetworkFetchThingBeaconDesc string = "A Beacon result from a network Weaviate Fetch query on the Things subset"
-const NetworkFetchThingCertaintyDesc string = "The degree of similarity on a scale of 0-1 between the Beacon's characteristics and the provided concept"
-const NetworkFetchThingsObjDesc string = "An object used to Fetch Beacons from the Things subset of the dataset"
+const NetworkFetchThingBeacon string = "A Beacon result from a network Weaviate Fetch query on the Things subset"
+const NetworkFetchThingCertainty string = "The degree of similarity on a scale of 0-1 between the Beacon's characteristics and the provided concept"
+const NetworkFetchThingsObj string = "An object used to Fetch Beacons from the Things subset of the dataset"
 
-const NetworkFetchFuzzyBeaconDesc string = "A Beacon result from a network Weaviate Fetch Fuzzy query from both the Things and Actions subsets"
-const NetworkFetchFuzzyCertaintyDesc string = "The degree of similarity on a scale of 0-1 between the Beacon's characteristics and the provided concept"
-const NetworkFetchFuzzyObjDesc string = "An object used to Fetch Beacons from both the Things and Actions subsets"
+const NetworkFetchFuzzyBeacon string = "A Beacon result from a network Weaviate Fetch Fuzzy query from both the Things and Actions subsets"
+const NetworkFetchFuzzyCertainty string = "The degree of similarity on a scale of 0-1 between the Beacon's characteristics and the provided concept"
+const NetworkFetchFuzzyObj string = "An object used to Fetch Beacons from both the Things and Actions subsets"
