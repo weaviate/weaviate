@@ -21,6 +21,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/gremlin/gremlin_schema_query"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/davecgh/go-spew/spew"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -66,9 +67,8 @@ func (j *Janusgraph) ensureBasicSchema(ctx context.Context) error {
 		query.Commit()
 
 		_, err := j.client.Execute(query)
-
 		if err != nil {
-			return fmt.Errorf("Could not initialize the basic Janus schema.")
+			return fmt.Errorf("could not initialize the basic Janus schema: %s", spew.Sdump(err))
 		}
 
 		// TODO gh-613: await answer from janus consultants; it's not avaible in our janus setup.
