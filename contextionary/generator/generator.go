@@ -17,12 +17,14 @@ import (
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
-	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
-	"github.com/syndtr/goleveldb/leveldb"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
+
+	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
+	"github.com/syndtr/goleveldb/leveldb"
 )
 
 type Options struct {
@@ -58,7 +60,7 @@ func Generate(options Options) {
 	defer file.Close()
 
 	log.Print("Processing and ordering raw trained data")
-	info := readVectorsFromFileAndInsertIntoLevelDB(db, file)
+	info := readVectorsFromFileAndInsertIntoLevelDB(db, file, options.OutputPrefix+".vocab")
 
 	info.k = options.K
 	info.metadata = JsonMetadata{options.K}
@@ -74,11 +76,19 @@ func Generate(options Options) {
 }
 
 // read word vectors, insert them into level db, also return the dimension of the vectors.
-func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) WordVectorInfo {
+func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File, words_file string) WordVectorInfo {
 	var vector_length int = -1
 	var nr_words int = 0
+	var add_words int64 = 0
+	var skipped_words int64 = 0
 
 	scanner := bufio.NewScanner(file)
+
+	// open the words file
+	f, err := os.OpenFile(words_file, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0777)
+	if err != nil {
+		panic(err)
+	}
 
 	for scanner.Scan() {
 		nr_words += 1
@@ -92,6 +102,19 @@ func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) Word
 		if vector_length != len(parts)-1 {
 			log.Print("Line corruption found for the word [" + word + "]. Lenght expected " + strconv.Itoa(vector_length) + " but found " + strconv.Itoa(len(parts)) + ". Word will be skipped.")
 			continue
+		}
+
+		// validate if the word should be used
+		var validRegex = regexp.MustCompile(`^[A-Za-z][\ A-Za-z0-9]*$`)
+		if validRegex.MatchString(word) == false {
+			skipped_words++
+			continue
+		} else {
+			// add word to the available word file
+			if _, err = f.WriteString(word + "\n"); err != nil {
+				log.Fatal("can't write to word file")
+			}
+			add_words++
 		}
 
 		// pre-allocate a vector for speed.
@@ -114,6 +137,11 @@ func readVectorsFromFileAndInsertIntoLevelDB(db *leveldb.DB, file *os.File) Word
 
 		db.Put([]byte(word), buf.Bytes(), nil)
 	}
+
+	log.Print("Added: ", strconv.FormatInt(add_words, 10), " skipped: ", strconv.FormatInt(skipped_words, 10))
+
+	// close words file
+	f.Close()
 
 	return WordVectorInfo{numberOfWords: nr_words, vectorWidth: vector_length}
 }
