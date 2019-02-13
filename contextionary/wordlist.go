@@ -91,6 +91,7 @@ func (w *Wordlist) FindIndexByWord(_needle string) ItemIndex {
 
 	for low <= high {
 		var midpoint ItemIndex = (low + high) / 2
+
 		word_ptr := w.getWordPtr(midpoint)[0:len(bytes_needle)]
 
 		var cmp = bytes.Compare(bytes_needle, word_ptr)

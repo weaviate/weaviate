@@ -13,11 +13,7 @@ package contextionary
 
 import (
 	"fmt"
-	"io/ioutil"
-	"os"
 	"testing"
-
-	"github.com/creativesoftwarefdn/weaviate/contextionary/generator"
 )
 
 // Test data
@@ -31,51 +27,6 @@ var vectorTests = []struct {
 	{"computer", []float32{0, 0, 1}},
 	{"fruit", []float32{0.8, 0, 0}},
 	{"company", []float32{0, 0, 2}},
-}
-
-func TestMMappedIndex(t *testing.T) {
-	tempdir, err := ioutil.TempDir("", "weaviate-vector-test")
-
-	if err != nil {
-		t.Errorf("Could not create temporary directory, %v", err)
-	}
-
-	defer os.RemoveAll(tempdir)
-
-	// First generate the csv input fileformat based on the test data.
-	var dataset = ""
-
-	for i := 0; i < len(vectorTests); i++ {
-		vt := vectorTests[i]
-		dataset += vt.word + " "
-		for j := 0; j < len(vt.vec)-1; j++ {
-			dataset += fmt.Sprintf("%f ", vt.vec[j])
-		}
-		dataset += fmt.Sprintf("%f\n", vt.vec[len(vt.vec)-1])
-	}
-
-	err = ioutil.WriteFile(tempdir+"/glove.txt", []byte(dataset), 0644)
-	if err != nil {
-		t.Errorf("Could not create input file: %v", err)
-	}
-
-	t.Run("Generating index", func(t *testing.T) {
-		// Now build an index based on this
-		var gen_opts generator.Options
-		gen_opts.VectorCSVPath = tempdir + "/glove.txt"
-		gen_opts.TempDBPath = tempdir + "/tempdb"
-		gen_opts.OutputPrefix = tempdir + "/glove"
-		gen_opts.K = 3
-		generator.Generate(gen_opts)
-	})
-
-	// And load the index.
-	vi, err := LoadVectorFromDisk(tempdir+"/glove.knn", tempdir+"/glove.idx")
-	if err != nil {
-		t.Errorf("Could not load vectors from disk: %v", err)
-	}
-
-	shared_tests(t, vi)
 }
 
 func TestInMemoryIndex(t *testing.T) {
