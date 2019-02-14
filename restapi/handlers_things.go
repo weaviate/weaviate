@@ -216,9 +216,8 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// List all results
 		ctx := params.HTTPRequest.Context()
 		err = dbConnector.ListThings(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &thingsResponse)
-
 		if err != nil {
-			messaging.ErrorMessage(err)
+			return things.NewWeaviateThingsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)

@@ -15,8 +15,9 @@ package gremlin_schema_query
 
 import (
 	"fmt"
-	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"strings"
+
+	"github.com/creativesoftwarefdn/weaviate/gremlin"
 )
 
 type Cardinality string
@@ -37,12 +38,15 @@ const DATATYPE_DOUBLE DataType = "Double"
 
 type SchemaQuery interface {
 	MakePropertyKey(name string, datatype DataType, cardinality Cardinality) SchemaQuery
+	MakeIndexedPropertyKey(name string, datatype DataType, cardinality Cardinality, index string) SchemaQuery
 	MakeEdgeLabel(name string, multiplicity Multiplicity) SchemaQuery
 	MakeVertexLabel(name string) SchemaQuery
 
 	// Add a graph wide composite index of potential a few properties.
 	// If uniqueness is true, a uniqueness constraint will be placed on the combination of properties.
 	AddGraphCompositeIndex(name string, propertyNames []string, uniqueness bool) SchemaQuery
+
+	AddGraphMixedIndex(name string, propertyNames []string, indexName string) SchemaQuery
 
 	Commit() SchemaQuery
 	String() string
@@ -54,7 +58,7 @@ type schemaQuery struct {
 
 func New() SchemaQuery {
 	var builder strings.Builder
-	builder.WriteString("mgmt = graph.openManagement()\n")
+	builder.WriteString("graph.tx().rollback()\nmgmt = graph.openManagement()\n")
 
 	return &schemaQuery{
 		builder: &builder,
@@ -68,7 +72,18 @@ func (s *schemaQuery) extend(format string, vals ...interface{}) SchemaQuery {
 
 func (s *schemaQuery) MakePropertyKey(name string, datatype DataType, cardinality Cardinality) SchemaQuery {
 	escapedName := gremlin.EscapeString(name)
-	return s.extend("mgmt.makePropertyKey(\"%s\").dataType(%s.class).cardinality(Cardinality.%s).make()\n", escapedName, datatype, cardinality)
+	return s.extend(`
+		newProp = mgmt.makePropertyKey("%s").dataType(%s.class).cardinality(Cardinality.%s).make()
+	`, escapedName, datatype, cardinality)
+}
+
+func (s *schemaQuery) MakeIndexedPropertyKey(name string, datatype DataType, cardinality Cardinality, index string) SchemaQuery {
+	escapedName := gremlin.EscapeString(name)
+	return s.extend(`
+		newProp = mgmt.makePropertyKey("%s").dataType(%s.class).cardinality(Cardinality.%s).make()
+		existingIndex = mgmt.getGraphIndex("%s")
+		mgmt.addIndexKey(existingIndex, newProp)
+	`, escapedName, datatype, cardinality, index)
 }
 
 func (s *schemaQuery) MakeEdgeLabel(name string, multiplicity Multiplicity) SchemaQuery {
@@ -82,7 +97,7 @@ func (s *schemaQuery) MakeVertexLabel(name string) SchemaQuery {
 }
 
 func (s *schemaQuery) Commit() SchemaQuery {
-	return s.extend("mgmt.commit()\n")
+	return s.extend("mgmt.commit()")
 }
 
 func (s *schemaQuery) String() string {
@@ -105,13 +120,26 @@ func (s *schemaQuery) AddGraphCompositeIndex(name string, propertyNames []string
 	return s.extend(".buildCompositeIndex()\n")
 }
 
+func (s *schemaQuery) AddGraphMixedIndex(name string, propertyNames []string, indexName string) SchemaQuery {
+	escapedName := gremlin.EscapeString(name)
+	s.extend("mgmt.buildIndex(\"%s\", Vertex.class)", escapedName)
+
+	for _, propertyName := range propertyNames {
+		escapedPropName := gremlin.EscapeString(propertyName)
+		s.extend(".addKey(mgmt.getPropertyKey(\"%s\"))", escapedPropName)
+	}
+
+	escapedIndexName := gremlin.EscapeString(indexName)
+	return s.extend(".buildMixedIndex(\"%s\")\n", escapedIndexName)
+}
+
 func AwaitGraphIndicesAvailable(indices []string) SchemaQuery {
 	var builder strings.Builder
 	q := &schemaQuery{builder: &builder}
 
 	for _, index := range indices {
 		escapedIndex := gremlin.EscapeString(index)
-		q.extend("ManagementSystem.awaitGraphIndexStatus(g, \"%s\").call()\n", escapedIndex)
+		q.extend("mgmt = graph.openManagement()\n mgmt.awaitGraphIndexStatus(graph, \"%s\").call()\n", escapedIndex)
 	}
 
 	return q

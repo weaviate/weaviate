@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/creativesoftwarefdn/weaviate/client/things"
 	"github.com/creativesoftwarefdn/weaviate/models"
@@ -50,6 +51,7 @@ func TestListAll(t *testing.T) {
 
 	listParams := things.NewWeaviateThingsListParams()
 	resp, err := helper.Client(t).Things.WeaviateThingsList(listParams)
+	require.Nil(t, err, "should not error")
 
 	found1 := false
 	found2 := false
