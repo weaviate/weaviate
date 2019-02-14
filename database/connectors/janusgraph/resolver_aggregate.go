@@ -22,7 +22,9 @@ import (
 // LocalAggregate based on GraphQL Query params
 func (j *Janusgraph) LocalAggregate(params *graphql_aggregate.Params) (interface{}, error) {
 	className := j.state.GetMappedClassName(params.ClassName)
-	q := gremlin.New().Raw(`g.V()`).HasString("classId", string(className))
+	q := gremlin.New().Raw(`g.V()`).
+		HasString("kind", params.Kind.Name()).
+		HasString("classId", string(className))
 
 	filterProvider := filters.New(params.Filters, &j.state)
 

@@ -47,3 +47,5 @@ const PROP_REF_EDGE_LOCATION = "locationUrl"
 // Common indices
 const INDEX_BY_UUID = "byUUID"
 const INDEX_BY_KIND_AND_CLASS = "byKindAndClass"
+const INDEX_BY_KIND = "byKind"
+const INDEX_SEARCH = "search"

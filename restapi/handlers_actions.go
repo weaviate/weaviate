@@ -661,9 +661,8 @@ func setupActionsHandlers(api *operations.WeaviateAPI) {
 		// List all results
 		ctx := params.HTTPRequest.Context()
 		err = dbConnector.ListActions(ctx, limit, (page-1)*limit, []*connutils.WhereQuery{}, &actionsResponse)
-
 		if err != nil {
-			messaging.ErrorMessage(err)
+			return actions.NewWeaviateActionsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
 
 		return actions.NewWeaviateActionsListOK().WithPayload(&actionsResponse)

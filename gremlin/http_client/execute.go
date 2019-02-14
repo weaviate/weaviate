@@ -48,6 +48,8 @@ func (c *Client) Execute(query gremlin.Gremlin) (*gremlin.Response, error) {
 		Gremlin: queryString,
 	}
 
+	fmt.Printf("\nSending Gremlin Query:\n%s\n\n", queryString)
+
 	json_bytes, err := json.Marshal(&q)
 	if err != nil {
 		log.Errorf("Could not create query, because %v", err)
