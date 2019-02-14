@@ -20,7 +20,7 @@ after_success:
       fi
       # Build & Push
       travis_wait 30 docker build -f "Dockerfile-prod" -t creativesoftwarefdn/weaviate:$LATESTVERSION --target $DOCKERTARGET .
-      docker push creativesoftwarefdn/weaviate:unstable
+      travis_wait 30 docker push creativesoftwarefdn/weaviate:unstable
     fi
 before_script: ~
 branches: 
