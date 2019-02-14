@@ -19,7 +19,7 @@ Decentralised Knowledge Graph
       https
     Host: localhost
     BasePath: /weaviate/v1
-    Version: 0.12.37
+    Version: 0.12.38
     Contact: Weaviate<hello@creativesoftwarefdn.org> https://github.com/creativesoftwarefdn
 
     Consumes:
