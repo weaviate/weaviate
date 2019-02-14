@@ -97,7 +97,7 @@ func (j *Janusgraph) AddClass(ctx context.Context, kind kind.Kind, class *models
 		}
 
 		if propertyDataType.IsPrimitive() {
-			query.MakePropertyKey(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.AtDataType[0])), gremlin_schema_query.CARDINALITY_SINGLE)
+			query.MakeIndexedPropertyKey(string(janusPropertyName), weaviatePrimitivePropTypeToJanusPropType(schema.DataType(prop.AtDataType[0])), gremlin_schema_query.CARDINALITY_SINGLE, INDEX_SEARCH)
 		} else {
 			// In principle, we could use a Many2One edge for SingleRefs
 			query.MakeEdgeLabel(string(janusPropertyName), gremlin_schema_query.MULTIPLICITY_MULTI)
