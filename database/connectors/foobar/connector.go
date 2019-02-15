@@ -226,6 +226,11 @@ func (f *Foobar) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.
 	return nil
 }
 
+func (f *Foobar) AddThingsBatch(ctx context.Context, things []*models.Thing, uuids []strfmt.UUID) error {
+	// If success return nil, otherwise return the error
+	return nil
+}
+
 // GetThing fills the given ThingGetResponse with the values from the database,
 // based on the given UUID.
 func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {

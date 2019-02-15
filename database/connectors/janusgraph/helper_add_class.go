@@ -15,6 +15,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -38,5 +39,38 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 
 	_, err = j.client.Execute(q)
 
+	return err
+}
+
+func (j *Janusgraph) addThingsBatch(things []*models.Thing, uuids []strfmt.UUID) error {
+	k := kind.THING_KIND
+
+	q := gremlin.New().Raw("g")
+
+	for i, thing := range things {
+
+		q = q.Raw("\n")
+		className := schema.AssertValidClassName(thing.AtClass)
+		vertexLabel := j.state.GetMappedClassName(className)
+		sourceClassAlias := "classToBeAdded"
+		uuid := uuids[i]
+
+		q = q.AddV(string(vertexLabel)).
+			As(sourceClassAlias).
+			StringProperty(PROP_KIND, k.Name()).
+			StringProperty(PROP_UUID, uuid.String()).
+			StringProperty(PROP_CLASS_ID, string(vertexLabel)).
+			StringProperty(PROP_AT_CONTEXT, thing.AtContext).
+			Int64Property(PROP_CREATION_TIME_UNIX, thing.CreationTimeUnix).
+			Int64Property(PROP_LAST_UPDATE_TIME_UNIX, thing.LastUpdateTimeUnix)
+
+		var err error
+		q, err = j.addEdgesToQuery(q, k, className, thing.Schema, sourceClassAlias)
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err := j.client.Execute(q)
 	return err
 }

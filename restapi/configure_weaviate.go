@@ -395,57 +395,58 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	})
 
-	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(func(params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
-		defer messaging.TimeTrack(time.Now())
+	api.WeaviateBatchingThingsCreateHandler = WeaviateBatchingThingsCreateHandler
+	// operations.WeaviateBatchingThingsCreateHandlerFunc(func(params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
+	// 	defer messaging.TimeTrack(time.Now())
 
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
-		}
-		requestLocks := rest_api_utils.RequestLocks{
-			DBLock:      dbLock,
-			DelayedLock: delayed_unlock.New(dbLock),
-			DBConnector: dbLock.Connector(),
-		}
+	// 	dbLock, err := db.ConnectorLock()
+	// 	if err != nil {
+	// 		return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+	// 	}
+	// 	requestLocks := rest_api_utils.RequestLocks{
+	// 		DBLock:      dbLock,
+	// 		DelayedLock: delayed_unlock.New(dbLock),
+	// 		DBConnector: dbLock.Connector(),
+	// 	}
 
-		defer requestLocks.DelayedLock.Unlock()
+	// 	defer requestLocks.DelayedLock.Unlock()
 
-		amountOfBatchedRequests := len(params.Body.Things)
-		errorResponse := &models.ErrorResponse{}
+	// 	amountOfBatchedRequests := len(params.Body.Things)
+	// 	errorResponse := &models.ErrorResponse{}
 
-		if amountOfBatchedRequests == 0 {
-			return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errorResponse)
-		}
+	// 	if amountOfBatchedRequests == 0 {
+	// 		return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errorResponse)
+	// 	}
 
-		isThingsCreate := true
-		fieldsToKeep := determineResponseFields(params.Body.Fields, isThingsCreate)
+	// 	isThingsCreate := true
+	// 	fieldsToKeep := determineResponseFields(params.Body.Fields, isThingsCreate)
 
-		requestResults := make(chan rest_api_utils.BatchedThingsCreateRequestResponse, amountOfBatchedRequests)
+	// 	requestResults := make(chan rest_api_utils.BatchedThingsCreateRequestResponse, amountOfBatchedRequests)
 
-		wg := new(sync.WaitGroup)
+	// 	wg := new(sync.WaitGroup)
 
-		async := params.Body.Async
+	// 	async := params.Body.Async
 
-		ctx := params.HTTPRequest.Context()
-		// Generate a goroutine for each separate request
-		for requestIndex, batchedRequest := range params.Body.Things {
-			wg.Add(1)
-			go handleBatchedThingsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, &requestLocks, fieldsToKeep)
-		}
+	// 	ctx := params.HTTPRequest.Context()
+	// 	// Generate a goroutine for each separate request
+	// 	for requestIndex, batchedRequest := range params.Body.Things {
+	// 		wg.Add(1)
+	// 		go handleBatchedThingsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, &requestLocks, fieldsToKeep)
+	// 	}
 
-		wg.Wait()
+	// 	wg.Wait()
 
-		close(requestResults)
+	// 	close(requestResults)
 
-		batchedRequestResponse := make([]*models.ThingsGetResponse, amountOfBatchedRequests)
+	// 	batchedRequestResponse := make([]*models.ThingsGetResponse, amountOfBatchedRequests)
 
-		// Add the requests to the result array in the correct order
-		for batchedRequestResult := range requestResults {
-			batchedRequestResponse[batchedRequestResult.RequestIndex] = batchedRequestResult.Response
-		}
+	// 	// Add the requests to the result array in the correct order
+	// 	for batchedRequestResult := range requestResults {
+	// 		batchedRequestResponse[batchedRequestResult.RequestIndex] = batchedRequestResult.Response
+	// 	}
 
-		return operations.NewWeaviateBatchingThingsCreateOK().WithPayload(batchedRequestResponse)
-	})
+	// 	return operations.NewWeaviateBatchingThingsCreateOK().WithPayload(batchedRequestResponse)
+	// })
 
 	/*
 	 * HANDLE KNOWLEDGE TOOLS

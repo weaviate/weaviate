@@ -37,6 +37,7 @@ type BaseConnector interface {
 	SetMessaging(m *messages.Messaging)
 
 	AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
+	AddThingsBatch(ctx context.Context, things []*models.Thing, uuids []strfmt.UUID) error
 	GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
 	ListThings(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
 	UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
