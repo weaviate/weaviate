@@ -26,6 +26,7 @@ func TestCanUpdateActionSetNumber(t *testing.T) {
 	t.Parallel()
 
 	uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
+	assertGetActionEventually(t, uuid)
 
 	schema := models.Schema(map[string]interface{}{
 		"testNumber": 41.0,
@@ -52,6 +53,7 @@ func TestCanUpdateActionSetString(t *testing.T) {
 	t.Parallel()
 
 	uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
+	assertGetActionEventually(t, uuid)
 
 	schema := models.Schema(map[string]interface{}{
 		"testString": "wibbly wobbly",
@@ -77,6 +79,7 @@ func TestCanUpdateActionSetString(t *testing.T) {
 func TestCanUpdateActionSetBool(t *testing.T) {
 	t.Parallel()
 	uuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
+	assertGetActionEventually(t, uuid)
 
 	schema := models.Schema(map[string]interface{}{
 		"testBoolean": true,
@@ -104,7 +107,9 @@ func TestCanPatchActionsSetCref(t *testing.T) {
 	t.Parallel()
 
 	thingToRefID := assertCreateThing(t, "TestThing", nil)
+	assertGetThingEventually(t, thingToRefID)
 	actionID := assertCreateAction(t, "TestAction", nil)
+	assertGetActionEventually(t, actionID)
 
 	op := "add"
 	path := "/schema/testCref"

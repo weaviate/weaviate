@@ -25,7 +25,7 @@ func TestCanAddAndRemoveAction(t *testing.T) {
 	actionId := assertCreateAction(t, "TestAction", map[string]interface{}{})
 
 	// Yes, it's created
-	_ = assertGetAction(t, actionId)
+	_ = assertGetActionEventually(t, actionId)
 
 	// Now perorm the the deletion
 	delResp, err := helper.Client(t).Actions.WeaviateActionsDelete(actions.NewWeaviateActionsDeleteParams().WithActionID(actionId))

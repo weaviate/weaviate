@@ -38,6 +38,7 @@ func TestListAll(t *testing.T) {
 	})
 	resp1, _, err := helper.Client(t).Things.WeaviateThingsCreate(params1)
 	assert.Nil(t, err, "creation should succeed")
+	thing1ID := resp1.Payload.ThingID
 
 	params2 := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
 		Thing: &models.ThingCreate{
@@ -48,6 +49,11 @@ func TestListAll(t *testing.T) {
 	})
 	resp2, _, err := helper.Client(t).Things.WeaviateThingsCreate(params2)
 	assert.Nil(t, err, "creation should succeed")
+	thing2ID := resp2.Payload.ThingID
+
+	// wait for both things to be indexed
+	assertGetThingEventually(t, thing1ID)
+	assertGetThingEventually(t, thing2ID)
 
 	listParams := things.NewWeaviateThingsListParams()
 	resp, err := helper.Client(t).Things.WeaviateThingsList(listParams)

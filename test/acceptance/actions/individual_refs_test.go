@@ -28,11 +28,12 @@ func TestCanAddAPropertyIndividually(t *testing.T) {
 	t.Parallel()
 
 	toPointToUuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
+	assertGetActionEventually(t, toPointToUuid)
 
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{})
 
 	// Verify that testCrefs is empty
-	updatedAction := assertGetAction(t, uuid)
+	updatedAction := assertGetActionEventually(t, uuid)
 	updatedSchema := updatedAction.Schema.(map[string]interface{})
 	assert.Nil(t, updatedSchema["testCrefs"])
 
@@ -56,6 +57,8 @@ func TestCanReplaceAllProperties(t *testing.T) {
 
 	toPointToUuidFirst := assertCreateAction(t, "TestAction", map[string]interface{}{})
 	toPointToUuidLater := assertCreateAction(t, "TestAction", map[string]interface{}{})
+	assertGetActionEventually(t, toPointToUuidFirst)
+	assertGetActionEventually(t, toPointToUuidLater)
 
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
 		"testCrefs": &models.MultipleRef{
@@ -64,7 +67,7 @@ func TestCanReplaceAllProperties(t *testing.T) {
 	})
 
 	// Verify that testCrefs is empty
-	updatedAction := assertGetAction(t, uuid)
+	updatedAction := assertGetActionEventually(t, uuid)
 	updatedSchema := updatedAction.Schema.(map[string]interface{})
 	assert.NotNil(t, updatedSchema["testCrefs"])
 
@@ -89,6 +92,7 @@ func TestRemovePropertyIndividually(t *testing.T) {
 	t.Parallel()
 
 	toPointToUuid := assertCreateAction(t, "TestAction", map[string]interface{}{})
+	assertGetActionEventually(t, toPointToUuid)
 
 	uuid := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
 		"testCrefs": &models.MultipleRef{
@@ -97,7 +101,7 @@ func TestRemovePropertyIndividually(t *testing.T) {
 	})
 
 	// Verify that testCrefs is not empty
-	updatedAction := assertGetAction(t, uuid)
+	updatedAction := assertGetActionEventually(t, uuid)
 	updatedSchema := updatedAction.Schema.(map[string]interface{})
 	assert.NotNil(t, updatedSchema["testCrefs"])
 

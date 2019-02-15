@@ -32,7 +32,7 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 	})
 
 	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
-		thing := assertGetThing(t, thingID)
+		thing := assertGetThingEventually(t, thingID)
 		rawCref := thing.Schema.(map[string]interface{})["testCref"]
 		require.NotNil(t, rawCref, "cross-ref is present")
 		cref := rawCref.(map[string]interface{})
@@ -60,6 +60,7 @@ func TestCanPatchNetworkRef(t *testing.T) {
 	t.Parallel()
 
 	thingID := assertCreateThing(t, "TestThing", nil)
+	assertGetThingEventually(t, thingID)
 	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 
 	op := "add"

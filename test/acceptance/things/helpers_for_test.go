@@ -55,6 +55,28 @@ func assertGetThing(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
 	return thing
 }
 
+func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
+	var (
+		resp *things.WeaviateThingsGetOK
+		err  error
+	)
+
+	checkThunk := func() interface{} {
+		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid))
+		return err == nil
+	}
+
+	helper.AssertEventuallyEqual(t, true, checkThunk)
+
+	var thing *models.ThingGetResponse
+
+	helper.AssertRequestOk(t, resp, err, func() {
+		thing = resp.Payload
+	})
+
+	return thing
+}
+
 func assertGetSchema(t *testing.T) *schema.WeaviateSchemaDumpOKBody {
 	getResp, err := helper.Client(t).Schema.WeaviateSchemaDump(schema.NewWeaviateSchemaDumpParams())
 	var schema *schema.WeaviateSchemaDumpOKBody
