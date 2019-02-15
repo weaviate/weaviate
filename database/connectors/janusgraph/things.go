@@ -30,6 +30,10 @@ func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID str
 	return j.addClass(kind.THING_KIND, sanitizedClassName, UUID, thing.AtContext, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, thing.Schema)
 }
 
+func (j *Janusgraph) AddThingsBatch(ctx context.Context, things []*models.Thing, uuids []strfmt.UUID) error {
+	return j.addThingsBatch(things, uuids)
+}
+
 func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
 	return j.getClass(kind.THING_KIND, UUID,
 		&thingResponse.AtClass,
