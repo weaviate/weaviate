@@ -85,6 +85,7 @@ func TestCanCreateAndGetAction(t *testing.T) {
 		"testNumber":   actionTestNumber,
 		"testDateTime": actionTestDate,
 	})
+	assertGetActionEventually(t, actionID)
 
 	// Now fetch the action
 	getResp, err := helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(actionID))
@@ -107,7 +108,10 @@ func TestCanCreateAndGetAction(t *testing.T) {
 }
 
 func TestCanAddSingleRefAction(t *testing.T) {
+	fmt.Println("before first")
 	firstActionID := assertCreateAction(t, "TestAction", map[string]interface{}{})
+	assertGetActionEventually(t, firstActionID)
+
 	secondActionID := assertCreateAction(t, "TestActionTwo", map[string]interface{}{
 		"testString": "stringy",
 		"testCref": map[string]interface{}{
@@ -115,7 +119,7 @@ func TestCanAddSingleRefAction(t *testing.T) {
 		},
 	})
 
-	secondAction := assertGetAction(t, secondActionID)
+	secondAction := assertGetActionEventually(t, secondActionID)
 
 	singleRef := secondAction.Schema.(map[string]interface{})["testCref"].(map[string]interface{})
 	assert.Equal(t, singleRef["$cref"].(string), fmt.Sprintf("weaviate://localhost/actions/%s", firstActionID))

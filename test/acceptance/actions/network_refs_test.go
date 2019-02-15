@@ -30,6 +30,7 @@ func TestCanAddSingleNetworkRef(t *testing.T) {
 			"$cref": strfmt.UUID(fmt.Sprintf("weaviate://RemoteWeaviateForAcceptanceTest/things/%s", networkRefID)),
 		},
 	})
+	assertGetActionEventually(t, actionID)
 
 	t.Run("it can query the resource again to verify the cross ref was added", func(t *testing.T) {
 		action := assertGetAction(t, actionID)
@@ -54,6 +55,7 @@ func TestCanPatchSingleNetworkRef(t *testing.T) {
 	t.Parallel()
 
 	actionID := assertCreateAction(t, "TestAction", nil)
+	assertGetActionEventually(t, actionID)
 	networkRefID := "711da979-4b0b-41e2-bcb8-fcc03554c7c8"
 
 	op := "add"

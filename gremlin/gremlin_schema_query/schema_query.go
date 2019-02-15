@@ -39,6 +39,7 @@ const DATATYPE_DOUBLE DataType = "Double"
 type SchemaQuery interface {
 	MakePropertyKey(name string, datatype DataType, cardinality Cardinality) SchemaQuery
 	MakeIndexedPropertyKey(name string, datatype DataType, cardinality Cardinality, index string) SchemaQuery
+	MakeIndexedPropertyKeyTextString(name string, datatype DataType, cardinality Cardinality, index string) SchemaQuery
 	MakeEdgeLabel(name string, multiplicity Multiplicity) SchemaQuery
 	MakeVertexLabel(name string) SchemaQuery
 
@@ -47,6 +48,7 @@ type SchemaQuery interface {
 	AddGraphCompositeIndex(name string, propertyNames []string, uniqueness bool) SchemaQuery
 
 	AddGraphMixedIndex(name string, propertyNames []string, indexName string) SchemaQuery
+	AddGraphMixedIndexString(name string, propertyNames []string, indexName string) SchemaQuery
 
 	Commit() SchemaQuery
 	String() string
@@ -83,6 +85,15 @@ func (s *schemaQuery) MakeIndexedPropertyKey(name string, datatype DataType, car
 		newProp = mgmt.makePropertyKey("%s").dataType(%s.class).cardinality(Cardinality.%s).make()
 		existingIndex = mgmt.getGraphIndex("%s")
 		mgmt.addIndexKey(existingIndex, newProp)
+	`, escapedName, datatype, cardinality, index)
+}
+
+func (s *schemaQuery) MakeIndexedPropertyKeyTextString(name string, datatype DataType, cardinality Cardinality, index string) SchemaQuery {
+	escapedName := gremlin.EscapeString(name)
+	return s.extend(`
+		newProp = mgmt.makePropertyKey("%s").dataType(%s.class).cardinality(Cardinality.%s).make()
+		existingIndex = mgmt.getGraphIndex("%s")
+		mgmt.addIndexKey(existingIndex, newProp, Mapping.TEXTSTRING.asParameter())
 	`, escapedName, datatype, cardinality, index)
 }
 
@@ -127,6 +138,19 @@ func (s *schemaQuery) AddGraphMixedIndex(name string, propertyNames []string, in
 	for _, propertyName := range propertyNames {
 		escapedPropName := gremlin.EscapeString(propertyName)
 		s.extend(".addKey(mgmt.getPropertyKey(\"%s\"))", escapedPropName)
+	}
+
+	escapedIndexName := gremlin.EscapeString(indexName)
+	return s.extend(".buildMixedIndex(\"%s\")\n", escapedIndexName)
+}
+
+func (s *schemaQuery) AddGraphMixedIndexString(name string, propertyNames []string, indexName string) SchemaQuery {
+	escapedName := gremlin.EscapeString(name)
+	s.extend("mgmt.buildIndex(\"%s\", Vertex.class)", escapedName)
+
+	for _, propertyName := range propertyNames {
+		escapedPropName := gremlin.EscapeString(propertyName)
+		s.extend(".addKey(mgmt.getPropertyKey(\"%s\"), Mapping.STRING.asParameter())", escapedPropName)
 	}
 
 	escapedIndexName := gremlin.EscapeString(indexName)

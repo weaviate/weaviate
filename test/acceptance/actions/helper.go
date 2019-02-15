@@ -58,6 +58,50 @@ func assertGetAction(t *testing.T, uuid strfmt.UUID) *models.ActionGetResponse {
 	return action
 }
 
+func assertGetActionEventually(t *testing.T, uuid strfmt.UUID) *models.ActionGetResponse {
+	var (
+		resp *actions.WeaviateActionsGetOK
+		err  error
+	)
+
+	checkThunk := func() interface{} {
+		resp, err = helper.Client(t).Actions.WeaviateActionsGet(actions.NewWeaviateActionsGetParams().WithActionID(uuid))
+		return err == nil
+	}
+
+	helper.AssertEventuallyEqual(t, true, checkThunk)
+
+	var action *models.ActionGetResponse
+
+	helper.AssertRequestOk(t, resp, err, func() {
+		action = resp.Payload
+	})
+
+	return action
+}
+
+func assertGetThingEventually(t *testing.T, uuid strfmt.UUID) *models.ThingGetResponse {
+	var (
+		resp *things.WeaviateThingsGetOK
+		err  error
+	)
+
+	checkThunk := func() interface{} {
+		resp, err = helper.Client(t).Things.WeaviateThingsGet(things.NewWeaviateThingsGetParams().WithThingID(uuid))
+		return err == nil
+	}
+
+	helper.AssertEventuallyEqual(t, true, checkThunk)
+
+	var thing *models.ThingGetResponse
+
+	helper.AssertRequestOk(t, resp, err, func() {
+		thing = resp.Payload
+	})
+
+	return thing
+}
+
 func assertCreateThing(t *testing.T, className string, schema map[string]interface{}) strfmt.UUID {
 	params := things.NewWeaviateThingsCreateParams().WithBody(things.WeaviateThingsCreateBody{
 		Thing: &models.ThingCreate{
