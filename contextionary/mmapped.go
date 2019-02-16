@@ -167,12 +167,13 @@ func downloadContextionaryFile(URL string, tmpFolder string) error {
 }
 
 func isValidUrl(toTest string) bool {
-	_, err := url.ParseRequestURI(toTest)
+	URL, err := url.Parse(toTest)
 	if err != nil {
 		return false
-	} else {
-		return true
+	} else if URL.Scheme != "http" && URL.Scheme != "https" && URL.Scheme != "ftp" {
+		return false
 	}
+	return true
 }
 
 // Downloads file if valid URL
