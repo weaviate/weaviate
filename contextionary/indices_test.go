@@ -70,7 +70,7 @@ func TestMMappedIndex(t *testing.T) {
 	})
 
 	// And load the index.
-	vi, err := LoadVectorFromDisk(tempdir+"/glove.knn", tempdir+"/glove.idx")
+	vi, err := LoadVector(tempdir+"/glove.knn", tempdir+"/glove.idx")
 	if err != nil {
 		t.Errorf("Could not load vectors from disk: %v", err)
 	}

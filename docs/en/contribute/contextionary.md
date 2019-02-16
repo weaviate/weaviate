@@ -100,7 +100,7 @@ The **Memory Mapped index**, uses an optimized pre-build datastructure that is l
 and efficiently from disk.
 This is suitable for big datasets that you don't want to load on-line, but preprocess before.
 
-It can be instantiated via `my_vector_index, err := contextionary.LoadVectorFromDisk("index.knn", "index.idx")`.
+It can be instantiated via `my_vector_index, err := contextionary.LoadVector("index.knn", "index.idx")`.
 See the documentation for (the generator)[./generator] of this file format for more details on
 these files.
 

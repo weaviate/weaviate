@@ -973,7 +973,7 @@ func loadContextionary() {
 		messaging.ExitError(78, "Contextionary IDX file not specified")
 	}
 
-	mmapedContextionary, err := libcontextionary.LoadVectorFromDisk(serverConfig.Environment.Contextionary.KNNFile, serverConfig.Environment.Contextionary.IDXFile)
+	mmapedContextionary, err := libcontextionary.LoadVector(serverConfig.Environment.Contextionary.KNNFile, serverConfig.Environment.Contextionary.IDXFile)
 
 	if err != nil {
 		messaging.ExitError(78, fmt.Sprintf("Could not load Contextionary; %+v", err))

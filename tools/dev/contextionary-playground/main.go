@@ -64,7 +64,7 @@ var sampleSchema = schema.Schema{
 }
 
 func main() {
-	c13y, err := contextionary.LoadVectorFromDisk("./tools/dev/contextionary-playground/contextionary.knn", "./tools/dev/contextionary-playground/contextionary.idx")
+	c13y, err := contextionary.LoadVector("./tools/dev/contextionary-playground/contextionary.knn", "./tools/dev/contextionary-playground/contextionary.idx")
 	fatal(err)
 
 	fmt.Println("results before building centroid based on keywords: ")

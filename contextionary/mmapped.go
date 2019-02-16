@@ -12,7 +12,15 @@
 package contextionary
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"path"
+
 	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
 )
 
@@ -98,7 +106,7 @@ func (m *mmappedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex,
 	}
 }
 
-func LoadVectorFromDisk(annoy_index string, word_index_file_name string) (Contextionary, error) {
+func loadVectorFromDisk(annoy_index string, word_index_file_name string) (Contextionary, error) {
 	word_index, err := LoadWordlist(word_index_file_name)
 
 	if err != nil {
@@ -114,4 +122,88 @@ func LoadVectorFromDisk(annoy_index string, word_index_file_name string) (Contex
 	}
 
 	return idx, nil
+}
+
+func getFilenameFromURL(URL string) string {
+	fileRequest, _ := http.NewRequest("GET", URL, nil)
+	return path.Base(fileRequest.URL.Path)
+}
+
+func downloadContextionaryFile(URL string, tmpFolder string) error {
+
+	// filename to save
+	fileName := tmpFolder + getFilenameFromURL(URL)
+
+	// remove filename if exists
+	_ = os.Remove(fileName)
+
+	// create tmp dir if not exists
+	if _, err := os.Stat(tmpFolder); os.IsNotExist(err) {
+		os.Mkdir(tmpFolder, 0775)
+	}
+
+	// Get the data
+	log.Print("Downloading: " + URL)
+	resp, err := http.Get(URL)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != 200 {
+		return errors.New("Can't download: " + URL)
+	}
+	defer resp.Body.Close()
+
+	// Create the file
+	out, err := os.Create(fileName)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// Write the body to file
+	_, err = io.Copy(out, resp.Body)
+
+	return nil
+}
+
+func isValidUrl(toTest string) bool {
+	_, err := url.ParseRequestURI(toTest)
+	if err != nil {
+		return false
+	} else {
+		return true
+	}
+}
+
+// Downloads file if valid URL
+func downloadOrNot(i string, tmpFolder string) (string, error) {
+	// check if annoy_index = url
+	if isValidUrl(i) == true {
+		err := downloadContextionaryFile(i, tmpFolder)
+		if err != nil {
+			return "", err
+		}
+		return tmpFolder + getFilenameFromURL(i), nil
+	}
+	return i, nil
+}
+
+func LoadVector(annoy_index string, word_index_file_name string) (Contextionary, error) {
+
+	// set tmp folder
+	tmpFolder := "./tmp/"
+
+	// validate annoy_index_file
+	annoy_index_file, err := downloadOrNot(annoy_index, tmpFolder)
+	if err != nil {
+		return nil, err
+	}
+
+	// validate word_index_file_name
+	word_index_file_name_file, err := downloadOrNot(word_index_file_name, tmpFolder)
+	if err != nil {
+		return nil, err
+	}
+
+	return loadVectorFromDisk(annoy_index_file, word_index_file_name_file)
 }
