@@ -1,8 +1,11 @@
 package utils
 
-import ()
+import (
+	"github.com/creativesoftwarefdn/weaviate/restapi"
+)
 
-// check whether the feature toggle is set to 'enabled' (default behaviour)
-func isEnabled() bool {
-	return True
+// check whether the feature toggle is set to 'enabled' (default) or disabled
+func IsEnabled() bool {
+	flag := restapi.GetTelemetryFlag()
+	return flag
 }

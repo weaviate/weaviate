@@ -38,7 +38,8 @@
       },
       "telemetry": {
       	"enabled": true,
-      	"url": ""
+      	"interval": 300,
+      	"url": "http://127.0.0.1:8900"
       }
     },
     {
@@ -65,7 +66,8 @@
       "debug": true,
       "telemetry": {
       	"enabled": true,
-      	"url": ""
+      	"interval": 300,
+      	"url": "http://127.0.0.1:8900"
       }
     },
     {
@@ -106,7 +108,8 @@
       },
       "telemetry": {
       	"enabled": true,
-      	"url": ""
+      	"interval": 300,
+      	"url": "http://127.0.0.1:8900"
       }
     },
     {
@@ -138,7 +141,8 @@
       },
       "telemetry": {
       	"enabled": true,
-      	"url": ""
+      	"interval": 300,
+      	"url": "http://127.0.0.1:8900"
       }
     }
   ]

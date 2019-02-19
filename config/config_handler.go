@@ -52,6 +52,7 @@ type Environment struct {
 	Development   Development   `json:"development"`
 	Contextionary Contextionary `json:"contextionary"`
 	ConfigStore   ConfigStore   `json:"configuration_storage"`
+	Telemetry     Telemetry     `json:"telemetry"`
 }
 
 type Contextionary struct {
@@ -69,6 +70,12 @@ type Network struct {
 type ConfigStore struct {
 	Type string `json:"type"`
 	URL  string `json:"url"`
+}
+
+type Telemetry struct {
+	Enabled  bool   `json:"enabled"`
+	Interval int    `json:"interval"`
+	URL      string `json:"url"`
 }
 
 // Broker checks if broker details are set
