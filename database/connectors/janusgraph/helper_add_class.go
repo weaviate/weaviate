@@ -51,7 +51,11 @@ type batchChunk struct {
 
 func (j *Janusgraph) addThingsBatch(things []*models.Thing, uuids []strfmt.UUID) error {
 	chunkSize := MaximumBatchItemsPerQuery
-	chunked := make([][]batchChunk, len(things)/chunkSize)
+	chunks := len(things) / chunkSize
+	if len(things) < chunkSize {
+		chunks = 1
+	}
+	chunked := make([][]batchChunk, chunks)
 	chunk := 0
 
 	for i := 0; i < len(things); i++ {
