@@ -42,35 +42,65 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 	return err
 }
 
+const MaximumBatchItemsPerQuery = 50
+
+type batchChunk struct {
+	thing *models.Thing
+	uuid  strfmt.UUID
+}
+
 func (j *Janusgraph) addThingsBatch(things []*models.Thing, uuids []strfmt.UUID) error {
-	k := kind.THING_KIND
+	chunkSize := MaximumBatchItemsPerQuery
+	chunked := make([][]batchChunk, len(things)/chunkSize)
+	chunk := 0
 
-	q := gremlin.New().Raw("g")
+	for i := 0; i < len(things); i++ {
+		if i%chunkSize == 0 {
+			if i != 0 {
+				chunk++
+			}
 
-	for i, thing := range things {
+			currentChunkSize := chunkSize
+			if len(things)-i < chunkSize {
+				currentChunkSize = len(things) - i
+			}
+			chunked[chunk] = make([]batchChunk, currentChunkSize)
+		}
+		chunked[chunk][i%chunkSize] = batchChunk{things[i], uuids[i]}
+	}
 
-		q = q.Raw("\n")
-		className := schema.AssertValidClassName(thing.AtClass)
-		vertexLabel := j.state.GetMappedClassName(className)
-		sourceClassAlias := "classToBeAdded"
-		uuid := uuids[i]
+	for _, chunk := range chunked {
+		k := kind.THING_KIND
 
-		q = q.AddV(string(vertexLabel)).
-			As(sourceClassAlias).
-			StringProperty(PROP_KIND, k.Name()).
-			StringProperty(PROP_UUID, uuid.String()).
-			StringProperty(PROP_CLASS_ID, string(vertexLabel)).
-			StringProperty(PROP_AT_CONTEXT, thing.AtContext).
-			Int64Property(PROP_CREATION_TIME_UNIX, thing.CreationTimeUnix).
-			Int64Property(PROP_LAST_UPDATE_TIME_UNIX, thing.LastUpdateTimeUnix)
+		q := gremlin.New().Raw("g")
 
-		var err error
-		q, err = j.addEdgesToQuery(q, k, className, thing.Schema, sourceClassAlias)
+		for _, thing := range chunk {
+			q = q.Raw("\n")
+			className := schema.AssertValidClassName(thing.thing.AtClass)
+			vertexLabel := j.state.GetMappedClassName(className)
+			sourceClassAlias := "classToBeAdded"
+
+			q = q.AddV(string(vertexLabel)).
+				As(sourceClassAlias).
+				StringProperty(PROP_KIND, k.Name()).
+				StringProperty(PROP_UUID, thing.uuid.String()).
+				StringProperty(PROP_CLASS_ID, string(vertexLabel)).
+				StringProperty(PROP_AT_CONTEXT, thing.thing.AtContext).
+				Int64Property(PROP_CREATION_TIME_UNIX, thing.thing.CreationTimeUnix).
+				Int64Property(PROP_LAST_UPDATE_TIME_UNIX, thing.thing.LastUpdateTimeUnix)
+
+			var err error
+			q, err = j.addEdgesToQuery(q, k, className, thing.thing.Schema, sourceClassAlias)
+			if err != nil {
+				return err
+			}
+		}
+
+		_, err := j.client.Execute(q)
 		if err != nil {
 			return err
 		}
 	}
 
-	_, err := j.client.Execute(q)
-	return err
+	return nil
 }
