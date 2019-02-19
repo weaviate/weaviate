@@ -17,7 +17,12 @@
 			"Action": "./test/schema/test-action-schema.json"
 		},
 		"limit": 100,
-		"debug": true
+		"debug": true,
+		"telemetry": {
+	      	"enabled": true,
+	      	"interval": 300,
+	      	"url": "http://127.0.0.1:8900"
+	    }
 	}, {
 		"name": "dummy_net_1",
 		"database": {
@@ -41,7 +46,12 @@
 			"Action": "./test/schema/test-action-schema.json"
 		},
 		"limit": 100,
-		"debug": true
+		"debug": true,
+		"telemetry": {
+	      	"enabled": true,
+	      	"interval": 300,
+	      	"url": "http://127.0.0.1:8900"
+	    }
 	}, {
 		"name": "dummy_net_2",
 		"database": {
@@ -65,6 +75,11 @@
 			"Action": "./test/schema/test-action-schema.json"
 		},
 		"limit": 100,
-		"debug": true
+		"debug": true,
+		"telemetry": {
+	      	"enabled": true,
+	      	"interval": 300,
+	      	"url": "http://127.0.0.1:8900"
+	    }
 	}]
 }

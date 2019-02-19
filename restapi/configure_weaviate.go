@@ -763,7 +763,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	messaging = &messages.Messaging{}
 
 	// Load the config using the flags
-	serverConfig = &config.WeaviateConfig{}
+	serverConfig = &config.WeaviateConfig{} // TODO this is where the config is loaded
 	err := serverConfig.LoadConfig(connectorOptionGroup, messaging)
 
 	// Add properties to the config
@@ -1000,6 +1000,26 @@ func connectToNetwork() {
 			network = *new_net
 		}
 	}
+}
+
+func GetTelemetryFlag() bool {
+	if serverConfig.Environment.Telemetry.Enabled == true {
+		return true
+	} else if serverConfig.Environment.Telemetry.Enabled == false {
+		messaging.InfoMessage(fmt.Sprintf("Telemetry disabled"))
+		return false
+	} else {
+		messaging.InfoMessage(fmt.Sprintf("Telemetry feature flag must be true or false, treating it as false"))
+		return false
+	}
+}
+
+func GetTelemetryUrl() string {
+	return serverConfig.Environment.Telemetry.URL
+}
+
+func GetTelemetryInterval() int {
+	return serverConfig.Environment.Telemetry.Interval
 }
 
 func errPayloadFromSingleErr(err error) *models.ErrorResponse {
