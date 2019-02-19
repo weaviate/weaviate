@@ -27,6 +27,7 @@ branches:
   only: 
     - master
     - develop
+    - feature/monitoring-service
 dist: xenial
 go: 
   - "1.11.5"

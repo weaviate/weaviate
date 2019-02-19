@@ -34,7 +34,7 @@ func (r RequestsLog) Register(request *RequestLog) {
 		}
 		r.Mutex.Unlock()
 	}
-}
+} /*queue als optimalisatiestap? */
 
 type RequestLog struct {
 	Name       string // name of the Weaviate instance. Is `a-b-c` where a, b, and c are random words from the contextionary.
