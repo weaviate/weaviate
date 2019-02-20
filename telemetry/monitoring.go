@@ -1,9 +1,7 @@
-package monitoring
+package telemetry
 
 import (
 	"sync"
-
-	telemetry "github.com/creativesoftwarefdn/weaviate/telemetry/utils"
 )
 
 const Failed int = 0
@@ -17,8 +15,8 @@ type RequestsLog struct { // TODO: RENAME
 }
 
 /* Reset the hashmap used to log performed requests */
-func (r RequestsLog) Reset() int {
-	if telemetry.IsEnabled() {
+func (r RequestsLog) Reset(telemetryEnabled bool) int {
+	if telemetryEnabled {
 		r.Mutex.Lock()
 		r.Log = make(map[string]*RequestLog)
 		r.Mutex.Unlock()
@@ -28,8 +26,8 @@ func (r RequestsLog) Reset() int {
 }
 
 /* Register a performed request. Creates a new entry or updates an existing one. */
-func (r RequestsLog) Register(request *RequestLog) int {
-	if telemetry.IsEnabled() {
+func (r RequestsLog) Register(request *RequestLog, telemetryEnabled bool) int {
+	if telemetryEnabled {
 
 		r.Mutex.Lock()
 		if _, ok := r.Log[request.Identifier]; ok {
