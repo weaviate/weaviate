@@ -1,12 +1,55 @@
 package test
 
 import (
+	"sync"
 	"testing"
+
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestPostRequestMonitoring(t *testing.T) {
 	t.Parallel()
+	calledFunctions := telemetry.RequestsLog{
+		Mutex: &sync.Mutex{},
+		Log:   make(map[string]*telemetry.RequestLog),
+	}
+
+	postRequestLog := telemetry.RequestLog{
+		Name:       "ginormous-thunder-apple",
+		Type:       "POST",
+		Identifier: "weaviate.something.or.other",
+		Amount:     1,
+	}
+
+	telemetryEnabled := true
+
+	calledFunctions.Register(&postRequestLog, telemetryEnabled)
+
+	assert.Equal(t, 1, calledFunctions.Log["weaviate.something.or.other"].Amount)
 	// perform/mimic one request, check all 5 fields of the monitoring service object contents (timestamp > current < (current + interval))
+}
+
+func TestPostRequestIncrementing(t *testing.T) {
+	t.Parallel()
+	calledFunctions := telemetry.RequestsLog{
+		Mutex: &sync.Mutex{},
+		Log:   make(map[string]*telemetry.RequestLog),
+	}
+
+	postRequestLog := telemetry.RequestLog{
+		Name:       "grilled-cheese-sandwich",
+		Type:       "POST",
+		Identifier: "weaviate.something.or.other",
+		Amount:     1,
+	}
+
+	telemetryEnabled := true
+
+	calledFunctions.Register(&postRequestLog, telemetryEnabled)
+	calledFunctions.Register(&postRequestLog, telemetryEnabled)
+
+	assert.Equal(t, 2, calledFunctions.Log["weaviate.something.or.other"].Amount)
 }
 
 func TestGraphQLRequestMonitoring(t *testing.T) {

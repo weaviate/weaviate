@@ -1,4 +1,4 @@
-package monitoring
+package telemetry
 
 import (
 //telemetry "github.com/creativesoftwarefdn/weaviate/telemetry/utils"
