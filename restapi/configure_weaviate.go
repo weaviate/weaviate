@@ -25,16 +25,17 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
 	"github.com/coreos/etcd/clientv3/concurrency"
+	"github.com/creativesoftwarefdn/weaviate/restapi/batch"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/graphql"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/knowledge_tools"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/meta"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations/p2_p"
+	"github.com/creativesoftwarefdn/weaviate/restapi/state"
 
 	errors "github.com/go-openapi/errors"
 	runtime "github.com/go-openapi/runtime"
@@ -56,7 +57,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	graphqlnetwork "github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
-	"github.com/creativesoftwarefdn/weaviate/lib/delayed_unlock"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/restapi/operations"
@@ -91,7 +91,13 @@ var serverConfig *config.WeaviateConfig
 var graphQL graphqlapi.GraphQL
 var messaging *messages.Messaging
 
+var appState *state.State
+
 var db database.Database
+
+type State struct {
+	db database.Database
+}
 
 type graphQLRoot struct {
 	database.Database
@@ -113,6 +119,8 @@ type keyTokenHeader struct {
 }
 
 func init() {
+	appState = &state.State{}
+
 	discard := ioutil.Discard
 	myGRPCLogger := log.New(discard, "", log.LstdFlags)
 	grpclog.SetLogger(myGRPCLogger)
@@ -194,6 +202,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupSchemaHandlers(api)
 	setupThingsHandlers(api)
 	setupActionsHandlers(api)
+	setupBatchHandlers(api)
 
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
@@ -341,67 +350,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return graphql.NewWeaviateGraphqlBatchOK().WithPayload(batchedRequestResponse)
 	})
 
-	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(func(params operations.WeaviateBatchingActionsCreateParams) middleware.Responder {
-		defer messaging.TimeTrack(time.Now())
-
-		dbLock, err := db.ConnectorLock()
-		if err != nil {
-			return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
-		}
-		requestLocks := rest_api_utils.RequestLocks{
-			DBLock:      dbLock,
-			DelayedLock: delayed_unlock.New(dbLock),
-			DBConnector: dbLock.Connector(),
-		}
-
-		defer requestLocks.DelayedLock.Unlock()
-
-		amountOfBatchedRequests := len(params.Body.Actions)
-		errorResponse := &models.ErrorResponse{}
-
-		if amountOfBatchedRequests == 0 {
-			return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().WithPayload(errorResponse)
-		}
-
-		isThingsCreate := false
-		fieldsToKeep := determineResponseFields(params.Body.Fields, isThingsCreate)
-
-		requestResults := make(chan rest_api_utils.BatchedActionsCreateRequestResponse, amountOfBatchedRequests)
-
-		wg := new(sync.WaitGroup)
-
-		async := params.Body.Async
-
-		ctx := params.HTTPRequest.Context()
-
-		// Generate a goroutine for each separate request
-		for requestIndex, batchedRequest := range params.Body.Actions {
-			wg.Add(1)
-			go handleBatchedActionsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, &requestLocks, fieldsToKeep)
-		}
-
-		wg.Wait()
-
-		close(requestResults)
-
-		batchedRequestResponse := make([]*models.ActionsGetResponse, amountOfBatchedRequests)
-
-		// Add the requests to the result array in the correct order
-		for batchedRequestResult := range requestResults {
-			batchedRequestResponse[batchedRequestResult.RequestIndex] = batchedRequestResult.Response
-		}
-
-		return operations.NewWeaviateBatchingActionsCreateOK().WithPayload(batchedRequestResponse)
-
-	})
-
-	api.WeaviateBatchingThingsCreateHandler = WeaviateBatchingThingsCreateHandler
-	// operations.WeaviateBatchingThingsCreateHandlerFunc(func(params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
+	// api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(func(params operations.WeaviateBatchingActionsCreateParams) middleware.Responder {
 	// 	defer messaging.TimeTrack(time.Now())
 
 	// 	dbLock, err := db.ConnectorLock()
 	// 	if err != nil {
-	// 		return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
+	// 		return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
 	// 	}
 	// 	requestLocks := rest_api_utils.RequestLocks{
 	// 		DBLock:      dbLock,
@@ -411,41 +365,43 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	// 	defer requestLocks.DelayedLock.Unlock()
 
-	// 	amountOfBatchedRequests := len(params.Body.Things)
+	// 	amountOfBatchedRequests := len(params.Body.Actions)
 	// 	errorResponse := &models.ErrorResponse{}
 
 	// 	if amountOfBatchedRequests == 0 {
-	// 		return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errorResponse)
+	// 		return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().WithPayload(errorResponse)
 	// 	}
 
-	// 	isThingsCreate := true
+	// 	isThingsCreate := false
 	// 	fieldsToKeep := determineResponseFields(params.Body.Fields, isThingsCreate)
 
-	// 	requestResults := make(chan rest_api_utils.BatchedThingsCreateRequestResponse, amountOfBatchedRequests)
+	// 	requestResults := make(chan rest_api_utils.BatchedActionsCreateRequestResponse, amountOfBatchedRequests)
 
 	// 	wg := new(sync.WaitGroup)
 
 	// 	async := params.Body.Async
 
 	// 	ctx := params.HTTPRequest.Context()
+
 	// 	// Generate a goroutine for each separate request
-	// 	for requestIndex, batchedRequest := range params.Body.Things {
+	// 	for requestIndex, batchedRequest := range params.Body.Actions {
 	// 		wg.Add(1)
-	// 		go handleBatchedThingsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, &requestLocks, fieldsToKeep)
+	// 		go handleBatchedActionsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, &requestLocks, fieldsToKeep)
 	// 	}
 
 	// 	wg.Wait()
 
 	// 	close(requestResults)
 
-	// 	batchedRequestResponse := make([]*models.ThingsGetResponse, amountOfBatchedRequests)
+	// 	batchedRequestResponse := make([]*models.ActionsGetResponse, amountOfBatchedRequests)
 
 	// 	// Add the requests to the result array in the correct order
 	// 	for batchedRequestResult := range requestResults {
 	// 		batchedRequestResponse[batchedRequestResult.RequestIndex] = batchedRequestResult.Response
 	// 	}
 
-	// 	return operations.NewWeaviateBatchingThingsCreateOK().WithPayload(batchedRequestResponse)
+	// 	return operations.NewWeaviateBatchingActionsCreateOK().WithPayload(batchedRequestResponse)
+
 	// })
 
 	/*
@@ -458,6 +414,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.ServerShutdown = func() {}
 
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
+}
+
+func setupBatchHandlers(api *operations.WeaviateAPI) {
+	batchAPI := batch.New(appState)
+
+	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(batchAPI.ThingsCreate)
 }
 
 // Handle a single unbatched GraphQL request, return a tuple containing the index of the request in the batch and either the response or an error
@@ -708,37 +670,6 @@ func handleBatchedThingsCreateRequest(wg *sync.WaitGroup, ctx context.Context, b
 	}
 }
 
-// determine which field values not to return
-func determineResponseFields(fields []*string, isThingsCreate bool) map[string]int {
-	fieldsToKeep := map[string]int{"@class": 0, "schema": 0, "creationtimeunix": 0, "key": 0, "actionid": 0}
-
-	// convert to things instead of actions
-	if isThingsCreate {
-		delete(fieldsToKeep, "actionid")
-		fieldsToKeep["thingid"] = 0
-	}
-
-	if len(fields) > 0 {
-
-		// check if "ALL" option is provided
-		for _, field := range fields {
-			fieldToKeep := strings.ToLower(*field)
-			if fieldToKeep == "all" {
-				return fieldsToKeep
-			}
-		}
-
-		fieldsToKeep = make(map[string]int)
-		// iterate over the provided fields
-		for _, field := range fields {
-			fieldToKeep := strings.ToLower(*field)
-			fieldsToKeep[fieldToKeep] = 0
-		}
-	}
-
-	return fieldsToKeep
-}
-
 // The TLS configuration before HTTPS server starts.
 func configureTLS(tlsConfig *tls.Config) {
 	// Make all necessary changes to the TLS configuration here.
@@ -762,9 +693,11 @@ func configureServer(s *http.Server, scheme, addr string) {
 
 	// Create message service
 	messaging = &messages.Messaging{}
+	appState.Messaging = messaging
 
 	// Load the config using the flags
 	serverConfig = &config.WeaviateConfig{}
+	appState.ServerConfig = serverConfig
 	err := serverConfig.LoadConfig(connectorOptionGroup, messaging)
 
 	// Add properties to the config
@@ -830,6 +763,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	if err != nil {
 		messaging.ExitError(1, fmt.Sprintf("Could not initialize the database: %s", err.Error()))
 	}
+	appState.Database = db
 
 	manager.TriggerSchemaUpdateCallbacks()
 	network.RegisterUpdatePeerCallback(func(peers peers.Peers) {
@@ -988,6 +922,7 @@ func connectToNetwork() {
 	if serverConfig.Environment.Network == nil {
 		messaging.InfoMessage(fmt.Sprintf("No network configured, not joining one"))
 		network = libnetworkFake.FakeNetwork{}
+		appState.Network = network
 	} else {
 		genesis_url := strfmt.URI(serverConfig.Environment.Network.GenesisURL)
 		public_url := strfmt.URI(serverConfig.Environment.Network.PublicURL)
@@ -999,6 +934,7 @@ func connectToNetwork() {
 			messaging.ExitError(78, fmt.Sprintf("Could not connect to network! Reason: %+v", err))
 		} else {
 			network = *new_net
+			appState.Network = *new_net
 		}
 	}
 }

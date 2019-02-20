@@ -52,6 +52,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	batchmodels "github.com/creativesoftwarefdn/weaviate/restapi/batch/models"
 )
 
 // Foobar has some basic variables.
@@ -226,7 +227,7 @@ func (f *Foobar) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.
 	return nil
 }
 
-func (f *Foobar) AddThingsBatch(ctx context.Context, things []*models.Thing, uuids []strfmt.UUID) error {
+func (f *Foobar) AddThingsBatch(ctx context.Context, things batchmodels.Things) error {
 	// If success return nil, otherwise return the error
 	return nil
 }
