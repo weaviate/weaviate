@@ -80,6 +80,16 @@ func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
 		q := gremlin.New().Raw("g")
 
 		for _, thing := range chunk {
+			if thing.Err != nil {
+				// an error that happened prior to this point int time could have been a
+				// validation error. We simply skip over it right now, as it has
+				// already errored. The reason it is still included in this list is so
+				// that the result list matches the incoming list exactly in order and
+				// length, so the user can easily deduce which individual class could
+				// be imported and which failed.
+				continue
+			}
+
 			q = q.Raw("\n")
 			className := schema.AssertValidClassName(thing.Thing.AtClass)
 			vertexLabel := j.state.GetMappedClassName(className)
@@ -99,6 +109,13 @@ func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
 			if err != nil {
 				return err
 			}
+		}
+
+		if q.String() == "g" {
+			// it seems we didn't get a single valid item, our query is still the same
+			// as before. Let's return. The API package is aware of all prior errors
+			// and can send them to the user correctly.
+			return nil
 		}
 
 		_, err := j.client.Execute(q)
