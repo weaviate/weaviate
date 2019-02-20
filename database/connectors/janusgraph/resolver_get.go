@@ -70,26 +70,16 @@ func (j *Janusgraph) LocalGetClass(params *get.Params) (interface{}, error) {
 }
 
 func (j *Janusgraph) doLocalGetClass(first, offset int, params *get.Params) ([]interface{}, error) {
-	results := []interface{}{}
 
 	className := schema.AssertValidClassName(params.ClassName)
-	err := j.listClass(params.Kind, &className, first, offset, params.Filters, func(uuid strfmt.UUID) {
-		var properties models.Schema
-		err := j.getClass(params.Kind, uuid, nil, nil, nil, nil, nil, &properties)
-		if err != nil {
-			return
-		}
-
-		result := j.doLocalGetClassResolveOneClass(params.Kind, className, uuid, params.Properties, properties)
-
-		// nil result? Then we simply could not fetch the class; might be deleted in the mean time?
-		if result != nil {
-			results = append(results, result)
-		}
-	})
-
+	classes, err := j.getClasses(params.Kind, &className, first, offset, params.Filters)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("the new getClasses errored: %s", err)
+	}
+
+	results := make([]interface{}, len(classes), len(classes))
+	for i, class := range classes {
+		results[i] = j.doLocalGetClassResolveOneClass(params.Kind, className, class.uuid, params.Properties, class.properties)
 	}
 
 	return results, nil
@@ -118,7 +108,8 @@ func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className sch
 		} else {
 			// Reference property
 			// Yes refer to the original name here, not the normalized name.
-			result[selectProperty.Name] = j.doLocalGetClassResolveRefClassProp(knd, className, selectProperty, propertiesMap)
+			// result[selectProperty.Name] = j.doLocalGetClassResolveRefClassProp(knd, className, selectProperty, propertiesMap)
+			result[selectProperty.Name] = []interface{}{}
 		}
 	}
 
@@ -126,6 +117,7 @@ func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className sch
 }
 
 func (j *Janusgraph) doLocalGetClassResolveRefClassProp(knd kind.Kind, className schema.ClassName,
+
 	selectProperty get.SelectProperty, propertiesMap map[string]interface{}) []interface{} {
 	propertyName := schema.AssertValidPropertyName(
 		strings.ToLower(selectProperty.Name[0:1]) + selectProperty.Name[1:len(selectProperty.Name)])
