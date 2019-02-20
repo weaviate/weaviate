@@ -17,7 +17,7 @@
         "idx_file" : "test/contextionary/example.idx"
       },
       "schemas": {
-        "Thing": "tools/dev//schema/things_schema.json",
+        "Thing": "tools/dev/schema/things_schema.json",
         "Action": "tools/dev/schema/actions_schema.json"
       },
       "limit": 100,
@@ -73,8 +73,8 @@
         "url": "http://etcd:2379"
       },
       "contextionary": {
-        "knn_file" : "contextionary/contextionary.knn",
-	"idx_file" : "contextionary/contextionary.idx"
+        "knn_file" : "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.knn",
+	      "idx_file" : "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.idx"
       },
       "schemas": {
         "Thing": "/schema/things_schema.json",
@@ -106,8 +106,8 @@
         }
       },
       "contextionary": {
-        "knn_file" : "contextionary/contextionary.knn",
-	"idx_file" : "contextionary/contextionary.idx"
+        "knn_file" : "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.knn",
+	      "idx_file" : "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.idx"
       },
       "schemas": {
         "Thing": "/schema/things_schema.json",
