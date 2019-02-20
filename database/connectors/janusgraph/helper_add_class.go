@@ -16,6 +16,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	batchmodels "github.com/creativesoftwarefdn/weaviate/restapi/batch/models"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -49,13 +50,13 @@ type batchChunk struct {
 	uuid  strfmt.UUID
 }
 
-func (j *Janusgraph) addThingsBatch(things []*models.Thing, uuids []strfmt.UUID) error {
+func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
 	chunkSize := MaximumBatchItemsPerQuery
 	chunks := len(things) / chunkSize
 	if len(things) < chunkSize {
 		chunks = 1
 	}
-	chunked := make([][]batchChunk, chunks)
+	chunked := make([][]batchmodels.Thing, chunks)
 	chunk := 0
 
 	for i := 0; i < len(things); i++ {
@@ -68,9 +69,9 @@ func (j *Janusgraph) addThingsBatch(things []*models.Thing, uuids []strfmt.UUID)
 			if len(things)-i < chunkSize {
 				currentChunkSize = len(things) - i
 			}
-			chunked[chunk] = make([]batchChunk, currentChunkSize)
+			chunked[chunk] = make([]batchmodels.Thing, currentChunkSize)
 		}
-		chunked[chunk][i%chunkSize] = batchChunk{things[i], uuids[i]}
+		chunked[chunk][i%chunkSize] = things[i]
 	}
 
 	for _, chunk := range chunked {
@@ -80,21 +81,21 @@ func (j *Janusgraph) addThingsBatch(things []*models.Thing, uuids []strfmt.UUID)
 
 		for _, thing := range chunk {
 			q = q.Raw("\n")
-			className := schema.AssertValidClassName(thing.thing.AtClass)
+			className := schema.AssertValidClassName(thing.Thing.AtClass)
 			vertexLabel := j.state.GetMappedClassName(className)
 			sourceClassAlias := "classToBeAdded"
 
 			q = q.AddV(string(vertexLabel)).
 				As(sourceClassAlias).
 				StringProperty(PROP_KIND, k.Name()).
-				StringProperty(PROP_UUID, thing.uuid.String()).
+				StringProperty(PROP_UUID, thing.UUID.String()).
 				StringProperty(PROP_CLASS_ID, string(vertexLabel)).
-				StringProperty(PROP_AT_CONTEXT, thing.thing.AtContext).
-				Int64Property(PROP_CREATION_TIME_UNIX, thing.thing.CreationTimeUnix).
-				Int64Property(PROP_LAST_UPDATE_TIME_UNIX, thing.thing.LastUpdateTimeUnix)
+				StringProperty(PROP_AT_CONTEXT, thing.Thing.AtContext).
+				Int64Property(PROP_CREATION_TIME_UNIX, thing.Thing.CreationTimeUnix).
+				Int64Property(PROP_LAST_UPDATE_TIME_UNIX, thing.Thing.LastUpdateTimeUnix)
 
 			var err error
-			q, err = j.addEdgesToQuery(q, k, className, thing.thing.Schema, sourceClassAlias)
+			q, err = j.addEdgesToQuery(q, k, className, thing.Thing.Schema, sourceClassAlias)
 			if err != nil {
 				return err
 			}
