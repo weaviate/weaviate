@@ -350,60 +350,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		return graphql.NewWeaviateGraphqlBatchOK().WithPayload(batchedRequestResponse)
 	})
 
-	// api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(func(params operations.WeaviateBatchingActionsCreateParams) middleware.Responder {
-	// 	defer messaging.TimeTrack(time.Now())
-
-	// 	dbLock, err := db.ConnectorLock()
-	// 	if err != nil {
-	// 		return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
-	// 	}
-	// 	requestLocks := rest_api_utils.RequestLocks{
-	// 		DBLock:      dbLock,
-	// 		DelayedLock: delayed_unlock.New(dbLock),
-	// 		DBConnector: dbLock.Connector(),
-	// 	}
-
-	// 	defer requestLocks.DelayedLock.Unlock()
-
-	// 	amountOfBatchedRequests := len(params.Body.Actions)
-	// 	errorResponse := &models.ErrorResponse{}
-
-	// 	if amountOfBatchedRequests == 0 {
-	// 		return operations.NewWeaviateBatchingActionsCreateUnprocessableEntity().WithPayload(errorResponse)
-	// 	}
-
-	// 	isThingsCreate := false
-	// 	fieldsToKeep := determineResponseFields(params.Body.Fields, isThingsCreate)
-
-	// 	requestResults := make(chan rest_api_utils.BatchedActionsCreateRequestResponse, amountOfBatchedRequests)
-
-	// 	wg := new(sync.WaitGroup)
-
-	// 	async := params.Body.Async
-
-	// 	ctx := params.HTTPRequest.Context()
-
-	// 	// Generate a goroutine for each separate request
-	// 	for requestIndex, batchedRequest := range params.Body.Actions {
-	// 		wg.Add(1)
-	// 		go handleBatchedActionsCreateRequest(wg, ctx, batchedRequest, requestIndex, &requestResults, async, &requestLocks, fieldsToKeep)
-	// 	}
-
-	// 	wg.Wait()
-
-	// 	close(requestResults)
-
-	// 	batchedRequestResponse := make([]*models.ActionsGetResponse, amountOfBatchedRequests)
-
-	// 	// Add the requests to the result array in the correct order
-	// 	for batchedRequestResult := range requestResults {
-	// 		batchedRequestResponse[batchedRequestResult.RequestIndex] = batchedRequestResult.Response
-	// 	}
-
-	// 	return operations.NewWeaviateBatchingActionsCreateOK().WithPayload(batchedRequestResponse)
-
-	// })
-
 	/*
 	 * HANDLE KNOWLEDGE TOOLS
 	 */
@@ -420,6 +366,7 @@ func setupBatchHandlers(api *operations.WeaviateAPI) {
 	batchAPI := batch.New(appState)
 
 	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(batchAPI.ThingsCreate)
+	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(batchAPI.ActionsCreate)
 }
 
 // Handle a single unbatched GraphQL request, return a tuple containing the index of the request in the batch and either the response or an error

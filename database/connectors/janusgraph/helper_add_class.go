@@ -15,7 +15,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
-	"github.com/creativesoftwarefdn/weaviate/models"
 	batchmodels "github.com/creativesoftwarefdn/weaviate/restapi/batch/models"
 	"github.com/go-openapi/strfmt"
 )
@@ -43,12 +42,9 @@ func (j *Janusgraph) addClass(k kind.Kind, className schema.ClassName, UUID strf
 	return err
 }
 
+// MaximumBatchItemsPerQuery is the threshold when batches will be broken up
+// into smaller chunks so we avoid StackOverflowExceptions in the Janus backend
 const MaximumBatchItemsPerQuery = 50
-
-type batchChunk struct {
-	thing *models.Thing
-	uuid  strfmt.UUID
-}
 
 func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
 	chunkSize := MaximumBatchItemsPerQuery
@@ -106,6 +102,83 @@ func (j *Janusgraph) addThingsBatch(things batchmodels.Things) error {
 
 			var err error
 			q, err = j.addEdgesToQuery(q, k, className, thing.Thing.Schema, sourceClassAlias)
+			if err != nil {
+				return err
+			}
+		}
+
+		if q.String() == "g" {
+			// it seems we didn't get a single valid item, our query is still the same
+			// as before. Let's return. The API package is aware of all prior errors
+			// and can send them to the user correctly.
+			return nil
+		}
+
+		_, err := j.client.Execute(q)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (j *Janusgraph) addActionsBatch(actions batchmodels.Actions) error {
+	chunkSize := MaximumBatchItemsPerQuery
+	chunks := len(actions) / chunkSize
+	if len(actions) < chunkSize {
+		chunks = 1
+	}
+	chunked := make([][]batchmodels.Action, chunks)
+	chunk := 0
+
+	for i := 0; i < len(actions); i++ {
+		if i%chunkSize == 0 {
+			if i != 0 {
+				chunk++
+			}
+
+			currentChunkSize := chunkSize
+			if len(actions)-i < chunkSize {
+				currentChunkSize = len(actions) - i
+			}
+			chunked[chunk] = make([]batchmodels.Action, currentChunkSize)
+		}
+		chunked[chunk][i%chunkSize] = actions[i]
+	}
+
+	for _, chunk := range chunked {
+		k := kind.ACTION_KIND
+
+		q := gremlin.New().Raw("g")
+
+		for _, action := range chunk {
+			if action.Err != nil {
+				// an error that happened prior to this point int time could have been a
+				// validation error. We simply skip over it right now, as it has
+				// already errored. The reason it is still included in this list is so
+				// that the result list matches the incoming list exactly in order and
+				// length, so the user can easily deduce which individual class could
+				// be imported and which failed.
+				continue
+			}
+
+			q = q.Raw("\n")
+			className := schema.AssertValidClassName(action.Action.AtClass)
+			vertexLabel := j.state.GetMappedClassName(className)
+			sourceClassAlias := "classToBeAdded"
+
+			q = q.AddV(string(vertexLabel)).
+				As(sourceClassAlias).
+				StringProperty(PROP_KIND, k.Name()).
+				StringProperty(PROP_UUID, action.UUID.String()).
+				StringProperty(PROP_CLASS_ID, string(vertexLabel)).
+				StringProperty(PROP_AT_CONTEXT, action.Action.AtContext).
+				Int64Property(PROP_CREATION_TIME_UNIX, action.Action.CreationTimeUnix).
+				Int64Property(PROP_LAST_UPDATE_TIME_UNIX, action.Action.LastUpdateTimeUnix)
+
+			var err error
+			q, err = j.addEdgesToQuery(q, k, className, action.Action.Schema, sourceClassAlias)
 			if err != nil {
 				return err
 			}
