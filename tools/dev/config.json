@@ -1,129 +1,132 @@
 {
-	"environments": [
-    {
-      "name": "janusgraph",
-      "database": {
-        "name": "janusgraph",
-        "database_config": {
-          "url": "http://localhost:8182"
+    "environments": [
+        {
+            "configuration_storage": {
+                "url": "http://localhost:2379",
+                "type": "etcd"
+            },
+            "name": "janusgraph",
+            "contextionary": {
+                "idx_file": "test/contextionary/example.idx",
+                "knn_file": "test/contextionary/example.knn"
+            },
+            "database": {
+                "name": "janusgraph",
+                "database_config": {
+                    "url": "http://localhost:8182"
+                }
+            },
+            "limit": 100,
+            "debug": true,
+            "development": {
+                "external_instances": [
+                    {
+                        "url": "http://localhost:8080"
+                    },
+                    {
+                        "url": "http://127.0.0.1:8080"
+                    }
+                ]
+            },
+            "schemas": {
+                "Thing": "tools/dev/schema/things_schema.json",
+                "Action": "tools/dev/schema/actions_schema.json"
+            },
+            "network": {
+                "genesis_url": "http://localhost:8090",
+                "public_url": "http://localhost:8080",
+                "peer_name": "bestWeaviate"
+            }
+        },
+        {
+            "configuration_storage": {
+                "url": "http://localhost:2379",
+                "type": "etcd"
+            },
+            "name": "janusgraph_test",
+            "contextionary": {
+                "idx_file": "contextionary/contextionary.idx",
+                "knn_file": "contextionary/contextionary.knn"
+            },
+            "database": {
+                "name": "janusgraph",
+                "database_config": {
+                    "url": "http://localhost:8182"
+                }
+            },
+            "limit": 100,
+            "debug": true,
+            "schemas": {
+                "Thing": "test/schema/test-thing-schema.json",
+                "Action": "test/schema/test-action-schema.json"
+            }
+        },
+        {
+            "configuration_storage": {
+                "url": "http://etcd:2379",
+                "type": "etcd"
+            },
+            "name": "janusgraph_docker",
+            "contextionary": {
+                "idx_file": "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.idx",
+                "knn_file": "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.knn"
+            },
+            "database": {
+                "name": "janusgraph",
+                "database_config": {
+                    "url": "http://janus:8182"
+                }
+            },
+            "limit": 100,
+            "debug": true,
+            "development": {
+                "external_instances": [
+                    {
+                        "url": "http://localhost:8080"
+                    },
+                    {
+                        "url": "http://127.0.0.1:8080"
+                    }
+                ]
+            },
+            "schemas": {
+                "Thing": "/schema/things_schema.json",
+                "Action": "/schema/actions_schema.json"
+            },
+            "network": {
+                "genesis_url": "http://genesis_fake:8090",
+                "public_url": "http://localhost:8080",
+                "peer_name": "bestWeaviate"
+            }
+        },
+        {
+            "name": "janusgraph_kubernetes",
+            "contextionary": {
+                "idx_file": "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.idx",
+                "knn_file": "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.knn"
+            },
+            "database": {
+                "name": "janusgraph",
+                "database_config": {
+                    "url": "http://weaviate-janusgraph:8182"
+                }
+            },
+            "limit": 100,
+            "debug": true,
+            "development": {
+                "external_instances": [
+                    {
+                        "url": "http://localhost:8080"
+                    },
+                    {
+                        "url": "http://127.0.0.1:8080"
+                    }
+                ]
+            },
+            "schemas": {
+                "Thing": "/schema/things_schema.json",
+                "Action": "/schema/actions_schema.json"
+            }
         }
-      },
-      "configuration_storage": {
-        "type": "etcd",
-        "url": "http://localhost:2379"
-      },
-      "contextionary": {
-        "knn_file" : "test/contextionary/example.knn",
-        "idx_file" : "test/contextionary/example.idx"
-      },
-      "schemas": {
-        "Thing": "tools/dev/schema/things_schema.json",
-        "Action": "tools/dev/schema/actions_schema.json"
-      },
-      "limit": 100,
-      "debug": true,
-      "development": {
-        "external_instances": [{
-            "url": "http://localhost:8080"
-          },
-          {
-            "url": "http://127.0.0.1:8080"
-          }
-        ]
-      },
-      "network": {
-        "genesis_url": "http://localhost:8090",
-        "public_url": "http://localhost:8080",
-        "peer_name": "bestWeaviate"
-      }
-    },
-    {
-      "name": "janusgraph_test",
-      "database": {
-        "name": "janusgraph",
-        "database_config": {
-          "url": "http://localhost:8182"
-        }
-      },
-      "configuration_storage": {
-        "type": "etcd",
-        "url": "http://localhost:2379"
-      },
-      "contextionary": {
-        "knn_file" : "contextionary/contextionary.knn",
-	"idx_file" : "contextionary/contextionary.idx"
-      },
-      "schemas": {
-        "Thing": "test/schema/test-thing-schema.json",
-        "Action": "test/schema/test-action-schema.json"
-      },
-      "limit": 100,
-      "debug": true
-    },
-    {
-      "name": "janusgraph_docker",
-      "database": {
-        "name": "janusgraph",
-        "database_config": {
-          "url": "http://janus:8182"
-        }
-      },
-      "configuration_storage": {
-        "type": "etcd",
-        "url": "http://etcd:2379"
-      },
-      "contextionary": {
-        "knn_file" : "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.knn",
-	      "idx_file" : "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.idx"
-      },
-      "schemas": {
-        "Thing": "/schema/things_schema.json",
-        "Action": "/schema/actions_schema.json"
-      },
-      "network": {
-        "genesis_url": "http://genesis_fake:8090",
-        "public_url": "http://localhost:8080",
-        "peer_name": "bestWeaviate"
-      },
-      "limit": 100,
-      "debug": true,
-      "development": {
-        "external_instances": [{
-            "url": "http://localhost:8080"
-          },
-          {
-            "url": "http://127.0.0.1:8080"
-          }
-        ]
-      }
-    },
-    {
-      "name": "janusgraph_kubernetes",
-      "database": {
-        "name": "janusgraph",
-        "database_config": {
-          "url": "http://weaviate-janusgraph:8182"
-        }
-      },
-      "contextionary": {
-        "knn_file" : "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.knn",
-	      "idx_file" : "https://contextionary.creativesoftwarefdn.org/0.6.0/en/contextionary.idx"
-      },
-      "schemas": {
-        "Thing": "/schema/things_schema.json",
-        "Action": "/schema/actions_schema.json"
-      },
-      "limit": 100,
-      "debug": true,
-      "development": {
-        "external_instances": [{
-            "url": "http://localhost:8080"
-          },
-          {
-            "url": "http://127.0.0.1:8080"
-          }
-        ]
-      }
-    }
-  ]
+    ]
 }
