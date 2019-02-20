@@ -18,7 +18,7 @@ import (
 )
 
 // State is the only source of appliaction-wide state
-// NOTE: This is not true yet, se gh-xxx
+// NOTE: This is not true yet, se gh-723
 type State struct {
 	Database     database.Database
 	Network      network.Network
