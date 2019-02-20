@@ -31,7 +31,7 @@ import (
 
 // a helper type that is created for each incoming request and spans the
 // lifecycle of the request
-type batchThingsRequest struct {
+type thingsRequest struct {
 	*http.Request
 	*state.State
 	locks *rest_api_utils.RequestLocks
@@ -61,15 +61,15 @@ func (b *Batch) ThingsCreate(params operations.WeaviateBatchingThingsCreateParam
 		WithPayload(batchThings.Response())
 }
 
-func newThingsRequest(r *http.Request, deps *state.State) *batchThingsRequest {
-	return &batchThingsRequest{
+func newThingsRequest(r *http.Request, deps *state.State) *thingsRequest {
+	return &thingsRequest{
 		Request: r,
 		State:   deps,
 	}
 }
 
 // a call to lock() should always be followed by a deferred call to unlock()
-func (r *batchThingsRequest) lock() middleware.Responder {
+func (r *thingsRequest) lock() middleware.Responder {
 	dbLock, err := r.Database.ConnectorLock()
 	if err != nil {
 		return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
@@ -82,11 +82,11 @@ func (r *batchThingsRequest) lock() middleware.Responder {
 	return nil
 }
 
-func (r *batchThingsRequest) unlock() {
+func (r *thingsRequest) unlock() {
 	r.locks.DBLock.Unlock()
 }
 
-func (r *batchThingsRequest) validateForm(params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
+func (r *thingsRequest) validateForm(params operations.WeaviateBatchingThingsCreateParams) middleware.Responder {
 	if len(params.Body.Things) == 0 {
 		err := fmt.Errorf("field 'things' cannot be empty, need at least one thing for batching")
 		return operations.NewWeaviateBatchingThingsCreateUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
@@ -95,7 +95,7 @@ func (r *batchThingsRequest) validateForm(params operations.WeaviateBatchingThin
 	return nil
 }
 
-func (r *batchThingsRequest) validateConcurrently(body operations.WeaviateBatchingThingsCreateBody) batchmodels.Things {
+func (r *thingsRequest) validateConcurrently(body operations.WeaviateBatchingThingsCreateBody) batchmodels.Things {
 	isThingsCreate := true
 	fieldsToKeep := determineResponseFields(body.Fields, isThingsCreate)
 	c := make(chan batchmodels.Thing, len(body.Things))
@@ -113,7 +113,7 @@ func (r *batchThingsRequest) validateConcurrently(body operations.WeaviateBatchi
 	return thingsChanToSlice(c)
 }
 
-func (r *batchThingsRequest) validateThing(wg *sync.WaitGroup, thingCreate *models.ThingCreate,
+func (r *thingsRequest) validateThing(wg *sync.WaitGroup, thingCreate *models.ThingCreate,
 	originalIndex int, resultsC *chan batchmodels.Thing, fieldsToKeep map[string]int) {
 	defer wg.Done()
 
