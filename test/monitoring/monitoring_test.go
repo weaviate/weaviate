@@ -12,22 +12,14 @@ func TestRequestMonitoringBasics(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	calledFunctions := telemetry.RequestsLog{
-		Mutex: &sync.Mutex{},
-		Log:   make(map[string]*telemetry.RequestLog),
-	}
+	calledFunctions := telemetry.NewLog()
 
-	postRequestLog := telemetry.RequestLog{
-		Name:       "ginormous-thunder-apple",
-		Type:       "POST",
-		Identifier: "weaviate.something.or.other",
-		Amount:     1,
-		When:       1550745544,
-	}
+	postRequestLog := telemetry.NewRequestTypeLog("ginormous-thunder-apple", "POST", "weaviate.something.or.other", 1)
+	postRequestLog.When = int64(1550745544)
 
 	telemetryEnabled := true
 
-	calledFunctions.Register(&postRequestLog, telemetryEnabled)
+	calledFunctions.Register(postRequestLog, telemetryEnabled)
 
 	loggedFunc := calledFunctions.Log["weaviate.something.or.other"]
 
@@ -49,23 +41,15 @@ func TestRequestIncrementing(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	calledFunctions := telemetry.RequestsLog{
-		Mutex: &sync.Mutex{},
-		Log:   make(map[string]*telemetry.RequestLog),
-	}
+	calledFunctions := telemetry.NewLog()
 
-	postRequestLog := telemetry.RequestLog{
-		Name:       "grilled-cheese-sandwich",
-		Type:       "POST",
-		Identifier: "weaviate.something.or.other",
-		Amount:     1,
-		When:       1550745544,
-	}
+	postRequestLog := telemetry.NewRequestTypeLog("grilled-cheese-sandwich", "POST", "weaviate.something.or.other", 1)
+	postRequestLog.When = int64(1550745544)
 
 	telemetryEnabled := true
 
-	calledFunctions.Register(&postRequestLog, telemetryEnabled)
-	calledFunctions.Register(&postRequestLog, telemetryEnabled)
+	calledFunctions.Register(postRequestLog, telemetryEnabled)
+	calledFunctions.Register(postRequestLog, telemetryEnabled)
 
 	loggedFunctionType := calledFunctions.Log["weaviate.something.or.other"]
 
@@ -77,41 +61,23 @@ func TestMultipleRequestTypes(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	calledFunctions := telemetry.RequestsLog{
-		Mutex: &sync.Mutex{},
-		Log:   make(map[string]*telemetry.RequestLog),
-	}
+	calledFunctions := telemetry.NewLog()
 
-	postRequestLog1 := telemetry.RequestLog{
-		Name:       "awkward-handshake-guy",
-		Type:       "GQL",
-		Identifier: "weaviate.something.or.other1",
-		Amount:     1,
-		When:       1550745544,
-	}
+	postRequestLog1 := telemetry.NewRequestTypeLog("awkward-handshake-guy", "GQL", "weaviate.something.or.other1", 1)
+	postRequestLog1.When = int64(1550745544)
 
-	postRequestLog2 := telemetry.RequestLog{
-		Name:       "apologetic-thermonuclear-blunderbuss",
-		Type:       "POST",
-		Identifier: "weaviate.something.or.other2",
-		Amount:     1,
-		When:       1550745544,
-	}
+	postRequestLog2 := telemetry.NewRequestTypeLog("apologetic-thermonuclear-blunderbuss", "POST", "weaviate.something.or.other2", 1)
+	postRequestLog2.When = int64(1550745544)
 
-	postRequestLog3 := telemetry.RequestLog{
-		Name:       "dormant-artificial-piglet",
-		Type:       "POST",
-		Identifier: "weaviate.something.or.other3",
-		Amount:     1,
-		When:       1550745544,
-	}
+	postRequestLog3 := telemetry.NewRequestTypeLog("dormant-artificial-piglet", "POST", "weaviate.something.or.other3", 1)
+	postRequestLog3.When = int64(1550745544)
 
 	telemetryEnabled := true
 
-	calledFunctions.Register(&postRequestLog1, telemetryEnabled)
-	calledFunctions.Register(&postRequestLog2, telemetryEnabled)
-	calledFunctions.Register(&postRequestLog3, telemetryEnabled)
-	calledFunctions.Register(&postRequestLog3, telemetryEnabled)
+	calledFunctions.Register(postRequestLog1, telemetryEnabled)
+	calledFunctions.Register(postRequestLog2, telemetryEnabled)
+	calledFunctions.Register(postRequestLog3, telemetryEnabled)
+	calledFunctions.Register(postRequestLog3, telemetryEnabled)
 
 	loggedFunctionType1 := calledFunctions.Log["weaviate.something.or.other1"]
 	loggedFunctionType2 := calledFunctions.Log["weaviate.something.or.other2"]
@@ -128,30 +94,18 @@ func TestConcurrentRequests(t *testing.T) {
 
 	// setup
 	var wg sync.WaitGroup
-	calledFunctions := telemetry.RequestsLog{
-		Mutex: &sync.Mutex{},
-		Log:   make(map[string]*telemetry.RequestLog),
-	}
 
-	postRequestLog1 := telemetry.RequestLog{
-		Name:       "forgetful-seal-cooker",
-		Type:       "GQL",
-		Identifier: "weaviate.something.or.other1",
-		Amount:     1,
-		When:       1550745544,
-	}
+	calledFunctions := telemetry.NewLog()
 
-	postRequestLog2 := telemetry.RequestLog{
-		Name:       "brave-maple-leaf",
-		Type:       "POST",
-		Identifier: "weaviate.something.or.other2",
-		Amount:     1,
-		When:       1550745544,
-	}
+	postRequestLog1 := telemetry.NewRequestTypeLog("forgetful-seal-cooker", "GQL", "weaviate.something.or.other1", 1)
+	postRequestLog1.When = int64(1550745544)
+
+	postRequestLog2 := telemetry.NewRequestTypeLog("brave-maple-leaf", "POST", "weaviate.something.or.other2", 1)
+	postRequestLog2.When = int64(1550745544)
 
 	telemetryEnabled := true
 
-	performOneThousandConcurrentRequests(&calledFunctions, &postRequestLog1, &postRequestLog2, telemetryEnabled, &wg)
+	performOneThousandConcurrentRequests(calledFunctions, postRequestLog1, postRequestLog2, telemetryEnabled, &wg)
 
 	wg.Wait()
 
