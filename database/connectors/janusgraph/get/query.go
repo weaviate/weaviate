@@ -14,6 +14,7 @@ package get
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/filters"
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
@@ -59,6 +60,13 @@ func (b *Query) String() (string, error) {
 	var filterQuery string
 	var refPropQueries string
 	var err error
+	var first = 100
+	var offset = 0
+
+	if b.params.Pagination != nil {
+		first = b.params.Pagination.First
+		offset = b.params.Pagination.After
+	}
 
 	if b.params.Filters != nil {
 		if filterQuery, err = filters.New(b.params.Filters, b.nameSource).String(); err != nil {
@@ -75,7 +83,7 @@ func (b *Query) String() (string, error) {
 		HasLabel(string(b.nameSource.GetMappedClassName(schema.ClassName(b.params.ClassName)))).
 		Raw(filterQuery).
 		Raw(refPropQueries).
-		Range(b.params.Pagination.After, b.params.Pagination.First).
+		Range(offset, first).
 		Path().
 		ByQuery(gremlin.New().Raw("valueMap()"))
 
@@ -109,7 +117,7 @@ func (b *Query) refPropQuery(prop get.SelectProperty, className string) []*greml
 	}
 
 	propName := string(b.nameSource.GetMappedPropertyName(schema.ClassName(className),
-		schema.PropertyName(prop.Name)))
+		untitle(prop.Name)))
 
 	var queries []*gremlin.Query
 
@@ -135,4 +143,8 @@ func (b *Query) refPropQuery(prop get.SelectProperty, className string) []*greml
 	}
 
 	return queries
+}
+
+func untitle(propName string) schema.PropertyName {
+	return schema.PropertyName(strings.ToLower(string(propName[0])) + propName[1:])
 }

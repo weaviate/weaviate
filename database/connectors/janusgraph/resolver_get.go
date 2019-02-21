@@ -16,13 +16,16 @@ import (
 	"runtime/debug"
 	"strings"
 
+	jget "github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/get"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	graphql_local_common_filters "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
+	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -70,6 +73,21 @@ func (j *Janusgraph) LocalGetClass(params *get.Params) (interface{}, error) {
 }
 
 func (j *Janusgraph) doLocalGetClass(first, offset int, params *get.Params) ([]interface{}, error) {
+	// new part
+
+	q, err := jget.NewQuery(*params, &j.state, &j.schema).String()
+	if err != nil {
+		return nil, fmt.Errorf("could not build query: %s", err)
+	}
+
+	res, err := j.client.Execute(gremlin.New().Raw(q))
+	if err != nil {
+		return nil, fmt.Errorf("could not execute new query: %s", err)
+	}
+
+	fmt.Printf("\n\n\n%s\n\n\n\n", spew.Sdump(res.Data))
+
+	// old part
 
 	className := schema.AssertValidClassName(params.ClassName)
 	classes, err := j.getClasses(params.Kind, &className, first, offset, params.Filters)
