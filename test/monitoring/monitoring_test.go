@@ -8,8 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestRequestMonitoring(t *testing.T) {
+func TestRequestMonitoringBasics(t *testing.T) {
 	t.Parallel()
+
+	// setup
 	calledFunctions := telemetry.RequestsLog{
 		Mutex: &sync.Mutex{},
 		Log:   make(map[string]*telemetry.RequestLog),
@@ -27,11 +29,26 @@ func TestRequestMonitoring(t *testing.T) {
 
 	calledFunctions.Register(&postRequestLog, telemetryEnabled)
 
-	assert.Equal(t, 1, calledFunctions.Log["weaviate.something.or.other"].Amount)
+	loggedFunc := calledFunctions.Log["weaviate.something.or.other"]
+
+	// test
+	assert.Equal(t, 1, len(calledFunctions.Log))
+
+	for funcName := range calledFunctions.Log {
+		assert.Equal(t, "weaviate.something.or.other", funcName)
+	}
+
+	assert.Equal(t, "ginormous-thunder-apple", loggedFunc.Name)
+	assert.Equal(t, "POST", loggedFunc.Type)
+	assert.Equal(t, "weaviate.something.or.other", loggedFunc.Identifier)
+	assert.Equal(t, 1, loggedFunc.Amount)
+	assert.Equal(t, int64(1550745544), loggedFunc.When)
 }
 
 func TestRequestIncrementing(t *testing.T) {
 	t.Parallel()
+
+	// setup
 	calledFunctions := telemetry.RequestsLog{
 		Mutex: &sync.Mutex{},
 		Log:   make(map[string]*telemetry.RequestLog),
@@ -50,11 +67,16 @@ func TestRequestIncrementing(t *testing.T) {
 	calledFunctions.Register(&postRequestLog, telemetryEnabled)
 	calledFunctions.Register(&postRequestLog, telemetryEnabled)
 
-	assert.Equal(t, 2, calledFunctions.Log["weaviate.something.or.other"].Amount)
+	loggedFunctionType := calledFunctions.Log["weaviate.something.or.other"]
+
+	// test
+	assert.Equal(t, 2, loggedFunctionType.Amount)
 }
 
 func TestMultipleRequestTypes(t *testing.T) {
 	t.Parallel()
+
+	// setup
 	calledFunctions := telemetry.RequestsLog{
 		Mutex: &sync.Mutex{},
 		Log:   make(map[string]*telemetry.RequestLog),
@@ -91,13 +113,20 @@ func TestMultipleRequestTypes(t *testing.T) {
 	calledFunctions.Register(&postRequestLog3, telemetryEnabled)
 	calledFunctions.Register(&postRequestLog3, telemetryEnabled)
 
-	assert.Equal(t, 1, calledFunctions.Log["weaviate.something.or.other1"].Amount)
-	assert.Equal(t, 1, calledFunctions.Log["weaviate.something.or.other2"].Amount)
-	assert.Equal(t, 2, calledFunctions.Log["weaviate.something.or.other3"].Amount)
+	loggedFunctionType1 := calledFunctions.Log["weaviate.something.or.other1"]
+	loggedFunctionType2 := calledFunctions.Log["weaviate.something.or.other2"]
+	loggedFunctionType3 := calledFunctions.Log["weaviate.something.or.other3"]
+
+	// test
+	assert.Equal(t, 1, loggedFunctionType1.Amount)
+	assert.Equal(t, 1, loggedFunctionType2.Amount)
+	assert.Equal(t, 2, loggedFunctionType3.Amount)
 }
 
-func TestConcurrencyHandling(t *testing.T) {
+func TestConcurrentRequests(t *testing.T) {
 	t.Parallel()
+
+	// setup
 	var wg sync.WaitGroup
 	calledFunctions := telemetry.RequestsLog{
 		Mutex: &sync.Mutex{},
@@ -126,8 +155,12 @@ func TestConcurrencyHandling(t *testing.T) {
 
 	wg.Wait()
 
-	assert.Equal(t, 500, calledFunctions.Log["weaviate.something.or.other1"].Amount)
-	assert.Equal(t, 500, calledFunctions.Log["weaviate.something.or.other2"].Amount)
+	loggedFunctionType1 := calledFunctions.Log["weaviate.something.or.other1"]
+	loggedFunctionType2 := calledFunctions.Log["weaviate.something.or.other2"]
+
+	// test
+	assert.Equal(t, 500, loggedFunctionType1.Amount)
+	assert.Equal(t, 500, loggedFunctionType2.Amount)
 }
 
 func performOneThousandConcurrentRequests(calledFunctions *telemetry.RequestsLog, postRequestLog1 *telemetry.RequestLog, postRequestLog2 *telemetry.RequestLog, telemetryEnabled bool, wg *sync.WaitGroup) {
@@ -149,26 +182,3 @@ func performOneHundredRequests(calledFunctions *telemetry.RequestsLog, calledFun
 		calledFunctions.Register(calledFunction, telemetryEnabled)
 	}
 }
-
-func TestNetworkGQLQueryMonitoring(t *testing.T) {
-	t.Parallel()
-	// is this interesting at all? Sounds good, but both network and local queries are logged the same.
-	// This doesn't differ from the tests above.
-
-	// 2 instances, 1 network GQL query -> monitor 1 network and 1 local Q?
-	// needs single instance. network Q -> test out, test in
-}
-
-// TO TEST:
-/*
-what if one of the fields is None?
-*/
-/*
-
-
-
-happy flows
-
-
-
-*/
