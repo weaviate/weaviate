@@ -10,7 +10,7 @@
  * CONTACT: hello@creativesoftwarefdn.org
  */
 
-package fetch
+package get
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,22 +48,15 @@ func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
 		case schema.PropertyName("dateOfFirstAppearance"):
 			return "prop_7"
 		}
-	case "Town":
+	case "Country":
 		switch propName {
-		case schema.PropertyName("title"):
-			return "prop_11"
-		case schema.PropertyName("inhabitants"):
-			return "prop_12"
-		case schema.PropertyName("inCountry"):
-			return "prop_13"
-		case schema.PropertyName("isCapital"):
-			return "prop_14"
 		case schema.PropertyName("inContinent"):
-			return "prop_15"
-		case schema.PropertyName("area"):
-			return "prop_16"
-		case schema.PropertyName("dateOfFirstAppearance"):
-			return "prop_17"
+			return "prop_13"
+		}
+	case "Continent":
+		switch propName {
+		case schema.PropertyName("onPlanet"):
+			return "prop_23"
 		}
 	}
 	panic(fmt.Sprintf("fake name source does not contain a fake for '%s.%s'", className, propName))
@@ -73,8 +66,12 @@ func (f *fakeNameSource) GetMappedClassName(className schema.ClassName) state.Ma
 	switch className {
 	case schema.ClassName("City"):
 		return state.MappedClassName("class_18")
-	case schema.ClassName("Town"):
+	case schema.ClassName("Country"):
 		return state.MappedClassName("class_19")
+	case schema.ClassName("Continent"):
+		return state.MappedClassName("class_20")
+	case schema.ClassName("Planet"):
+		return state.MappedClassName("class_21")
 	default:
 		panic(fmt.Sprintf("fake name source does not contain a fake for '%s'", className))
 	}
@@ -101,20 +98,22 @@ func (f *fakeTypeSource) GetProperty(kind kind.Kind, className schema.ClassName,
 		case "inCountry":
 			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
 		}
-	case "Town":
+	case "Country":
 		switch propName {
-		case "isCapital":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"bool"}}
-		case "inhabitants":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"int"}}
-		case "area":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"number"}}
-		case "title":
+		case "name":
 			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
-		case "dateOfFirstAppearance":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"date"}}
-		case "inCountry":
-			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Country"}}
+		case "inContinent":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Continent"}}
+		}
+	case "Continent":
+		switch propName {
+		case "onPlanet":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"Planet"}}
+		}
+	case "Planet":
+		switch propName {
+		case "name":
+			return nil, &models.SemanticSchemaClassProperty{AtDataType: []string{"string"}}
 		}
 	}
 
@@ -170,7 +169,7 @@ func (p *fakeDataType) ContainsClass(needle schema.ClassName) bool {
 
 type testCase struct {
 	name          string
-	inputParams   fetch.Params
+	inputParams   get.Params
 	expectedQuery string
 	expectedErr   error
 }
