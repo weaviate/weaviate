@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// flag on, test Reset func
+// test if the RequestsLog.Reset() function can be called if the feature flag is enabled
 func TestFeatureFlagEnabled(t *testing.T) {
 	t.Parallel()
 
@@ -16,9 +16,8 @@ func TestFeatureFlagEnabled(t *testing.T) {
 		Mutex: &sync.Mutex{},
 	}
 
-	// test
 	result := log.Reset(true)
-	assert.Equal(t, telemetry.Succeeded, result) // THIS causes an error as of now, fix that and you have your first test!
+	assert.Equal(t, telemetry.Succeeded, result)
 	/*
 		added feature flags to weaviate/weaviate.conf.json, as that is the file the LoadConfig folder defaults to.
 		This may cause errors, as it defaults to a `Develop` environment that does not exist in the file (but does in the tools/dev/conf.json)
@@ -26,6 +25,7 @@ func TestFeatureFlagEnabled(t *testing.T) {
 	*/
 }
 
+// test if the RequestsLog.Reset() function can be called if the feature flag is disabled
 func TestFeatureFlagDisabled(t *testing.T) {
 	t.Parallel()
 
