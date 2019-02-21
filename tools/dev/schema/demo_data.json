@@ -40,6 +40,32 @@
 			}]
 	}, {
 		"class": "City",
+		"uuid": "021",
+		"name": "Countryless",
+		"coordinates": "N48, E005",
+		"population": "800000",
+		"isCapital": false,
+		"inCountry": []
+	}, {
+		"class": "City",
+		"uuid": "022",
+		"name": "CantDecideWhichCountryItBelongsToo",
+		"coordinates": "N48, E005",
+		"population": "600000",
+		"isCapital": false,
+		"inCountry": [{
+			"class": "Country",
+			"uuid": "006",
+			"name": "Germany",
+			"population": "83000000"
+			}, {
+			"class": "Country",
+			"uuid": "005",
+			"name": "Netherlands",
+			"population": "17000000"
+			}]
+	}, {
+		"class": "City",
 		"uuid": "004",
 		"name": "Dusseldorf",
 		"coordinates": "N48, E005",
