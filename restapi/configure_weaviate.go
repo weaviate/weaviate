@@ -1005,26 +1005,6 @@ func connectToNetwork() {
 	}
 }
 
-func GetTelemetryFlag() bool {
-	if serverConfig.Environment.Telemetry.Enabled == true {
-		return true
-	} else if serverConfig.Environment.Telemetry.Enabled == false {
-		messaging.InfoMessage(fmt.Sprintf("Telemetry disabled"))
-		return false
-	} else {
-		messaging.InfoMessage(fmt.Sprintf("Telemetry feature flag must be true or false, treating it as false"))
-		return false
-	}
-}
-
-func GetTelemetryUrl() string {
-	return serverConfig.Environment.Telemetry.URL
-}
-
-func GetTelemetryInterval() int {
-	return serverConfig.Environment.Telemetry.Interval
-}
-
 func errPayloadFromSingleErr(err error) *models.ErrorResponse {
 	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
 		Message: fmt.Sprintf("%s", err),
