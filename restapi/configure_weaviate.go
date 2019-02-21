@@ -71,6 +71,7 @@ import (
 	libnetworkFake "github.com/creativesoftwarefdn/weaviate/network/fake"
 	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/network/p2p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/swagger_middleware"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 )
 
 const pageOverride int = 1
@@ -92,6 +93,8 @@ var graphQL graphqlapi.GraphQL
 var messaging *messages.Messaging
 
 var db database.Database
+
+var requestsLog *telemetry.RequestsLog
 
 type graphQLRoot struct {
 	database.Database
