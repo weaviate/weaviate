@@ -35,11 +35,6 @@
         "genesis_url": "http://localhost:8090",
         "public_url": "http://localhost:8080",
         "peer_name": "bestWeaviate"
-      },
-      "telemetry": {
-      	"enabled": true,
-      	"interval": 300,
-      	"url": "http://127.0.0.1:8900"
       }
     },
     {
@@ -63,12 +58,7 @@
         "Action": "test/schema/test-action-schema.json"
       },
       "limit": 100,
-      "debug": true,
-      "telemetry": {
-      	"enabled": true,
-      	"interval": 300,
-      	"url": "http://127.0.0.1:8900"
-      }
+      "debug": true
     },
     {
       "name": "janusgraph_docker",
@@ -105,11 +95,6 @@
             "url": "http://127.0.0.1:8080"
           }
         ]
-      },
-      "telemetry": {
-      	"enabled": true,
-      	"interval": 300,
-      	"url": "http://127.0.0.1:8900"
       }
     },
     {
@@ -138,11 +123,6 @@
             "url": "http://127.0.0.1:8080"
           }
         ]
-      },
-      "telemetry": {
-      	"enabled": true,
-      	"interval": 300,
-      	"url": "http://127.0.0.1:8900"
       }
     }
   ]
