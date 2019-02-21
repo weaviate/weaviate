@@ -44,16 +44,10 @@ func main() {
 	server.ConfigureFlags()
 	for _, optsGroup := range api.CommandLineOptionsGroups {
 		_, err := parser.AddGroup(optsGroup.ShortDescription, optsGroup.LongDescription, optsGroup.Options)
-		//
-		fmt.Println((optsGroup.Options.ConfigFile).string)
-
 		if err != nil {
 			log.Fatalln(err)
 		}
 	}
-
-	//
-	os.Exit(1)
 
 	if _, err := parser.Parse(); err != nil {
 		code := 1
