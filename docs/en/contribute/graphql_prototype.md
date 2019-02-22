@@ -1,10 +1,6 @@
 # GraphQL Prototype
 
-> SHORT DESCRIPTION OF THIS DOC
-
-## About
-
-The GQL prototype is used to design and develop an UX friendly graphql API. It is standalone from Weaviate but the interface is used within Weaviate.
+> The GQL prototype is used to design and develop an UX friendly graphql API. It is standalone from Weaviate but the interface is used within Weaviate.
 
 ## Usage
 
