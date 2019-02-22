@@ -52,6 +52,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/getmeta"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	batchmodels "github.com/creativesoftwarefdn/weaviate/restapi/batch/models"
 )
 
 // Foobar has some basic variables.
@@ -226,6 +227,27 @@ func (f *Foobar) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.
 	return nil
 }
 
+// AddThingsBatch can be used for imports of large datasets. There is no fixed
+// batch size, each connector can decide for themselves to split up the
+// incoming batch into smaller chunks. For example the Janusgraph connector
+// makes this cut at 50 items as this has proven to be a good threshold for
+// that particular connector.
+//
+// Note that every thing in the batchmodels.Things list also has an error
+// field. The connector must check whether there already is an error in one of
+// the items. This error could for example indicate a failed validation. Items
+// that have failed prior to making it to the connector are not removed on
+// purpose, so that the return result to the user matches their original
+// request in both length and order.
+//
+// The connector can decide - based on the batching consistency promises it
+// makes to the user - whether to fail (and not import) the entire batch or only
+// to skip the ones which failed validation
+func (f *Foobar) AddThingsBatch(ctx context.Context, things batchmodels.Things) error {
+	// If success return nil, otherwise return the error
+	return nil
+}
+
 // GetThing fills the given ThingGetResponse with the values from the database,
 // based on the given UUID.
 func (f *Foobar) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
@@ -282,6 +304,27 @@ func (f *Foobar) HistoryThing(ctx context.Context, UUID strfmt.UUID, history *mo
 
 // MoveToHistoryThing moves a thing to history
 func (f *Foobar) MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error {
+	return nil
+}
+
+// AddActionsBatch can be used for imports of large datasets. There is no fixed
+// batch size, each connector can decide for themselves to split up the
+// incoming batch into smaller chunks. For example the Janusgraph connector
+// makes this cut at 50 items as this has proven to be a good threshold for
+// that particular connector.
+//
+// Note that every action in the batchmodels.Actions list also has an error
+// field. The connector must check whether there already is an error in one of
+// the items. This error could for example indicate a failed validation. Items
+// that have failed prior to making it to the connector are not removed on
+// purpose, so that the return result to the user matches their original
+// request in both length and order.
+//
+// The connector can decide - based on the batching consistency promises it
+// makes to the user - whether to fail (and not import) the entire batch or
+// only to skip the ones which failed validation
+func (f *Foobar) AddActionsBatch(ctx context.Context, actions batchmodels.Actions) error {
+	// If success return nil, otherwise return the error
 	return nil
 }
 

@@ -23,11 +23,16 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	batchmodels "github.com/creativesoftwarefdn/weaviate/restapi/batch/models"
 )
 
 func (j *Janusgraph) AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error {
 	sanitizedClassName := schema.AssertValidClassName(action.AtClass)
 	return j.addClass(kind.ACTION_KIND, sanitizedClassName, UUID, action.AtContext, action.CreationTimeUnix, action.LastUpdateTimeUnix, action.Schema)
+}
+
+func (j *Janusgraph) AddActionsBatch(ctx context.Context, actions batchmodels.Actions) error {
+	return j.addActionsBatch(actions)
 }
 
 func (j *Janusgraph) GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error {
