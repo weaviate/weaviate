@@ -22,6 +22,24 @@ func NewLog() *RequestsLog {
 	}
 }
 
+func (r *RequestsLog) Read(telemetryEnabled bool) map[string]*RequestLog {
+	// make a mutex-using READ func for the reporting loop
+	// lock -> make copy -> unlock -> return copy
+	//		if not copy then other threads will keep editing
+	// check your code for other reads that should use mutex
+	// write unit test for this func
+	if telemetryEnabled {
+		r.Mutex.Lock()
+		logState := NewLog()
+		for key, value := range r.Log {
+			logState[key] = value
+		}
+		r.Mutex.Unlock()
+		return logState
+	}
+	return nil
+}
+
 // Reset the hashmap used to log performed Requests.
 func (r *RequestsLog) Reset(telemetryEnabled bool) int {
 	if telemetryEnabled {
