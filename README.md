@@ -65,7 +65,7 @@ We highly recommend starting with the _Getting Started_ (for [users](./docs/en/u
 
 ## Commercial use
 
-Weaviate is released under a [BSD-3](https://github.com/creativesoftwarefdn/weaviate/blob/master/LICENSE.md) license by the Creative Software Foundation. [SeMI](https://www.semi.network) offers a suite of enterprise and turnkey platform products and services based on Weaviate.
+Weaviate is released under a [BSD-3](https://github.com/creativesoftwarefdn/weaviate/blob/master/LICENSE.md) license by the Creative Software Foundation. [SeMI](https://www.semi.network) offers a suite of enterprise and whitelabel platform products and managed services based on Weaviate.
 
 More information:
 
