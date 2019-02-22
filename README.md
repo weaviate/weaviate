@@ -78,3 +78,7 @@ More information:
 | -------- |:-------------:|
 | Master   | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=master)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
 | Develop  | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=develop)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
+
+## Query Example
+
+![Weaviate query example](./docs/assets/demo.gif)
