@@ -37,62 +37,52 @@ With Weaviate you can not only create a knowledge graph, but you can also create
 
 Weaviate scales BIG! Our benchmarks are now up to 5 billion nodes.
 
+## Q: Why can't I use a normal relational or key-value database?
 
+Traditional datastores are great at storing data for a single use case. The power of Weaviate lies in the fact that it becomes super easy to build a tremendous amount of use cases on a single data sources. You easily can keep adding logic and data in a multitude of directions.
 
-## Q: Is Weaviate a database?
+To compare, if a relational would be 2 dimensional, a knowledge graph such as Weaviate would be 3 dimensional.
 
+## Q: What is the Contextionary?
 
-
-## Q: Can't I use a normal relational database?
-
-
-
-## Q: How is a 
-
-
-
-## Q: Is there a Graphical Userinterface (GUI)
-
-
-
-
-
-## Q: Can you give an example of a knowledge graph?
-
-
-
-
-## Q: Graphs are kinda difficult, is Weaviate difficult to use?
-
-
-
-
-## Q: Graphs are difficult to scale, what about Weaviate?
-
-
-
-## Q: How is Weaviate different from a data lake or warehouse?
-
-
-
-## Q: Why is Weaviate decentralised, what does the P2P Network do?
-
-
-## Q: Contextionary?
-
-
+Weaviate's Contextioxtionary is a natural language processing tool that gives context to the knowledge graph. It puts the word "knowledge" in "knowledge graph" and you can read more about it [here](https://www.semi.network/knowledge-base/wiki-semi-consulting/learn/technology-summary/#contextionary).
 
 ## Q: What does the standard contextionary consists of?
 
+It is trained on the WikiPedia corpus but we also offer custom contextionaries. Reach out [here](https://www.semi.network/contact/) for more information.
+
+## Q: Is there a Graphical Userinterface (GUI)
+
+Yes! We are working on a GUI called: Weaviate Playground which we will release in a few months to the public.
+
+## Q: Can you give an example of a knowledge graph?
+
+[Google Search](https://en.wikipedia.org/wiki/Knowledge_Graph)
+
+## Q: Graphs are kinda difficult, is Weaviate difficult to use?
+
+Nope! Our aim is to give developers a superior user experience. We do this by giving you access to the knowledge graph through [GraphQL](https://graphql.org/).
+
+## Q: Graphs are difficult to scale, what about Weaviate?
+
+As part of our quest for a superior developer experience, we focus on scaling the graph for you out of the box. If you want to dive deeper into the connectors, you can find the available database connectors [here](../../../database/connectors).
+
+## Q: How is Weaviate different from a data lake?
+
+Data lakes consist of unstructured data. With Weaviate we aim to achieve the exact opposite, namely _hyper structured data_. The data you store in Weaviate is hyper-structured.
+
+## Q: Why is Weaviate decentralised, what does the P2P Network do?
+
+Creating a huge knowledge graph with Weaviate is one thing, but what if you could combine multiple knowledge graphs into one single knowledge network? That is exactly the goal of Weaviate's P2P networking, it will enable you to collaborate with others or create custom knowledge architectures.
 
 ## Q: Whats libraries and tools does Weaviate consume.
 
-
-## Q: What is the open world assumption?
-
+A handy overview of dependencies can be found [here](../../../LICENSE-DEPENDENCIES.md).
 
 ## Q: What is the end goal of Weaviate
 
+We believe that all data related tasks can be solved with simple machine powered question answering.
 
 ## Q: What?! Do you really think you can do this ⤴️
 
+Yes!
