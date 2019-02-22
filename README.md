@@ -2,6 +2,15 @@
 
 _The Decentralized Knowledge Graph & The Decentralized Knowledge P2P Network_
 
+## Index
+
+- [Introduction](#introduction)
+- [References & Docs](#references)
+- [Questions](#questions)
+- [Commercial use](#commercial-use)
+- [Build Status](#build-status)
+- [Query Example](#query-example)
+
 ## Introduction
 
 Weaviate is a knowledge graph which meshes all your data and makes it available as one seamless source for contextualized research, reporting, and re-use. Our aim is to transform static (big-)data into a natural language queryable knowledge base which you can access directly or over a peer-to-peer network.
@@ -36,6 +45,8 @@ Key features of Weaviate include:
 </table>
 
 ## References
+
+> Note: Weaviate is currently only available as an unstable release. We hope to release a first stable version in the coming months.
 
 Weaviate's documentation is available in the `./docs` folder on Github and divided into two sections:
 
