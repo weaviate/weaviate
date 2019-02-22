@@ -55,6 +55,8 @@ It is trained on the WikiPedia corpus but we also offer custom contextionaries. 
 
 Yes! We are working on a GUI called: Weaviate Playground which we will release in a few months to the public.
 
+![Weaviate Playground](../../assets/demo-playground.gif)
+
 ## Q: Can you give an example of a knowledge graph?
 
 [Google Search](https://en.wikipedia.org/wiki/Knowledge_Graph)
