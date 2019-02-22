@@ -5,7 +5,29 @@
 The contextionary is a stand-alone library that can be used to understand words, in a certain context, and how they relate to each other.
 It is based on [Spotify's Annoy Library](https://github.com/spotify/annoy) and the models are trained using [GloVe](https://github.com/stanfordnlp/GloVe), but adds a wrapping layer to be more user friendly.
 
-# Download
+## Concept
+
+Every Weaviate has a contextionary attached to it which contains a large vocabulary and the relations that the words have to each other expressed in a multi-dimensional space. The keywords in the ontology are used to create a centroid in the vector space that gives context to the meaning of the data stored.
+
+An example in two dimensions:   
+
+![Weaviate centroid](../../assets/weaviate-centroid.jpg)
+
+This brings the feature of context. In future machine to machine communication over the P2P network, a Weaviate can express what the data's meaning is when it transfers information. This also means that answers to queries are Fuzzy<sup><a href="https://en.wikipedia.org/wiki/Fuzzy_logic" alt="Fuzzy">(ref)</a></sup> in nature, a SeMI node tries to interpret the question based on the context it has.
+
+Because all nodes on the network use the same contextionary, Weaviates can interact with each other based on the context determined by the contextionary. Instead of sharing the actual words or ontology, a Weaviate shares the context based on the positions in the vector space.
+
+For example, if Weaviate no.I has a class: "Seal" and Weaviate no.II the class "Dolphin", they can be visualized as follows:
+
+![Weaviate centroid on the network](../../assets/weaviate-centroid-network.jpg)
+
+This means it is possible to not only limit the knowledge graph to one single Weaviate but also to create a _network of knowledge graphs_. Known as a Knowledge Network. When queried, one Weaviate can ask another Weaviate about some class or property that is similar to a class or property in the node.
+
+For example: _Which Weaviate knows about the centroid of "Seal", "Mammal" and "Flippers"._
+
+![Weaviate centroid on network, combined](../../assets/weaviate-centroid-network-combined.jpg)
+
+## Download
 
 All Weaviate containers automatically download and install the contextionary from: contextionary.creativesoftwarefdn.org.
 
