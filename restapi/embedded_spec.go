@@ -46,7 +46,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.41"
+    "version": "0.12.48"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -90,7 +90,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       },
       "post": {
         "description": "Registers a new Action. Provided meta-data and schema values are validated.",
@@ -151,7 +155,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
       }
     },
     "/actions/validate": {
@@ -196,7 +203,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query.meta",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/actions/{actionId}": {
@@ -241,7 +252,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       },
       "put": {
         "description": "Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
@@ -298,7 +313,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "delete": {
         "description": "Deletes an Action from the system.",
@@ -338,7 +356,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": true,
-        "x-available-in-websocket": true
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "patch": {
         "description": "Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
@@ -414,7 +435,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       }
     },
     "/actions/{actionId}/history": {
@@ -462,7 +486,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       }
     },
     "/actions/{actionId}/properties/{propertyName}": {
@@ -522,7 +550,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "post": {
         "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
@@ -580,7 +611,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
@@ -638,7 +672,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       }
     },
     "/batching/actions": {
@@ -727,7 +764,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
       }
     },
     "/batching/things": {
@@ -816,7 +856,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
       }
     },
     "/graphql": {
@@ -865,7 +908,13 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.local.query.meta",
+          "weaviate.network.query",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/graphql/batch": {
@@ -914,7 +963,13 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.local.query.meta",
+          "weaviate.network.query",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/meta": {
@@ -946,7 +1001,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query.meta",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/p2p/genesis": {
@@ -982,7 +1041,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/p2p/health": {
@@ -1006,7 +1068,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/schema": {
@@ -1040,7 +1105,11 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.query.meta",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/schema/actions": {
@@ -1079,7 +1148,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.add.meta"
+        ]
       }
     },
     "/schema/actions/{className}": {
@@ -1136,7 +1208,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       },
       "delete": {
         "tags": [
@@ -1171,7 +1246,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/schema/actions/{className}/properties": {
@@ -1219,7 +1297,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/schema/actions/{className}/properties/{propertyName}": {
@@ -1282,7 +1363,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       },
       "delete": {
         "tags": [
@@ -1320,7 +1404,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/schema/things": {
@@ -1359,7 +1446,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.add.meta"
+        ]
       }
     },
     "/schema/things/{className}": {
@@ -1416,7 +1506,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       },
       "delete": {
         "tags": [
@@ -1451,7 +1544,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/schema/things/{className}/properties": {
@@ -1499,7 +1595,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/schema/things/{className}/properties/{propertyName}": {
@@ -1562,7 +1661,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       },
       "delete": {
         "tags": [
@@ -1600,7 +1702,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/things": {
@@ -1643,7 +1748,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       },
       "post": {
         "description": "Registers a new Thing. Given meta-data and schema values are validated.",
@@ -1704,7 +1813,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
       }
     },
     "/things/validate": {
@@ -1749,7 +1861,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query.meta",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/things/{thingId}": {
@@ -1794,7 +1910,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       },
       "put": {
         "description": "Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
@@ -1851,7 +1971,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "delete": {
         "description": "Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.",
@@ -1891,7 +2014,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": true,
-        "x-available-in-websocket": true
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "patch": {
         "description": "Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
@@ -1967,7 +2093,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       }
     },
     "/things/{thingId}/history": {
@@ -2015,7 +2144,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       }
     },
     "/things/{thingId}/properties/{propertyName}": {
@@ -2075,7 +2208,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "post": {
         "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
@@ -2133,7 +2269,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
@@ -2191,7 +2330,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       }
     },
     "/tools/map": {
@@ -2239,7 +2381,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.network.tools.map"
+        ]
       }
     }
   },
@@ -3091,7 +3236,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.41"
+    "version": "0.12.48"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -3143,7 +3288,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       },
       "post": {
         "description": "Registers a new Action. Provided meta-data and schema values are validated.",
@@ -3204,7 +3353,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
       }
     },
     "/actions/validate": {
@@ -3249,7 +3401,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query.meta",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/actions/{actionId}": {
@@ -3294,7 +3450,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       },
       "put": {
         "description": "Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
@@ -3351,7 +3511,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "delete": {
         "description": "Deletes an Action from the system.",
@@ -3391,7 +3554,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": true,
-        "x-available-in-websocket": true
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "patch": {
         "description": "Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
@@ -3467,7 +3633,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       }
     },
     "/actions/{actionId}/history": {
@@ -3515,7 +3684,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       }
     },
     "/actions/{actionId}/properties/{propertyName}": {
@@ -3575,7 +3748,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "post": {
         "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
@@ -3633,7 +3809,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
@@ -3691,7 +3870,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       }
     },
     "/batching/actions": {
@@ -3780,7 +3962,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
       }
     },
     "/batching/things": {
@@ -3869,7 +4054,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
       }
     },
     "/graphql": {
@@ -3918,7 +4106,13 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.local.query.meta",
+          "weaviate.network.query",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/graphql/batch": {
@@ -3967,7 +4161,13 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.local.query.meta",
+          "weaviate.network.query",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/meta": {
@@ -3999,7 +4199,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query.meta",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/p2p/genesis": {
@@ -4035,7 +4239,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/p2p/health": {
@@ -4059,7 +4266,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/schema": {
@@ -4093,7 +4303,11 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.query.meta",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/schema/actions": {
@@ -4132,7 +4346,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.add.meta"
+        ]
       }
     },
     "/schema/actions/{className}": {
@@ -4189,7 +4406,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       },
       "delete": {
         "tags": [
@@ -4224,7 +4444,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/schema/actions/{className}/properties": {
@@ -4272,7 +4495,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/schema/actions/{className}/properties/{propertyName}": {
@@ -4335,7 +4561,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       },
       "delete": {
         "tags": [
@@ -4373,7 +4602,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/schema/things": {
@@ -4412,7 +4644,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.add.meta"
+        ]
       }
     },
     "/schema/things/{className}": {
@@ -4469,7 +4704,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       },
       "delete": {
         "tags": [
@@ -4504,7 +4742,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/schema/things/{className}/properties": {
@@ -4552,7 +4793,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/schema/things/{className}/properties/{propertyName}": {
@@ -4615,7 +4859,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       },
       "delete": {
         "tags": [
@@ -4653,7 +4900,10 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
-        }
+        },
+        "x-serviceIds": [
+          "weaviate.local.manipulate.meta"
+        ]
       }
     },
     "/things": {
@@ -4704,7 +4954,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       },
       "post": {
         "description": "Registers a new Thing. Given meta-data and schema values are validated.",
@@ -4765,7 +5019,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.add"
+        ]
       }
     },
     "/things/validate": {
@@ -4810,7 +5067,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query.meta",
+          "weaviate.network.query.meta"
+        ]
       }
     },
     "/things/{thingId}": {
@@ -4855,7 +5116,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       },
       "put": {
         "description": "Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
@@ -4912,7 +5177,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "delete": {
         "description": "Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.",
@@ -4952,7 +5220,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": true,
-        "x-available-in-websocket": true
+        "x-available-in-websocket": true,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "patch": {
         "description": "Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
@@ -5028,7 +5299,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       }
     },
     "/things/{thingId}/history": {
@@ -5076,7 +5350,11 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query",
+          "weaviate.network.query"
+        ]
       }
     },
     "/things/{thingId}/properties/{propertyName}": {
@@ -5136,7 +5414,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "post": {
         "description": "Add a single reference to a class-property when cardinality is set to 'hasMany'.",
@@ -5194,7 +5475,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       },
       "delete": {
         "description": "Delete the single reference that is given in the body from the list of references that this property has.",
@@ -5252,7 +5536,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ]
       }
     },
     "/tools/map": {
@@ -5300,7 +5587,10 @@ func init() {
           }
         },
         "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.network.tools.map"
+        ]
       }
     }
   },

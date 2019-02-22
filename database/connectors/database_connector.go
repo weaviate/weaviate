@@ -24,6 +24,7 @@ import (
 	graphqlapiLocal "github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	batchmodels "github.com/creativesoftwarefdn/weaviate/restapi/batch/models"
 )
 
 // BaseConnector is the interface that all connectors should have
@@ -37,6 +38,7 @@ type BaseConnector interface {
 	SetMessaging(m *messages.Messaging)
 
 	AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
+	AddThingsBatch(ctx context.Context, things batchmodels.Things) error
 	GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error
 	ListThings(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, thingsResponse *models.ThingsListResponse) error
 	UpdateThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error
@@ -45,6 +47,7 @@ type BaseConnector interface {
 	MoveToHistoryThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID, deleted bool) error
 
 	AddAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
+	AddActionsBatch(ctx context.Context, things batchmodels.Actions) error
 	GetAction(ctx context.Context, UUID strfmt.UUID, actionResponse *models.ActionGetResponse) error
 	ListActions(ctx context.Context, first int, offset int, wheres []*connutils.WhereQuery, actionsResponse *models.ActionsListResponse) error
 	UpdateAction(ctx context.Context, action *models.Action, UUID strfmt.UUID) error
