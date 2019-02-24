@@ -20,6 +20,8 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"regexp"
+	"strings"
 
 	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
 )
@@ -104,6 +106,35 @@ func (m *mmappedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex,
 	} else {
 		return nil, nil, fmt.Errorf("Wrong vector length provided")
 	}
+}
+
+func (m *mmappedIndex) SentenceToItemIndex(sentence string) (*Vector, error) {
+
+	// create an empty array which will contain all the word locations in the contextionary
+	wordIndices := []ItemIndex{}
+
+	// refactor words to lowercase based on: ^[A-Za-z][\ A-Za-z0-9]*$ in generator
+	for _, word := range strings.Split(sentence, " ") {
+
+		// compile allowed words
+		reg, err := regexp.Compile("[^A-Za-z0-9]+")
+		if err != nil {
+			return nil, err
+		}
+
+		// replace none a-z characters => all to lowercase => get word index
+		processedWord := m.WordToItemIndex(strings.ToLower(reg.ReplaceAllString(word, "")))
+
+		// append if item is available
+		if processedWord != -1 {
+			wordIndices = append(wordIndices, processedWord)
+		}
+
+	}
+
+	log.Print(wordIndices)
+
+	return nil, nil
 }
 
 func loadVectorFromDisk(annoy_index string, word_index_file_name string) (Contextionary, error) {

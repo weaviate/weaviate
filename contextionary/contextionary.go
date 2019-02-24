@@ -52,4 +52,8 @@ type Contextionary interface {
 	// Get the n nearest neighbours of item, examining k trees.
 	// Returns an array of indices, and of distances between item and the n-nearest neighbors.
 	GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex, []float32, error)
+
+	// Sentence to index
+	// Returns the index for the sentence
+	SentenceToItemIndex(sentence string) (*Vector, error)
 }
