@@ -23,6 +23,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	connutils "github.com/creativesoftwarefdn/weaviate/database/utils"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	batchmodels "github.com/creativesoftwarefdn/weaviate/restapi/batch/models"
 )
 
 func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID strfmt.UUID) error {
@@ -30,8 +31,8 @@ func (j *Janusgraph) AddThing(ctx context.Context, thing *models.Thing, UUID str
 	return j.addClass(kind.THING_KIND, sanitizedClassName, UUID, thing.AtContext, thing.CreationTimeUnix, thing.LastUpdateTimeUnix, thing.Schema)
 }
 
-func (j *Janusgraph) AddThingsBatch(ctx context.Context, things []*models.Thing, uuids []strfmt.UUID) error {
-	return j.addThingsBatch(things, uuids)
+func (j *Janusgraph) AddThingsBatch(ctx context.Context, things batchmodels.Things) error {
+	return j.addThingsBatch(things)
 }
 
 func (j *Janusgraph) GetThing(ctx context.Context, UUID strfmt.UUID, thingResponse *models.ThingGetResponse) error {
