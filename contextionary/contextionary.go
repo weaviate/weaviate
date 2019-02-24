@@ -55,5 +55,5 @@ type Contextionary interface {
 
 	// Sentence to index
 	// Returns the index for the sentence
-	SentenceToItemIndex(sentence string) (*Vector, error)
+	SentenceToItemIndex(sentence string) (Vector, error)
 }

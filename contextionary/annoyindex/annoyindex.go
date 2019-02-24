@@ -115,9 +115,11 @@ extern void _wrap_AnnoyIndexManhattan_getItem_annoyindex_acf5c19c77666e85(uintpt
 */
 import "C"
 
-import "unsafe"
-import _ "runtime/cgo"
-import "sync"
+import (
+	_ "runtime/cgo"
+	"sync"
+	"unsafe"
+)
 
 type _ unsafe.Pointer
 

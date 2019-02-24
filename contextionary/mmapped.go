@@ -12,6 +12,7 @@
 package contextionary
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +22,7 @@ import (
 	"os"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 
 	annoy "github.com/creativesoftwarefdn/weaviate/contextionary/annoyindex"
@@ -29,6 +31,12 @@ import (
 type mmappedIndex struct {
 	word_index *Wordlist
 	knn        annoy.AnnoyIndex
+	wordOcc    []wordOccurence
+}
+
+type wordOccurence struct {
+	idx   ItemIndex
+	place int32
 }
 
 func (m *mmappedIndex) GetNumberOfItems() int {
@@ -53,6 +61,7 @@ func (m *mmappedIndex) ItemIndexToWord(item ItemIndex) (string, error) {
 }
 
 func (m *mmappedIndex) GetVectorForItemIndex(item ItemIndex) (*Vector, error) {
+
 	if item >= 0 && item <= m.word_index.GetNumberOfWords() {
 		var floats []float32
 		m.knn.GetItem(int(item), &floats)
@@ -108,10 +117,10 @@ func (m *mmappedIndex) GetNnsByVector(vector Vector, n int, k int) ([]ItemIndex,
 	}
 }
 
-func (m *mmappedIndex) SentenceToItemIndex(sentence string) (*Vector, error) {
+func (m *mmappedIndex) SentenceToItemIndex(sentence string) (Vector, error) {
 
 	// create an empty array which will contain all the word locations in the contextionary
-	wordIndices := []ItemIndex{}
+	wordVectors := []Vector{}
 
 	// refactor words to lowercase based on: ^[A-Za-z][\ A-Za-z0-9]*$ in generator
 	for _, word := range strings.Split(sentence, " ") {
@@ -119,25 +128,54 @@ func (m *mmappedIndex) SentenceToItemIndex(sentence string) (*Vector, error) {
 		// compile allowed words
 		reg, err := regexp.Compile("[^A-Za-z0-9]+")
 		if err != nil {
-			return nil, err
+			return Vector{}, err
 		}
 
 		// replace none a-z characters => all to lowercase => get word index
-		processedWord := m.WordToItemIndex(strings.ToLower(reg.ReplaceAllString(word, "")))
+		wordIndex := m.WordToItemIndex(strings.ToLower(reg.ReplaceAllString(word, "")))
 
 		// append if item is available
-		if processedWord != -1 {
-			wordIndices = append(wordIndices, processedWord)
+		if wordIndex != -1 {
+			vector, err := m.GetVectorForItemIndex(wordIndex)
+			if err != nil {
+				return Vector{}, err
+			}
+			wordVectors = append(wordVectors, *vector)
 		}
 
 	}
 
-	log.Print(wordIndices)
+	// compute the centroid of the sentence
+	centroidOfSentence, err := ComputeCentroid(wordVectors)
+	if err != nil {
+		return Vector{}, err
+	}
 
-	return nil, nil
+	return *centroidOfSentence, nil
 }
 
-func loadVectorFromDisk(annoy_index string, word_index_file_name string) (Contextionary, error) {
+func vectorFileAvailable(file string) bool {
+	if _, err := os.Stat(file); err == nil {
+		return true
+	} else if os.IsNotExist(err) {
+		return false
+	} else {
+		return false
+	}
+
+}
+
+func loadVectorFromDisk(annoy_index string, word_index_file_name string, word_vocab_file_name string) (Contextionary, error) {
+
+	// validate if files exsist
+	if vectorFileAvailable(annoy_index) == false {
+		return nil, fmt.Errorf("Could not load file: %+v", annoy_index)
+	} else if vectorFileAvailable(word_index_file_name) == false {
+		return nil, fmt.Errorf("Could not load file: %+v", word_index_file_name)
+	} else if vectorFileAvailable(word_vocab_file_name) == false {
+		return nil, fmt.Errorf("Could not load file: %+v", word_vocab_file_name)
+	}
+
 	word_index, err := LoadWordlist(word_index_file_name)
 
 	if err != nil {
@@ -147,9 +185,55 @@ func loadVectorFromDisk(annoy_index string, word_index_file_name string) (Contex
 	knn := annoy.NewAnnoyIndexEuclidean(int(word_index.vectorWidth))
 	knn.Load(annoy_index)
 
+	// TEMP
+	var occurenceList []wordOccurence
+
+	// create empty returner array
+	returnWordOccurence := []wordOccurence{}
+
+	file, err := os.Open(word_vocab_file_name)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+
+		// split per word to string and int32
+		wordSplit := strings.Split(scanner.Text(), " ")
+
+		if len(wordSplit) == 2 {
+
+			singleWordOccInt64, err := strconv.ParseInt(wordSplit[1], 10, 32)
+			if err != nil {
+				return nil, err
+			}
+			fmt.Println(wordSplit[0])
+			// convert to int32
+			singleWordIdx := word_index.FindIndexByWord(wordSplit[0])
+			singleWordOcc := int32(singleWordOccInt64)
+
+			if singleWordIdx != -1 {
+
+				returnWordOccurence = append(returnWordOccurence, wordOccurence{
+					idx:   singleWordIdx,
+					place: singleWordOcc,
+				})
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	// END TEMP
+
 	idx := &mmappedIndex{
 		word_index: word_index,
 		knn:        knn,
+		wordOcc:    occurenceList,
 	}
 
 	return idx, nil
@@ -220,7 +304,7 @@ func downloadOrNot(i string, tmpFolder string) (string, error) {
 	return i, nil
 }
 
-func LoadVector(annoy_index string, word_index_file_name string) (Contextionary, error) {
+func LoadVector(annoy_index string, word_index_file_name string, word_vocab_file_name string) (Contextionary, error) {
 
 	// set tmp folder
 	tmpFolder := "./tmp/"
@@ -237,5 +321,11 @@ func LoadVector(annoy_index string, word_index_file_name string) (Contextionary,
 		return nil, err
 	}
 
-	return loadVectorFromDisk(annoy_index_file, word_index_file_name_file)
+	// validate word_vocab_file_name
+	word_vocab_file_name, err = downloadOrNot(word_vocab_file_name, tmpFolder)
+	if err != nil {
+		return nil, err
+	}
+
+	return loadVectorFromDisk(annoy_index_file, word_index_file_name_file, word_vocab_file_name)
 }

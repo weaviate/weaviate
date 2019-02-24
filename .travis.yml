@@ -87,7 +87,7 @@ script:
   #- ./tools/test/import_journey.sh || travis_terminate 1
   # Run all tests
   # - ./cc-test-reporter before-build
-  - ./test/acceptance/run.sh || travis_terminate 1
+  - travis_wait 30 ./test/acceptance/run.sh || travis_terminate 1
   # - ./cc-test-reporter after-build
 services: 
   - docker

@@ -13,7 +13,7 @@ function main() {
   surpress_on_success docker-compose -f docker-compose-test.yml up --force-recreate -d weaviate \
     janus index db genesis_fake remote_weaviate_fake remote_weaviate_fakes_with_test_schema genesis
 
-  MAX_WAIT_SECONDS=720
+  MAX_WAIT_SECONDS=1200
   ALREADY_WAITING=0
 
   while true; do
