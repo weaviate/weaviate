@@ -2,6 +2,8 @@
 
 > Documentation on how to use the Weaviate-cli tool.
 
+> Note: the CLI-tools are still in development.
+
 The weaviate-cli tool is used to autmomatically import or export schemas and to import large datasets. The software can be found [here](https://github.com/creativesoftwarefdn/weaviate-cli).
 
 ## Run full stack with Docker-compose
