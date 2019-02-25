@@ -15,10 +15,13 @@ package get
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/davecgh/go-spew/spew"
 )
 
 // Processor is a simple Gremlin-Query Executor that is specific to Fetch. It
@@ -53,6 +56,8 @@ func (p *Processor) Process(query *gremlin.Query) ([]interface{}, error) {
 		return nil, fmt.Errorf("could not process fetch query: executing the query failed: %s", err)
 	}
 
+	spew.Dump(result)
+
 	results := []interface{}{}
 	for i, datum := range result.Data {
 		processed, err := p.processDatum(datum)
@@ -82,38 +87,125 @@ func (p *Processor) processDatum(d gremlin.Datum) (interface{}, error) {
 		return nil, fmt.Errorf("expected objects to be a slice, but was %T", objects)
 	}
 
-	if len(objectsSlice) != 1 {
-		return nil, fmt.Errorf("only non-cross refs supported for now, but got length %d", len(objectsSlice))
+	if len(objectsSlice)%2 != 1 {
+		return nil, fmt.Errorf("length of objects has to be an odd number to match pattern v or v-e-v, "+
+			"or v-e-v-e-v, etc., but got len %d", len(objectsSlice))
 	}
 
-	return p.processVertexObject(objectsSlice[0])
+	var refProps map[string]interface{}
+	var err error
+	if len(objectsSlice) > 1 {
+		// we seem to have a cross-ref
+		refProps, err = p.processEdgeAndVertexObjects(objectsSlice[1:], p.className)
+		if err != nil {
+			return nil, fmt.Errorf("could not process ref props: %s", err)
+		}
+	}
+
+	vertex, err := p.processVertexObject(objectsSlice[0])
+	if err != nil {
+		return nil, fmt.Errorf("could not process vertex (without cross-refs): %s", err)
+	}
+
+	return mergeMaps(vertex, refProps), nil
+
 }
 
-func (p *Processor) processVertexObject(o interface{}) (interface{}, error) {
+func (p *Processor) processVertexObject(o interface{}) (map[string]interface{}, error) {
 	objMap, ok := o.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("expected object to be a map, but was %T", o)
 	}
 
+	className, err := p.classNameFromVertex(objMap)
+	if err != nil {
+		return nil, fmt.Errorf("could not identify what class the vertex is: %s", err)
+	}
+
 	results := map[string]interface{}{}
 	for key, value := range objMap {
-		valueSlice, ok := value.([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("expected value for key '%s' to be a slice, but got %T", key, value)
-		}
-
-		if len(valueSlice) != 1 {
-			return nil, fmt.Errorf("expected value to be of length 1 for key '%s', but got %d", key, len(valueSlice))
-		}
-
-		if !isAProp.MatchString(key) {
-			results[key] = valueSlice[0]
+		if key == "classId" {
 			continue
 		}
 
-		readablePropName := string(p.nameSource.GetPropertyNameFromMapped(p.className, state.MappedPropertyName(key)))
-		results[readablePropName] = valueSlice[0]
+		prop, err := assumeSliceAndExtractFirst(value)
+		if err != nil {
+			return nil, fmt.Errorf("for key '%s': %s", key, err)
+		}
+
+		if !isAProp.MatchString(key) {
+			results[key] = prop
+			continue
+		}
+
+		readablePropName := string(p.nameSource.GetPropertyNameFromMapped(className, state.MappedPropertyName(key)))
+		results[readablePropName] = prop
 	}
 
 	return results, nil
+}
+
+func (p *Processor) classNameFromVertex(v map[string]interface{}) (schema.ClassName, error) {
+	classID, ok := v["classId"]
+	if !ok {
+		return "", fmt.Errorf("vertex doesn't have prop 'classId'")
+	}
+
+	class, err := assumeSliceAndExtractFirst(classID)
+	if err != nil {
+		return "", fmt.Errorf("prop 'classId': %s", err)
+	}
+
+	return p.nameSource.GetClassNameFromMapped(state.MappedClassName(class.(string))), nil
+}
+
+func (p *Processor) processEdgeAndVertexObjects(o []interface{}, className schema.ClassName) (map[string]interface{}, error) {
+	edge := o[0]
+	vertex := o[1]
+
+	edgeMap, ok := edge.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected edge object to be a map, but was %T", edge)
+	}
+
+	refProp, ok := edgeMap["refId"]
+	if !ok {
+		return nil, fmt.Errorf("expected edge object to be have key 'refId', but got %#v", edgeMap)
+	}
+
+	crossRefProp := string(p.nameSource.GetPropertyNameFromMapped(className, state.MappedPropertyName(refProp.(string))))
+	processedVertex, err := p.processVertexObject(vertex)
+	if err != nil {
+		return nil, fmt.Errorf("could not process vertex (of cross-ref): %s", err)
+	}
+
+	linkedClassName, err := p.classNameFromVertex(vertex.(map[string]interface{}))
+	if err != nil {
+		return nil, fmt.Errorf("could not extract class name from linked vertex: %s", err)
+	}
+
+	return map[string]interface{}{
+		strings.Title(crossRefProp): []interface{}{get.LocalRef{Fields: processedVertex, AtClass: string(linkedClassName)}},
+	}, nil
+}
+
+func mergeMaps(m1, m2 map[string]interface{}) map[string]interface{} {
+	for k, v := range m2 {
+		m1[k] = v
+	}
+
+	return m1
+}
+
+func assumeSliceAndExtractFirst(v interface{}) (interface{}, error) {
+	valueSlice, ok := v.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected value  to be a slice, but got %T", v)
+	}
+
+	if len(valueSlice) != 1 {
+		return nil, fmt.Errorf("expected value to be of length 1 for , but got %d", len(valueSlice))
+	}
+
+	return valueSlice[0], nil
 }
