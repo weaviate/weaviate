@@ -62,6 +62,22 @@ func (f *fakeNameSource) GetMappedPropertyName(className schema.ClassName,
 	panic(fmt.Sprintf("fake name source does not contain a fake for '%s.%s'", className, propName))
 }
 
+func (f *fakeNameSource) GetPropertyNameFromMapped(className schema.ClassName,
+	mappedName state.MappedPropertyName) schema.PropertyName {
+	switch className {
+	case "City":
+		switch mappedName {
+		case state.MappedPropertyName("prop_1"):
+			return "name"
+		case state.MappedPropertyName("prop_2"):
+			return "population"
+		case state.MappedPropertyName("prop_3"):
+			return "inCountry"
+		}
+	}
+	panic(fmt.Sprintf("fake name source does not contain a fake for '%s.%s'", className, mappedName))
+}
+
 func (f *fakeNameSource) GetMappedClassName(className schema.ClassName) state.MappedClassName {
 	switch className {
 	case schema.ClassName("City"):

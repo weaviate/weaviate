@@ -46,6 +46,7 @@ func NewQuery(p get.Params, ns nameSource, ts typeSource) *Query {
 // doubt use typeSource first
 type nameSource interface {
 	GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
+	GetPropertyNameFromMapped(className schema.ClassName, mappedPropName state.MappedPropertyName) schema.PropertyName
 	GetMappedClassName(className schema.ClassName) state.MappedClassName
 }
 
