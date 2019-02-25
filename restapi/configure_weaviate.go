@@ -72,6 +72,7 @@ import (
 	libnetworkP2P "github.com/creativesoftwarefdn/weaviate/network/p2p"
 	"github.com/creativesoftwarefdn/weaviate/restapi/swagger_middleware"
 	"github.com/creativesoftwarefdn/weaviate/telemetry"
+	telemutils "github.com/creativesoftwarefdn/weaviate/telemetry/utils"
 )
 
 const pageOverride int = 1
@@ -97,6 +98,7 @@ var appState *state.State
 var db database.Database
 
 var requestsLog *telemetry.RequestsLog
+var reporter *telemetry.Reporter
 
 type State struct {
 	db database.Database
@@ -201,6 +203,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.ServeError = errors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
+
+	enabled := telemutils.IsEnabled()
+	interval := telemutils.GetInterval()
+	url := telemutils.GetURL()
+
+	requestsLog = telemetry.NewLog(enabled)
+
+	reporter = telemetry.NewReporter(requestsLog, interval, url, enabled)
 
 	setupSchemaHandlers(api)
 	setupThingsHandlers(api)

@@ -1,31 +1,29 @@
 package telemetry
 
 import (
-	"fmt"
 	"sync"
 )
 
-const Failed int = 0
-const Succeeded int = 1
+// Create a new Requestslog
+func NewLog(enabled bool) *RequestsLog {
+	return &RequestsLog{
+		Mutex:   &sync.Mutex{},
+		Log:     make(map[string]*RequestLog),
+		Enabled: enabled,
+	}
+}
 
 // A struct used to log the type and amount of POST and GQL Requests this Weaviate receives.
 // Contains a map and a mutex used to control access to this map.
 type RequestsLog struct { // TODO: RENAME
-	Mutex *sync.Mutex
-	Log   map[string]*RequestLog
-}
-
-// Create a new Requestslog
-func NewLog() *RequestsLog {
-	return &RequestsLog{
-		Mutex: &sync.Mutex{},
-		Log:   make(map[string]*RequestLog),
-	}
+	Mutex   *sync.Mutex
+	Log     map[string]*RequestLog
+	Enabled bool
 }
 
 // Register a performed Request. Either creates a new entry or updates an existing one.
-func (r *RequestsLog) Register(request *RequestLog, telemetryEnabled bool) int {
-	if telemetryEnabled {
+func (r *RequestsLog) Register(request *RequestLog) {
+	if r.Enabled {
 
 		r.Mutex.Lock()
 		if _, ok := r.Log[request.Identifier]; ok {
@@ -34,15 +32,12 @@ func (r *RequestsLog) Register(request *RequestLog, telemetryEnabled bool) int {
 			r.Log[request.Identifier] = request
 		}
 		r.Mutex.Unlock()
-		return Succeeded
 	}
-	return Failed
 }
 
 // Extract the hashmap used to log performed Requests and reset it to its default state.
-func (r *RequestsLog) ExtractLoggedRequests(telemetryEnabled bool) *map[string]*RequestLog {
-	fmt.Println("resetting")
-	if telemetryEnabled {
+func (r *RequestsLog) ExtractLoggedRequests() *map[string]*RequestLog {
+	if r.Enabled {
 		r.Mutex.Lock()
 
 		logState := make(map[string]*RequestLog)
@@ -51,6 +46,7 @@ func (r *RequestsLog) ExtractLoggedRequests(telemetryEnabled bool) *map[string]*
 		}
 
 		r.Log = make(map[string]*RequestLog)
+
 		r.Mutex.Unlock()
 		return &logState
 
