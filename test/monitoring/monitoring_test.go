@@ -1,7 +1,6 @@
 package test
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 
@@ -14,14 +13,14 @@ func TestRequestMonitoringBasics(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	calledFunctions := telemetry.NewLog()
+	telemetryEnabled := true
+
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
 
 	postRequestLog := telemetry.NewRequestTypeLog("ginormous-thunder-apple", "POST", "weaviate.something.or.other", 1)
 	postRequestLog.When = int64(1550745544)
 
-	telemetryEnabled := true
-
-	calledFunctions.Register(postRequestLog, telemetryEnabled)
+	calledFunctions.Register(postRequestLog)
 
 	loggedFunc := calledFunctions.Log["weaviate.something.or.other"]
 
@@ -44,15 +43,15 @@ func TestRequestIncrementing(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	calledFunctions := telemetry.NewLog()
+	telemetryEnabled := true
+
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
 
 	postRequestLog := telemetry.NewRequestTypeLog("grilled-cheese-sandwich", "POST", "weaviate.something.or.other", 1)
 	postRequestLog.When = int64(1550745544)
 
-	telemetryEnabled := true
-
-	calledFunctions.Register(postRequestLog, telemetryEnabled)
-	calledFunctions.Register(postRequestLog, telemetryEnabled)
+	calledFunctions.Register(postRequestLog)
+	calledFunctions.Register(postRequestLog)
 
 	loggedFunctionType := calledFunctions.Log["weaviate.something.or.other"]
 
@@ -66,7 +65,9 @@ func TestMultipleRequestTypes(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	calledFunctions := telemetry.NewLog()
+	telemetryEnabled := true
+
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
 
 	postRequestLog1 := telemetry.NewRequestTypeLog("awkward-handshake-guy", "GQL", "weaviate.something.or.other1", 1)
 	postRequestLog1.When = int64(1550745544)
@@ -77,12 +78,10 @@ func TestMultipleRequestTypes(t *testing.T) {
 	postRequestLog3 := telemetry.NewRequestTypeLog("dormant-mechanical-piglet", "POST", "weaviate.something.or.other3", 1)
 	postRequestLog3.When = int64(1550745544)
 
-	telemetryEnabled := true
-
-	calledFunctions.Register(postRequestLog1, telemetryEnabled)
-	calledFunctions.Register(postRequestLog2, telemetryEnabled)
-	calledFunctions.Register(postRequestLog3, telemetryEnabled)
-	calledFunctions.Register(postRequestLog3, telemetryEnabled)
+	calledFunctions.Register(postRequestLog1)
+	calledFunctions.Register(postRequestLog2)
+	calledFunctions.Register(postRequestLog3)
+	calledFunctions.Register(postRequestLog3)
 
 	loggedFunctionType1 := calledFunctions.Log["weaviate.something.or.other1"]
 	loggedFunctionType2 := calledFunctions.Log["weaviate.something.or.other2"]
@@ -102,20 +101,20 @@ func TestExtractLoggedRequests(t *testing.T) {
 	// setup
 	var wg sync.WaitGroup
 
-	calledFunctions := telemetry.NewLog()
+	telemetryEnabled := true
+
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
 
 	postRequestLog1 := telemetry.NewRequestTypeLog("fuzzy-painted-mug", "GQL", "weaviate.something.or.other1", 1)
 	postRequestLog1.When = int64(1550745544)
 
-	telemetryEnabled := true
-
-	calledFunctions.Register(postRequestLog1, telemetryEnabled)
+	calledFunctions.Register(postRequestLog1)
 
 	wg.Add(1)
 	//
 	requestResults := make(chan *map[string]*telemetry.RequestLog, 1)
 
-	go performExtraction(calledFunctions, &wg, telemetryEnabled, &requestResults)
+	go performExtraction(calledFunctions, &wg, &requestResults)
 
 	wg.Wait()
 
@@ -130,10 +129,10 @@ func TestExtractLoggedRequests(t *testing.T) {
 	}
 }
 
-// Use a waitgroup + channel to avoid race conditions in the test case. This isn't necessary in production as processes in goroutines aren't dependent on eachothers' states.
-func performExtraction(calledFunctions *telemetry.RequestsLog, wg *sync.WaitGroup, telemetryEnabled bool, requestResults *chan *map[string]*telemetry.RequestLog) {
+// Use a waitgroup + channel to avoid race conditions in the test case. This isn't necessary in production as processes there aren't dependent on eachother's states.
+func performExtraction(calledFunctions *telemetry.RequestsLog, wg *sync.WaitGroup, requestResults *chan *map[string]*telemetry.RequestLog) {
 	defer wg.Done()
-	*requestResults <- calledFunctions.ExtractLoggedRequests(telemetryEnabled)
+	*requestResults <- calledFunctions.ExtractLoggedRequests()
 }
 
 // Spawn 10 goroutines that each register 100 function calls, then assert whether we end up with 1000 records in the log
@@ -143,7 +142,9 @@ func TestConcurrentRequests(t *testing.T) {
 	// setup
 	var wg sync.WaitGroup
 
-	calledFunctions := telemetry.NewLog()
+	telemetryEnabled := true
+
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
 
 	postRequestLog1 := telemetry.NewRequestTypeLog("forgetful-seal-cooker", "GQL", "weaviate.something.or.other1", 1)
 	postRequestLog1.When = int64(1550745544)
@@ -151,9 +152,7 @@ func TestConcurrentRequests(t *testing.T) {
 	postRequestLog2 := telemetry.NewRequestTypeLog("brave-maple-leaf", "POST", "weaviate.something.or.other2", 1)
 	postRequestLog2.When = int64(1550745544)
 
-	telemetryEnabled := true
-
-	performOneThousandConcurrentRequests(calledFunctions, postRequestLog1, postRequestLog2, telemetryEnabled, &wg)
+	performOneThousandConcurrentRequests(calledFunctions, postRequestLog1, postRequestLog2, &wg)
 
 	wg.Wait()
 
@@ -165,22 +164,22 @@ func TestConcurrentRequests(t *testing.T) {
 	assert.Equal(t, 500, loggedFunctionType2.Amount)
 }
 
-func performOneThousandConcurrentRequests(calledFunctions *telemetry.RequestsLog, postRequestLog1 *telemetry.RequestLog, postRequestLog2 *telemetry.RequestLog, telemetryEnabled bool, wg *sync.WaitGroup) {
+func performOneThousandConcurrentRequests(calledFunctions *telemetry.RequestsLog, postRequestLog1 *telemetry.RequestLog, postRequestLog2 *telemetry.RequestLog, wg *sync.WaitGroup) {
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 
 		if i < 5 {
-			go performOneHundredRequests(calledFunctions, postRequestLog1, telemetryEnabled, wg)
+			go performOneHundredRequests(calledFunctions, postRequestLog1, wg)
 		} else {
-			go performOneHundredRequests(calledFunctions, postRequestLog2, telemetryEnabled, wg)
+			go performOneHundredRequests(calledFunctions, postRequestLog2, wg)
 		}
 	}
 }
 
-func performOneHundredRequests(calledFunctions *telemetry.RequestsLog, calledFunction *telemetry.RequestLog, telemetryEnabled bool, wg *sync.WaitGroup) {
+func performOneHundredRequests(calledFunctions *telemetry.RequestsLog, calledFunction *telemetry.RequestLog, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for i := 0; i < 100; i++ {
-		calledFunctions.Register(calledFunction, telemetryEnabled)
+		calledFunctions.Register(calledFunction)
 	}
 }
