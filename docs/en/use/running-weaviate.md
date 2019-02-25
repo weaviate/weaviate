@@ -2,6 +2,8 @@
 
 > Documentation on how to run Weaviate with Docker-compose, Docker or stand-alone.
 
+> Note: Weaviate is currently only available as an unstable release. We hope to release a first stable version in the coming months.
+
 This document describes how to run Weaviate for users. If you want to run a development version of Weaviate for contributors, click [here](../contribute/running-weaviate.md).
 
 ## Run full stack with Docker-compose
