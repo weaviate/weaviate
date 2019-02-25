@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// test if the RequestsLog.Reset() function can be called if the feature flag is enabled
+// Register a single request, then assert whether it has been correctly stored in the log
 func TestEnabled(t *testing.T) {
 	t.Parallel()
 
@@ -25,7 +25,7 @@ func TestEnabled(t *testing.T) {
 	assert.Equal(t, 1, len(calledFunctions.Log))
 }
 
-// test if the RequestsLog.Reset() function can be called if the feature flag is disabled
+// Register a single request, then assert whether it has been incorrectly stored in the log
 func TestDisabled(t *testing.T) {
 	t.Parallel()
 

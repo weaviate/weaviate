@@ -24,12 +24,6 @@ type Reporter struct {
 	interval int
 	url      string
 	enabled  bool
-	//	if IsEnabled() == true {
-	//		// output every X (300) seconds
-	//		// --CBOR conversion -- handled by ugorji
-	//		// --Failsafe -- TBD
-	//		// --get timestamp and apply to output nested objects
-	//	}
 }
 
 // Reports function calls in the last <provided interval> seconds in CBOR format to the provided url.
@@ -48,10 +42,11 @@ func (r *Reporter) transformToOutputFormat(logs *map[string]*RequestLog) {
 	transformer := NewOutputTransformer()
 	minimizedLogs := transformer.MinimizeFormat(logs)
 	/*cborLogs := */ transformer.EncodeAsCBOR(minimizedLogs)
+	// TODO:
 	// make new outputTransformer
 	// minimize logs
 	// cborize logs
-	// send
+	// send + retry
 	// failsafe
 }
 
@@ -84,13 +79,3 @@ func (o *outputTransformer) MinimizeFormat(logs *map[string]*RequestLog) *[]map[
 func (o *outputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}) {
 	// cbor.encode(*minimizedLogs)
 }
-
-/*
-	Reporter struct collects the logged serviceids every <interval> seconds, converts this data to CBOR format and posts it to <URL>
-*/
-
-/*
-
-is func called as goroutine that takes log pointer and url and interval and then reads log and then resets log
-
-*/

@@ -31,8 +31,9 @@ func TestLoop(t *testing.T) {
 
 	time.Sleep(time.Duration(2) * time.Second)
 
+	logsAfterReporting := log.ExtractLoggedRequests()
 	// test
-	assert.Equal(t, 0, len(log.Log))
+	assert.Equal(t, 0, len(*logsAfterReporting))
 }
 
 // Register a single request and call the minimization function, then assert whether all fields have been minimized correctly

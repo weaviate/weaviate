@@ -24,8 +24,8 @@ type RequestsLog struct { // TODO: RENAME
 // Register a performed Request. Either creates a new entry or updates an existing one.
 func (r *RequestsLog) Register(request *RequestLog) {
 	if r.Enabled {
-
 		r.Mutex.Lock()
+
 		if _, ok := r.Log[request.Identifier]; ok {
 			r.Log[request.Identifier].Amount++
 		} else {
