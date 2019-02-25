@@ -8,7 +8,7 @@ import (
 )
 
 // test if the RequestsLog.Reset() function can be called if the feature flag is enabled
-func TestFeatureFlagEnabled(t *testing.T) {
+func TestEnabled(t *testing.T) {
 	t.Parallel()
 
 	// setup
@@ -26,7 +26,7 @@ func TestFeatureFlagEnabled(t *testing.T) {
 }
 
 // test if the RequestsLog.Reset() function can be called if the feature flag is disabled
-func TestFeatureFlagDisabled(t *testing.T) {
+func TestDisabled(t *testing.T) {
 	t.Parallel()
 
 	// setup
