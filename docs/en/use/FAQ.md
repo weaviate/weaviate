@@ -17,7 +17,7 @@ You can do all these things with one single knowledge graph!
 
 ## Q: Why would I use Weaviate?
 
-Besides all the power of a knowledge graph (as mentioned above), Weaviate adds three more unique features to the mix.
+Besides all the power of a knowledge graph (as mentioned above), Weaviate adds four more unique features to the mix.
 
 **1. Semantic understanding of your data through The Contextionary**
 
@@ -27,7 +27,7 @@ Learn more about Weaviate's Contextionary.
 
 **2. A Focus on developer user experience**
 
-Graph databases are sometimes tricky to use and query. Weaviate takes all that abstraction away by offering you access to the graph through the RESTful API and the GraphQL query language. When you run Weaviate, you can immediately start using it!
+Graph databases are sometimes tricky to use and query. Weaviate takes all that abstraction away by offering you access to the graph through the RESTful API and the GraphQL query language. When you run Weaviate, you can immediately start using it and implement it in your own products and services.
 
 **3. Peer to peer network**
 
@@ -35,7 +35,7 @@ With Weaviate you can not only create a knowledge graph, but you can also create
 
 **4. Scale**
 
-Weaviate scales BIG! Our benchmarks are now up to 5 billion nodes.
+Weaviate scales BIG! Our benchmarks are now up to 5 billion nodes in the graph.
 
 ## Q: Why can't I use a normal relational or key-value database?
 
