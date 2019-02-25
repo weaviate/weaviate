@@ -184,6 +184,15 @@ func (p *Processor) processEdgeAndVertexObjects(o []interface{}, className schem
 		return nil, fmt.Errorf("could not extract class name from linked vertex: %s", err)
 	}
 
+	if len(o) > 2 {
+		// this means the nesting continues
+		nestedRefMap, err := p.processEdgeAndVertexObjects(o[2:], linkedClassName)
+		if err != nil {
+			return nil, fmt.Errorf("could not process cross-ref from %s to %s: %s", className, linkedClassName, err)
+		}
+		processedVertex = mergeMaps(processedVertex, nestedRefMap)
+	}
+
 	return map[string]interface{}{
 		strings.Title(crossRefProp): []interface{}{get.LocalRef{Fields: processedVertex, AtClass: string(linkedClassName)}},
 	}, nil
