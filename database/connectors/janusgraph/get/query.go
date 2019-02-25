@@ -48,6 +48,7 @@ type nameSource interface {
 	GetMappedPropertyName(className schema.ClassName, propName schema.PropertyName) state.MappedPropertyName
 	GetPropertyNameFromMapped(className schema.ClassName, mappedPropName state.MappedPropertyName) schema.PropertyName
 	GetMappedClassName(className schema.ClassName) state.MappedClassName
+	GetClassNameFromMapped(className state.MappedClassName) schema.ClassName
 }
 
 type typeSource interface {
