@@ -124,6 +124,47 @@ func Test_QueryBuilder(t *testing.T) {
 			`,
 		},
 		{
+			name: "with a Thing.City with a network ref prop one level deep",
+			inputParams: get.Params{
+				ClassName: "City",
+				Properties: []get.SelectProperty{
+					get.SelectProperty{
+						IsPrimitive: true,
+						Name:        "name",
+					},
+					get.SelectProperty{
+						IsPrimitive: false,
+						Name:        "inCountry",
+						Refs: []get.SelectClass{
+							get.SelectClass{
+								ClassName: "WeaviateB__Country",
+								RefProperties: []get.SelectProperty{
+									get.SelectProperty{
+										IsPrimitive: true,
+										Name:        "name",
+									},
+								},
+							},
+						},
+					},
+				},
+				Kind: kind.THING_KIND,
+				Pagination: &common.Pagination{
+					After: 0,
+					First: 33,
+				},
+			},
+			expectedQuery: `
+			g.V().has("kind", "thing").hasLabel("class_18")
+				.union(
+				  optional(
+						outE("prop_3").inV()
+					)
+				)
+				.range(0, 33).path().by(valueMap())
+			`,
+		},
+		{
 			name: "with a Thing.City with a ref prop three levels deep",
 			inputParams: get.Params{
 				ClassName: "City",
