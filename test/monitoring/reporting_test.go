@@ -29,21 +29,13 @@ func TestReportingLoop(t *testing.T) {
 	interval := 1
 	url := ""
 
-	reporter := telemetry.NewReporter(log, interval, url)
+	reporter := telemetry.NewReporter(log, interval, url, telemetryEnabled)
 	go reporter.Start()
 
 	time.Sleep(2)
 
 	// test
-	assert.Equals(t, 0, len(log))
-
-	/*
-		create log
-		add call to log
-		call func with interval = 1
-		sleep(2)
-		check if log is empty
-	*/
+	assert.Equal(t, 0, len(log.Log))
 }
 
 func TestPostUsage(t *testing.T) {
