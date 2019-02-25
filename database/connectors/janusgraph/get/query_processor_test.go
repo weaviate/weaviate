@@ -470,6 +470,204 @@ func Test_QueryProcessor(t *testing.T) {
 		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
 	})
 
+	t.Run("multiple results for a nested cross-ref", func(t *testing.T) {
+		janusResponse := &gremlin.Response{
+			Data: []gremlin.Datum{
+				gremlin.Datum{
+					Datum: map[string]interface{}{
+						"objects": []interface{}{
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid1,
+								},
+								"classId": []interface{}{
+									"class_18",
+								},
+								"prop_1": []interface{}{
+									"Amsterdam",
+								},
+								"prop_2": []interface{}{
+									800000,
+								},
+							},
+							map[string]interface{}{
+								"refId":       "prop_3",
+								"$cref":       uuid2,
+								"refType":     "thing",
+								"locationUrl": "localhost",
+							},
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid2,
+								},
+								"classId": []interface{}{
+									"class_19",
+								},
+								"prop_1": []interface{}{
+									"Netherlands",
+								},
+								"prop_2": []interface{}{
+									30000000,
+								},
+							},
+							map[string]interface{}{
+								"refId":       "prop_13",
+								"$cref":       uuid3,
+								"refType":     "thing",
+								"locationUrl": "localhost",
+							},
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid3,
+								},
+								"classId": []interface{}{
+									"class_20",
+								},
+							},
+							map[string]interface{}{
+								"refId":       "prop_23",
+								"$cref":       uuid4,
+								"refType":     "thing",
+								"locationUrl": "localhost",
+							},
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid4,
+								},
+								"classId": []interface{}{
+									"class_21",
+								},
+								"prop_1": []interface{}{
+									"Earth",
+								},
+							},
+						},
+					},
+				},
+
+				gremlin.Datum{
+					Datum: map[string]interface{}{
+						"objects": []interface{}{
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid1,
+								},
+								"classId": []interface{}{
+									"class_18",
+								},
+								"prop_1": []interface{}{
+									"Amsterdam",
+								},
+								"prop_2": []interface{}{
+									800000,
+								},
+							},
+							map[string]interface{}{
+								"refId":       "prop_3",
+								"$cref":       uuid2,
+								"refType":     "thing",
+								"locationUrl": "localhost",
+							},
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid2,
+								},
+								"classId": []interface{}{
+									"class_19",
+								},
+								"prop_1": []interface{}{
+									"Netherlands",
+								},
+								"prop_2": []interface{}{
+									30000000,
+								},
+							},
+							map[string]interface{}{
+								"refId":       "prop_13",
+								"$cref":       uuid3,
+								"refType":     "thing",
+								"locationUrl": "localhost",
+							},
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid3,
+								},
+								"classId": []interface{}{
+									"class_20",
+								},
+							},
+							map[string]interface{}{
+								"refId":       "prop_23",
+								"$cref":       uuid5,
+								"refType":     "thing",
+								"locationUrl": "localhost",
+							},
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid5,
+								},
+								"classId": []interface{}{
+									"class_21",
+								},
+								"prop_1": []interface{}{
+									"FlatEarth",
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		executor := &fakeExecutor{result: janusResponse}
+		expectedResult := []interface{}{
+			map[string]interface{}{
+				"uuid":       uuid1,
+				"name":       "Amsterdam",
+				"population": 800000,
+				"InCountry": []interface{}{
+					get.LocalRef{
+						AtClass: "Country",
+						Fields: map[string]interface{}{
+							"name":       "Netherlands",
+							"population": 30000000,
+							"uuid":       uuid2,
+							"InContinent": []interface{}{
+								get.LocalRef{
+									AtClass: "Continent",
+									Fields: map[string]interface{}{
+										"uuid": uuid3,
+										"OnPlanet": []interface{}{
+											get.LocalRef{
+												AtClass: "Planet",
+												Fields: map[string]interface{}{
+													"uuid": uuid4,
+													"name": "Earth",
+												},
+											},
+											get.LocalRef{
+												AtClass: "Planet",
+												Fields: map[string]interface{}{
+													"uuid": uuid5,
+													"name": "FlatEarth",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		result, err := NewProcessor(executor, &fakeNameSource{}, schema.ClassName("City")).
+			Process(gremlin.New())
+
+		require.Nil(t, err, "should not error")
+		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
+	})
+
 }
 
 type fakeExecutor struct {
