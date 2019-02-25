@@ -65,7 +65,7 @@ require (
 	github.com/stretchr/testify v1.2.2
 	github.com/syndtr/goleveldb v0.0.0-20180708030551-c4c61651e9e3
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
-	github.com/ugorji/go/codec v0.0.0-20181209151446-772ced7fd4c2 // indirect
+	github.com/ugorji/go/codec v0.0.0-20181209151446-772ced7fd4c2
 	github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 // indirect
 	go.uber.org/atomic v1.3.2 // indirect
 	go.uber.org/multierr v1.1.0 // indirect

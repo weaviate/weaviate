@@ -3,7 +3,7 @@ package utils
 import ()
 
 // TODO: determine the best place for these settings. This works, but reading a json file might be a better solution
-var Enabled bool = true
+var Enabled bool = false
 var Interval int = 300
 var URL string = ""
 
