@@ -14,6 +14,7 @@ package get
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/filters"
@@ -31,6 +32,12 @@ type Query struct {
 	params     get.Params
 	nameSource nameSource
 	typeSource typeSource
+}
+
+var isNetworkRef *regexp.Regexp
+
+func init() {
+	isNetworkRef = regexp.MustCompile("^\\w*__")
 }
 
 // NewQuery is the preferred way to create a query
@@ -123,9 +130,14 @@ func (b *Query) refPropQuery(prop get.SelectProperty, className string) []*greml
 
 	var queries []*gremlin.Query
 
+	var q *gremlin.Query
 	for _, refClass := range prop.Refs {
-		className := string(b.nameSource.GetMappedClassName(schema.ClassName(refClass.ClassName)))
-		q := gremlin.New().Optional(gremlin.New().OutEWithLabel(propName).InV().HasLabel(className))
+		if isNetworkRef.MatchString(refClass.ClassName) {
+			q = gremlin.New().Optional(gremlin.New().OutEWithLabel(propName).InV())
+		} else {
+			className := string(b.nameSource.GetMappedClassName(schema.ClassName(refClass.ClassName)))
+			q = gremlin.New().Optional(gremlin.New().OutEWithLabel(propName).InV().HasLabel(className))
+		}
 
 		nestedQueries := b.refPropQueries(refClass.RefProperties, refClass.ClassName)
 		if len(nestedQueries) == 0 {

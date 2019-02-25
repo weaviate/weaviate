@@ -19,9 +19,13 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/crossref"
+	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/go-openapi/strfmt"
 )
 
 // Processor is a simple Gremlin-Query Executor that is specific to Fetch. It
@@ -161,7 +165,6 @@ func (p *Processor) classNameFromVertex(v map[string]interface{}) (schema.ClassN
 
 func (p *Processor) processEdgeAndVertexObjects(o []interface{}, className schema.ClassName) (map[string]interface{}, error) {
 	edge := o[0]
-	vertex := o[1]
 
 	edgeMap, ok := edge.(map[string]interface{})
 	if !ok {
@@ -173,13 +176,48 @@ func (p *Processor) processEdgeAndVertexObjects(o []interface{}, className schem
 		return nil, fmt.Errorf("expected edge object to be have key 'refId', but got %#v", edgeMap)
 	}
 
+	ref, err := p.refTypeFromEdge(edgeMap)
+	if err != nil {
+		return nil, fmt.Errorf("could not identiy ref type for class '%s': %s", className, err)
+	}
+
 	crossRefProp := string(p.nameSource.GetPropertyNameFromMapped(className, state.MappedPropertyName(refProp.(string))))
-	processedVertex, err := p.processVertexObject(vertex)
+
+	if ref.Local {
+		return p.processLocalRefEdge(o, crossRefProp, className)
+	}
+
+	return p.processNetworkRefEdge(ref, crossRefProp)
+}
+
+func (p *Processor) refTypeFromEdge(edgeMap map[string]interface{}) (*crossref.Ref, error) {
+	uuid, ok := edgeMap["$cref"]
+	if !ok {
+		return nil, fmt.Errorf("expected edge object to be have key '$cref', but got %#v", edgeMap)
+	}
+
+	location, ok := edgeMap["locationUrl"]
+	if !ok {
+		return nil, fmt.Errorf("expected edge object to be have key 'locationUrl', but got %#v", edgeMap)
+	}
+
+	refType, ok := edgeMap["refType"]
+	if !ok {
+		return nil, fmt.Errorf("expected edge object to be have key 'refType', but got %#v", edgeMap)
+	}
+
+	ref := crossref.New(location.(string), strfmt.UUID(uuid.(string)), kind.KindByName(refType.(string)))
+	return ref, nil
+}
+
+func (p *Processor) processLocalRefEdge(o []interface{}, crossRefProp string,
+	className schema.ClassName) (map[string]interface{}, error) {
+	processedVertex, err := p.processVertexObject(o[1])
 	if err != nil {
 		return nil, fmt.Errorf("could not process vertex (of cross-ref): %s", err)
 	}
 
-	linkedClassName, err := p.classNameFromVertex(vertex.(map[string]interface{}))
+	linkedClassName, err := p.classNameFromVertex(o[1].(map[string]interface{}))
 	if err != nil {
 		return nil, fmt.Errorf("could not extract class name from linked vertex: %s", err)
 	}
@@ -195,6 +233,19 @@ func (p *Processor) processEdgeAndVertexObjects(o []interface{}, className schem
 
 	return map[string]interface{}{
 		strings.Title(crossRefProp): []interface{}{get.LocalRef{Fields: processedVertex, AtClass: string(linkedClassName)}},
+	}, nil
+}
+
+func (p *Processor) processNetworkRefEdge(ref *crossref.Ref, propName string) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		strings.Title(propName): []interface{}{get.NetworkRef{
+			NetworkKind: crossrefs.NetworkKind{
+				PeerName: ref.PeerName,
+				ID:       ref.TargetID,
+				Kind:     ref.Kind,
+			},
+		},
+		},
 	}, nil
 }
 
