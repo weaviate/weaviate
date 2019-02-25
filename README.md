@@ -2,6 +2,15 @@
 
 _The Decentralized Knowledge Graph & The Decentralized Knowledge P2P Network_
 
+## Index
+
+- [Introduction](#introduction)
+- [References & Docs](#references)
+- [Questions](#questions)
+- [Commercial use](#commercial-use)
+- [Build Status](#build-status)
+- [Query Example](#query-example)
+
 ## Introduction
 
 Weaviate is a knowledge graph which meshes all your data and makes it available as one seamless source for contextualized research, reporting, and re-use. Our aim is to transform static (big-)data into a natural language queryable knowledge base which you can access directly or over a peer-to-peer network.
@@ -37,6 +46,8 @@ Key features of Weaviate include:
 
 ## References
 
+> Note: Weaviate is currently only available as an unstable release. We hope to release a first stable version in the coming months.
+
 Weaviate's documentation is available in the `./docs` folder on Github and divided into two sections:
 
 1. [documenation for users](#usage-docs) and;
@@ -65,7 +76,7 @@ We highly recommend starting with the _Getting Started_ (for [users](./docs/en/u
 
 ## Commercial use
 
-Weaviate is released under a [BSD-3](https://github.com/creativesoftwarefdn/weaviate/blob/master/LICENSE.md) license by the Creative Software Foundation. [SeMI](https://www.semi.network) offers a suite of enterprise and turnkey platform products and services based on Weaviate.
+Weaviate is released under a [BSD-3](https://github.com/creativesoftwarefdn/weaviate/blob/master/LICENSE.md) license by the Creative Software Foundation. [SeMI](https://www.semi.network) offers a suite of enterprise and whitelabel platform products and managed services based on Weaviate.
 
 More information:
 
@@ -78,3 +89,7 @@ More information:
 | -------- |:-------------:|
 | Master   | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=master)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
 | Develop  | [![Build Status](https://api.travis-ci.org/creativesoftwarefdn/weaviate.svg?branch=develop)](https://travis-ci.org/creativesoftwarefdn/weaviate/branches)
+
+## Query Example
+
+![Weaviate query example](./docs/assets/demo.gif)
