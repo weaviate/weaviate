@@ -1,6 +1,7 @@
 package test
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// Register a single request, then assert whether all fields have been stored correctly.
 func TestRequestMonitoringBasics(t *testing.T) {
 	t.Parallel()
 
@@ -37,6 +39,7 @@ func TestRequestMonitoringBasics(t *testing.T) {
 	assert.Equal(t, int64(1550745544), loggedFunc.When)
 }
 
+// Log two requests of the same type, then assert whether the log contains a single request record with Amount set to two
 func TestRequestIncrementing(t *testing.T) {
 	t.Parallel()
 
@@ -55,8 +58,10 @@ func TestRequestIncrementing(t *testing.T) {
 
 	// test
 	assert.Equal(t, 2, loggedFunctionType.Amount)
+	assert.Equal(t, 1, len(calledFunctions.Log))
 }
 
+// Log multiple request types, then assert whether the log contains each of the added request types
 func TestMultipleRequestTypes(t *testing.T) {
 	t.Parallel()
 
@@ -69,7 +74,7 @@ func TestMultipleRequestTypes(t *testing.T) {
 	postRequestLog2 := telemetry.NewRequestTypeLog("apologetic-thermonuclear-blunderbuss", "POST", "weaviate.something.or.other2", 1)
 	postRequestLog2.When = int64(1550745544)
 
-	postRequestLog3 := telemetry.NewRequestTypeLog("dormant-artificial-piglet", "POST", "weaviate.something.or.other3", 1)
+	postRequestLog3 := telemetry.NewRequestTypeLog("dormant-mechanical-piglet", "POST", "weaviate.something.or.other3", 1)
 	postRequestLog3.When = int64(1550745544)
 
 	telemetryEnabled := true
@@ -89,6 +94,49 @@ func TestMultipleRequestTypes(t *testing.T) {
 	assert.Equal(t, 2, loggedFunctionType3.Amount)
 }
 
+// Add a single record and call the extract function (read + reset). Then assert whether the extracted records
+// contain 1 record (read) and whether the log contains 0 records (delete).
+func TestExtractLoggedRequests(t *testing.T) {
+	t.Parallel()
+
+	// setup
+	var wg sync.WaitGroup
+
+	calledFunctions := telemetry.NewLog()
+
+	postRequestLog1 := telemetry.NewRequestTypeLog("fuzzy-painted-mug", "GQL", "weaviate.something.or.other1", 1)
+	postRequestLog1.When = int64(1550745544)
+
+	telemetryEnabled := true
+
+	calledFunctions.Register(postRequestLog1, telemetryEnabled)
+
+	wg.Add(1)
+	//
+	requestResults := make(chan *map[string]*telemetry.RequestLog, 1)
+
+	go performExtraction(calledFunctions, &wg, telemetryEnabled, &requestResults)
+
+	wg.Wait()
+
+	close(requestResults)
+
+	for results := range requestResults {
+		loggedFunctions := len(*results)
+
+		// test
+		assert.Equal(t, 1, loggedFunctions)
+		assert.Equal(t, 0, len(calledFunctions.Log))
+	}
+}
+
+// Use a waitgroup + channel to avoid race conditions in the test case. This isn't necessary in production as processes in goroutines aren't dependent on eachothers' states.
+func performExtraction(calledFunctions *telemetry.RequestsLog, wg *sync.WaitGroup, telemetryEnabled bool, requestResults *chan *map[string]*telemetry.RequestLog) {
+	defer wg.Done()
+	*requestResults <- calledFunctions.ExtractLoggedRequests(telemetryEnabled)
+}
+
+// Spawn 10 goroutines that each register 100 function calls, then assert whether we end up with 1000 records in the log
 func TestConcurrentRequests(t *testing.T) {
 	t.Parallel()
 

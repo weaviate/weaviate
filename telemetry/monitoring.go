@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"fmt"
 	"sync"
 )
 
@@ -22,35 +23,6 @@ func NewLog() *RequestsLog {
 	}
 }
 
-func (r *RequestsLog) Read(telemetryEnabled bool) map[string]*RequestLog {
-	// make a mutex-using READ func for the reporting loop
-	// lock -> make copy -> unlock -> return copy
-	//		if not copy then other threads will keep editing
-	// check your code for other reads that should use mutex
-	// write unit test for this func
-	if telemetryEnabled {
-		r.Mutex.Lock()
-		logState := NewLog()
-		for key, value := range r.Log {
-			logState[key] = value
-		}
-		r.Mutex.Unlock()
-		return logState
-	}
-	return nil
-}
-
-// Reset the hashmap used to log performed Requests.
-func (r *RequestsLog) Reset(telemetryEnabled bool) int {
-	if telemetryEnabled {
-		r.Mutex.Lock()
-		r.Log = make(map[string]*RequestLog)
-		r.Mutex.Unlock()
-		return Succeeded
-	}
-	return Failed
-}
-
 // Register a performed Request. Either creates a new entry or updates an existing one.
 func (r *RequestsLog) Register(request *RequestLog, telemetryEnabled bool) int {
 	if telemetryEnabled {
@@ -65,6 +37,25 @@ func (r *RequestsLog) Register(request *RequestLog, telemetryEnabled bool) int {
 		return Succeeded
 	}
 	return Failed
+}
+
+// Extract the hashmap used to log performed Requests and reset it to its default state.
+func (r *RequestsLog) ExtractLoggedRequests(telemetryEnabled bool) *map[string]*RequestLog {
+	fmt.Println("resetting")
+	if telemetryEnabled {
+		r.Mutex.Lock()
+
+		logState := make(map[string]*RequestLog)
+		for key, value := range r.Log {
+			logState[key] = value
+		}
+
+		r.Log = make(map[string]*RequestLog)
+		r.Mutex.Unlock()
+		return &logState
+
+	}
+	return nil
 }
 
 // A struct used both for logging new Request type calls and for counting the total amount of calls per
