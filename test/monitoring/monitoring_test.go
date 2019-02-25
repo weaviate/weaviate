@@ -75,7 +75,7 @@ func TestMultipleRequestTypes(t *testing.T) {
 	postRequestLog2 := telemetry.NewRequestTypeLog("apologetic-thermonuclear-blunderbuss", "POST", "weaviate.something.or.other2", 1)
 	postRequestLog2.When = int64(1550745544)
 
-	postRequestLog3 := telemetry.NewRequestTypeLog("dormant-mechanical-piglet", "POST", "weaviate.something.or.other3", 1)
+	postRequestLog3 := telemetry.NewRequestTypeLog("slumbering-mechanical-piglet", "POST", "weaviate.something.or.other3", 1)
 	postRequestLog3.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog1)
@@ -105,7 +105,7 @@ func TestExtractLoggedRequests(t *testing.T) {
 
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
 
-	postRequestLog1 := telemetry.NewRequestTypeLog("fuzzy-painted-mug", "GQL", "weaviate.something.or.other1", 1)
+	postRequestLog1 := telemetry.NewRequestTypeLog("fuzzy-levitating-mug", "GQL", "weaviate.something.or.other1", 1)
 	postRequestLog1.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog1)
@@ -125,7 +125,7 @@ func TestExtractLoggedRequests(t *testing.T) {
 
 		// test
 		assert.Equal(t, 1, loggedFunctions)
-		assert.Equal(t, 0, len(calledFunctions.Log))
+		assert.Equal(t, 0, len(*calledFunctions.ExtractLoggedRequests()))
 	}
 }
 
@@ -156,12 +156,12 @@ func TestConcurrentRequests(t *testing.T) {
 
 	wg.Wait()
 
-	loggedFunctionType1 := calledFunctions.Log["weaviate.something.or.other1"]
-	loggedFunctionType2 := calledFunctions.Log["weaviate.something.or.other2"]
+	loggedFunctions := calledFunctions.ExtractLoggedRequests()
 
 	// test
-	assert.Equal(t, 500, loggedFunctionType1.Amount)
-	assert.Equal(t, 500, loggedFunctionType2.Amount)
+	for _, function := range *loggedFunctions {
+		assert.Equal(t, 500, function.Amount)
+	}
 }
 
 func performOneThousandConcurrentRequests(calledFunctions *telemetry.RequestsLog, postRequestLog1 *telemetry.RequestLog, postRequestLog2 *telemetry.RequestLog, wg *sync.WaitGroup) {
