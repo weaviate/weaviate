@@ -99,7 +99,7 @@ func Test_QueryProcessor(t *testing.T) {
 			Process(gremlin.New())
 
 		require.Nil(t, err, "should not error")
-		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
 	})
 
 	t.Run("single result, cross-ref one level deep", func(t *testing.T) {
@@ -170,7 +170,126 @@ func Test_QueryProcessor(t *testing.T) {
 			Process(gremlin.New())
 
 		require.Nil(t, err, "should not error")
-		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
+	})
+
+	t.Run("two cross-refs for one class, cross-ref one level deep", func(t *testing.T) {
+		janusResponse := &gremlin.Response{
+			Data: []gremlin.Datum{
+				gremlin.Datum{
+					Datum: map[string]interface{}{
+						"objects": []interface{}{
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid1,
+								},
+								"classId": []interface{}{
+									"class_18",
+								},
+								"prop_1": []interface{}{
+									"Amsterdam",
+								},
+								"prop_2": []interface{}{
+									800000,
+								},
+							},
+							map[string]interface{}{
+								"refId":       "prop_3",
+								"$cref":       uuid2,
+								"locationUrl": "localhost",
+								"refType":     "thing",
+							},
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid2,
+								},
+								"classId": []interface{}{
+									"class_19",
+								},
+								"prop_1": []interface{}{
+									"Netherlands",
+								},
+								"prop_2": []interface{}{
+									30000000,
+								},
+							},
+						},
+					},
+				},
+				gremlin.Datum{
+					Datum: map[string]interface{}{
+						"objects": []interface{}{
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid1,
+								},
+								"classId": []interface{}{
+									"class_18",
+								},
+								"prop_1": []interface{}{
+									"Amsterdam",
+								},
+								"prop_2": []interface{}{
+									800000,
+								},
+							},
+							map[string]interface{}{
+								"refId":       "prop_3",
+								"$cref":       uuid3,
+								"locationUrl": "localhost",
+								"refType":     "thing",
+							},
+							map[string]interface{}{
+								"uuid": []interface{}{
+									uuid3,
+								},
+								"classId": []interface{}{
+									"class_19",
+								},
+								"prop_1": []interface{}{
+									"Holland",
+								},
+								"prop_2": []interface{}{
+									30000000,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		executor := &fakeExecutor{result: janusResponse}
+		expectedResult := []interface{}{
+			map[string]interface{}{
+				"uuid":       uuid1,
+				"name":       "Amsterdam",
+				"population": 800000,
+				"InCountry": []interface{}{
+					get.LocalRef{
+						Fields: map[string]interface{}{
+							"name":       "Netherlands",
+							"population": 30000000,
+							"uuid":       uuid2,
+						},
+						AtClass: "Country",
+					},
+					get.LocalRef{
+						Fields: map[string]interface{}{
+							"name":       "Holland",
+							"population": 30000000,
+							"uuid":       uuid3,
+						},
+						AtClass: "Country",
+					},
+				},
+			},
+		}
+
+		result, err := NewProcessor(executor, &fakeNameSource{}, schema.ClassName("City")).
+			Process(gremlin.New())
+
+		require.Nil(t, err, "should not error")
+		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
 	})
 
 	t.Run("single result, cross ref is a network ref", func(t *testing.T) {
@@ -229,7 +348,7 @@ func Test_QueryProcessor(t *testing.T) {
 			Process(gremlin.New())
 
 		require.Nil(t, err, "should not error")
-		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
 	})
 
 	t.Run("single result, cross-refs several levels deep", func(t *testing.T) {
@@ -348,7 +467,7 @@ func Test_QueryProcessor(t *testing.T) {
 			Process(gremlin.New())
 
 		require.Nil(t, err, "should not error")
-		assert.Equal(t, expectedResult, result, "result should be merged and post-processed")
+		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
 	})
 
 }

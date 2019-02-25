@@ -24,7 +24,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -60,8 +59,6 @@ func (p *Processor) Process(query *gremlin.Query) ([]interface{}, error) {
 		return nil, fmt.Errorf("could not process fetch query: executing the query failed: %s", err)
 	}
 
-	spew.Dump(result)
-
 	results := []interface{}{}
 	for i, datum := range result.Data {
 		processed, err := p.processDatum(datum)
@@ -72,7 +69,7 @@ func (p *Processor) Process(query *gremlin.Query) ([]interface{}, error) {
 		results = append(results, processed)
 	}
 
-	return results, nil
+	return nestedDedup(results), nil
 }
 
 func (p *Processor) processDatum(d gremlin.Datum) (interface{}, error) {
