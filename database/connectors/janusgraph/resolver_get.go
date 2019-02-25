@@ -25,7 +25,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-openapi/strfmt"
 )
 
@@ -73,34 +72,13 @@ func (j *Janusgraph) LocalGetClass(params *get.Params) (interface{}, error) {
 }
 
 func (j *Janusgraph) doLocalGetClass(first, offset int, params *get.Params) ([]interface{}, error) {
-	// new part
-
 	q, err := jget.NewQuery(*params, &j.state, &j.schema).String()
 	if err != nil {
 		return nil, fmt.Errorf("could not build query: %s", err)
 	}
 
-	res, err := j.client.Execute(gremlin.New().Raw(q))
-	if err != nil {
-		return nil, fmt.Errorf("could not execute new query: %s", err)
-	}
-
-	fmt.Printf("\n\n\n%s\n\n\n\n", spew.Sdump(res.Data))
-
-	// old part
-
-	className := schema.AssertValidClassName(params.ClassName)
-	classes, err := j.getClasses(params.Kind, &className, first, offset, params.Filters)
-	if err != nil {
-		return nil, fmt.Errorf("the new getClasses errored: %s", err)
-	}
-
-	results := make([]interface{}, len(classes), len(classes))
-	for i, class := range classes {
-		results[i] = j.doLocalGetClassResolveOneClass(params.Kind, className, class.uuid, params.Properties, class.properties)
-	}
-
-	return results, nil
+	return jget.NewProcessor(j.client, &j.state, schema.ClassName(params.ClassName)).
+		Process(gremlin.New().Raw(q))
 }
 
 func (j *Janusgraph) doLocalGetClassResolveOneClass(knd kind.Kind, className schema.ClassName,

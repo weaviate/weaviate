@@ -12,87 +12,108 @@
 
 package get
 
-// import (
-// 	"fmt"
+import (
+	"fmt"
+	"regexp"
 
-// 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
-// 	"github.com/creativesoftwarefdn/weaviate/gremlin"
-// )
+	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
+	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/gremlin"
+)
 
-// // Processor is a simple Gremlin-Query Executor that is specific to Fetch. It
-// // transforms the return value into a usable beacon structure and calculates
-// // the final certainty.
-// type Processor struct {
-// 	executor executor
-// 	kind     kind.Kind
-// 	peerName string
-// }
+// Processor is a simple Gremlin-Query Executor that is specific to Fetch. It
+// transforms the return value into a usable beacon structure and calculates
+// the final certainty.
+type Processor struct {
+	executor   executor
+	nameSource nameSource
+	className  schema.ClassName
+}
 
-// type executor interface {
-// 	Execute(query gremlin.Gremlin) (*gremlin.Response, error)
-// }
+type executor interface {
+	Execute(query gremlin.Gremlin) (*gremlin.Response, error)
+}
 
-// //NewProcessor from a gremlin executer. See Processor for details.
-// func NewProcessor(executor executor, k kind.Kind, peer string) *Processor {
-// 	return &Processor{executor: executor, kind: k, peerName: peer}
-// }
+var isAProp *regexp.Regexp
 
-// // Process the query by executing it and then transforming the results to
-// // include the beacon structure
-// func (p *Processor) Process(query *gremlin.Query) (interface{}, error) {
-// 	result, err := p.executor.Execute(query)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("could not process fetch query: executing the query failed: %s", err)
-// 	}
+func init() {
+	isAProp = regexp.MustCompile("^prop_")
+}
 
-// 	results := make([]interface{}, len(result.Data), len(result.Data))
-// 	for i, datum := range result.Data {
-// 		beacon, err := p.extractBeacon(datum.Datum)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("could not extract beacon: %s", err)
-// 		}
+//NewProcessor from a gremlin executer. See Processor for details.
+func NewProcessor(executor executor, nameSource nameSource, className schema.ClassName) *Processor {
+	return &Processor{executor: executor, nameSource: nameSource, className: className}
+}
 
-// 		results[i] = map[string]interface{}{
-// 			"beacon": beacon,
-// 		}
-// 	}
+// Process the query by executing it and then transforming the results to
+// include the beacon structure
+func (p *Processor) Process(query *gremlin.Query) ([]interface{}, error) {
+	result, err := p.executor.Execute(query)
+	if err != nil {
+		return nil, fmt.Errorf("could not process fetch query: executing the query failed: %s", err)
+	}
 
-// 	return results, nil
-// }
+	results := []interface{}{}
+	for i, datum := range result.Data {
+		processed, err := p.processDatum(datum)
+		if err != nil {
+			return nil, fmt.Errorf("could not process datum at position %d: %s", i, err)
+		}
 
-// func (p *Processor) extractBeacon(data interface{}) (string, error) {
-// 	dataMap, ok := data.(map[string]interface{})
-// 	if !ok {
-// 		return "", fmt.Errorf("expected datum to be a map, but was %T", data)
-// 	}
+		results = append(results, processed)
+	}
 
-// 	uuid, ok := dataMap["uuid"]
-// 	if !ok {
-// 		return "", fmt.Errorf("expected datum map to have a prop 'uuid', but got '%#v'",
-// 			dataMap)
-// 	}
+	return results, nil
+}
 
-// 	uuidSlice, ok := uuid.([]interface{})
-// 	if !ok {
-// 		return "", fmt.Errorf("expected prop 'uuid' to be a slice, but got '%#v'",
-// 			uuid)
-// 	}
+func (p *Processor) processDatum(d gremlin.Datum) (interface{}, error) {
+	datumMap, ok := d.Datum.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected datum to be a map, but was %T", d)
+	}
 
-// 	if len(uuidSlice) != 1 {
-// 		return "", fmt.Errorf("expected prop 'uuid' have len of 1, but got '%#v'",
-// 			uuidSlice)
-// 	}
+	objects, ok := datumMap["objects"]
+	if !ok {
+		return nil, fmt.Errorf("expected datum map to have key objects, but was %#v", datumMap)
+	}
 
-// 	uuidString, ok := uuidSlice[0].(string)
-// 	if !ok {
-// 		return "", fmt.Errorf("expected uuid[0] to be a string, but got '%#v'",
-// 			uuidSlice[0])
-// 	}
+	objectsSlice, ok := objects.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected objects to be a slice, but was %T", objects)
+	}
 
-// 	return p.beaconFromUUID(uuidString)
-// }
+	if len(objectsSlice) != 1 {
+		return nil, fmt.Errorf("only non-cross refs supported for now, but got length %d", len(objectsSlice))
+	}
 
-// func (p *Processor) beaconFromUUID(uuid string) (string, error) {
-// 	return fmt.Sprintf("weaviate://%s/%ss/%s",
-// 		p.peerName, p.kind.Name(), uuid), nil
-// }
+	return p.processVertexObject(objectsSlice[0])
+}
+
+func (p *Processor) processVertexObject(o interface{}) (interface{}, error) {
+	objMap, ok := o.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected object to be a map, but was %T", o)
+	}
+
+	results := map[string]interface{}{}
+	for key, value := range objMap {
+		valueSlice, ok := value.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected value for key '%s' to be a slice, but got %T", key, value)
+		}
+
+		if len(valueSlice) != 1 {
+			return nil, fmt.Errorf("expected value to be of length 1 for key '%s', but got %d", key, len(valueSlice))
+		}
+
+		if !isAProp.MatchString(key) {
+			results[key] = valueSlice[0]
+			continue
+		}
+
+		readablePropName := string(p.nameSource.GetPropertyNameFromMapped(p.className, state.MappedPropertyName(key)))
+		results[readablePropName] = valueSlice[0]
+	}
+
+	return results, nil
+}
