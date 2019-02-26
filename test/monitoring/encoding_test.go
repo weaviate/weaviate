@@ -3,6 +3,7 @@ package test
 import (
 	"testing"
 
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/stretchr/testify/assert"
 	"github.com/ugorji/go/codec"
 )
@@ -23,14 +24,10 @@ func TestCborEncode(t *testing.T) {
 
 	minimizedLog = append(minimizedLog, record)
 
-	actual := make([]byte, 0, 64)
+	outputTransformer := telemetry.NewOutputTransformer()
+	outputTransformer.Canonical = true
 
-	cborHandle := new(codec.CborHandle)
-	cborHandle.Canonical = true // ensure map elements are encoded in the same order instead of in random order
-
-	encoder := codec.NewEncoderBytes(&actual, cborHandle)
-
-	err := encoder.Encode(minimizedLog)
+	actual, err := outputTransformer.EncodeAsCBOR(&minimizedLog)
 
 	expected := []uint8{129, 165, 97, 97, 1, 97, 105, 120, 27, 119, 101, 97, 118, 105, 97, 116, 101, 46, 115, 111, 109, 101, 116, 104, 105, 110, 103, 46, 111, 114, 46, 111, 116, 104, 101, 114, 97, 110, 114, 117, 112, 98, 101, 97, 116, 45, 97, 113, 117, 97, 116, 105, 99, 45, 112, 101, 110, 97, 116, 100, 82, 69, 83, 84, 97, 119, 26, 92, 110, 127, 200}
 

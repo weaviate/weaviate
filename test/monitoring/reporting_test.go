@@ -69,6 +69,45 @@ func TestMinimization(t *testing.T) {
 	assert.Equal(t, int64(1550745544), miniLog["w"].(int64))
 }
 
+// Create a log containing two logged function types and call the AddTimeStamps function,
+// then assert whether both logs now contain the same plausible timestamp.
+func TestAddTimestamps(t *testing.T) {
+	t.Parallel()
+
+	// setup
+	requestsLog := make(map[string]*telemetry.RequestLog)
+
+	loggedRequest1 := telemetry.NewRequestTypeLog("fancy-extraterrestrial-balloon", "REST", "weaviate.something.or.other1", 1)
+	loggedRequest2 := telemetry.NewRequestTypeLog("common-terrestrial-balloon", "REST", "weaviate.something.or.other2", 1)
+
+	requestsLog["weaviate.something.or.other1"] = loggedRequest1
+	requestsLog["weaviate.something.or.other2"] = loggedRequest2
+
+	past := time.Now().Unix()
+
+	time.Sleep(time.Duration(1) * time.Second)
+
+	reporter := telemetry.NewReporter(nil, 0, "", true)
+	reporter.AddTimeStamps(&requestsLog)
+
+	time.Sleep(time.Duration(1) * time.Second)
+
+	future := time.Now().Unix()
+
+	log1Timestamp := requestsLog["weaviate.something.or.other1"].When
+	log2Timestamp := requestsLog["weaviate.something.or.other2"].When
+
+	notZero := log1Timestamp != 0
+	notFromThePast := log1Timestamp > past
+	notFromTheFuture := log1Timestamp < future
+
+	// test
+	assert.Equal(t, log1Timestamp, log2Timestamp)
+	assert.Equal(t, true, notZero)
+	assert.Equal(t, true, notFromThePast)
+	assert.Equal(t, true, notFromTheFuture)
+}
+
 //func TestPostUsage(t *testing.T) {
 //	t.Parallel()
 //	// Is this a good idea? This test result would be dependant on an external factor (the monitoring endpoint)

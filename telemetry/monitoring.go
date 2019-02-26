@@ -64,7 +64,7 @@ type RequestLog struct {
 	When       int64  // timestamp in epoch
 }
 
-// Note `When` attribute is not set here; the timestamp is provided separately at the moment of POSTing
+// Note `When` attribute is not set here; the timestamp is provided separately when logged requests are prepared to be posted
 func NewRequestTypeLog(name string, requestType string, identifier string, amount int) *RequestLog {
 	return &RequestLog{
 		Name:       name,
