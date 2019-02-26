@@ -17,7 +17,7 @@ func TestBasics(t *testing.T) {
 
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
 
-	postRequestLog := telemetry.NewRequestTypeLog("ginormous-thunder-apple", "POST", "weaviate.something.or.other", 1)
+	postRequestLog := telemetry.NewRequestTypeLog("ginormous-thunder-apple", "REST", "weaviate.something.or.other", 1)
 	postRequestLog.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog)
@@ -32,7 +32,7 @@ func TestBasics(t *testing.T) {
 	}
 
 	assert.Equal(t, "ginormous-thunder-apple", loggedFunc.Name)
-	assert.Equal(t, "POST", loggedFunc.Type)
+	assert.Equal(t, "REST", loggedFunc.Type)
 	assert.Equal(t, "weaviate.something.or.other", loggedFunc.Identifier)
 	assert.Equal(t, 1, loggedFunc.Amount)
 	assert.Equal(t, int64(1550745544), loggedFunc.When)
@@ -47,7 +47,7 @@ func TestRequestIncrementing(t *testing.T) {
 
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
 
-	postRequestLog := telemetry.NewRequestTypeLog("grilled-cheese-sandwich", "POST", "weaviate.something.or.other", 1)
+	postRequestLog := telemetry.NewRequestTypeLog("grilled-cheese-sandwich", "REST", "weaviate.something.or.other", 1)
 	postRequestLog.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog)
@@ -72,10 +72,10 @@ func TestMultipleRequestTypes(t *testing.T) {
 	postRequestLog1 := telemetry.NewRequestTypeLog("awkward-handshake-guy", "GQL", "weaviate.something.or.other1", 1)
 	postRequestLog1.When = int64(1550745544)
 
-	postRequestLog2 := telemetry.NewRequestTypeLog("apologetic-thermonuclear-blunderbuss", "POST", "weaviate.something.or.other2", 1)
+	postRequestLog2 := telemetry.NewRequestTypeLog("apologetic-thermonuclear-blunderbuss", "REST", "weaviate.something.or.other2", 1)
 	postRequestLog2.When = int64(1550745544)
 
-	postRequestLog3 := telemetry.NewRequestTypeLog("slumbering-mechanical-piglet", "POST", "weaviate.something.or.other3", 1)
+	postRequestLog3 := telemetry.NewRequestTypeLog("slumbering-mechanical-piglet", "REST", "weaviate.something.or.other3", 1)
 	postRequestLog3.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog1)
@@ -149,7 +149,7 @@ func TestConcurrentRequests(t *testing.T) {
 	postRequestLog1 := telemetry.NewRequestTypeLog("forgetful-seal-cooker", "GQL", "weaviate.something.or.other1", 1)
 	postRequestLog1.When = int64(1550745544)
 
-	postRequestLog2 := telemetry.NewRequestTypeLog("brave-maple-leaf", "POST", "weaviate.something.or.other2", 1)
+	postRequestLog2 := telemetry.NewRequestTypeLog("brave-maple-leaf", "REST", "weaviate.something.or.other2", 1)
 	postRequestLog2.When = int64(1550745544)
 
 	performOneThousandConcurrentRequests(calledFunctions, postRequestLog1, postRequestLog2, &wg)

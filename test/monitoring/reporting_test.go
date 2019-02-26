@@ -17,7 +17,7 @@ func TestLoop(t *testing.T) {
 
 	log := telemetry.NewLog(telemetryEnabled)
 
-	loggedRequest := telemetry.NewRequestTypeLog("soggy-whale-bread", "POST", "weaviate.something.or.other", 1)
+	loggedRequest := telemetry.NewRequestTypeLog("soggy-whale-bread", "REST", "weaviate.something.or.other", 1)
 	loggedRequest.When = int64(1550745544)
 
 	log.Register(loggedRequest)
@@ -45,7 +45,7 @@ func TestMinimization(t *testing.T) {
 
 	log := telemetry.NewLog(telemetryEnabled)
 
-	loggedRequest := telemetry.NewRequestTypeLog("tiny-grey-chainsword", "POST", "weaviate.something.or.other", 1)
+	loggedRequest := telemetry.NewRequestTypeLog("tiny-grey-chainsword", "REST", "weaviate.something.or.other", 1)
 	loggedRequest.When = int64(1550745544)
 
 	log.Register(loggedRequest)
@@ -63,7 +63,7 @@ func TestMinimization(t *testing.T) {
 	// test
 	assert.Equal(t, 1, len(*minimizedLogs))
 	assert.Equal(t, "tiny-grey-chainsword", miniLog["n"].(string))
-	assert.Equal(t, "POST", miniLog["t"].(string))
+	assert.Equal(t, "REST", miniLog["t"].(string))
 	assert.Equal(t, "weaviate.something.or.other", miniLog["i"].(string))
 	assert.Equal(t, 1, miniLog["a"].(int))
 	assert.Equal(t, int64(1550745544), miniLog["w"].(int64))
