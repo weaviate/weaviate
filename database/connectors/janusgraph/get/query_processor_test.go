@@ -259,37 +259,33 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 		executor := &fakeExecutor{result: janusResponse}
-		expectedResult := []interface{}{
-			map[string]interface{}{
-				"uuid":       uuid1,
-				"name":       "Amsterdam",
-				"population": 800000,
-				"InCountry": []interface{}{
-					get.LocalRef{
-						Fields: map[string]interface{}{
-							"name":       "Netherlands",
-							"population": 30000000,
-							"uuid":       uuid2,
-						},
-						AtClass: "Country",
-					},
-					get.LocalRef{
-						Fields: map[string]interface{}{
-							"name":       "Holland",
-							"population": 30000000,
-							"uuid":       uuid3,
-						},
-						AtClass: "Country",
-					},
+		expectedInnerRefs := []interface{}{
+			get.LocalRef{
+				Fields: map[string]interface{}{
+					"name":       "Netherlands",
+					"population": 30000000,
+					"uuid":       uuid2,
 				},
+				AtClass: "Country",
+			},
+			get.LocalRef{
+				Fields: map[string]interface{}{
+					"name":       "Holland",
+					"population": 30000000,
+					"uuid":       uuid3,
+				},
+				AtClass: "Country",
 			},
 		}
 
 		result, err := NewProcessor(executor, &fakeNameSource{}, schema.ClassName("City")).
 			Process(gremlin.New())
-
 		require.Nil(t, err, "should not error")
-		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
+
+		subResult, err := extractResult(result, []interface{}{0, "InCountry"})
+		require.Nil(t, err, "should not error")
+
+		assert.ElementsMatch(t, expectedInnerRefs, subResult, "result should be merged and post-processed")
 	})
 
 	t.Run("single result, cross ref is a network ref", func(t *testing.T) {
@@ -619,55 +615,34 @@ func Test_QueryProcessor(t *testing.T) {
 			},
 		}
 		executor := &fakeExecutor{result: janusResponse}
-		expectedResult := []interface{}{
-			map[string]interface{}{
-				"uuid":       uuid1,
-				"name":       "Amsterdam",
-				"population": 800000,
-				"InCountry": []interface{}{
-					get.LocalRef{
-						AtClass: "Country",
-						Fields: map[string]interface{}{
-							"name":       "Netherlands",
-							"population": 30000000,
-							"uuid":       uuid2,
-							"InContinent": []interface{}{
-								get.LocalRef{
-									AtClass: "Continent",
-									Fields: map[string]interface{}{
-										"uuid": uuid3,
-										"OnPlanet": []interface{}{
-											get.LocalRef{
-												AtClass: "Planet",
-												Fields: map[string]interface{}{
-													"uuid": uuid4,
-													"name": "Earth",
-												},
-											},
-											get.LocalRef{
-												AtClass: "Planet",
-												Fields: map[string]interface{}{
-													"uuid": uuid5,
-													"name": "FlatEarth",
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
+
+		innerMostRefs := []interface{}{
+			get.LocalRef{
+				AtClass: "Planet",
+				Fields: map[string]interface{}{
+					"uuid": uuid4,
+					"name": "Earth",
+				},
+			},
+			get.LocalRef{
+				AtClass: "Planet",
+				Fields: map[string]interface{}{
+					"uuid": uuid5,
+					"name": "FlatEarth",
 				},
 			},
 		}
 
 		result, err := NewProcessor(executor, &fakeNameSource{}, schema.ClassName("City")).
 			Process(gremlin.New())
-
 		require.Nil(t, err, "should not error")
-		assert.ElementsMatch(t, expectedResult, result, "result should be merged and post-processed")
-	})
 
+		subResult, err := extractResult(result,
+			[]interface{}{0, "InCountry", 0, "Fields", "InContinent", 0, "Fields", "OnPlanet"})
+		require.Nil(t, err, "should not error")
+
+		assert.ElementsMatch(t, innerMostRefs, subResult, "result should be merged and post-processed")
+	})
 }
 
 type fakeExecutor struct {
