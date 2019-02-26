@@ -2,6 +2,8 @@ package telemetry
 
 import (
 	"time"
+
+	"github.com/ugorji/go/codec"
 )
 
 const Name string = "n"
@@ -26,35 +28,58 @@ type Reporter struct {
 	enabled  bool
 }
 
-// Reports function calls in the last <provided interval> seconds in CBOR format to the provided url.
+// Post logged function calls in CBOR format to the provided url every <provided interval> seconds.
 // Contains a failsafe mechanism in the case the url is unreachable.
 func (r *Reporter) Start() {
 	if r.enabled {
 		time.Sleep(time.Duration(r.interval) * time.Second)
 		extractedLog := r.log.ExtractLoggedRequests()
+		r.AddTimeStamps(extractedLog)
+		/*transformedLog, err := */ r.TransformToOutputFormat(extractedLog)
 
-		r.transformToOutputFormat(extractedLog)
+		//		if err != nil {
+		//			// TODO: pending answer by Bob
+		//		}
 	}
 }
 
-// Transform the logged function calls to a minimized output format to reduce network traffic
-func (r *Reporter) transformToOutputFormat(logs *map[string]*RequestLog) {
+func (r *Reporter) AddTimeStamps(extractedLog *map[string]*RequestLog) {
+	timestamp := time.Now().Unix()
+
+	for _, log := range *extractedLog {
+		log.When = timestamp
+	}
+}
+
+// TODO: cover with acceptance test
+// Transform the logged function calls to a minimized output format to reduce network traffic.
+func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) ([]uint8, error) {
 	transformer := NewOutputTransformer()
+
 	minimizedLogs := transformer.MinimizeFormat(logs)
-	/*cborLogs := */ transformer.EncodeAsCBOR(minimizedLogs)
+
+	cborLogs, err := transformer.EncodeAsCBOR(minimizedLogs)
+	if err != nil {
+		return nil, err
+	}
 	// TODO:
 	// make new outputTransformer
 	// minimize logs
 	// cborize logs
 	// send + retry
 	// failsafe
+
+	return cborLogs, nil
 }
 
 func NewOutputTransformer() *outputTransformer {
-	return &outputTransformer{}
+	return &outputTransformer{
+		Canonical: false,
+	}
 }
 
 type outputTransformer struct {
+	Canonical bool
 }
 
 func (o *outputTransformer) MinimizeFormat(logs *map[string]*RequestLog) *[]map[string]interface{} {
@@ -76,6 +101,19 @@ func (o *outputTransformer) MinimizeFormat(logs *map[string]*RequestLog) *[]map[
 	return &minimizedLogs
 }
 
-func (o *outputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}) {
-	// cbor.encode(*minimizedLogs)
+func (o *outputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}) ([]uint8, error) {
+	encoded := make([]byte, 0, 64)
+
+	cborHandle := new(codec.CborHandle)
+	cborHandle.Canonical = o.Canonical
+
+	encoder := codec.NewEncoderBytes(&encoded, cborHandle)
+
+	err := encoder.Encode(*minimizedLogs)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return encoded, nil
 }
