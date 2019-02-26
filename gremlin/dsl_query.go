@@ -411,7 +411,7 @@ func (q *Query) Where(queries ...*Query) *Query {
 }
 
 func (q *Query) Optional(query *Query) *Query {
-	return extend_query(q, `.optional(%s)`, query.String())
+	return smartExtendQuery(q, `optional(%s)`, query.String())
 }
 
 func (q *Query) Drop() *Query {
