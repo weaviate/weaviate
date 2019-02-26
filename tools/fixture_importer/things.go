@@ -202,6 +202,11 @@ func fixupThings() {
 
 	for _, fixups := range thingManyFixups {
 		var patch *models.PatchDocument
+		if len(fixups) == 0 {
+			// no cross ref defined, don't patch
+			continue
+		}
+
 		path := fmt.Sprintf("/schema/%s", fixups[0].fromProperty)
 
 		patch = &models.PatchDocument{
