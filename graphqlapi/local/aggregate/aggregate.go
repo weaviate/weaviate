@@ -109,7 +109,7 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 			fields, err := classPropertyFields(class)
 			if err != nil {
 				// we cannot return an error in this FieldsThunk and have to panic unfortunately
-				panic(fmt.Sprintf("Failed to assemble single Local Meta Class field: %s", err))
+				panic(fmt.Sprintf("Failed to assemble single Local Aggregate Class field: %s", err))
 			}
 
 			return fields
@@ -198,8 +198,11 @@ func classPropertyField(dataType schema.DataType, class *models.SemanticSchemaCl
 		return makePropertyField(class, property, nonNumericPropertyFields)
 	case schema.DataTypeCRef:
 		return makePropertyField(class, property, nonNumericPropertyFields)
+	case schema.DataTypeGeoCoordinates:
+		// simply skip for now, see gh-729
+		return nil, nil
 	default:
-		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype)
+		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype+": %s", dataType)
 	}
 }
 

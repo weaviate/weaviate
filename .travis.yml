@@ -27,6 +27,7 @@ branches:
   only: 
     - master
     - develop
+    - feature/geo-coordinates
 dist: xenial
 go: 
   - "1.11.5"

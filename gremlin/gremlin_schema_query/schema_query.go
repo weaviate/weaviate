@@ -35,6 +35,7 @@ const DATATYPE_BOOLEAN DataType = "Boolean"
 const DATATYPE_STRING DataType = "String"
 const DATATYPE_LONG DataType = "Long"
 const DATATYPE_DOUBLE DataType = "Double"
+const DATATYPE_GEOSHAPE DataType = "Geoshape"
 
 type SchemaQuery interface {
 	MakePropertyKey(name string, datatype DataType, cardinality Cardinality) SchemaQuery
