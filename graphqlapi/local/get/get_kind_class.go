@@ -121,6 +121,12 @@ func buildPrimitiveField(propertyType schema.PropertyDataType,
 			Name:        property.Name,
 			Type:        graphql.String, // String since no graphql date datatype exists
 		}
+	case schema.DataTypeGeoCoordinates:
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        graphql.String, // gh-729 update to something more meaningful later
+		}
 	default:
 		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s.%s; %s",
 			kindName, className, property.Name, propertyType.AsPrimitive()))

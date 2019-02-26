@@ -36,9 +36,12 @@ const (
 	DataTypeBoolean DataType = "boolean"
 	// DataTypeDate The data type is a value of type date
 	DataTypeDate DataType = "date"
+	// DataTypeGeoCoordinates is used to represent geo coordintaes, i.e. latitude
+	// and longitude pairs of locations on earth
+	DataTypeGeoCoordinates DataType = "geoCoordinates"
 )
 
-var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate}
+var PrimitiveDataTypes []DataType = []DataType{DataTypeString, DataTypeText, DataTypeInt, DataTypeNumber, DataTypeBoolean, DataTypeDate, DataTypeGeoCoordinates}
 
 type PropertyKind int
 
@@ -116,7 +119,7 @@ func (s *Schema) FindPropertyDataType(dataType []string) (PropertyDataType, erro
 			switch someDataType {
 			case string(DataTypeString), string(DataTypeText),
 				string(DataTypeInt), string(DataTypeNumber),
-				string(DataTypeBoolean), string(DataTypeDate):
+				string(DataTypeBoolean), string(DataTypeDate), string(DataTypeGeoCoordinates):
 				return &propertyDataType{
 					kind:          PropertyKindPrimitive,
 					primitiveType: DataType(someDataType),
