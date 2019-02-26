@@ -16,7 +16,7 @@ func TestEnabled(t *testing.T) {
 
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
 
-	postRequestLog := telemetry.NewRequestTypeLog("unimpressed-rice-sofa", "POST", "weaviate.something.or.other", 1)
+	postRequestLog := telemetry.NewRequestTypeLog("unimpressed-rice-sofa", "REST", "weaviate.something.or.other", 1)
 	postRequestLog.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog)
@@ -34,7 +34,7 @@ func TestDisabled(t *testing.T) {
 
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
 
-	postRequestLog := telemetry.NewRequestTypeLog("aquatic-pineapple-home", "POST", "weaviate.something.or.other", 1)
+	postRequestLog := telemetry.NewRequestTypeLog("aquatic-pineapple-home", "REST", "weaviate.something.or.other", 1)
 	postRequestLog.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog)
