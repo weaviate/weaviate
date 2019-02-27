@@ -8,5 +8,7 @@
 
 // g.addV().property("location", Geoshape.point(52.366667, 4.9)) // Amsterdam
 
-g.V().has("location", geoWithin(Geoshape.circle(51.233333, 6.783333, 190)))
+// g.V().has("location", geoWithin(Geoshape.circle(51.233333, 6.783333, 190)))
+
+g.V().has("kind", "thing").has("prop_f1", "Amsterdam").valueMap()
 
