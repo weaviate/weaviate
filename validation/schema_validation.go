@@ -140,7 +140,7 @@ func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector
 		if err != nil {
 			return nil, fmt.Errorf("invalid date property '%s' on class '%s': %s", propertyName, className, err)
 		}
-	case schema.DataTypeGeoCoordinates:
+	case schema.DataTypeGeoCoordinate:
 		data, err = geoCoordinate(pv)
 		if err != nil {
 			return nil, fmt.Errorf("invalid geoCoordinate property '%s' on class '%s': %s", propertyName, className, err)

@@ -121,7 +121,7 @@ func buildPrimitiveField(propertyType schema.PropertyDataType,
 			Name:        property.Name,
 			Type:        graphql.String, // String since no graphql date datatype exists
 		}
-	case schema.DataTypeGeoCoordinates:
+	case schema.DataTypeGeoCoordinate:
 		return &graphql.Field{
 			Description: property.Description,
 			Name:        property.Name,

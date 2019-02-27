@@ -152,7 +152,7 @@ func classPropertyField(peerName string, dataType schema.DataType, class *models
 		return makePropertyField(peerName, class, property, nonNumericPropertyFields)
 	case schema.DataTypeCRef:
 		return makePropertyField(peerName, class, property, nonNumericPropertyFields)
-	case schema.DataTypeGeoCoordinates:
+	case schema.DataTypeGeoCoordinate:
 		// simply skip for now, see gh-729
 		return nil, nil
 	default:
