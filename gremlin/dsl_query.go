@@ -213,6 +213,10 @@ func (q *Query) StringProperty(key string, value string) *Query {
 	return extend_query(q, `.property("%s", "%s")`, EscapeString(key), EscapeString(value))
 }
 
+func (q *Query) GeoshapePointProperty(key string, lat float32, lon float32) *Query {
+	return extend_query(q, `.property("%s", Geoshape.point(%f,%f))`, EscapeString(key), lat, lon)
+}
+
 func (q *Query) BoolProperty(key string, value bool) *Query {
 	return extend_query(q, `.property("%s", %v)`, EscapeString(key), value)
 }

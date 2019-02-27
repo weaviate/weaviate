@@ -293,30 +293,35 @@ func geoCoordinate(input interface{}) (*models.GeoCoordinate, error) {
 		return nil, fmt.Errorf("geoCoordinate is missing required field 'latitude'")
 	}
 
-	lonNum, ok := lon.(json.Number)
-	if !ok {
-		return nil, fmt.Errorf("longitude must be a number, but got %T", lon)
-	}
-
-	latNum, ok := lat.(json.Number)
-	if !ok {
-		return nil, fmt.Errorf("latitude must be a number, but got %T", lat)
-	}
-
-	lonFloat, err := lonNum.Float64()
+	lonFloat, err := parseCoordinate(lon)
 	if err != nil {
-		return nil, fmt.Errorf("cannot interpret longitude as a float: %s", err)
+		return nil, fmt.Errorf("invalid longitude: %s", err)
 	}
 
-	latFloat, err := latNum.Float64()
+	latFloat, err := parseCoordinate(lat)
 	if err != nil {
-		return nil, fmt.Errorf("cannot interpret latitude as a float: %s", err)
+		return nil, fmt.Errorf("invalid latitude: %s", err)
 	}
 
 	return &models.GeoCoordinate{
 		Longitude: float32(lonFloat),
 		Latitude:  float32(latFloat),
 	}, nil
+}
+
+func parseCoordinate(raw interface{}) (float64, error) {
+	switch v := raw.(type) {
+	case json.Number:
+		asFloat, err := v.Float64()
+		if err != nil {
+			return 0, fmt.Errorf("cannot interpret as float: %s", err)
+		}
+		return asFloat, nil
+	case float64:
+		return v, nil
+	default:
+		return 0, fmt.Errorf("must be json.Number or float, but got %T", raw)
+	}
 }
 
 func parseAndValidateSingleRef(ctx context.Context, dbConnector dbconnector.DatabaseConnector, network network.Network,

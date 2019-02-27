@@ -21,7 +21,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
 	"github.com/creativesoftwarefdn/weaviate/models"
-	"github.com/davecgh/go-spew/spew"
 )
 
 // map properties in thing.Schema according to the mapping.
@@ -203,11 +202,14 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 			return q, fmt.Errorf("Illegal primitive value for property %s, value is %#v", sanitizedPropertyName, t)
 		}
 	case schema.DataTypeGeoCoordinates:
-		fmt.Print("\n\n\n\n")
-		spew.Dump(value)
-		fmt.Print("\n\n\n\n")
+		point, ok := value.(*models.GeoCoordinate)
+		if !ok {
+			return q, fmt.Errorf("Illegal value for property '%s' of type geoCoordinate, value is %T", sanitizedPropertyName, value)
+		}
+
+		q = q.GeoshapePointProperty(janusPropertyName, point.Latitude, point.Longitude)
 	default:
-		panic(fmt.Sprintf("Unkown primitive datatype %s", propType.AsPrimitive()))
+		panic(fmt.Sprintf("Unknown primitive datatype %s", propType.AsPrimitive()))
 	}
 
 	return q, nil
