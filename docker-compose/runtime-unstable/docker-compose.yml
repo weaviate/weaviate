@@ -40,15 +40,11 @@ services:
      # Prometheus monitoring
      - "9180:9180"
      - "9100:9100"
-    volumes:
-     - ./data/scylla/data:/var/lib/scylla
   index:
     image: elasticsearch:5
     ports:
      - "9200:9200"
      - "9300:9300"
-    volumes:
-     - ./data/elasticsearch/data:/usr/share/elasticsearch/data
   etcd:
     image: gcr.io/etcd-development/etcd:v3.3.8
     ports:
