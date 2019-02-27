@@ -1,5 +1,11 @@
 version: '3.4'
 services:
+  weaviate-playground:
+    image: creativesoftwarefdn/weaviate-playground:unstable
+    depends_on:
+      - weaviate
+    ports:
+     - "80:80"
   weaviate:
     image: creativesoftwarefdn/weaviate:unstable
     depends_on:
