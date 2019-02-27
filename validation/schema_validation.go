@@ -254,6 +254,14 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 					pv,
 				)
 			}
+		} else if *dt == schema.DataTypeGeoCoordinates {
+			data, err = geoCoordinate(pv)
+			if err != nil {
+				return fmt.Errorf("invalid field '%s': %s", pk, err)
+			}
+
+		} else {
+			return fmt.Errorf("unrecoginzed data type '%s'", *dt)
 		}
 		// Put the right and validated types into the schema.
 		returnSchema[pk] = data
@@ -269,6 +277,48 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 	}
 
 	return nil
+}
+
+func geoCoordinate(input interface{}) (*models.GeoCoordinate, error) {
+	inputMap, ok := input.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("geoCoordinate must be a map, but got: %T", input)
+	}
+
+	lon, ok := inputMap["longitude"]
+	if !ok {
+		return nil, fmt.Errorf("geoCoordinate is missing required field 'longitude'")
+	}
+
+	lat, ok := inputMap["latitude"]
+	if !ok {
+		return nil, fmt.Errorf("geoCoordinate is missing required field 'latitude'")
+	}
+
+	lonNum, ok := lon.(json.Number)
+	if !ok {
+		return nil, fmt.Errorf("longitude must be a number, but got %T", lon)
+	}
+
+	latNum, ok := lat.(json.Number)
+	if !ok {
+		return nil, fmt.Errorf("latitude must be a number, but got %T", lat)
+	}
+
+	lonFloat, err := lonNum.Float64()
+	if err != nil {
+		return nil, fmt.Errorf("cannot interpret longitude as a float: %s", err)
+	}
+
+	latFloat, err := latNum.Float64()
+	if err != nil {
+		return nil, fmt.Errorf("cannot interpret latitude as a float: %s", err)
+	}
+
+	return &models.GeoCoordinate{
+		Longitude: float32(lonFloat),
+		Latitude:  float32(latFloat),
+	}, nil
 }
 
 func parseAndValidateSingleRef(ctx context.Context, dbConnector dbconnector.DatabaseConnector, network network.Network,

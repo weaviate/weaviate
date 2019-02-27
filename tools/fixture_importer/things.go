@@ -36,7 +36,14 @@ func createThings() {
 			}
 
 			switch ref := value.(type) {
-			case map[string]interface{}: // a single object implies a single reference
+			case map[string]interface{}:
+				// a single object could either be a reference or a a map-type (like geoCoordinates)
+				if _, ok := ref["uuid"]; !ok {
+					// assume it's not a ref
+					addPrimitiveProp(className, key, value, &properties)
+					continue
+				}
+
 				var location string
 				location, ok := ref["location"].(string)
 				if !ok {
@@ -76,37 +83,8 @@ func createThings() {
 				}
 				thingManyFixups = append(thingManyFixups, multiFixUps)
 			default: // everything else must be a primitive
-				class := findClass(schema.Things, className)
-				property := findProperty(class, key)
-				if len(property.AtDataType) != 1 {
-					panic(fmt.Sprintf("Only one datatype supported for import. Failed in thing %s.%s with @dataTypes %#v on value %t",
-						className, property.Name, property.AtDataType, value))
-				}
-				dataType := property.AtDataType[0]
 
-				switch dataType {
-				case "string", "date":
-					properties[key] = value
-				case "int":
-					switch typedValue := value.(type) {
-					case string:
-						v, err := strconv.ParseInt(typedValue, 10, 64)
-						if err != nil {
-							panic(err)
-						}
-						properties[key] = v
-					case float64:
-						properties[key] = int(typedValue)
-					default:
-						panic("Unexpected type")
-					}
-				case "number":
-					properties[key] = value.(float64)
-				case "boolean":
-					properties[key] = value.(bool)
-				default:
-					panic(fmt.Sprintf("No such datatype supported: %s", dataType))
-				}
+				addPrimitiveProp(className, key, value, &properties)
 			}
 		}
 
@@ -119,6 +97,43 @@ func createThings() {
 		thing := assertCreateThing(&t)
 		idMap[uuid] = string(thing.ThingID) // Store mapping of ID's
 		fmt.Printf("Created Thing %s\n", thing.ThingID)
+	}
+}
+
+func addPrimitiveProp(className string, key string, value interface{}, properties *map[string]interface{}) {
+	class := findClass(schema.Things, className)
+	property := findProperty(class, key)
+	if len(property.AtDataType) != 1 {
+		panic(fmt.Sprintf("Only one datatype supported for import. Failed in thing %s.%s with @dataTypes %#v on value %t",
+			className, property.Name, property.AtDataType, value))
+	}
+	dataType := property.AtDataType[0]
+
+	switch dataType {
+	case "string", "date":
+		(*properties)[key] = value
+	case "int":
+		switch typedValue := value.(type) {
+		case string:
+			v, err := strconv.ParseInt(typedValue, 10, 64)
+			if err != nil {
+				panic(err)
+			}
+			(*properties)[key] = v
+		case float64:
+			(*properties)[key] = int(typedValue)
+		default:
+			panic("Unexpected type")
+		}
+	case "number":
+		(*properties)[key] = value.(float64)
+	case "boolean":
+		(*properties)[key] = value.(bool)
+	case "geoCoordinates":
+		(*properties)[key] = value.(map[string]interface{})
+
+	default:
+		panic(fmt.Sprintf("No such datatype supported: %s", dataType))
 	}
 }
 

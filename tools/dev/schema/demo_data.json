@@ -6,6 +6,10 @@
 		"coordinates": "N52, E004",
 		"population": "1800000",
 		"isCapital": true,
+    "geolocation": {
+      "latitude": 52.366667,
+      "longitude": 4.9
+    },
 		"inCountry": [{
 			"class": "Country",
 			"uuid": "005",
