@@ -37,7 +37,7 @@ func ClassPropertyField(dataType schema.DataType, class *models.SemanticSchemaCl
 		return makePropertyField(class, property, booleanPropertyFields, prefix)
 	case schema.DataTypeCRef:
 		return makePropertyField(class, property, refPropertyObj, prefix)
-	case schema.DataTypeGeoCoordinates:
+	case schema.DataTypeGeoCoordinate:
 		// simply skip for now, see gh-729
 		return nil, nil
 	default:

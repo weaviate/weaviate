@@ -201,7 +201,7 @@ func addPrimitivePropToQuery(q *gremlin.Query, propType schema.PropertyDataType,
 		default:
 			return q, fmt.Errorf("Illegal primitive value for property %s, value is %#v", sanitizedPropertyName, t)
 		}
-	case schema.DataTypeGeoCoordinates:
+	case schema.DataTypeGeoCoordinate:
 		point, ok := value.(*models.GeoCoordinate)
 		if !ok {
 			return q, fmt.Errorf("Illegal value for property '%s' of type geoCoordinate, value is %T", sanitizedPropertyName, value)

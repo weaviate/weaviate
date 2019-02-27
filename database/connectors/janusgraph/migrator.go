@@ -302,7 +302,7 @@ func weaviatePrimitivePropTypeToJanusPropType(type_ schema.DataType) gremlin_sch
 		return gremlin_schema_query.DATATYPE_BOOLEAN
 	case schema.DataTypeDate:
 		return gremlin_schema_query.DATATYPE_STRING
-	case schema.DataTypeGeoCoordinates:
+	case schema.DataTypeGeoCoordinate:
 		return gremlin_schema_query.DATATYPE_GEOSHAPE
 	default:
 		panic(fmt.Sprintf("unsupported data type '%v'", type_))

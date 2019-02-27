@@ -37,7 +37,7 @@ func createThings() {
 
 			switch ref := value.(type) {
 			case map[string]interface{}:
-				// a single object could either be a reference or a a map-type (like geoCoordinates)
+				// a single object could either be a reference or a a map-type (like geoCoordinate)
 				if _, ok := ref["uuid"]; !ok {
 					// assume it's not a ref
 					addPrimitiveProp(className, key, value, &properties)
@@ -129,7 +129,7 @@ func addPrimitiveProp(className string, key string, value interface{}, propertie
 		(*properties)[key] = value.(float64)
 	case "boolean":
 		(*properties)[key] = value.(bool)
-	case "geoCoordinates":
+	case "geoCoordinate":
 		(*properties)[key] = value.(map[string]interface{})
 
 	default:

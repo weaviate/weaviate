@@ -130,8 +130,8 @@ func GetValueDataTypeFromString(dt string) (*DataType, error) {
 			returnDataType = DataTypeString
 		} else if dt == string(DataTypeText) {
 			returnDataType = DataTypeText
-		} else if dt == string(DataTypeGeoCoordinates) {
-			returnDataType = DataTypeGeoCoordinates
+		} else if dt == string(DataTypeGeoCoordinate) {
+			returnDataType = DataTypeGeoCoordinate
 		}
 	} else {
 		return nil, errors_.New(ErrorNoSuchDatatype)
@@ -150,7 +150,7 @@ func IsValidValueDataType(dt string) bool {
 		string(DataTypeNumber),
 		string(DataTypeBoolean),
 		string(DataTypeDate),
-		string(DataTypeGeoCoordinates):
+		string(DataTypeGeoCoordinate):
 		return true
 	}
 	return false
