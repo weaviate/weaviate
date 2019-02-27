@@ -40,29 +40,12 @@ const (
 	ErrorMissingSingleRefLocationURL string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'locationUrl' is missing, check your input schema"
 	// ErrorMissingSingleRefType message
 	ErrorMissingSingleRefType string = "class '%s' with property '%s' requires exactly 3 arguments: '$cref', 'locationUrl' and 'type'. 'type' is missing, check your input schema"
-	// ErrorInvalidString message
-	ErrorInvalidString string = "class '%s' with property '%s' requires a string. The given value is '%v'"
-	// ErrorInvalidText message
-	ErrorInvalidText string = "class '%s' with property '%s' requires a text (string). The given value is '%v'"
-	// ErrorInvalidInteger message
-	ErrorInvalidInteger string = "class '%s' with property '%s' requires an integer. The given value is '%v'"
-	// ErrorInvalidIntegerConvertion message
-	ErrorInvalidIntegerConvertion string = ErrorInvalidInteger + "The JSON number could not be converted to an int."
-	// ErrorInvalidFloat message
-	ErrorInvalidFloat string = "class '%s' with property '%s' requires a float. The given value is '%v'"
-	// ErrorInvalidFloatConvertion message
-	ErrorInvalidFloatConvertion string = ErrorInvalidFloat + "The JSON number could not be converted to a float."
-	// ErrorInvalidBool message
-	ErrorInvalidBool string = "class '%s' with property '%s' requires a bool. The given value is '%v'"
-	// ErrorInvalidDate message
-	ErrorInvalidDate string = "class '%s' with property '%s' requires a string with a RFC3339 formatted date. The given value is '%v'"
 )
 
 // ValidateSchemaInBody Validate the schema in the given body
 func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSchema, object interface{},
 	refType connutils.RefType, dbConnector dbconnector.DatabaseConnector, network network.Network,
 	serverConfig *config.WeaviateConfig) error {
-	// Initialize class object
 	var isp interface{}
 	var className string
 	if refType == connutils.RefTypeAction {
@@ -75,199 +58,34 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 		return fmt.Errorf(schema.ErrorInvalidRefType)
 	}
 
-	// Validate whether the class exists in the given schema
-	// Get the class by its name
 	class, err := schema.GetClassByName(weaviateSchema, className)
-
-	// Return the error, in this case that the class is not found
 	if err != nil {
+		// className doesn't exist
 		return err
 	}
 
-	// Validate whether the properties exist in the given schema
-	// Get the input properties from the bodySchema in readable format
 	if isp == nil {
+		// no properties means nothing to validate
 		return nil
 	}
 
 	inputSchema := isp.(map[string]interface{})
-
-	// Init variable for schema-data to put back in the object
 	returnSchema := map[string]interface{}{}
 
-	// For each property in the input schema
-	for pk, pv := range inputSchema {
-		// Get the property data type from the schema
-		dt, err := schema.GetPropertyDataType(class, pk)
-
-		// Return the error, in this case that the property is not found
+	for propertyKey, propertyValue := range inputSchema {
+		dataType, err := schema.GetPropertyDataType(class, propertyKey)
 		if err != nil {
 			return err
 		}
 
-		var data interface{}
-
-		// Check whether the datatypes are correct
-		if *dt == schema.DataTypeCRef {
-			switch refValue := pv.(type) {
-			case map[string]interface{}:
-				cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, refValue, class.Class, pk)
-				if err != nil {
-					return err
-				}
-
-				data = cref
-			case []interface{}:
-				crefs := models.MultipleRef{}
-				for _, ref := range refValue {
-
-					refTyped, ok := ref.(map[string]interface{})
-					if !ok {
-						return fmt.Errorf("Multiple references in %s.%s should be a list of maps, but we got: %t",
-							class.Class, pk, ref)
-					}
-
-					cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, refTyped, class.Class, pk)
-					if err != nil {
-						return err
-					}
-
-					crefs = append(crefs, cref)
-				}
-
-				data = crefs
-			}
-		} else if *dt == schema.DataTypeString {
-			// Return error when the input can not be casted to a string
-			var ok bool
-			data, ok = pv.(string)
-			if !ok {
-				return fmt.Errorf(
-					ErrorInvalidString,
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-		} else if *dt == schema.DataTypeText {
-			// Return error when the input can not be casted to a string
-			var ok bool
-			data, ok = pv.(string)
-			if !ok {
-				return fmt.Errorf(
-					ErrorInvalidText,
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-		} else if *dt == schema.DataTypeInt {
-			var ok bool
-			// Return error when the input can not be casted to json.Number
-			if data, ok = pv.(json.Number); !ok {
-				// If value is not a json.Number, it could be an int, which is fine
-				if data, ok = pv.(int64); !ok {
-					// If value is not a json.Number, it could be an int, which is fine when the float does not contain a decimal
-					if data, ok = pv.(float64); ok {
-						// Check whether the float is containing a decimal
-						if data != float64(int64(data.(float64))) {
-							return fmt.Errorf(
-								ErrorInvalidInteger,
-								class.Class,
-								pk,
-								pv,
-							)
-						}
-					} else {
-						// If it is not a float, it is cerntainly not a integer, return the error
-						return fmt.Errorf(
-							ErrorInvalidInteger,
-							class.Class,
-							pk,
-							pv,
-						)
-					}
-				}
-			} else if data, err = pv.(json.Number).Int64(); err != nil {
-				// Return error when the input can not be converted to an int
-				return fmt.Errorf(
-					ErrorInvalidIntegerConvertion,
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-
-		} else if *dt == schema.DataTypeNumber {
-			var ok bool
-			// Return error when the input can not be casted to json.Number
-			if data, ok = pv.(json.Number); !ok {
-				if data, ok = pv.(float64); !ok {
-					return fmt.Errorf(
-						ErrorInvalidFloat,
-						class.Class,
-						pk,
-						pv,
-					)
-				}
-			} else if data, err = pv.(json.Number).Float64(); err != nil {
-				// Return error when the input can not be converted to a float
-				return fmt.Errorf(
-					ErrorInvalidFloatConvertion,
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-		} else if *dt == schema.DataTypeBoolean {
-			var ok bool
-			// Return error when the input can not be casted to a boolean
-			if data, ok = pv.(bool); !ok {
-				return fmt.Errorf(
-					ErrorInvalidBool,
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-		} else if *dt == schema.DataTypeDate {
-			var ok bool
-			// Return error when the input can not be casted to a string
-			if data, ok = pv.(string); !ok {
-				return fmt.Errorf(
-					ErrorInvalidDate,
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-
-			// Parse the time as this has to be correct
-			data, err = time.Parse(time.RFC3339, pv.(string))
-
-			// Return if there is an error while parsing
-			if err != nil {
-				return fmt.Errorf(
-					ErrorInvalidDate,
-					class.Class,
-					pk,
-					pv,
-				)
-			}
-		} else if *dt == schema.DataTypeGeoCoordinates {
-			data, err = geoCoordinate(pv)
-			if err != nil {
-				return fmt.Errorf("invalid field '%s': %s", pk, err)
-			}
-
-		} else {
-			return fmt.Errorf("unrecoginzed data type '%s'", *dt)
+		data, err := extractAndValidateProperty(ctx, propertyValue, dbConnector, network, serverConfig, class.Class, propertyKey, dataType)
+		if err != nil {
+			return err
 		}
-		// Put the right and validated types into the schema.
-		returnSchema[pk] = data
+
+		returnSchema[propertyKey] = data
 	}
 
-	// Put the right and validated types into the object-schema.
 	if refType == connutils.RefTypeAction {
 		object.(*models.ActionCreate).Schema = returnSchema
 	} else if refType == connutils.RefTypeThing {
@@ -277,6 +95,186 @@ func ValidateSchemaInBody(ctx context.Context, weaviateSchema *models.SemanticSc
 	}
 
 	return nil
+}
+
+func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector dbconnector.DatabaseConnector, network network.Network,
+	serverConfig *config.WeaviateConfig, className, propertyName string, dataType *schema.DataType) (interface{}, error) {
+	var (
+		data interface{}
+		err  error
+	)
+
+	switch *dataType {
+	case schema.DataTypeCRef:
+		data, err = cRef(ctx, pv, dbConnector, network, serverConfig, className, propertyName)
+		if err != nil {
+			return nil, fmt.Errorf("invalid cref: %s", err)
+		}
+	case schema.DataTypeString:
+		data, err = stringVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid string property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeText:
+		data, err = stringVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid text property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeInt:
+		data, err = intVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid integer property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeNumber:
+		data, err = numberVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid number property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeBoolean:
+		data, err = boolVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid boolean property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeDate:
+		data, err = dateVal(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid date property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	case schema.DataTypeGeoCoordinates:
+		data, err = geoCoordinate(pv)
+		if err != nil {
+			return nil, fmt.Errorf("invalid geoCoordinate property '%s' on class '%s': %s", propertyName, className, err)
+		}
+	default:
+		return nil, fmt.Errorf("unrecoginzed data type '%s'", *dataType)
+	}
+
+	return data, nil
+}
+
+func cRef(ctx context.Context, pv interface{}, dbConnector dbconnector.DatabaseConnector, network network.Network,
+	serverConfig *config.WeaviateConfig, className, propertyName string) (interface{}, error) {
+	switch refValue := pv.(type) {
+	case map[string]interface{}:
+		cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, refValue, className, propertyName)
+		if err != nil {
+			return nil, err
+		}
+
+		return cref, nil
+	case []interface{}:
+		crefs := models.MultipleRef{}
+		for _, ref := range refValue {
+
+			refTyped, ok := ref.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("Multiple references in %s.%s should be a list of maps, but we got: %t",
+					className, propertyName, ref)
+			}
+
+			cref, err := parseAndValidateSingleRef(ctx, dbConnector, network, serverConfig, refTyped, className, propertyName)
+			if err != nil {
+				return nil, err
+			}
+
+			crefs = append(crefs, cref)
+		}
+
+		return crefs, nil
+	default:
+		return nil, fmt.Errorf("invalid ref type. Needs to be either map or []map")
+	}
+}
+
+func stringVal(val interface{}) (string, error) {
+	typed, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf("not a string, but %T", val)
+	}
+
+	return typed, nil
+}
+
+func boolVal(val interface{}) (bool, error) {
+	typed, ok := val.(bool)
+	if !ok {
+		return false, fmt.Errorf("not a bool, but %T", val)
+	}
+
+	return typed, nil
+}
+
+func dateVal(val interface{}) (time.Time, error) {
+	var data time.Time
+	var err error
+	var ok bool
+
+	errorInvalidDate := "requires a string with a RFC3339 formatted date, but the given value is '%v'"
+
+	var dateString string
+	if dateString, ok = val.(string); !ok {
+		return time.Time{}, fmt.Errorf(errorInvalidDate, val)
+	}
+
+	// Parse the time as this has to be correct
+	data, err = time.Parse(time.RFC3339, dateString)
+
+	// Return if there is an error while parsing
+	if err != nil {
+		return time.Time{}, fmt.Errorf(errorInvalidDate, val)
+	}
+
+	return data, nil
+}
+
+func intVal(val interface{}) (interface{}, error) {
+	var data interface{}
+	var ok bool
+	var err error
+
+	errInvalidInteger := "requires an integer, the given value is '%v'"
+	errInvalidIntegerConvertion := "the JSON number '%v' could not be converted to an int"
+
+	// Return err when the input can not be casted to json.Number
+	if data, ok = val.(json.Number); !ok {
+		// If value is not a json.Number, it could be an int, which is fine
+		if data, ok = val.(int64); !ok {
+			// If value is not a json.Number, it could be an int, which is fine when the float does not contain a decimal
+			if data, ok = val.(float64); ok {
+				// Check whether the float is containing a decimal
+				if data != float64(int64(data.(float64))) {
+					return nil, fmt.Errorf(errInvalidInteger, val)
+				}
+			} else {
+				// If it is not a float, it is cerntainly not a integer, return the err
+				return nil, fmt.Errorf(errInvalidInteger, val)
+			}
+		}
+	} else if data, err = val.(json.Number).Int64(); err != nil {
+		// Return err when the input can not be converted to an int
+		return nil, fmt.Errorf(errInvalidIntegerConvertion, val)
+	}
+
+	return data, nil
+}
+
+func numberVal(val interface{}) (interface{}, error) {
+	var data interface{}
+	var ok bool
+	var err error
+
+	errInvalidFloat := "requires a float, the given value is '%v'"
+	errInvalidFloatConvertion := "the JSON number '%v' could not be converted to a float."
+
+	if data, ok = val.(json.Number); !ok {
+		if data, ok = val.(float64); !ok {
+			return nil, fmt.Errorf(errInvalidFloat, val)
+		}
+	} else if data, err = val.(json.Number).Float64(); err != nil {
+		return nil, fmt.Errorf(errInvalidFloatConvertion, val)
+	}
+
+	return data, nil
 }
 
 func geoCoordinate(input interface{}) (*models.GeoCoordinate, error) {
