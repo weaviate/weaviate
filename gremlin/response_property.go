@@ -65,9 +65,14 @@ func (p *PropertyValue) GeoCoordinate() (*models.GeoCoordinate, error) {
 		return nil, fmt.Errorf("property.coordinates[] must have len 2, but got %#v with len %d", c9s, l)
 	}
 
+	// WARNING: Although all create queries in Janusgraph
+	// always take the coordinates in the form of latitude,
+	// longitude, they are actually stored (and therefore
+	// returned) in the oppposite order! So this array is
+	// longitude, latitude!
 	return &models.GeoCoordinate{
-		Latitude:  float32(c9s[0].(float64)),
-		Longitude: float32(c9s[1].(float64)),
+		Latitude:  float32(c9s[1].(float64)),
+		Longitude: float32(c9s[0].(float64)),
 	}, nil
 }
 

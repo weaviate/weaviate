@@ -58,8 +58,13 @@ func Test_QueryProcessor(t *testing.T) {
 								},
 								"prop_9": []interface{}{
 									map[string]interface{}{
-										"type":        "Point",
-										"coordinates": []interface{}{float64(0.5), float64(0.6)},
+										"type": "Point",
+										// WARNING: Although all create queries in Janusgraph
+										// always take the coordinates in the form of latitude,
+										// longitude, they are actually stored (and therefore
+										// returned) in the oppposite order! So this array is
+										// longitude, latitude!
+										"coordinates": []interface{}{float64(0.6), float64(0.5)},
 									},
 								},
 							},
