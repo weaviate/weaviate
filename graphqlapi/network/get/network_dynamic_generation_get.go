@@ -133,7 +133,8 @@ func actionClassPropertyFields(class *models.SemanticSchemaClass, getActionsAndT
 				},
 			}
 		} else {
-			convertedDataType, err := handleNetworkGetNonObjectDataTypes(*propertyType, property)
+			prefix := fmt.Sprintf("%s%s", weaviate, class.Class)
+			convertedDataType, err := handleNetworkGetNonObjectDataTypes(*propertyType, property, prefix)
 
 			if err != nil {
 				return nil, err
@@ -180,7 +181,7 @@ func thingClassField(class *models.SemanticSchemaClass, getActionsAndThings *map
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			singleThingClassPropertyFields, err := thingClassPropertyFields(class, getActionsAndThings, weaviate)
 			if err != nil {
-				panic(fmt.Errorf("failed to assemble single Network Thing Class field for Class %s", class.Class))
+				panic(fmt.Errorf("failed to assemble single Network Thing Class field for Class %s: %s", class.Class, err))
 			}
 			return singleThingClassPropertyFields
 		}),
@@ -261,7 +262,8 @@ func thingClassPropertyFields(class *models.SemanticSchemaClass, actionsAndThing
 				},
 			}
 		} else {
-			convertedDataType, err := handleNetworkGetNonObjectDataTypes(*propertyType, property)
+			prefix := fmt.Sprintf("%s%s", weaviate, class.Class)
+			convertedDataType, err := handleNetworkGetNonObjectDataTypes(*propertyType, property, prefix)
 
 			if err != nil {
 				return nil, err
@@ -282,7 +284,8 @@ func thingClassPropertyFields(class *models.SemanticSchemaClass, actionsAndThing
 	return fields, nil
 }
 
-func handleNetworkGetNonObjectDataTypes(dataType schema.DataType, property *models.SemanticSchemaClassProperty) (*graphql.Field, error) {
+func handleNetworkGetNonObjectDataTypes(dataType schema.DataType,
+	property *models.SemanticSchemaClassProperty, prefix string) (*graphql.Field, error) {
 
 	switch dataType {
 
@@ -321,8 +324,35 @@ func handleNetworkGetNonObjectDataTypes(dataType schema.DataType, property *mode
 			Description: property.Description,
 			Type:        graphql.String,
 		}, nil
+	case schema.DataTypeGeoCoordinate:
+		obj := newGeoCoordinateObject(prefix)
+
+		return &graphql.Field{
+			Description: property.Description,
+			Name:        property.Name,
+			Type:        obj,
+		}, nil
 
 	default:
-		return nil, fmt.Errorf("%s", schema.ErrorNoSuchDatatype)
+		return nil, fmt.Errorf("%s: %s", schema.ErrorNoSuchDatatype, dataType)
 	}
+}
+
+func newGeoCoordinateObject(prefix string) *graphql.Object {
+	return graphql.NewObject(graphql.ObjectConfig{
+		Description: "GeoCoordinate as latitude and longitude in decimal form",
+		Name:        fmt.Sprintf("%sGeoCoordinateObj", prefix),
+		Fields: graphql.Fields{
+			"latitude": &graphql.Field{
+				Name:        "Latitude",
+				Description: "The Latitude of the point in decimal form.",
+				Type:        graphql.Float,
+			},
+			"longitude": &graphql.Field{
+				Name:        "Longitude",
+				Description: "The Longitude of the point in decimal form.",
+				Type:        graphql.Float,
+			},
+		},
+	})
 }
