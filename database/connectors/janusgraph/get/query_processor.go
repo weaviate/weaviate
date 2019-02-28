@@ -139,6 +139,11 @@ func (p *Processor) processVertexObject(o interface{}) (map[string]interface{}, 
 			continue
 		}
 
+		prop, err = p.parseProp(prop)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse prop '%s': %s", key, err)
+		}
+
 		readablePropName := string(p.nameSource.GetPropertyNameFromMapped(className, state.MappedPropertyName(key)))
 		results[readablePropName] = prop
 	}
@@ -158,6 +163,21 @@ func (p *Processor) classNameFromVertex(v map[string]interface{}) (schema.ClassN
 	}
 
 	return p.nameSource.GetClassNameFromMapped(state.MappedClassName(class.(string))), nil
+}
+
+func (p *Processor) parseProp(prop interface{}) (interface{}, error) {
+	switch v := prop.(type) {
+	case map[string]interface{}:
+		return p.parseMapProp(v)
+	default:
+		// most props don't need special parsing
+		return prop, nil
+	}
+}
+
+func (p *Processor) parseMapProp(prop map[string]interface{}) (interface{}, error) {
+	// as of now the only supported map prop would be a geo shape point:
+	return (&gremlin.PropertyValue{Value: prop}).GeoCoordinate()
 }
 
 func (p *Processor) processEdgeAndVertexObjects(o []interface{}, className schema.ClassName) (map[string]interface{}, error) {

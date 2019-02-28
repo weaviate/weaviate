@@ -99,6 +99,7 @@ type GraphQLResult struct {
 
 // Drill down in the result
 func (g GraphQLResult) Get(paths ...string) *GraphQLResult {
+	spew.Dump(g.Result)
 	current := g.Result
 	for _, path := range paths {
 		var ok bool

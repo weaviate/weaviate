@@ -122,15 +122,54 @@ func buildPrimitiveField(propertyType schema.PropertyDataType,
 			Type:        graphql.String, // String since no graphql date datatype exists
 		}
 	case schema.DataTypeGeoCoordinate:
+		obj := newGeoCoordinateObject(className, property.Name)
+
 		return &graphql.Field{
 			Description: property.Description,
 			Name:        property.Name,
-			Type:        graphql.String, // gh-729 update to something more meaningful later
+			Type:        obj,
+			Resolve:     resolveGeoCoordinate,
 		}
 	default:
 		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s.%s; %s",
 			kindName, className, property.Name, propertyType.AsPrimitive()))
 	}
+}
+
+func newGeoCoordinateObject(className string, propertyName string) *graphql.Object {
+	return graphql.NewObject(graphql.ObjectConfig{
+		Description: "GeoCoordinate as latitude and longitude in decimal form",
+		Name:        fmt.Sprintf("%s%sGeoCoordinateObj", className, propertyName),
+		Fields: graphql.Fields{
+			"latitude": &graphql.Field{
+				Name:        "Latitude",
+				Description: "The Latitude of the point in decimal form.",
+				Type:        graphql.Float,
+			},
+			"longitude": &graphql.Field{
+				Name:        "Longitude",
+				Description: "The Longitude of the point in decimal form.",
+				Type:        graphql.Float,
+			},
+		},
+	})
+}
+
+func resolveGeoCoordinate(p graphql.ResolveParams) (interface{}, error) {
+	field := p.Source.(map[string]interface{})[p.Info.FieldName]
+	if field == nil {
+		return nil, nil
+	}
+
+	geo, ok := field.(*models.GeoCoordinate)
+	if !ok {
+		return nil, fmt.Errorf("expected a *models.GeoCoordinate, but got: %T", field)
+	}
+
+	return map[string]interface{}{
+		"latitude":  geo.Latitude,
+		"longitude": geo.Longitude,
+	}, nil
 }
 
 func buildGetClassField(classObject *graphql.Object, k kind.Kind,
@@ -202,6 +241,26 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 	}
 }
 
+func isPrimitive(selectionSet *ast.SelectionSet) bool {
+	if selectionSet == nil {
+		return true
+	}
+
+	// if there is a selection set it could either be a cross-ref or a map-type
+	// field like GeoCoordinate
+
+	for _, subSelection := range selectionSet.Selections {
+		if subsectionField, ok := subSelection.(*ast.Field); ok {
+			if subsectionField.Name.Value == "latitude" || subsectionField.Name.Value == "longitude" {
+				return true
+			}
+		}
+	}
+
+	// must be a ref field
+	return false
+}
+
 func extractProperties(selections *ast.SelectionSet) ([]SelectProperty, error) {
 	var properties []SelectProperty
 
@@ -210,8 +269,7 @@ func extractProperties(selections *ast.SelectionSet) ([]SelectProperty, error) {
 		name := field.Name.Value
 		property := SelectProperty{Name: name}
 
-		property.IsPrimitive = (field.SelectionSet == nil)
-
+		property.IsPrimitive = isPrimitive(field.SelectionSet)
 		if !property.IsPrimitive {
 			// We can interpret this property in different ways
 			for _, subSelection := range field.SelectionSet.Selections {

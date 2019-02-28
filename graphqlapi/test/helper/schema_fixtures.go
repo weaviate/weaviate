@@ -42,6 +42,10 @@ var SimpleSchema = schema.Schema{
 						AtDataType: []string{"int"},
 					},
 					&models.SemanticSchemaClassProperty{
+						Name:       "location",
+						AtDataType: []string{"geoCoordinate"},
+					},
+					&models.SemanticSchemaClassProperty{
 						Name:       "hasAction",
 						AtDataType: []string{"SomeAction"},
 					},
