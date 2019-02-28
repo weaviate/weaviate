@@ -58,7 +58,7 @@ func TestExtractIntField(t *testing.T) {
 	resolver.AssertResolve(t, query)
 }
 
-func TestExtractGeoCoordinateField(t *testing.T) {
+func TestExtractGeoCoordinatesField(t *testing.T) {
 	t.Parallel()
 
 	resolver := newMockResolver(emptyPeers())
@@ -71,7 +71,7 @@ func TestExtractGeoCoordinateField(t *testing.T) {
 
 	resolverReturn := []interface{}{
 		map[string]interface{}{
-			"location": &models.GeoCoordinate{Latitude: 0.5, Longitude: 0.6},
+			"location": &models.GeoCoordinates{Latitude: 0.5, Longitude: 0.6},
 		},
 	}
 

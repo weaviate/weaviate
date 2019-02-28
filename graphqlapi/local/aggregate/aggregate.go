@@ -198,7 +198,7 @@ func classPropertyField(dataType schema.DataType, class *models.SemanticSchemaCl
 		return makePropertyField(class, property, nonNumericPropertyFields)
 	case schema.DataTypeCRef:
 		return makePropertyField(class, property, nonNumericPropertyFields)
-	case schema.DataTypeGeoCoordinate:
+	case schema.DataTypeGeoCoordinates:
 		// simply skip for now, see gh-729
 		return nil, nil
 	default:

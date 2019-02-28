@@ -66,13 +66,13 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 			},
 			Value: &Value{
 				Value: GeoRange{
-					GeoCoordinate: &models.GeoCoordinate{
+					GeoCoordinates: &models.GeoCoordinates{
 						Latitude:  0.5,
 						Longitude: 0.6,
 					},
 					Distance: 2.0,
 				},
-				Type: schema.DataTypeGeoCoordinate,
+				Type: schema.DataTypeGeoCoordinates,
 			},
 		}}
 
@@ -97,13 +97,13 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 			},
 			Value: &Value{
 				Value: GeoRange{
-					GeoCoordinate: &models.GeoCoordinate{
+					GeoCoordinates: &models.GeoCoordinates{
 						Latitude:  0.5,
 						Longitude: 0.6,
 					},
 					Distance: 2.0,
 				},
-				Type: schema.DataTypeGeoCoordinate,
+				Type: schema.DataTypeGeoCoordinates,
 			},
 		}}
 

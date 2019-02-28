@@ -99,7 +99,7 @@ func Test_QueryProcessor(t *testing.T) {
 				"uuid":        uuid1,
 				"name":        "Amsterdam",
 				"population":  800000,
-				"geolocation": &models.GeoCoordinate{Latitude: 0.5, Longitude: 0.6},
+				"geolocation": &models.GeoCoordinates{Latitude: 0.5, Longitude: 0.6},
 			},
 			map[string]interface{}{
 				"uuid":       uuid2,

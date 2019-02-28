@@ -324,8 +324,8 @@ func handleNetworkGetNonObjectDataTypes(dataType schema.DataType,
 			Description: property.Description,
 			Type:        graphql.String,
 		}, nil
-	case schema.DataTypeGeoCoordinate:
-		obj := newGeoCoordinateObject(prefix)
+	case schema.DataTypeGeoCoordinates:
+		obj := newGeoCoordinatesObject(prefix)
 
 		return &graphql.Field{
 			Description: property.Description,
@@ -338,10 +338,10 @@ func handleNetworkGetNonObjectDataTypes(dataType schema.DataType,
 	}
 }
 
-func newGeoCoordinateObject(prefix string) *graphql.Object {
+func newGeoCoordinatesObject(prefix string) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
-		Description: "GeoCoordinate as latitude and longitude in decimal form",
-		Name:        fmt.Sprintf("%sGeoCoordinateObj", prefix),
+		Description: "GeoCoordinates as latitude and longitude in decimal form",
+		Name:        fmt.Sprintf("%sGeoCoordinatesObj", prefix),
 		Fields: graphql.Fields{
 			"latitude": &graphql.Field{
 				Name:        "Latitude",

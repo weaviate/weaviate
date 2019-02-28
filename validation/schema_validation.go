@@ -140,10 +140,10 @@ func extractAndValidateProperty(ctx context.Context, pv interface{}, dbConnector
 		if err != nil {
 			return nil, fmt.Errorf("invalid date property '%s' on class '%s': %s", propertyName, className, err)
 		}
-	case schema.DataTypeGeoCoordinate:
-		data, err = geoCoordinate(pv)
+	case schema.DataTypeGeoCoordinates:
+		data, err = geoCoordinates(pv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid geoCoordinate property '%s' on class '%s': %s", propertyName, className, err)
+			return nil, fmt.Errorf("invalid geoCoordinates property '%s' on class '%s': %s", propertyName, className, err)
 		}
 	default:
 		return nil, fmt.Errorf("unrecoginzed data type '%s'", *dataType)
@@ -277,20 +277,20 @@ func numberVal(val interface{}) (interface{}, error) {
 	return data, nil
 }
 
-func geoCoordinate(input interface{}) (*models.GeoCoordinate, error) {
+func geoCoordinates(input interface{}) (*models.GeoCoordinates, error) {
 	inputMap, ok := input.(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("geoCoordinate must be a map, but got: %T", input)
+		return nil, fmt.Errorf("geoCoordinates must be a map, but got: %T", input)
 	}
 
 	lon, ok := inputMap["longitude"]
 	if !ok {
-		return nil, fmt.Errorf("geoCoordinate is missing required field 'longitude'")
+		return nil, fmt.Errorf("geoCoordinates is missing required field 'longitude'")
 	}
 
 	lat, ok := inputMap["latitude"]
 	if !ok {
-		return nil, fmt.Errorf("geoCoordinate is missing required field 'latitude'")
+		return nil, fmt.Errorf("geoCoordinates is missing required field 'latitude'")
 	}
 
 	lonFloat, err := parseCoordinate(lon)
@@ -303,7 +303,7 @@ func geoCoordinate(input interface{}) (*models.GeoCoordinate, error) {
 		return nil, fmt.Errorf("invalid latitude: %s", err)
 	}
 
-	return &models.GeoCoordinate{
+	return &models.GeoCoordinates{
 		Longitude: float32(lonFloat),
 		Latitude:  float32(latFloat),
 	}, nil

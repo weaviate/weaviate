@@ -2582,7 +2582,7 @@ func init() {
         }
       }
     },
-    "GeoCoordinate": {
+    "GeoCoordinates": {
       "properties": {
         "latitude": {
           "description": "The latitude of the point on earth in decimal form",
@@ -5802,7 +5802,7 @@ func init() {
         }
       }
     },
-    "GeoCoordinate": {
+    "GeoCoordinates": {
       "properties": {
         "latitude": {
           "description": "The latitude of the point on earth in decimal form",

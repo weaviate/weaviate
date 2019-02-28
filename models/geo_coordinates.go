@@ -21,9 +21,9 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// GeoCoordinate geo coordinate
-// swagger:model GeoCoordinate
-type GeoCoordinate struct {
+// GeoCoordinates geo coordinates
+// swagger:model GeoCoordinates
+type GeoCoordinates struct {
 
 	// The latitude of the point on earth in decimal form
 	Latitude float32 `json:"latitude,omitempty"`
@@ -32,13 +32,13 @@ type GeoCoordinate struct {
 	Longitude float32 `json:"longitude,omitempty"`
 }
 
-// Validate validates this geo coordinate
-func (m *GeoCoordinate) Validate(formats strfmt.Registry) error {
+// Validate validates this geo coordinates
+func (m *GeoCoordinates) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (m *GeoCoordinate) MarshalBinary() ([]byte, error) {
+func (m *GeoCoordinates) MarshalBinary() ([]byte, error) {
 	if m == nil {
 		return nil, nil
 	}
@@ -46,8 +46,8 @@ func (m *GeoCoordinate) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (m *GeoCoordinate) UnmarshalBinary(b []byte) error {
-	var res GeoCoordinate
+func (m *GeoCoordinates) UnmarshalBinary(b []byte) error {
+	var res GeoCoordinates
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

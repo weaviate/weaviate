@@ -40,7 +40,7 @@ func (p *PropertyValue) AssertString() string {
 	}
 }
 
-func (p *PropertyValue) GeoCoordinate() (*models.GeoCoordinate, error) {
+func (p *PropertyValue) GeoCoordinates() (*models.GeoCoordinates, error) {
 	if p.Value == nil {
 		return nil, nil
 	}
@@ -70,18 +70,18 @@ func (p *PropertyValue) GeoCoordinate() (*models.GeoCoordinate, error) {
 	// longitude, they are actually stored (and therefore
 	// returned) in the oppposite order! So this array is
 	// longitude, latitude!
-	return &models.GeoCoordinate{
+	return &models.GeoCoordinates{
 		Latitude:  float32(c9s[1].(float64)),
 		Longitude: float32(c9s[0].(float64)),
 	}, nil
 }
 
-func (p *PropertyValue) AssertGeoCoordinate() *models.GeoCoordinate {
-	val, err := p.GeoCoordinate()
+func (p *PropertyValue) AssertGeoCoordinates() *models.GeoCoordinates {
+	val, err := p.GeoCoordinates()
 	if err == nil {
 		return val
 	}
-	panic(fmt.Sprintf("Expected a geoCoordinate, but got %#v with error: %s", p.Value, err))
+	panic(fmt.Sprintf("Expected a geoCoordinates, but got %#v with error: %s", p.Value, err))
 }
 
 func (p *PropertyValue) Float() (float64, bool) {

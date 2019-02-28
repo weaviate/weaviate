@@ -89,9 +89,9 @@ type Clause struct {
 	Operands []Clause
 }
 
-// GeoRange to be used with fields of type GeoCoordinate. Identifies a point
+// GeoRange to be used with fields of type GeoCoordinates. Identifies a point
 // and a maximum distance from that point.
 type GeoRange struct {
-	*models.GeoCoordinate
+	*models.GeoCoordinates
 	Distance float32
 }

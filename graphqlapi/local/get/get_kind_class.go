@@ -121,14 +121,14 @@ func buildPrimitiveField(propertyType schema.PropertyDataType,
 			Name:        property.Name,
 			Type:        graphql.String, // String since no graphql date datatype exists
 		}
-	case schema.DataTypeGeoCoordinate:
-		obj := newGeoCoordinateObject(className, property.Name)
+	case schema.DataTypeGeoCoordinates:
+		obj := newGeoCoordinatesObject(className, property.Name)
 
 		return &graphql.Field{
 			Description: property.Description,
 			Name:        property.Name,
 			Type:        obj,
-			Resolve:     resolveGeoCoordinate,
+			Resolve:     resolveGeoCoordinates,
 		}
 	default:
 		panic(fmt.Sprintf("buildGetClass: unknown primitive type for %s.%s.%s; %s",
@@ -136,10 +136,10 @@ func buildPrimitiveField(propertyType schema.PropertyDataType,
 	}
 }
 
-func newGeoCoordinateObject(className string, propertyName string) *graphql.Object {
+func newGeoCoordinatesObject(className string, propertyName string) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
-		Description: "GeoCoordinate as latitude and longitude in decimal form",
-		Name:        fmt.Sprintf("%s%sGeoCoordinateObj", className, propertyName),
+		Description: "GeoCoordinates as latitude and longitude in decimal form",
+		Name:        fmt.Sprintf("%s%sGeoCoordinatesObj", className, propertyName),
 		Fields: graphql.Fields{
 			"latitude": &graphql.Field{
 				Name:        "Latitude",
@@ -155,15 +155,15 @@ func newGeoCoordinateObject(className string, propertyName string) *graphql.Obje
 	})
 }
 
-func resolveGeoCoordinate(p graphql.ResolveParams) (interface{}, error) {
+func resolveGeoCoordinates(p graphql.ResolveParams) (interface{}, error) {
 	field := p.Source.(map[string]interface{})[p.Info.FieldName]
 	if field == nil {
 		return nil, nil
 	}
 
-	geo, ok := field.(*models.GeoCoordinate)
+	geo, ok := field.(*models.GeoCoordinates)
 	if !ok {
-		return nil, fmt.Errorf("expected a *models.GeoCoordinate, but got: %T", field)
+		return nil, fmt.Errorf("expected a *models.GeoCoordinates, but got: %T", field)
 	}
 
 	return map[string]interface{}{
@@ -247,7 +247,7 @@ func isPrimitive(selectionSet *ast.SelectionSet) bool {
 	}
 
 	// if there is a selection set it could either be a cross-ref or a map-type
-	// field like GeoCoordinate
+	// field like GeoCoordinates
 
 	for _, subSelection := range selectionSet.Selections {
 		if subsectionField, ok := subSelection.(*ast.Field); ok {

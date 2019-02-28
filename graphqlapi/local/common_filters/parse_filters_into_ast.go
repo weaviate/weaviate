@@ -290,9 +290,9 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 		dist := geoMap["distance"].(float64)
 
 		return &Value{
-			Type: schema.DataTypeGeoCoordinate,
+			Type: schema.DataTypeGeoCoordinates,
 			Value: GeoRange{
-				GeoCoordinate: &models.GeoCoordinate{
+				GeoCoordinates: &models.GeoCoordinates{
 					Latitude:  float32(lat),
 					Longitude: float32(lon),
 				},
