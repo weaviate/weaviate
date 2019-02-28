@@ -32,17 +32,20 @@ type Reporter struct {
 // Contains a failsafe mechanism in the case the url is unreachable.
 func (r *Reporter) Start() {
 	if r.enabled {
-		time.Sleep(time.Duration(r.interval) * time.Second)
-		extractedLog := r.log.ExtractLoggedRequests()
-		r.AddTimeStamps(extractedLog)
-		/*transformedLog, err := */ r.TransformToOutputFormat(extractedLog)
+		for {
+			time.Sleep(time.Duration(r.interval) * time.Second)
+			extractedLog := r.log.ExtractLoggedRequests()
+			r.AddTimeStamps(extractedLog)
+			/*transformedLog, err := */ r.TransformToOutputFormat(extractedLog)
 
-		//		if err != nil {
-		//			// TODO: pending answer by Bob
-		//		}
+			//		if err != nil {
+			//			// TODO: pending answer by Bob
+			//		}
+		}
 	}
 }
 
+// Add the current timestamp to the logged requests types
 func (r *Reporter) AddTimeStamps(extractedLog *map[string]*RequestLog) {
 	timestamp := time.Now().Unix()
 
@@ -51,7 +54,7 @@ func (r *Reporter) AddTimeStamps(extractedLog *map[string]*RequestLog) {
 	}
 }
 
-// TODO: cover with acceptance test
+// TODO: cover with test
 // Transform the logged function calls to a minimized output format to reduce network traffic.
 func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) ([]uint8, error) {
 	transformer := NewOutputTransformer()
@@ -79,9 +82,10 @@ func NewOutputTransformer() *outputTransformer {
 }
 
 type outputTransformer struct {
-	Canonical bool
+	Canonical bool // only set to true by running unit tests, this ensures map elements are encoded in the same order when encoding to CBOR
 }
 
+// Convert the request logs to a minimized format
 func (o *outputTransformer) MinimizeFormat(logs *map[string]*RequestLog) *[]map[string]interface{} {
 	minimizedLogs := make([]map[string]interface{}, len(*logs))
 
@@ -101,6 +105,7 @@ func (o *outputTransformer) MinimizeFormat(logs *map[string]*RequestLog) *[]map[
 	return &minimizedLogs
 }
 
+// Encode the logs in CBOR format
 func (o *outputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}) ([]uint8, error) {
 	encoded := make([]byte, 0, 64)
 

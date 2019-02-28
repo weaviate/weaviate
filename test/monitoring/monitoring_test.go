@@ -105,7 +105,7 @@ func TestExtractLoggedRequests(t *testing.T) {
 
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
 
-	postRequestLog1 := telemetry.NewRequestTypeLog("fuzzy-levitating-mug", "GQL", "weaviate.something.or.other1", 1)
+	postRequestLog1 := telemetry.NewRequestTypeLog("fuzzy-levitating-mug", "GQL", "weaviate.something.or.other", 1)
 	postRequestLog1.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog1)
@@ -120,12 +120,19 @@ func TestExtractLoggedRequests(t *testing.T) {
 
 	close(requestResults)
 
-	for results := range requestResults {
-		loggedFunctions := len(*results)
+	for loggedFunc := range requestResults {
+		loggedFunctions := len(*loggedFunc)
 
 		// test
 		assert.Equal(t, 1, loggedFunctions)
 		assert.Equal(t, 0, len(*calledFunctions.ExtractLoggedRequests()))
+
+		assert.Equal(t, "fuzzy-levitating-mug", loggedFunc.Name)
+		assert.Equal(t, "GQL", loggedFunc.Type)
+		assert.Equal(t, "weaviate.something.or.other", loggedFunc.Identifier)
+		assert.Equal(t, 1, loggedFunc.Amount)
+		assert.Equal(t, int64(1550745544), loggedFunc.When)
+
 	}
 }
 

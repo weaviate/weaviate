@@ -15,3 +15,6 @@ const LocalManipulate string = "weaviate.local.manipulate"
 const LocalManipulateMeta string = "weaviate.local.manipulate.meta"
 
 const NetworkToolsMap string = "weaviate.network.tools.map"
+
+const TypeGQL string = "GQL"
+const TypeREST string = "REST"

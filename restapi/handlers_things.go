@@ -29,7 +29,7 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-func setupThingsHandlers(api *operations.WeaviateAPI) {
+func setupThingsHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
 	/*
 	 * HANDLE THINGS
 	 */
@@ -76,12 +76,24 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 				dbConnector.AddThing(ctx, thing, UUID)
 				refSchemaUpdater.addNetworkDataTypes(params.Body.Thing.Schema)
 			}()
+
+			// Register the function call
+			go func() {
+				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAdd))
+			}()
+
 			return things.NewWeaviateThingsCreateAccepted().WithPayload(responseObject)
 		}
 
 		dbConnector.AddThing(ctx, thing, UUID)
 		err = refSchemaUpdater.addNetworkDataTypes(params.Body.Thing.Schema)
 		if err != nil {
+
+			// Register the function call
+			go func() {
+				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAdd))
+			}()
+
 			return things.NewWeaviateThingsCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
 		return things.NewWeaviateThingsCreateOK().WithPayload(responseObject)
@@ -128,6 +140,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			dbConnector.DeleteThing(ctx, &thingGetResponse.Thing, params.ThingID)
 		}()
 
+		// Register the function call
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulate))
+		}()
+
 		// Return 'No Content'
 		return things.NewWeaviateThingsDeleteNoContent()
 	})
@@ -152,6 +169,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			messaging.ErrorMessage(err)
 			return things.NewWeaviateThingsGetNotFound()
 		}
+
+		// Register the function call
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalQuery))
+		}()
 
 		// Get is successful
 		return things.NewWeaviateThingsGetOK().WithPayload(&responseObject)
@@ -194,6 +216,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		// Thing is deleted when we have an get error and no history error
 		historyResponse.Deleted = errGet != nil && errHist == nil && len(historyResponse.PropertyHistory) != 0
 
+		// Register the function call
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalQuery))
+		}()
+
 		return things.NewWeaviateThingHistoryGetOK().WithPayload(historyResponse)
 	})
 
@@ -219,6 +246,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		if err != nil {
 			return things.NewWeaviateThingsListInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 		}
+
+		// Register the function call
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalQuery))
+		}()
 
 		return things.NewWeaviateThingsListOK().WithPayload(&thingsResponse)
 	})
@@ -313,6 +345,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			// Create return Object
 			thingGetResponse.Thing = *thing
 
+			// Register the function call
+			go func() {
+				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulate))
+			}()
+
 			// Returns accepted so a Go routine can process in the background
 			return things.NewWeaviateThingsPatchAccepted().WithPayload(&thingGetResponse)
 		}
@@ -329,6 +366,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 
 		// Create return Object
 		thingGetResponse.Thing = *thing
+
+		// Register the function call
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulate))
+		}()
 
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsPatchOK().WithPayload(&thingGetResponse)
@@ -415,6 +457,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		if err != nil {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
+
+		// Register the function call
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulate))
+		}()
 
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsPropertiesCreateOK()
@@ -514,6 +561,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
 
+		// Register the function call
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulate))
+		}()
+
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsPropertiesDeleteNoContent()
 	})
@@ -586,6 +638,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 			return things.NewWeaviateThingsPropertiesCreateUnprocessableEntity().WithPayload(createErrorResponseObject(err.Error()))
 		}
 
+		// Register the function call
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulate))
+		}()
+
 		// Returns accepted so a Go routine can process in the background
 		return things.NewWeaviateThingsPropertiesCreateOK()
 	})
@@ -651,6 +708,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		mqttJson, _ := json.Marshal(responseObject)
 		weaviateBroker.Publish("/things/"+string(responseObject.ThingID), string(mqttJson[:]))
 
+		// Register the function call
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulate))
+		}()
+
 		// Return SUCCESS (NOTE: this is ACCEPTED, so the dbConnector.Add should have a go routine)
 		return things.NewWeaviateThingsUpdateAccepted().WithPayload(responseObject)
 	})
@@ -669,6 +731,11 @@ func setupThingsHandlers(api *operations.WeaviateAPI) {
 		if validatedErr != nil {
 			return things.NewWeaviateThingsValidateUnprocessableEntity().WithPayload(createErrorResponseObject(validatedErr.Error()))
 		}
+
+		// Register the function call
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalQueryMeta))
+		}()
 
 		return things.NewWeaviateThingsValidateOK()
 	})

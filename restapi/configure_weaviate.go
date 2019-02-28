@@ -208,13 +208,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	interval := telemutils.GetInterval()
 	url := telemutils.GetURL()
 
-	requestsLog = telemetry.NewLog(enabled)
+	requestsLog = telemetry.NewLog(enabled, &appState.Environment.Network.PeerName)
 
 	reporter = telemetry.NewReporter(requestsLog, interval, url, enabled)
 
-	setupSchemaHandlers(api)
-	setupThingsHandlers(api)
-	setupActionsHandlers(api)
+	setupSchemaHandlers(api, requestsLog)
+	setupThingsHandlers(api, requestsLog)
+	setupActionsHandlers(api, requestsLog)
 	setupBatchHandlers(api)
 
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams) middleware.Responder {
