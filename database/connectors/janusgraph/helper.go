@@ -396,8 +396,8 @@ func decodeJanusPrimitiveType(dataType schema.DataType, value gremlin.PropertyVa
 	case schema.DataTypeDate:
 		// TODO; reformat?
 		return value.AssertString()
-	case schema.DataTypeGeoCoordinate:
-		return value.AssertGeoCoordinate()
+	case schema.DataTypeGeoCoordinates:
+		return value.AssertGeoCoordinates()
 	default:
 		panic(fmt.Sprintf("Unknown primitive datatype '%v'", dataType))
 	}

@@ -177,7 +177,7 @@ func (p *Processor) parseProp(prop interface{}) (interface{}, error) {
 
 func (p *Processor) parseMapProp(prop map[string]interface{}) (interface{}, error) {
 	// as of now the only supported map prop would be a geo shape point:
-	return (&gremlin.PropertyValue{Value: prop}).GeoCoordinate()
+	return (&gremlin.PropertyValue{Value: prop}).GeoCoordinates()
 }
 
 func (p *Processor) processEdgeAndVertexObjects(o []interface{}, className schema.ClassName) (map[string]interface{}, error) {

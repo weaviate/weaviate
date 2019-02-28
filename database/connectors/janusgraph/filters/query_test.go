@@ -173,13 +173,13 @@ func Test_SingleProperties(t *testing.T) {
 			}
 
 			expectedValue := cf.GeoRange{
-				GeoCoordinate: &models.GeoCoordinate{
+				GeoCoordinates: &models.GeoCoordinates{
 					Latitude:  51.2,
 					Longitude: 6.7,
 				},
 				Distance: 190,
 			}
-			tests.AssertFilter(t, "location", expectedValue, schema.DataTypeGeoCoordinate)
+			tests.AssertFilter(t, "location", expectedValue, schema.DataTypeGeoCoordinates)
 		})
 
 		t.Run("with an operator that does not make sense for this type", func(t *testing.T) {
@@ -193,21 +193,21 @@ func Test_SingleProperties(t *testing.T) {
 			}
 
 			expectedValue := cf.GeoRange{
-				GeoCoordinate: &models.GeoCoordinate{
+				GeoCoordinates: &models.GeoCoordinates{
 					Latitude:  51.2,
 					Longitude: 6.7,
 				},
 				Distance: 190,
 			}
 
-			tests.AssertFilterErrors(t, "location", expectedValue, schema.DataTypeGeoCoordinate)
+			tests.AssertFilterErrors(t, "location", expectedValue, schema.DataTypeGeoCoordinates)
 		})
 
 		t.Run("an invalid value", func(t *testing.T) {
 			tests := testCases{{"should fail with wrong type", cf.OperatorWithinRange, ""}}
 
 			// Note the mismatch between the specified type (arg4) and the actual type (arg3)
-			tests.AssertFilterErrors(t, "location", int(200), schema.DataTypeGeoCoordinate)
+			tests.AssertFilterErrors(t, "location", int(200), schema.DataTypeGeoCoordinates)
 		})
 	})
 }

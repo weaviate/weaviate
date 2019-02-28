@@ -33,8 +33,8 @@ func gremlinPredicateFromOperator(operator cf.Operator,
 		return gremlinBoolPredicateFromOperator(operator, value.Value)
 	case schema.DataTypeDate:
 		return gremlinDatePredicateFromOperator(operator, value.Value)
-	case schema.DataTypeGeoCoordinate:
-		return gremlinGeoCoordinatePredicateFromOperator(operator, value.Value)
+	case schema.DataTypeGeoCoordinates:
+		return gremlinGeoCoordinatesPredicateFromOperator(operator, value.Value)
 	default:
 		return nil, fmt.Errorf("unsupported value type '%v'", value.Type)
 	}
@@ -112,7 +112,7 @@ func gremlinDatePredicateFromOperator(operator cf.Operator, value interface{}) (
 	}
 }
 
-func gremlinGeoCoordinatePredicateFromOperator(operator cf.Operator, value interface{}) (*gremlin.Query, error) {
+func gremlinGeoCoordinatesPredicateFromOperator(operator cf.Operator, value interface{}) (*gremlin.Query, error) {
 	r, ok := value.(cf.GeoRange)
 	if !ok {
 		return nil, fmt.Errorf("expected value to be a GeoRange, but was %t", value)
@@ -122,7 +122,7 @@ func gremlinGeoCoordinatePredicateFromOperator(operator cf.Operator, value inter
 	case cf.OperatorWithinRange:
 		return gremlin.GeoWithinCircle(r.Latitude, r.Longitude, r.Distance), nil
 	default:
-		return nil, fmt.Errorf("geoCoordinate only supports WithinRange operator, but got %v", operator)
+		return nil, fmt.Errorf("geoCoordinates only supports WithinRange operator, but got %v", operator)
 	}
 }
 

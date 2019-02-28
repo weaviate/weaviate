@@ -118,7 +118,7 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 		},
 
 		testCase{
-			name: "one peer with a thing schema with a geoCoordinate property, but no actions",
+			name: "one peer with a thing schema with a geoCoordinates property, but no actions",
 			peers: peers.Peers{
 				peers.Peer{
 					Name: "SomePeer",
@@ -130,7 +130,7 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 									Properties: []*models.SemanticSchemaClassProperty{
 										&models.SemanticSchemaClassProperty{
 											Name:       "location",
-											AtDataType: []string{"geoCoordinate"},
+											AtDataType: []string{"geoCoordinates"},
 										},
 									},
 								},
