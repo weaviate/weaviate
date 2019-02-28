@@ -18,6 +18,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	test_helper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
 	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/graphql-go/graphql/gqlerrors"
+	"github.com/graphql-go/graphql/language/location"
 )
 
 // Basic test on filter
@@ -54,34 +56,74 @@ func TestExtractFilterToplevelField(t *testing.T) {
 func TestExtractFilterGeoLocation(t *testing.T) {
 	t.Parallel()
 
-	resolver := newMockResolver()
-	expectedParams := &LocalFilter{Root: &Clause{
-		Operator: OperatorWithinRange,
-		On: &Path{
-			Class:    schema.AssertValidClassName("SomeAction"),
-			Property: schema.AssertValidPropertyName("location"),
-		},
-		Value: &Value{
-			Value: GeoRange{
-				GeoCoordinate: &models.GeoCoordinate{
-					Latitude:  0.5,
-					Longitude: 0.6,
-				},
-				Distance: 2.0,
+	t.Run("with all fields set as required", func(t *testing.T) {
+		resolver := newMockResolver()
+		expectedParams := &LocalFilter{Root: &Clause{
+			Operator: OperatorWithinRange,
+			On: &Path{
+				Class:    schema.AssertValidClassName("SomeAction"),
+				Property: schema.AssertValidPropertyName("location"),
 			},
-			Type: schema.DataTypeGeoCoordinate,
-		},
-	}}
+			Value: &Value{
+				Value: GeoRange{
+					GeoCoordinate: &models.GeoCoordinate{
+						Latitude:  0.5,
+						Longitude: 0.6,
+					},
+					Distance: 2.0,
+				},
+				Type: schema.DataTypeGeoCoordinate,
+			},
+		}}
 
-	resolver.On("ReportFilters", expectedParams).
-		Return(test_helper.EmptyList(), nil).Once()
+		resolver.On("ReportFilters", expectedParams).
+			Return(test_helper.EmptyList(), nil).Once()
 
-	query := `{ SomeAction(where: { 
-			path: ["location"], 
-			operator: WithinRange, 
+		query := `{ SomeAction(where: {
+			path: ["location"],
+			operator: WithinRange,
 			valueRange: {latitude: 0.5, longitude: 0.6, distance: 2.0}
 		}) }`
-	resolver.AssertResolve(t, query)
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with only some of the fields set", func(t *testing.T) {
+		resolver := newMockResolver()
+		expectedParams := &LocalFilter{Root: &Clause{
+			Operator: OperatorWithinRange,
+			On: &Path{
+				Class:    schema.AssertValidClassName("SomeAction"),
+				Property: schema.AssertValidPropertyName("location"),
+			},
+			Value: &Value{
+				Value: GeoRange{
+					GeoCoordinate: &models.GeoCoordinate{
+						Latitude:  0.5,
+						Longitude: 0.6,
+					},
+					Distance: 2.0,
+				},
+				Type: schema.DataTypeGeoCoordinate,
+			},
+		}}
+
+		resolver.On("ReportFilters", expectedParams).
+			Return(test_helper.EmptyList(), nil).Once()
+
+		query := `{ SomeAction(where: {
+			path: ["location"],
+			operator: WithinRange,
+			valueRange: {latitude: 0.5, distance: 2.0}
+		}) }`
+
+		expectedErrors := []gqlerrors.FormattedError{
+			gqlerrors.FormattedError{
+				Message:   "Argument \"where\" has invalid value {path: [\"location\"], operator: WithinRange, valueRange: {latitude: 0.5, distance: 2.0}}.\nIn field \"valueRange\": In field \"longitude\": Expected \"Float!\", found null.",
+				Locations: []location.SourceLocation{location.SourceLocation{Line: 1, Column: 21}},
+			},
+		}
+		resolver.AssertErrors(t, query, expectedErrors)
+	})
 }
 
 func TestExtractFilterNestedField(t *testing.T) {

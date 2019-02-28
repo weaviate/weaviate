@@ -98,15 +98,15 @@ func newRangeInputObject(path string) *graphql.InputObject {
 		Name: fmt.Sprintf("%sWhereRangeInpObj", path),
 		Fields: graphql.InputObjectConfigFieldMap{
 			"latitude": &graphql.InputObjectFieldConfig{
-				Type:        graphql.Float,
+				Type:        graphql.NewNonNull(graphql.Float),
 				Description: descriptions.WhereValueRangeLatitude,
 			},
 			"longitude": &graphql.InputObjectFieldConfig{
-				Type:        graphql.Float,
+				Type:        graphql.NewNonNull(graphql.Float),
 				Description: descriptions.WhereValueRangeLongitude,
 			},
 			"distance": &graphql.InputObjectFieldConfig{
-				Type:        graphql.Float,
+				Type:        graphql.NewNonNull(graphql.Float),
 				Description: descriptions.WhereValueRangeDistance,
 			},
 		},
