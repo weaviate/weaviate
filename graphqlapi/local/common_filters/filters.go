@@ -36,6 +36,7 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 					"GreaterThanEqual": &graphql.EnumValueConfig{},
 					"LessThan":         &graphql.EnumValueConfig{},
 					"LessThanEqual":    &graphql.EnumValueConfig{},
+					"WithinRange":      &graphql.EnumValueConfig{},
 				},
 				Description: descriptions.WhereOperatorEnum,
 			}),
@@ -69,6 +70,10 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 			Type:        graphql.String,
 			Description: descriptions.WhereValueString,
 		},
+		"valueRange": &graphql.InputObjectFieldConfig{
+			Type:        newRangeInputObject(path),
+			Description: descriptions.WhereValueRange,
+		},
 	}
 
 	// Recurse into the same time.
@@ -86,4 +91,24 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 	}
 
 	return commonFilters
+}
+
+func newRangeInputObject(path string) *graphql.InputObject {
+	return graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: fmt.Sprintf("%sWhereRangeInpObj", path),
+		Fields: graphql.InputObjectConfigFieldMap{
+			"latitude": &graphql.InputObjectFieldConfig{
+				Type:        graphql.Float,
+				Description: descriptions.WhereValueRangeLatitude,
+			},
+			"longitude": &graphql.InputObjectFieldConfig{
+				Type:        graphql.Float,
+				Description: descriptions.WhereValueRangeLongitude,
+			},
+			"distance": &graphql.InputObjectFieldConfig{
+				Type:        graphql.Float,
+				Description: descriptions.WhereValueRangeDistance,
+			},
+		},
+	})
 }

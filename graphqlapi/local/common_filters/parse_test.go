@@ -17,6 +17,7 @@ import (
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	test_helper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
+	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // Basic test on filter
@@ -47,6 +48,39 @@ func TestExtractFilterToplevelField(t *testing.T) {
 		Return(test_helper.EmptyList(), nil).Once()
 
 	query := `{ SomeAction(where: { path: ["intField"], operator: Equal, valueInt: 42}) }`
+	resolver.AssertResolve(t, query)
+}
+
+func TestExtractFilterGeoLocation(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver()
+	expectedParams := &LocalFilter{Root: &Clause{
+		Operator: OperatorWithinRange,
+		On: &Path{
+			Class:    schema.AssertValidClassName("SomeAction"),
+			Property: schema.AssertValidPropertyName("location"),
+		},
+		Value: &Value{
+			Value: GeoRange{
+				GeoCoordinate: &models.GeoCoordinate{
+					Latitude:  0.5,
+					Longitude: 0.6,
+				},
+				Distance: 2.0,
+			},
+			Type: schema.DataTypeGeoCoordinate,
+		},
+	}}
+
+	resolver.On("ReportFilters", expectedParams).
+		Return(test_helper.EmptyList(), nil).Once()
+
+	query := `{ SomeAction(where: { 
+			path: ["location"], 
+			operator: WithinRange, 
+			valueRange: {latitude: 0.5, longitude: 0.6, distance: 2.0}
+		}) }`
 	resolver.AssertResolve(t, query)
 }
 

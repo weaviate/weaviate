@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 // Extract the filters from the arguments of a Local->Get or Local->GetMeta query.
@@ -65,6 +66,8 @@ func parseClause(args map[string]interface{}, rootClass string) (*Clause, error)
 		clause, err = parseCompareOp(args, OperatorLessThan, rootClass)
 	case "LessThanEqual":
 		clause, err = parseCompareOp(args, OperatorLessThanEqual, rootClass)
+	case "WithinRange":
+		clause, err = parseCompareOp(args, OperatorWithinRange, rootClass)
 	default:
 		err = fmt.Errorf("Unknown operator '%s' in clause %s", operator, jsonify(args))
 	}
@@ -269,6 +272,32 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 		return &Value{
 			Type:  schema.DataTypeString,
 			Value: val,
+		}, nil
+	},
+	func(args map[string]interface{}) (*Value, error) {
+		rawVal, ok := args["valueRange"]
+		if !ok {
+			return nil, nil
+		}
+
+		geoMap, ok := rawVal.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("the provided valueString is not a map")
+		}
+
+		lat := geoMap["latitude"].(float64)
+		lon := geoMap["longitude"].(float64)
+		dist := geoMap["distance"].(float64)
+
+		return &Value{
+			Type: schema.DataTypeGeoCoordinate,
+			Value: GeoRange{
+				GeoCoordinate: &models.GeoCoordinate{
+					Latitude:  float32(lat),
+					Longitude: float32(lon),
+				},
+				Distance: float32(dist),
+			},
 		}, nil
 	},
 	// Dates
