@@ -38,7 +38,8 @@ func (o Operator) OnValue() bool {
 		OperatorGreaterThan,
 		OperatorGreaterThanEqual,
 		OperatorLessThan,
-		OperatorLessThanEqual:
+		OperatorLessThanEqual,
+		OperatorWithinRange:
 		return true
 	default:
 		return false
