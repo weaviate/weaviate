@@ -17,6 +17,7 @@ A complete Weaviate stack based on Janusgraph (with; Elasticsearch and Cassandra
 > NOTE: We currently only have unstable versions ready for testing!
 
 ```sh
+# The stable version in not available yet, use the unstable version below!
 $ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-stable/docker-compose.yml && \
   wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-unstable/config.json && \
   wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-unstable/janusgraph.properties

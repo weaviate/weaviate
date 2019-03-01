@@ -1,8 +1,18 @@
-> Getting started for development reasons
+# Getting Started
+
+> Getting started with Weaviate's Docker-compose setup.
+
+## Index
+
+- [Preparation](#preparation)
+- [Running Weaviate with Docker-compose](#running-weaviate-with-docker-compose)
+- [Creating an Ontology](#creating-an-ontology)
+- [Adding Thing and Action Nodes](#adding-thing-and-action-nodes)
+- [Crawling the Knowledge Graph with GraphQL](#crawling-the-knowledge-graph-with-graphql)
 
 ## Preparation
 
-If you want to learn more about the general concept of the Knowledge Graphs and Knowledge Networks you can read that [here](). This getting started guide uses the dockerized versions of Weaviate. For more advanced usage or configuration, you can use the binaries and data connectors directly. This is covered in the [running Weaviate](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/use/running-weaviate.md#run-weaviate-stand-alone-with-docker) documentation.
+If you want to learn more about the general concept of the Knowledge Graphs and Knowledge Networks you can read that [here](#). This getting started guide uses the dockerized versions of Weaviate. For more advanced usage or configuration, you can use the binaries and data connectors directly. This is covered in the [running Weaviate](running-weaviate.md#run-weaviate-stand-alone-with-docker) documentation.
 
 Check you have Docker and Docker-compose installed:
 
@@ -22,11 +32,13 @@ You are now ready to get started! If you run into issues, please use the;
 
 All elements inside Weaviate are loosely coupled, meaning that you can use or [create](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/contribute/custom-connectors.md) multiple database connectors. In this setup, we will be using the JanusGraph connector because it contains the most features for scaling Weaviate.
 
-ACTION: [Run the latest unstable version of Weaviate](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/use/running-weaviate.md#running-the-latest-unstable-version).
-
 Important to know;
 1. The whole setup uses a decent amount of memory. In case of issues, try increasing the memory limit that Docker has available. The setup runs from 2 CPU 9Gig. In case of issues check [this issue](https://github.com/creativesoftwarefdn/weaviate/issues/742).
 2. It takes some time to start up the whole infrastructure. It is best to test the end-point that comes available.
+
+#### Starting Weaviate with Docker-compose
+
+You can find [here](running-weaviate.md#run-full-stack-with-docker-compose) how to run Weaviate with Docker-compose.
 
 Check if Weaviate is up and running by using the following curl command:
 
@@ -183,6 +195,7 @@ $ curl -X POST http://35.204.8.121:8080/weaviate/v1/things -H "Content-Type: app
         }
     }
 }'
+```
 
 Results in:
 
@@ -266,7 +279,7 @@ $ curl -X POST http://35.204.8.121:8080/weaviate/v1/things -H "Content-Type: app
 
 We now have created a mini-graph of 4 nodes. Let's now explore the graph!
 
-## Crawling the Knowledge Graph
+## Crawling the Knowledge Graph with GraphQL
 
 One of the features of Weaviate is the use of GraphQL to query the graph. The docker-compose setup comes with the Weaviate Playground which we will use to crawl the graph.
 
