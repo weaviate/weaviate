@@ -18,6 +18,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/get"
 	"github.com/creativesoftwarefdn/weaviate/gremlin"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/creativesoftwarefdn/weaviate/network/crossrefs"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -55,6 +56,17 @@ func Test_QueryProcessor(t *testing.T) {
 								"prop_2": []interface{}{
 									800000,
 								},
+								"prop_9": []interface{}{
+									map[string]interface{}{
+										"type": "Point",
+										// WARNING: Although all create queries in Janusgraph
+										// always take the coordinates in the form of latitude,
+										// longitude, they are actually stored (and therefore
+										// returned) in the oppposite order! So this array is
+										// longitude, latitude!
+										"coordinates": []interface{}{float64(0.6), float64(0.5)},
+									},
+								},
 							},
 						},
 					},
@@ -84,9 +96,10 @@ func Test_QueryProcessor(t *testing.T) {
 		executor := &fakeExecutor{result: janusResponse}
 		expectedResult := []interface{}{
 			map[string]interface{}{
-				"uuid":       uuid1,
-				"name":       "Amsterdam",
-				"population": 800000,
+				"uuid":        uuid1,
+				"name":        "Amsterdam",
+				"population":  800000,
+				"geolocation": &models.GeoCoordinates{Latitude: 0.5, Longitude: 0.6},
 			},
 			map[string]interface{}{
 				"uuid":       uuid2,

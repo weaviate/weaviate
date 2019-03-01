@@ -492,6 +492,20 @@
         }
       }
     },
+    "GeoCoordinates": {
+      "properties": {
+        "latitude": {
+          "description": "The latitude of the point on earth in decimal form",
+          "format": "float",
+          "type": "number"
+        },
+        "longitude": {
+          "description": "The longitude of the point on earth in decimal form",
+          "format": "float",
+          "type": "number"
+        }
+      }
+    },
     "Thing": {
       "allOf": [
         {

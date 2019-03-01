@@ -20,6 +20,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/graphql/gqlerrors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -81,6 +82,11 @@ func (mr *MockResolver) AssertFailToResolve(t *testing.T, query string) {
 	}
 }
 
+func (mr *MockResolver) AssertErrors(t *testing.T, query string, errors []gqlerrors.FormattedError) {
+	result := mr.Resolve(query)
+	assert.Equal(t, errors, result.Errors, "should have failed in a specific way, but didnt")
+}
+
 func (mr *MockResolver) AssertJSONResponse(t *testing.T, query string, expectedResponseString string) {
 	var expectedResponse map[string]interface{}
 	err := json.Unmarshal([]byte(expectedResponseString), &expectedResponse)
@@ -99,6 +105,7 @@ type GraphQLResult struct {
 
 // Drill down in the result
 func (g GraphQLResult) Get(paths ...string) *GraphQLResult {
+	spew.Dump(g.Result)
 	current := g.Result
 	for _, path := range paths {
 		var ok bool

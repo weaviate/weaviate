@@ -2582,6 +2582,20 @@ func init() {
         }
       }
     },
+    "GeoCoordinates": {
+      "properties": {
+        "latitude": {
+          "description": "The latitude of the point on earth in decimal form",
+          "type": "number",
+          "format": "float"
+        },
+        "longitude": {
+          "description": "The longitude of the point on earth in decimal form",
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
     "GraphQLError": {
       "description": "An error response caused by a GraphQL query.",
       "properties": {
@@ -5785,6 +5799,20 @@ func init() {
               }
             }
           }
+        }
+      }
+    },
+    "GeoCoordinates": {
+      "properties": {
+        "latitude": {
+          "description": "The latitude of the point on earth in decimal form",
+          "type": "number",
+          "format": "float"
+        },
+        "longitude": {
+          "description": "The longitude of the point on earth in decimal form",
+          "type": "number",
+          "format": "float"
         }
       }
     },
