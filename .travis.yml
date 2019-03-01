@@ -64,9 +64,6 @@ before_script:
         echo $(jq -r '.info.version = $NEWVERSION' --arg NEWVERSION "$(./semver bump $SEMVERBUMPTYPE $(git show --oneline HEAD:$WEAVIATESCHEMAFILE | jq -r ".info.version"))" $WEAVIATESCHEMAFILE) | jq . > $WEAVIATESCHEMAFILE.tmp && rm $WEAVIATESCHEMAFILE && mv $WEAVIATESCHEMAFILE.tmp $WEAVIATESCHEMAFILE
         # build with new version
         ./tools/gen-code-from-swagger.sh
-        # set K8S and Docker Contextionaries to the latest version
-        ./tools/set_latest_contextionary.py ./tools/dev/config.json janusgraph_docker
-        ./tools/set_latest_contextionary.py ./tools/dev/config.json janusgraph_kubernetes
         # push back to Git
         git config credential.helper "store --file=.git/credentials"
         echo "https://${GH_TOKEN}:@github.com" > .git/credentials
