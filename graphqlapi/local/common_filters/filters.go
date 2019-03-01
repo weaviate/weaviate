@@ -129,9 +129,9 @@ func newGeoRangeDistanceInputObject(path string) *graphql.InputObject {
 	return graphql.NewInputObject(graphql.InputObjectConfig{
 		Name: fmt.Sprintf("%sWhereGeoRangeDistanceInpObj", path),
 		Fields: graphql.InputObjectConfigFieldMap{
-			"to": &graphql.InputObjectFieldConfig{
+			"max": &graphql.InputObjectFieldConfig{
 				Type:        graphql.NewNonNull(graphql.Float),
-				Description: descriptions.WhereValueRangeDistanceTo,
+				Description: descriptions.WhereValueRangeDistanceMax,
 			},
 		},
 	})

@@ -289,7 +289,7 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 		lat := c9s["latitude"].(float64)
 		lon := c9s["longitude"].(float64)
 		distance := geoMap["distance"].(map[string]interface{})
-		maxDist := distance["to"].(float64)
+		maxDist := distance["max"].(float64)
 
 		return &Value{
 			Type: schema.DataTypeGeoCoordinates,
