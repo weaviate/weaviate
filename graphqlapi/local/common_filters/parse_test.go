@@ -59,7 +59,7 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 	t.Run("with all fields set as required", func(t *testing.T) {
 		resolver := newMockResolver()
 		expectedParams := &LocalFilter{Root: &Clause{
-			Operator: OperatorWithinRange,
+			Operator: OperatorWithinGeoRange,
 			On: &Path{
 				Class:    schema.AssertValidClassName("SomeAction"),
 				Property: schema.AssertValidPropertyName("location"),
@@ -81,8 +81,8 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 
 		query := `{ SomeAction(where: {
 			path: ["location"],
-			operator: WithinRange,
-			valueRange: {latitude: 0.5, longitude: 0.6, distance: 2.0}
+			operator: WithinGeoRange,
+			valueGeoRange: {latitude: 0.5, longitude: 0.6, distance: 2.0}
 		}) }`
 		resolver.AssertResolve(t, query)
 	})
@@ -90,7 +90,7 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 	t.Run("with only some of the fields set", func(t *testing.T) {
 		resolver := newMockResolver()
 		expectedParams := &LocalFilter{Root: &Clause{
-			Operator: OperatorWithinRange,
+			Operator: OperatorWithinGeoRange,
 			On: &Path{
 				Class:    schema.AssertValidClassName("SomeAction"),
 				Property: schema.AssertValidPropertyName("location"),
@@ -112,13 +112,13 @@ func TestExtractFilterGeoLocation(t *testing.T) {
 
 		query := `{ SomeAction(where: {
 			path: ["location"],
-			operator: WithinRange,
-			valueRange: {latitude: 0.5, distance: 2.0}
+			operator: WithinGeoRange,
+			valueGeoRange: {latitude: 0.5, distance: 2.0}
 		}) }`
 
 		expectedErrors := []gqlerrors.FormattedError{
 			gqlerrors.FormattedError{
-				Message:   "Argument \"where\" has invalid value {path: [\"location\"], operator: WithinRange, valueRange: {latitude: 0.5, distance: 2.0}}.\nIn field \"valueRange\": In field \"longitude\": Expected \"Float!\", found null.",
+				Message:   "Argument \"where\" has invalid value {path: [\"location\"], operator: WithinGeoRange, valueGeoRange: {latitude: 0.5, distance: 2.0}}.\nIn field \"valueGeoRange\": In field \"longitude\": Expected \"Float!\", found null.",
 				Locations: []location.SourceLocation{location.SourceLocation{Line: 1, Column: 21}},
 			},
 		}

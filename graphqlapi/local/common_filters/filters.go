@@ -36,7 +36,7 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 					"GreaterThanEqual": &graphql.EnumValueConfig{},
 					"LessThan":         &graphql.EnumValueConfig{},
 					"LessThanEqual":    &graphql.EnumValueConfig{},
-					"WithinRange":      &graphql.EnumValueConfig{},
+					"WithinGeoRange":   &graphql.EnumValueConfig{},
 				},
 				Description: descriptions.WhereOperatorEnum,
 			}),
@@ -70,7 +70,7 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 			Type:        graphql.String,
 			Description: descriptions.WhereValueString,
 		},
-		"valueRange": &graphql.InputObjectFieldConfig{
+		"valueGeoRange": &graphql.InputObjectFieldConfig{
 			Type:        newRangeInputObject(path),
 			Description: descriptions.WhereValueRange,
 		},

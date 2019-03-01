@@ -119,10 +119,10 @@ func gremlinGeoCoordinatesPredicateFromOperator(operator cf.Operator, value inte
 	}
 
 	switch operator {
-	case cf.OperatorWithinRange:
+	case cf.OperatorWithinGeoRange:
 		return gremlin.GeoWithinCircle(r.Latitude, r.Longitude, r.Distance), nil
 	default:
-		return nil, fmt.Errorf("geoCoordinates only supports WithinRange operator, but got %v", operator)
+		return nil, fmt.Errorf("geoCoordinates only supports WithinGeoRange operator, but got %v", operator)
 	}
 }
 
