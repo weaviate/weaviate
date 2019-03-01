@@ -10,70 +10,80 @@ Weaviate makes a conceptual distinction between things and actions. A thing is d
 
 Within Weaviate you will define ontologies for both things and actions. When starting a new weaviate instance, you define the ontology first. An endeavor you can compare to defining columns and tables in a traditional database.
 
-## Properties
+## Defining Classes
 
-Every class has properties, properties are used to describe something inside the class. The thing _car_ can have a property _color_ for example. And the action _move_ can have the property _agent_ to describe who or what is moving.
+Classes are always written with a capital. For example: `Zoo`. If you want to chain words, you can do this by using (CamelCase)[#CamelCase]. For example: `ZooCage` will be seen as a _zoo_ and _cage_.
 
-When defining a property, you also define what type the property has. It can be a string or a number, but it can also contain a reference to another class or even multiple classes. For example, if you have a class `City`, you might create a property that is called `inCountry` . You can make `inCountry` a string, but it is of course way handier if you make it a cross-reference to a country. Also, see the examples below.
+Classes are defined as follows:
+
+```json
+{
+  "class": "string",
+  "description": "string",
+  "keywords": [{
+      "keyword": "string",
+      "weight": 0
+  }],
+  "properties": []
+}
+```
+
+Legend:
+
+| key | value |
+| --- | --- |
+| class | A class is the CamelCased name of the thing or action. For example: `Zoo` or `Animal`. The class should be part of the [Weaviate Contextionary](../contribute/contextionary.md) |
+| description | A short description of the class. |
+| keywords | An array of keywords, more information can be found [here](#keywords) |
+| properties | An array of [properties](#defining-properties). |
+
+## Defining Properties
+
+Every class has properties, properties are used to describe something inside the class. The thing with the class _Animal_ can have a property _color_ for example. And the action _move_ can have the property _agent_ to describe who or what is moving. Properties are always written with a lowercase first character. For example: `name`. If you want to chain words, you can do this by using (CamelCase)[#CamelCase]. For example: `inZoo` will be seen as a _in_ and _zoo_.
+
+When defining a property, you also define what type the property has. It can be a string or a number, but it can also contain a reference to another class or even multiple classes. For example, if you have a class `Animal`, you might create a property that is called `inCage`.
 
 An overview of possible types.
 
+Properties are defined as follows inside classes (based on the example above):
+
 ```json
-[{
-    "name": "testString",
-    "@dataType": [
-      "string"
-    ],
-    "description": "Value of testString."
-  },
-  {
-    "name": "testInt",
-    "@dataType": [
-      "int"
-    ],
-    "description": "Value of testInt."
-  },
-  {
-    "name": "testBoolean",
-    "@dataType": [
-      "boolean"
-    ],
-    "description": "Value of testBoolean."
-  },
-  {
-    "name": "testNumber",
-    "@dataType": [
-      "number"
-    ],
-    "description": "Value of testNumber."
-  },
-  {
-    "name": "testDateTime",
-    "@dataType": [
-      "date"
-    ],
-    "description": "Value of testDateTime."
-  },
-  {
-    "name": "testText",
-    "@dataType": [
-      "text"
-    ],
-    "description": "Value of Text."
-  },
-  {
-    "name": "testCref",
-    "@dataType": [
-      "TestThing2"
-    ],
-    "description": "Value of testCref."
-  }
-]
+{
+	"class": "string",
+	"description": "string",
+	"keywords": [{
+		"keyword": "string",
+		"weight": 0
+	}],
+	"properties": [{
+		"@dataType": [
+			"string"
+		],
+		"cardinality": "atMostOne",
+		"description": "Name of the Zoo",
+		"name": "name",
+		"keywords": [{
+			"keyword": "identifier",
+			"weight": 0.01
+		}]
+	}]
+}
 ```
 
-## Property datatypes
+Legend:
 
-| Weaviate Type | Exact Data Type | Formatting | Misc |
+| key | value |
+| --- | --- |
+| properties.@dataType | array |
+| properties.@dataType._string_ | the data type, see an overview of data types and formats [here](#property-datatypes) |
+| properties.cardinality | Should be `atMostOne` or `many`, more information can be found [here](#cardinality) |
+| properties.description | Description of the property |
+| properties.name | The name of the property, this property should be part of the [Weaviate Contextionary](../contribute/contextionary.md) |
+| properties.keywords | An array of keywords, more information can be found [here](#keywords) |
+
+## Property Datatypes
+
+| Weaviate Format | Data Type | Example | Misc |
 | ---------|--------|-----------| --- |
 | string   | string | `string` |
 | int      | int64  | `0` |
@@ -82,33 +92,50 @@ An overview of possible types.
 | date     | string | [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) |
 | text     | text   | `string` | Used for large texts and is not queryable |
 | CrossRef | string | [CamelCase](#CamelCase) |
+| 
 
-## Keywords & Context
 
-Keywords give context to a class or property. They help a Weaviate instance to interpret what words which are written in the same way means (so-called homographs). A good example of this is the words `seal`. Do you refer to a `stamp` or the `sea animal`? You can define this by setting keywords.
+## Cardinality
+
+A property's `@dataType` is always set as one (`atMostOne`) meaning that it can have only one type to direct to. However, when setting cross-references, you sometimes want to be able to point to multiple things or actions.
+
+For example, the class `Animal` might have the property `livesIn` which can be a cross-reference to a cage or an aquarium. When using GraphQL to retrieve data from the graph, the cardinality will determine how the query is constructed.
+
+```json
+{
+    "class": "Animal",
+    "description": "An animal in the zoo",
+    "keywords": [],
+    "properties": [{
+        "name": "livesIn",
+        "@dataType": [
+            "Aquarium", "Cage"
+        ],
+        "cardinality": "many",
+        "description": "Where the animal lives",
+        "keywords": []
+    }]
+}
+```
+
+## Keywords
+
+Keywords give context to a class or property. They help a Weaviate instance to interpret what words which are written in the same way means (so-called homographs). A good example of this is the words `seal`. Do you refer to a `stamp` or the `sea animal`? You can define this by setting keywords. The weights determine how important the keyword is. Often setting low values is already enough to determine the context of a thing or action.
 
 Example:
 
 ```json
 ...
-"class": "Place",
-"description": "This is a place that people live in",
+"class": "Seal",
+"description": "An individual seal",
 "keywords": [
   {
-    "keyword": "city",
-    "weight": 0.9
+    "keyword": "animal",
+    "weight": 0.05
   },
   {
-    "keyword": "town",
-    "weight": 0.8
-  },
-  {
-    "keyword": "village",
-    "weight": 0.7
-  },
-  {
-    "keyword": "people",
-    "weight": 0.2
+    "keyword": "sea",
+    "weight": 0.01
   }
 ],
 ...
@@ -118,119 +145,63 @@ Example:
 
 If you create properties with multiple words (for example `inCountry`) make sure to use CamelCase to divide them. `in-country` or `incountry` will be handled as one word by the contextionary and result in a Weaviate failing to boot or creating a reference to the wrong word.
 
-## Overview
+## Property Data Types
 
-Below an overview of classes for things and actions and how they should be defined.
+Below an overview of available data types:
 
-| Name             | Type     | Should be in contextionary? | Mandatory? | Description |
-| ---------------- |:--------:|:--------------------:|:----------:|-------------|
-| Class            | `string` | `true`               | `true`     | Noun for Things (i.e., "Place"), verb for action (i.e., "Bought" or "Buys") |
-| Class keyword    | `array`  | `true`               | `false`    | An array of descriptions relative to the class. (i.e., the class "Place" might gave: "City" as a keyword) |
-| Property         | `string` | `true`               | `true`     | Property of the class. (i.e., "name" for "City") |
-| Property keyword | `array`  | `true`               | `false`    | An array of descriptions relative to the class. (i.e., the class "Place" might gave: "City" as a keyword) |
-| Value            | `string` | `false`              | `true`     | Value or refererence. |
+| Weaviate Type | Exact Data Type | Formatting | Misc |
+| ---------|--------|-----------| --- |
+| string   | string | `string` |
+| int      | int64  | `0` |
+| boolean  | boolean | `true`/`false` |
+| number   | float64 | `0.0` |
+| date     | string | [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) |
+| text     | text   | `string` | Used for large texts and is not queryable |
+| CrossRef | string | [more info](#crossref-data-type) |
+| geoCoordinates | string | [more info](#crossref) |
 
-## Example
+#### CrossRef Data Type
 
-A full blown example:
+...
+
+#### geoCoordinates Data Type
+
+Used for geo-coordinates in the dataset.
+
+Example:
 
 ```json
 {
-  "@context": "http://example.org",
-  "classes": [
-    {
-      "class": "City",
-      "description": "This is a test City",
-      "keywords": [
-        {
-          "keyword": "Place",
-          "weight": 1
-        }
-      ],
-      "properties": [
-        {
-          "@dataType": [
-            "string"
-          ],
-          "description": "name of the city.",
-          "keywords": [
-            {
-              "keyword": "keyword",
-              "weight": 1
-            }
-          ],
-          "name": "name"
-        },
-        {
-          "@dataType": [
-            "int"
-          ],
-          "description": "Year of establishment.",
-          "keywords": [
-            {
-              "keyword": "keyword",
-              "weight": 1
-            }
-          ],
-          "name": "established"
-        },
-        {
-          "@dataType": [
-            "number"
-          ],
-          "description": "Number of inhabitants.",
-          "keywords": [
-            {
-              "keyword": "keyword",
-              "weight": 1
-            }
-          ],
-          "name": "inhabitants"
-        },
-        {
-          "@dataType": [
-            "Country"
-          ],
-          "description": "Country that the city is located in.",
-          "keywords": [
-            {
-              "keyword": "keyword",
-              "weight": 1
-            }
-          ],
-          "name": "country"
-        }
-      ]
-    },
-    {
-      "class": "Country",
-      "description": "This is a Country",
-      "keywords": [
-        {
-          "keyword": "Place",
-          "weight": 1
-        }
-      ],
-      "properties": [
-        {
-          "@dataType": [
-            "string"
-          ],
-          "description": "Name of the country.",
-          "keywords": [
-            {
-              "keyword": "keyword",
-              "weight": 1
-            }
-          ],
-          "name": "name"
-        }
-      ]
-    }
-  ],
-  "maintainer": "hello@creativesoftwarefdn.org",
-  "name": "example.org - Thing Test",
-  "type": "thing",
-  "version": "1.0.0"
+  "class": "Animal",
+  "description": "An animal in the zoo",
+  "keywords": [],
+  "properties": [{
+    "name": "location",
+    "@dataType": [
+        "geoCoordinates"
+    ],
+    "cardinality": "atMostOne",
+    "description": "Where the animal is located",
+    "keywords": []
+  }]
 }
 ```
+
+Adding data:
+
+```json
+"Animal": {
+  "geolocation": {
+    "latitude": 52.366667,
+    "longitude": 4.9
+  }
+}
+```
+
+## Available API functions
+
+...
+
+## Example
+
+A full blown example can be found [here](https://github.com/creativesoftwarefdn/weaviate-demo-zoo). The [getting started guide](./getting-started.md) also contains examples of creating an ontology schema.
