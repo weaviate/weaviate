@@ -66,8 +66,8 @@ func parseClause(args map[string]interface{}, rootClass string) (*Clause, error)
 		clause, err = parseCompareOp(args, OperatorLessThan, rootClass)
 	case "LessThanEqual":
 		clause, err = parseCompareOp(args, OperatorLessThanEqual, rootClass)
-	case "WithinRange":
-		clause, err = parseCompareOp(args, OperatorWithinRange, rootClass)
+	case "WithinGeoRange":
+		clause, err = parseCompareOp(args, OperatorWithinGeoRange, rootClass)
 	default:
 		err = fmt.Errorf("Unknown operator '%s' in clause %s", operator, jsonify(args))
 	}
@@ -275,7 +275,7 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 		}, nil
 	},
 	func(args map[string]interface{}) (*Value, error) {
-		rawVal, ok := args["valueRange"]
+		rawVal, ok := args["valueGeoRange"]
 		if !ok {
 			return nil, nil
 		}

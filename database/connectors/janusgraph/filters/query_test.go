@@ -165,10 +165,10 @@ func Test_SingleProperties(t *testing.T) {
 		})
 	})
 
-	t.Run("with propertyType valueRange", func(t *testing.T) {
+	t.Run("with propertyType valueGeoRange", func(t *testing.T) {
 		t.Run("with various operators and valid values", func(t *testing.T) {
 			tests := testCases{
-				{`'City.location within range'`, cf.OperatorWithinRange,
+				{`'City.location within range'`, cf.OperatorWithinGeoRange,
 					`.has("location", geoWithin(Geoshape.circle(51.200001, 6.700000, 190.000000)))`},
 			}
 
@@ -204,7 +204,7 @@ func Test_SingleProperties(t *testing.T) {
 		})
 
 		t.Run("an invalid value", func(t *testing.T) {
-			tests := testCases{{"should fail with wrong type", cf.OperatorWithinRange, ""}}
+			tests := testCases{{"should fail with wrong type", cf.OperatorWithinGeoRange, ""}}
 
 			// Note the mismatch between the specified type (arg4) and the actual type (arg3)
 			tests.AssertFilterErrors(t, "location", int(200), schema.DataTypeGeoCoordinates)
