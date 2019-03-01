@@ -635,7 +635,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	ctx := context.Background()
 	// The timeout is arbitrary we have to adjust it as we go along, if we
 	// realize it is to big/small
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	// Create message service
