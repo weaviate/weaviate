@@ -49,7 +49,7 @@ const WhereValueRangeGeoCoordinates string = "The geoCoordinates that form the c
 const WhereValueRangeGeoCoordinatesLatitude string = "The latitude (in decimal format) of the geoCoordinates to search around."
 const WhereValueRangeGeoCoordinatesLongitude string = "The longitude (in decimal format) of the geoCoordinates to search around."
 const WhereValueRangeDistance string = "The distance from the point specified via geoCoordinates."
-const WhereValueRangeDistanceTo string = "The maximum distance from the point specified geoCoordinates."
+const WhereValueRangeDistanceMax string = "The maximum distance from the point specified geoCoordinates."
 const WhereValueText string = "Specify a Text value that the target property will be compared to"
 const WhereValueDate string = "Specify a Date value that the target property will be compared to"
 
