@@ -71,7 +71,7 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 			Description: descriptions.WhereValueString,
 		},
 		"valueGeoRange": &graphql.InputObjectFieldConfig{
-			Type:        newRangeInputObject(path),
+			Type:        newGeoRangeInputObject(path),
 			Description: descriptions.WhereValueRange,
 		},
 	}
@@ -93,21 +93,45 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 	return commonFilters
 }
 
-func newRangeInputObject(path string) *graphql.InputObject {
+func newGeoRangeInputObject(path string) *graphql.InputObject {
 	return graphql.NewInputObject(graphql.InputObjectConfig{
-		Name: fmt.Sprintf("%sWhereRangeInpObj", path),
+		Name: fmt.Sprintf("%sWhereGeoRangeInpObj", path),
+		Fields: graphql.InputObjectConfigFieldMap{
+			"geoCoordinates": &graphql.InputObjectFieldConfig{
+				Type:        graphql.NewNonNull(newGeoRangeGeoCoordinatesInputObject(path)),
+				Description: descriptions.WhereValueRangeGeoCoordinates,
+			},
+			"distance": &graphql.InputObjectFieldConfig{
+				Type:        graphql.NewNonNull(newGeoRangeDistanceInputObject(path)),
+				Description: descriptions.WhereValueRangeDistance,
+			},
+		},
+	})
+}
+
+func newGeoRangeGeoCoordinatesInputObject(path string) *graphql.InputObject {
+	return graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: fmt.Sprintf("%sWhereGeoRangeGeoCoordinatesInpObj", path),
 		Fields: graphql.InputObjectConfigFieldMap{
 			"latitude": &graphql.InputObjectFieldConfig{
 				Type:        graphql.NewNonNull(graphql.Float),
-				Description: descriptions.WhereValueRangeLatitude,
+				Description: descriptions.WhereValueRangeGeoCoordinatesLatitude,
 			},
 			"longitude": &graphql.InputObjectFieldConfig{
 				Type:        graphql.NewNonNull(graphql.Float),
-				Description: descriptions.WhereValueRangeLongitude,
+				Description: descriptions.WhereValueRangeGeoCoordinatesLongitude,
 			},
-			"distance": &graphql.InputObjectFieldConfig{
+		},
+	})
+}
+
+func newGeoRangeDistanceInputObject(path string) *graphql.InputObject {
+	return graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: fmt.Sprintf("%sWhereGeoRangeDistanceInpObj", path),
+		Fields: graphql.InputObjectConfigFieldMap{
+			"to": &graphql.InputObjectFieldConfig{
 				Type:        graphql.NewNonNull(graphql.Float),
-				Description: descriptions.WhereValueRangeDistance,
+				Description: descriptions.WhereValueRangeDistanceTo,
 			},
 		},
 	})

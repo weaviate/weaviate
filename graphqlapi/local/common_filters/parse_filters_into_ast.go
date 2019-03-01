@@ -285,9 +285,11 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 			return nil, fmt.Errorf("the provided valueString is not a map")
 		}
 
-		lat := geoMap["latitude"].(float64)
-		lon := geoMap["longitude"].(float64)
-		dist := geoMap["distance"].(float64)
+		c9s := geoMap["geoCoordinates"].(map[string]interface{})
+		lat := c9s["latitude"].(float64)
+		lon := c9s["longitude"].(float64)
+		distance := geoMap["distance"].(map[string]interface{})
+		maxDist := distance["to"].(float64)
 
 		return &Value{
 			Type: schema.DataTypeGeoCoordinates,
@@ -296,7 +298,7 @@ var valueExtractors [](func(args map[string]interface{}) (*Value, error)) = [](f
 					Latitude:  float32(lat),
 					Longitude: float32(lon),
 				},
-				Distance: float32(dist),
+				Distance: float32(maxDist),
 			},
 		}, nil
 	},
