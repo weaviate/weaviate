@@ -44,6 +44,12 @@ const WhereValueInt string = "Specify an Integer value that the target property 
 const WhereValueNumber string = "Specify a Float value that the target property will be compared to"
 const WhereValueBoolean string = "Specify a Boolean value that the target property will be compared to"
 const WhereValueString string = "Specify a String value that the target property will be compared to"
+const WhereValueRange string = "Specify both geo-coordinates (latitude and longitude as decimals) and a maximum distance from the described coordinates. The search will return any result which is located less than or equal to the specified maximum distance in km away from the specified point."
+const WhereValueRangeGeoCoordinates string = "The geoCoordinates that form the center point of the search."
+const WhereValueRangeGeoCoordinatesLatitude string = "The latitude (in decimal format) of the geoCoordinates to search around."
+const WhereValueRangeGeoCoordinatesLongitude string = "The longitude (in decimal format) of the geoCoordinates to search around."
+const WhereValueRangeDistance string = "The distance from the point specified via geoCoordinates."
+const WhereValueRangeDistanceMax string = "The maximum distance from the point specified geoCoordinates."
 const WhereValueText string = "Specify a Text value that the target property will be compared to"
 const WhereValueDate string = "Specify a Date value that the target property will be compared to"
 

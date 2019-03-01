@@ -71,6 +71,8 @@ func (f *fakeNameSource) GetPropertyNameFromMapped(className schema.ClassName,
 		return "population"
 	case state.MappedPropertyName("prop_3"):
 		return "inCountry"
+	case state.MappedPropertyName("prop_9"):
+		return "geolocation"
 	case state.MappedPropertyName("prop_13"):
 		return "inContinent"
 	case state.MappedPropertyName("prop_23"):

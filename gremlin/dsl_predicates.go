@@ -136,3 +136,10 @@ func EqBool(value bool) *Query {
 func NeqBool(value bool) *Query {
 	return &Query{query: fmt.Sprintf(`neq(%s)`, strconv.FormatBool(value))}
 }
+
+// Geo
+
+// GeoWithinCircle returns a testing predicate such as geoWithin(Geoshape.Circle(x,y,d))
+func GeoWithinCircle(lat, lon, dist float32) *Query {
+	return &Query{query: fmt.Sprintf(`geoWithin(Geoshape.circle(%f, %f, %f))`, lat, lon, dist)}
+}
