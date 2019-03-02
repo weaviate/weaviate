@@ -222,7 +222,9 @@ var invalidThingTestCases = []struct {
 			}
 		},
 		errorCheck: func(t *testing.T, err *models.ErrorResponse) {
-			assert.Contains(t, fmt.Sprintf(validation.ErrorInvalidString, "TestThing", "testString", 2), err.Error[0].Message)
+			assert.Contains(t,
+				fmt.Sprintf("invalid string property 'testString' on class 'TestThing': not a string, but json.Number"),
+				err.Error[0].Message)
 		},
 	},
 }

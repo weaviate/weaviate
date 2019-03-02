@@ -11,7 +11,11 @@
 			"uuid": "005",
 			"name": "Netherlands",
 			"population": 17000000
-			}
+    },
+    "geolocation": {
+      "latitude": 52.366667,
+      "longitude": 4.9
+    }
 	}, {
 		"class": "City",
 		"uuid": "002",
@@ -50,7 +54,11 @@
 			"uuid": "006",
 			"name": "Germany",
 			"population": 83000000
-			}
+    },
+    "geolocation": {
+      "latitude": 51.225556,
+      "longitude": 6.782778
+    }
 	}, {
 		"class": "Country",
 		"uuid": "005",

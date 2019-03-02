@@ -8,11 +8,14 @@ services:
      - "80:80"
   weaviate:
     image: creativesoftwarefdn/weaviate:stable
+    command: ["--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config", "demo"]
     depends_on:
       - janus
     restart: on-failure:0
     ports:
      - "8080:8080"
+    volumes:
+     - ./config.json:/weaviate.conf.json
   janus:
     image: creativesoftwarefdn/janusgraph-docker:0.2.0
     depends_on:
@@ -22,7 +25,9 @@ services:
      - "8182:8182"
      - "8184:8184"
     environment:
-     - DEV_MODE=false
+     - DEV_MODE=true
+    volumes:
+      - ./janusgraph.properties:/janusgraph-config/janusgraph.properties
   db:
     image: scylladb/scylla:2.0.1
     ports:
@@ -41,12 +46,32 @@ services:
      # Prometheus monitoring
      - "9180:9180"
      - "9100:9100"
-    volumes:
-     - ./data/scylla/data:/var/lib/scylla
   index:
     image: elasticsearch:5
     ports:
      - "9200:9200"
      - "9300:9300"
-    volumes:
-     - ./data/elasticsearch/data:/usr/share/elasticsearch/data
+  etcd:
+    image: gcr.io/etcd-development/etcd:v3.3.8
+    ports:
+      - "2379:2379"
+    entrypoint: /usr/local/bin/etcd
+    command: 
+      - "--name"
+      - "s1"
+      - "--data-dir"
+      - "/etcd-data"
+      - "--listen-client-urls"
+      - "http://0.0.0.0:2379"
+      - "--advertise-client-urls"
+      - "http://0.0.0.0:2379"
+      - "--listen-peer-urls"
+      - "http://0.0.0.0:2380"
+      - "--initial-advertise-peer-urls"
+      - "http://0.0.0.0:2380"
+      - "--initial-cluster"
+      - "s1=http://0.0.0.0:2380"
+      - "--initial-cluster-token"
+      - "tkn"
+      - "--initial-cluster-state"
+      - "new"

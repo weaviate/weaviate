@@ -61,7 +61,7 @@ func classField(peerName string, k kind.Kind, class *models.SemanticSchemaClass,
 			fields, err := classPropertyFields(peerName, class)
 			if err != nil {
 				// we cannot return an error in this FieldsThunk and have to panic unfortunately
-				panic(fmt.Sprintf("Failed to assemble single Local Meta Class field: %s", err))
+				panic(fmt.Sprintf("Failed to assemble single Network Aggregate class field: %s", err))
 			}
 
 			return fields
@@ -152,6 +152,9 @@ func classPropertyField(peerName string, dataType schema.DataType, class *models
 		return makePropertyField(peerName, class, property, nonNumericPropertyFields)
 	case schema.DataTypeCRef:
 		return makePropertyField(peerName, class, property, nonNumericPropertyFields)
+	case schema.DataTypeGeoCoordinates:
+		// simply skip for now, see gh-729
+		return nil, nil
 	default:
 		return nil, fmt.Errorf(schema.ErrorNoSuchDatatype)
 	}

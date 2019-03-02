@@ -19,6 +19,8 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/common"
 	test_helper "github.com/creativesoftwarefdn/weaviate/graphqlapi/test/helper"
+	"github.com/creativesoftwarefdn/weaviate/models"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSimpleFieldParamsOK(t *testing.T) {
@@ -54,6 +56,39 @@ func TestExtractIntField(t *testing.T) {
 
 	query := "{ Get { Actions { SomeAction { intField } } } }"
 	resolver.AssertResolve(t, query)
+}
+
+func TestExtractGeoCoordinatesField(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver(emptyPeers())
+
+	expectedParams := &Params{
+		Kind:       kind.ACTION_KIND,
+		ClassName:  "SomeAction",
+		Properties: []SelectProperty{{Name: "location", IsPrimitive: true}},
+	}
+
+	resolverReturn := []interface{}{
+		map[string]interface{}{
+			"location": &models.GeoCoordinates{Latitude: 0.5, Longitude: 0.6},
+		},
+	}
+
+	resolver.On("LocalGetClass", expectedParams).
+		Return(resolverReturn, nil).Once()
+
+	query := "{ Get { Actions { SomeAction { location { latitude longitude } } } } }"
+	result := resolver.AssertResolve(t, query)
+
+	expectedLocation := map[string]interface{}{
+		"location": map[string]interface{}{
+			"latitude":  float32(0.5),
+			"longitude": float32(0.6),
+		},
+	}
+
+	assert.Equal(t, expectedLocation, result.Get("Get", "Actions", "SomeAction").Result.([]interface{})[0])
 }
 
 func TestExtractPagination(t *testing.T) {
