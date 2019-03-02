@@ -19,8 +19,8 @@ A complete Weaviate stack based on Janusgraph (with; Elasticsearch and Cassandra
 ```sh
 # The stable version in not available yet, use the unstable version below!
 $ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-stable/docker-compose.yml && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-unstable/config.json && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-unstable/janusgraph.properties
+  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-stable/config.json && \
+  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-stable/janusgraph.properties
 $ docker-compose up
 ```
 
@@ -49,8 +49,8 @@ $ docker-compose up
 
 ```sh
 $ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-stable/docker-compose.yml && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-unstable/config.json && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-unstable/janusgraph.properties
+  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-stable/config.json && \
+  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-stable/janusgraph.properties
 ```
 
 Open docker-compose.yml and replace `stable` in the image (`image: creativesoftwarefdn/weaviate:stable`) with the prefered version number.

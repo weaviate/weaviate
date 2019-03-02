@@ -1,0 +1,32 @@
+{
+  "environments": [
+    {
+      "name": "dev",
+      "database": {
+        "name": "janusgraph",
+        "database_config": {
+          "url": "http://localhost:8182"
+        }
+      },
+      "configuration_storage": {
+        "type": "etcd",
+        "url": "http://localhost:2379"
+      },
+      "contextionary": {
+        "knn_file" : "contextionary/contextionary.knn",
+        "idx_file" : "contextionary/contextionary.idx"
+      },
+      "limit": 100,
+      "debug": false,
+      "development": {
+        "external_instances": [{
+            "url": "http://localhost:8080"
+          },
+          {
+            "url": "http://127.0.0.1:8080"
+          }
+        ]
+      }
+    }
+  ]
+}
