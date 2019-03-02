@@ -807,7 +807,7 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 func setupGlobalMiddleware(handler http.Handler) http.Handler {
 	handleCORS := cors.New(cors.Options{
 		OptionsPassthrough: true,
-		AllowedHeaders:     []string{"content-type", "x-api-key", "x-api-token"},
+		AllowedHeaders:     []string{"*"},
 	}).Handler
 	handler = handleCORS(handler)
 
@@ -837,6 +837,7 @@ func addPreflight(next http.Handler) http.Handler {
 		if r.Method == "OPTIONS" {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "*")
+			w.Header().Set("Access-Control-Allow-Headers", "*")
 			return
 		}
 
