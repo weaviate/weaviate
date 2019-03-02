@@ -13,6 +13,7 @@ package common_filters
 
 import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
+	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 type Operator int
@@ -27,6 +28,7 @@ const (
 	OperatorAnd              Operator = 7
 	OperatorOr               Operator = 8
 	OperatorNot              Operator = 9
+	OperatorWithinGeoRange   Operator = 10
 )
 
 func (o Operator) OnValue() bool {
@@ -36,7 +38,8 @@ func (o Operator) OnValue() bool {
 		OperatorGreaterThan,
 		OperatorGreaterThanEqual,
 		OperatorLessThan,
-		OperatorLessThanEqual:
+		OperatorLessThanEqual,
+		OperatorWithinGeoRange:
 		return true
 	default:
 		return false
@@ -63,6 +66,8 @@ func (o Operator) Name() string {
 		return "Or"
 	case OperatorNot:
 		return "Not"
+	case OperatorWithinGeoRange:
+		return "WithinGeoRange"
 	default:
 		panic("Unknown operator")
 	}
@@ -82,4 +87,11 @@ type Clause struct {
 	On       *Path
 	Value    *Value
 	Operands []Clause
+}
+
+// GeoRange to be used with fields of type GeoCoordinates. Identifies a point
+// and a maximum distance from that point.
+type GeoRange struct {
+	*models.GeoCoordinates
+	Distance float32
 }

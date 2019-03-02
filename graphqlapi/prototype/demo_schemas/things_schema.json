@@ -184,6 +184,35 @@
                     ]
                 },
                 {
+                    "name": "worksIn",
+                    "@dataType": [
+                        "City", "Country"
+                    ],
+                    "description": "The place where the person works",
+                    "keywords": [
+                        {
+                            "keyword": "works",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "in",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "city",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "place",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "person",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
                     "name": "birthday",
                     "@dataType": [
                         "date"
@@ -345,6 +374,80 @@
                         },
                         {
                             "keyword": "airport",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "recentDeparture",
+                    "@dataType": [
+                        "Plane"
+                    ],
+                    "description": "Which airplane departed most recently",
+                    "keywords": [
+                        {
+                            "keyword": "recent",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "departure",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "plane",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "airplane",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "departed",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "most",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "recently",
+                            "weight": 0.25
+                        }
+                    ]
+                },
+                {
+                    "name": "recentArrival",
+                    "@dataType": [
+                        "Plane"
+                    ],
+                    "description": "Which airplane arrived most recently",
+                    "keywords": [
+                        {
+                            "keyword": "recent",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "arrival",
+                            "weight": 1.0
+                        },
+                        {
+                            "keyword": "plane",
+                            "weight": 0.5
+                        },
+                        {
+                            "keyword": "airplane",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "arrived",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "most",
+                            "weight": 0.25
+                        },
+                        {
+                            "keyword": "recently",
                             "weight": 0.25
                         }
                     ]

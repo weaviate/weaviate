@@ -68,7 +68,7 @@ func classField(k kind.Kind, class *models.SemanticSchemaClass, description stri
 			fields, err := classPropertyFields(class, peerName)
 			if err != nil {
 				// we cannot return an error in this FieldsThunk and have to panic unfortunately
-				panic(fmt.Sprintf("Failed to assemble single Local Meta Class field: %s", err))
+				panic(fmt.Sprintf("Failed to assemble single Network Meta Class field: %s", err))
 			}
 
 			return fields

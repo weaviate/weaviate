@@ -1,5 +1,19 @@
-g.V().has("kind", "thing").or(
-    has("classId", "class_3").has("prop_15", eq("Amsterdam")),
-    has("classId", "class_4").has("prop_16", eq("Amsterdam")),
-    has("classId", "class_5").has("prop_17", eq("Amsterdam")),
-  ).valueMap("uuid", "prop_15", "classId")
+
+// graph.tx().rollback()
+// mgmt = graph.openManagement()
+//   newProp = mgmt.makePropertyKey("location").dataType(Geoshape.class).cardinality(Cardinality.SINGLE).make()
+//   existingIndex = mgmt.getGraphIndex("search")
+//   mgmt.addIndexKey(existingIndex, newProp)
+// mgmt.commit()
+
+// g.addV().property("prop_17", Geoshape.point(52.366667, 4.9)).property("prop_15", "Manualamsterdam") // Amsterdam
+
+// g.V().has("location", geoWithin(Geoshape.circle(51.233333, 6.783333, 190)))
+
+// g.V().has("kind", "thing").has("prop_f1", "Amsterdam").valueMap()
+
+g.V()
+.has("prop_17", geoWithin(Geoshape.circle(51.225555, 6.782778, 200))).range(0, 100)
+.path().by(valueMap())
+
+
