@@ -87,7 +87,7 @@ With the Local Get function, information about specific classes can be queried. 
 
 ## GetMeta function
 
-Generic meta data about classes and its properties can be queried. Property meta information consists of general meta information about classes and their properties, like the data `type` of property. In addition, certain statistics about nodes in classes can be retrieved. Examples are the `count` of nodes in the (potentially filtered) dataset. For different type of properties, different statistical meta information can be queried (`Date`s are for now treated as `String`s): 
+Generic meta data about classes and its properties can be queried. Property meta information consists of general meta information about classes and their properties, like the data `type` of property. In addition, certain statistics about nodes in classes can be retrieved. Examples are the `count` of nodes in the (potentially filtered) dataset. For different type of properties, different statistical meta information can be queried: 
 - `String`: 
 	- `topOccurrences {
 		value
@@ -95,7 +95,7 @@ Generic meta data about classes and its properties can be queried. Property meta
 	}`
 - `Number or Integer`:
 	- `minimum`
-	- `maximmum`
+	- `maximum`
 	- `mean`
 	- `sum`
 - `Boolean`: 
@@ -105,6 +105,10 @@ Generic meta data about classes and its properties can be queried. Property meta
   - `percentageFalse`
 - `Reference`:
 	- `pointingTo`
+
+Notes:
+- `date`s are for now treated as `String`s
+- The components `latitude` and `longitude` of `geoCoordinates` are treated as `Number`
 
 Additionally, the number of nodes in a (potentially filtered) class is avaiable. This can be queried by `meta { count }`, at the same level as the properties of the class.
 
@@ -132,7 +136,7 @@ The query below returns metadata of the nodes in the class `Animal`.
             type
             count
             mimimum
-            maximumm
+            maximum
             mean
             sum
           }
