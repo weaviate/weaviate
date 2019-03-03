@@ -253,19 +253,12 @@ function createArgs(item, location, groupBy, where){
   // empty argument
   propsForArgs[item.class] = {}
 
-  // always return first
-  propsForArgs[item.class]["first"] = {
-    name: "firstFilter",
+  // always return limit
+  propsForArgs[item.class]["limit"] = {
+    name: "limitFilter",
     type: GraphQLInt,
     description: function() {
-      return getDesc("firstFilter")},
-  }
-  // always return after
-  propsForArgs[item.class]["after"] = {
-    name: "afterFilter",
-    type: GraphQLInt,
-    description: function() {
-      return getDesc("afterFilter")},
+      return getDesc("limitFilter")},
   }
 
   if(where == true){
@@ -572,16 +565,10 @@ function createMetaSubClasses(ontologyThings, location='') {
                         return getDesc("MetaClassPropertyTopOccurrences")},
                       type: new GraphQLList( topOccurrencesType ),
                       args: {
-                        first: { 
-                          name: "firstFilter",
+                        limit: { 
+                          name: "limitFilter",
                           description: function() {
-                            return getDesc("firstFilter")},
-                          type: GraphQLInt 
-                        },
-                        after: { 
-                          name: "afterFilter",
-                          description: function() {
-                            return getDesc("afterFilter")},
+                            return getDesc("limitFilter")},
                           type: GraphQLInt 
                         }
                       },
@@ -590,8 +577,8 @@ function createMetaSubClasses(ontologyThings, location='') {
                         if (args.after) {
                           data = data.splice(args.after)
                         }
-                        if (args.first) {
-                          data = data.splice(0, args.first)
+                        if (args.limit) {
+                          data = data.splice(0, args.limit)
                         }
                         return data
                       }
@@ -1359,10 +1346,10 @@ var NetworkIntrospectWhereClassAndPropertyFilterFields = {
       return getDesc("WeaviateNetworkWhereCertainty")},
     type: GraphQLFloat,
   }, 
-  first: {
-    name: "WeaviateNetworkWhereFirst",
+  limit: {
+    name: "WeaviateNetworkWhereLimit",
     description: function() {
-      return getDesc("WeaviateNetworkWhereFirst")},
+      return getDesc("WeaviateNetworkWhereLimit")},
     type: GraphQLInt,
   }
 }
@@ -1441,10 +1428,10 @@ var NetworkFetchFilterFields = {
             fields: NetworkFetchWherePropertyFilterFields
           }))
         },
-        first: {
-          name: "WeaviateNetworkFetchWhereInpObjFirst",
+        limit: {
+          name: "WeaviateNetworkFetchWhereInpObjLimit",
           description: function() {
-            return getDesc("NetworkFetchWhereInpObjFirst")},
+            return getDesc("NetworkFetchWhereInpObjLimit")},
           type: GraphQLInt,
         }
       }
