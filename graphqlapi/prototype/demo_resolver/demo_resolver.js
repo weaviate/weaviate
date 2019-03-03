@@ -92,11 +92,9 @@ var solveAggregateRootClass = function(all_data, className, args, location) {
 		}
 	}
 
-	if (args.after) {
-		list = list.splice(args.after)
-	}
-	if (args.first) {
-		list = list.splice(0, args.first)
+
+	if (args.limit) {
+		list = list.splice(0, args.limit)
 	}
 	all_data = list
 	
@@ -452,11 +450,9 @@ module.exports = {
 			list = resolve_where(list, args.where)
 		}
 
-	  	if (args.after) {
-		    list = list.splice(args.after)
-	    }
-	    if (args.first) {
-		    list = list.splice(0, args.first)
+
+	    if (args.limit) {
+		    list = list.splice(0, args.limit)
 		}
 		// if (args.groupBy) {[
 		// 	list = solve_groupBy(args.groupBy, list)
@@ -474,11 +470,8 @@ module.exports = {
 			list = resolve_where(list, args.where)
 		}
 
-	  	if (args.after) {
-		    list = list.splice(args.after)
-	    }
-	    if (args.first) {
-		    list = list.splice(0, args.first)
+	    if (args.limit) {
+		    list = list.splice(0, args.limit)
 		}
 		return solveMetaRootClass(list, className, args)
 	},

@@ -143,16 +143,14 @@ How to filter on Things and Actions in Local and Network queries is explained at
 
 ### Pagination
 
-Pagination allows to request a certain amount of Things or Actions at one query. The arguments `first` and `after` can be combined in the query for classes of Things and Actions, where
-- `first` is an integer with the maximum amount of returned nodes.
-- `after` is an integer representing how many nodes should be skipped in the returned data.
+Pagination allows to request a certain amount of Things or Actions at one query. The argument `limit` can be combined in the query for classes of Things and Actions, where `limit` is an integer with the maximum amount of returned nodes.
 
 ``` graphql
 {
   Local{
     Get{
       Things{
-        Animal(first:5, after:10){
+        Animal(limit:5){
           name
         }
       }

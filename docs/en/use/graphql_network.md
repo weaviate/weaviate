@@ -252,7 +252,7 @@ For nodes in the network, meta information can be queried just like for nodes in
             place {
               type
               count
-              topOccurrences(first:2) {
+              topOccurrences(limit:2) {
                 value
                 occurs
               }
