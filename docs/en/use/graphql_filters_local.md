@@ -121,3 +121,29 @@ Without operator 'And' or 'Or' at the highest level:
   }
 }
 ```
+
+## geoCoordinates
+Distance ranges of geoCoordinates can be filtered as follows:
+```graphql
+{
+  Local {
+    Get {
+      Things {
+        City(where: {
+          operator: WithinGeoRange,
+          valueGeoRange: {geoCoordinates: {latitude: 52.4, longitude: 4.9}, distance: {max:2.0}},
+          path: ["geolocation"]
+        }) {
+          name
+          geolocation {
+            latitude
+            longitude 
+          }
+        }
+      }
+    }
+  }
+}
+```
+The `distance` is always in kilometers. `geoCoordinates` are in DMS format.
+This query will result in all cities within a 2 kilometer range of the geoCoordinates `{latitude: 52.4, longitude: 4.9}`. 
