@@ -4,15 +4,24 @@
 
 ## Index
 
+### Getting Started with a Local Weaviate
+
 - [Preparation](#preparation)
 - [Running Weaviate with Docker-compose](#running-weaviate-with-docker-compose)
 - [Creating an Ontology](#creating-an-ontology)
 - [Adding Thing and Action Nodes](#adding-thing-and-action-nodes)
 - [Crawling the Knowledge Graph with GraphQL](#crawling-the-knowledge-graph-with-graphql)
+- [Adding a full blown Zoo with Weaviate-CLI](#adding-a-full-blown-zoo-with-weaviate-cli)
+
+### Getting Started with a Network of Weaviates
+
+> Soon Online
 
 ## Preparation
 
 If you want to learn more about the general concept of the Knowledge Graphs and Knowledge Networks you can read that [here](#). This getting started guide uses the dockerized versions of Weaviate. For more advanced usage or configuration, you can use the binaries and data connectors directly. This is covered in the [running Weaviate](running-weaviate.md#run-weaviate-stand-alone-with-docker) documentation.
+
+Make sure to have enough memory allocated to your machine. At least 1 CPU and 12GiG in memory.
 
 Check you have Docker and Docker-compose installed:
 
@@ -73,7 +82,7 @@ In this example, we are going to create a [knowledge graph of a zoo](https://git
 First, we will create the `Zoo` as a Weaviate-thing like this;
 
 ```bash
-$ curl -X POST http://35.204.8.121:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
     "class": "Zoo",
     "keywords": [{
         "keyword": "park",
@@ -101,7 +110,7 @@ $ curl -X POST http://35.204.8.121:8080/weaviate/v1/schema/things -H "Content-Ty
 Next, we want to create a `City` class to describe which city a zoo is in.
 
 ```bash
-$ curl -X POST http://35.204.8.121:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
     "class": "City",
     "keywords": [{
         "keyword": "village",
@@ -130,7 +139,7 @@ Let's update both classes to include cross-references.
 First, we update the Zoo class:
 
 ```bash
-$ curl -X POST http://35.204.8.121:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
+$ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
   "@dataType": [
     "City"
   ],
@@ -144,7 +153,7 @@ $ curl -X POST http://35.204.8.121:8080/weaviate/v1/schema/things/Zoo/properties
 Secondly, we update the City class:
 
 ```bash
-$ curl -X POST http://35.204.8.121:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
+$ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
   "@dataType": [
     "Zoo"
   ],
@@ -162,7 +171,7 @@ Besides cross-references, Weaviate has a variety of special data types like geoc
 Let's update the `City` class with a location.
 
 ```bash
-$ curl -X POST http://35.204.8.121:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
+$ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
   "@dataType": [
     "geoCoordinates"
   ],
@@ -182,7 +191,7 @@ We are going to add two cities and two zoos.
 First the city of Amsterdam
 
 ```bash
-$ curl -X POST http://35.204.8.121:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://35.204.49.75:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
     "thing": {
         "@class": "City",
         "@context": "http://myzoo.org",
@@ -204,17 +213,21 @@ Results in:
     "@class": "City",
     "@context": "http://myzoo.org",
     "schema": {
+        "location": {
+            "latitude": 52.22,
+            "longitude": 4.54
+        },
         "name": "Amsterdam"
     },
-    "creationTimeUnix": 1551471528306,
-    "thingId": "c1b714dc-8639-4d76-8e6d-eb44132acaf8"
+    "creationTimeUnix": 1551613377976,
+    "thingId": "6406759e-f6fb-47ba-a537-1a62728d2f55"
 }
 ```
 
 Next, the city of Berlin
 
 ```bash
-$ curl -X POST http://35.204.8.121:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://35.204.49.75:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
     "thing": {
         "@class": "City",
         "@context": "http://myzoo.org",
@@ -227,6 +240,7 @@ $ curl -X POST http://35.204.8.121:8080/weaviate/v1/things -H "Content-Type: app
         }
     }
 }'
+```
 
 which results in:
 
@@ -235,46 +249,85 @@ which results in:
     "@class": "City",
     "@context": "http://myzoo.org",
     "schema": {
+        "location": {
+            "latitude": 52.31,
+            "longitude": 13.23
+        },
         "name": "Berlin"
     },
-    "creationTimeUnix": 1551471528306,
-    "thingId": "f3cf2411-0256-468c-a5a6-2cd7196d6a83"
+    "creationTimeUnix": 1551613417125,
+    "thingId": "f15ba7e7-0635-4009-828b-7a631cd6840e"
 }
 ```
 
 Now, we are going to add the Zoos, note how we are defining the cross-reference.
 
 ```bash
-$ curl -X POST http://35.204.8.121:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://35.204.49.75:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
     "thing": {
         "@class": "Zoo",
         "@context": "http://myzoo.org",
         "schema": {
             "name": "Artis",
             "inCity": {
-                "$cref": "weaviate://localhost/things/c1b714dc-8639-4d76-8e6d-eb44132acaf8"
+                "$cref": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
             }
         }
     }
 }'
+```
+
+Which results in:
+
+```json
+{
+    "@class": "Zoo",
+    "@context": "http://myzoo.org",
+    "schema": {
+        "inCity": {
+            "$cref": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
+        },
+        "name": "Artis"
+    },
+    "creationTimeUnix": 1551613482193,
+    "thingId": "3c6ac167-d7e5-4479-a726-8341b9113e40"
+}
+```
 
 Note how we are using the UUID of the city Amsterdam (which we created above) to point to the correct thing in the graph.
 
 We will do the same for the Berlin zoo.
 
 ```bash
-$ curl -X POST http://35.204.8.121:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://35.204.49.75:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
     "thing": {
         "@class": "Zoo",
         "@context": "http://myzoo.org",
         "schema": {
             "name": "The Berlin Zoological Garden",
             "inCity": {
-                "$cref": "weaviate://localhost/things/f3cf2411-0256-468c-a5a6-2cd7196d6a83"
+                "$cref": "weaviate://localhost/things/f15ba7e7-0635-4009-828b-7a631cd6840e"
             }
         }
     }
 }'
+```
+
+Which results in:
+
+```json
+{
+    "@class": "Zoo",
+    "@context": "http://myzoo.org",
+    "schema": {
+        "inCity": {
+            "$cref": "weaviate://localhost/things/f15ba7e7-0635-4009-828b-7a631cd6840e"
+        },
+        "name": "The Berlin Zoological Garden"
+    },
+    "creationTimeUnix": 1551613546490,
+    "thingId": "5322d290-9682-4e7a-ae65-270cefeba8e5"
+}
 ```
 
 We now have created a mini-graph of 4 nodes. Let's now explore the graph!
@@ -286,5 +339,78 @@ One of the features of Weaviate is the use of GraphQL to query the graph. The do
 1. Open the Weaviate Playground by going to [http://localhost](http://localhost).
 2. Fill in the URL of your Weaviate instance: `http://localhost:8080/weaviate/v1/graphql`.
 3. When the Weaviate Playground is loaded, click "GraphQL" in the right bottom of the screen.
+
+You can learn more about all functionalities [here](index.md).
+
+Getting an overview of all Zoo's would look like this:
+
+```graphql
+{
+  Local{
+    Get{
+      Things{
+        Zoo{
+          name
+        }
+      }
+    }
+  }
+}
+```
+
+We have added the Zoo to a city, get to the name of the City, we have to use the `InCity{}` reference and define that we want to get the results based on a city. But before we can do this, we need to know what the available classes of `InCity{}` are. We can get these insights by clicking `InCity` and inspecting the type (`[ZooInCityObj]`). Because there is only one possible type (`City`) we now know that `InCity{}` ingests the class: `City`.
+
+```graphql
+{
+  Local {
+    Get {
+      Things {
+        Zoo {
+          name
+          InCity{
+            ... on City{
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Because we have set the `HasZoo` property, we can also reverse the query:
+
+```graphql
+{
+  Local {
+    Get {
+      Things {
+        City {
+          HasZoo {
+            ... on Zoo {
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+# Querying Individual Nodes with the RESTful API
+
+You can also query individual nodes through the RESTful API.
+
+The following example results in all Things that are added to Weaviate;
+
+```bash
+$ curl http://35.204.49.75:8080/weaviate/v1/things
+```
+
+[Click here](RESTful.md) for a complete overview of RESTful API endpoint.
+
+# Adding a full blown Zoo with Weaviate-CLI
 
 ...
