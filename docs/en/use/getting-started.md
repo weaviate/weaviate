@@ -4,24 +4,23 @@
 
 ## Index
 
-### Getting Started with a Local Weaviate
+#### Getting Started with a Local Weaviate
 
 - [Preparation](#preparation)
 - [Running Weaviate with Docker-compose](#running-weaviate-with-docker-compose)
 - [Creating an Ontology](#creating-an-ontology)
 - [Adding Thing and Action Nodes](#adding-thing-and-action-nodes)
 - [Crawling the Knowledge Graph with GraphQL](#crawling-the-knowledge-graph-with-graphql)
+- [Querying Individual Nodes with the RESTful API](#querying-individual-nodes-with-the-restful-api)
 - [Adding a full blown Zoo with Weaviate-CLI](#adding-a-full-blown-zoo-with-weaviate-cli)
 
-### Getting Started with a Network of Weaviates
+#### Getting Started with a Network of Weaviates
 
 > Soon Online
 
 ## Preparation
 
 If you want to learn more about the general concept of the Knowledge Graphs and Knowledge Networks you can read that [here](#). This getting started guide uses the dockerized versions of Weaviate. For more advanced usage or configuration, you can use the binaries and data connectors directly. This is covered in the [running Weaviate](running-weaviate.md#run-weaviate-stand-alone-with-docker) documentation.
-
-Make sure to have enough memory allocated to your machine. At least 1 CPU and 12GiG in memory.
 
 Check you have Docker and Docker-compose installed:
 
@@ -42,8 +41,8 @@ You are now ready to get started! If you run into issues, please use the;
 All elements inside Weaviate are loosely coupled, meaning that you can use or [create](https://github.com/creativesoftwarefdn/weaviate/blob/develop/docs/en/contribute/custom-connectors.md) multiple database connectors. In this setup, we will be using the JanusGraph connector because it contains the most features for scaling Weaviate.
 
 Important to know;
-1. The whole setup uses a decent amount of memory. In case of issues, try increasing the memory limit that Docker has available. The setup runs from 2 CPU 9Gig. In case of issues check [this issue](https://github.com/creativesoftwarefdn/weaviate/issues/742).
-2. It takes some time to start up the whole infrastructure. It is best to test the end-point that comes available.
+1. The whole setup uses a decent amount of memory. In case of issues, try increasing the memory limit that Docker has available. The setup runs from 2 CPU 12Gig memory. In case of issues check [this issue](https://github.com/creativesoftwarefdn/weaviate/issues/742).
+2. It takes some time to start up the whole infrastructure.
 
 #### Starting Weaviate with Docker-compose
 
@@ -77,12 +76,12 @@ You are now ready to start using Weaviate!
 
 The ontology describes how the knowledge graph is structured and based on which semantic elements, you can read more in-depth what the Weaviate ontology entails [here](ontology-schema.md).
 
-In this example, we are going to create a [knowledge graph of a zoo](https://github.com/creativesoftwarefdn/weaviate-demo-zoo). Although you can [automate the import of an ontology](#using-the-weaviate-cli) we will do it manually now to get an understanding of how the ontology is structured.
+In this example, we are going to create a [knowledge graph of a zoo](https://github.com/creativesoftwarefdn/weaviate-demo-zoo). Although you can [automate the import of an ontology](#adding-a-full-blown-zoo-with-weaviate-cli) we will do it manually now to get an understanding of how the ontology is structured.
 
 First, we will create the `Zoo` as a Weaviate-thing like this;
 
 ```bash
-$ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
     "class": "Zoo",
     "keywords": [{
         "keyword": "park",
@@ -110,7 +109,7 @@ $ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things -H "Content-Ty
 Next, we want to create a `City` class to describe which city a zoo is in.
 
 ```bash
-$ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
     "class": "City",
     "keywords": [{
         "keyword": "village",
@@ -136,10 +135,10 @@ Now we have two classes but nowhere we have defined where the point to, this is 
 
 Let's update both classes to include cross-references.
 
-First, we update the Zoo class:
+First, we update the `Zoo` class:
 
 ```bash
-$ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
   "@dataType": [
     "City"
   ],
@@ -150,10 +149,10 @@ $ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things/Zoo/properties
 }'
 ```
 
-Secondly, we update the City class:
+Secondly, we update the `City` class:
 
 ```bash
-$ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
   "@dataType": [
     "Zoo"
   ],
@@ -166,12 +165,12 @@ $ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things/City/propertie
 
 #### Adding Special Types To The Ontology
 
-Besides cross-references, Weaviate has a variety of special data types like geocoding. Using such a type has advantages when querying the knowledge graph.
+Besides cross-references, Weaviate has a variety of special data types like geocoding. Click [here](./ontology-schema.md#property-data-types) for an overview of available types.
 
 Let's update the `City` class with a location.
 
 ```bash
-$ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/weaviate/v1/schema/things/City/properties -H "Content-Type: application/json" -d '{
   "@dataType": [
     "geoCoordinates"
   ],
@@ -182,7 +181,7 @@ $ curl -X POST http://35.204.49.75:8080/weaviate/v1/schema/things/City/propertie
 }'
 ```
 
-## Adding Data
+## Adding Thing and Action Nodes
 
 Now we have defined the ontology, it is time to start adding data.
 
@@ -191,7 +190,7 @@ We are going to add two cities and two zoos.
 First the city of Amsterdam
 
 ```bash
-$ curl -X POST http://35.204.49.75:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
     "thing": {
         "@class": "City",
         "@context": "http://myzoo.org",
@@ -227,7 +226,7 @@ Results in:
 Next, the city of Berlin
 
 ```bash
-$ curl -X POST http://35.204.49.75:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
     "thing": {
         "@class": "City",
         "@context": "http://myzoo.org",
@@ -263,7 +262,7 @@ which results in:
 Now, we are going to add the Zoos, note how we are defining the cross-reference.
 
 ```bash
-$ curl -X POST http://35.204.49.75:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
     "thing": {
         "@class": "Zoo",
         "@context": "http://myzoo.org",
@@ -299,7 +298,7 @@ Note how we are using the UUID of the city Amsterdam (which we created above) to
 We will do the same for the Berlin zoo.
 
 ```bash
-$ curl -X POST http://35.204.49.75:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
     "thing": {
         "@class": "Zoo",
         "@context": "http://myzoo.org",
@@ -406,7 +405,7 @@ You can also query individual nodes through the RESTful API.
 The following example results in all Things that are added to Weaviate;
 
 ```bash
-$ curl http://35.204.49.75:8080/weaviate/v1/things
+$ curl http://localhost:8080/weaviate/v1/things
 ```
 
 [Click here](RESTful.md) for a complete overview of RESTful API endpoint.

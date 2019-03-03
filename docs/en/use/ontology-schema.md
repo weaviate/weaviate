@@ -81,20 +81,6 @@ Legend:
 | properties.name | The name of the property, this property should be part of the [Weaviate Contextionary](../contribute/contextionary.md) |
 | properties.keywords | An array of keywords, more information can be found [here](#keywords) |
 
-## Property Datatypes
-
-| Weaviate Format | Data Type | Example | Misc |
-| ---------|--------|-----------| --- |
-| string   | string | `string` |
-| int      | int64  | `0` |
-| boolean  | boolean | `true`/`false` |
-| number   | float64 | `0.0` |
-| date     | string | [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) |
-| text     | text   | `string` | Used for large texts and is not queryable |
-| CrossRef | string | [CamelCase](#CamelCase) |
-| 
-
-
 ## Cardinality
 
 A property's `@dataType` is always set as one (`atMostOne`) meaning that it can have only one type to direct to. However, when setting cross-references, you sometimes want to be able to point to multiple things or actions.
@@ -158,11 +144,34 @@ Below an overview of available data types:
 | date     | string | [ISO 8601](https://en.wikipedia.org/wiki/ISO_8601) |
 | text     | text   | `string` | Used for large texts and is not queryable |
 | CrossRef | string | [more info](#crossref-data-type) |
-| geoCoordinates | string | [more info](#crossref) |
+| geoCoordinates | string | [more info](#geoCoordinates-data-type) |
 
 #### CrossRef Data Type
 
-...
+The crossref datatype consists of a URL type:
+
+- **scheme** = `weaviate://`
+- **host** = Weaviate P2P node, `localhost` for a local thing or action.
+- **path** = location of the thing or action.
+
+Example: `weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55`
+
+In the [RESTful API](./RESTful.md) this will be shown as:
+
+```json
+{
+    "thing": {
+        "@class": "SomeClass",
+        "@context": "http://context.org",
+        "schema": {
+            "name": "SomeOtherClass",
+            "someProperty": {
+                "$cref": "weaviate://localhost/things/6406759e-f6fb-47ba-a537-1a62728d2f55"
+            }
+        }
+    }
+}
+```
 
 #### geoCoordinates Data Type
 
@@ -197,10 +206,6 @@ Adding data:
   }
 }
 ```
-
-## Available API functions
-
-...
 
 ## Example
 
