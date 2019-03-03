@@ -331,6 +331,109 @@ Which results in:
 
 We now have created a mini-graph of 4 nodes. Let's now explore the graph!
 
+#### Many References
+
+In some cases, you want to set multiple references. In the following example, we are going to create animals that live in one of the zoos. We are going to extend the zoos to point to multiple animals that live in the zoo.
+
+First, we are going to create the `Animals` class.
+
+```bash
+$ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type: application/json" -d '{
+    "class": "Animal",
+    "keywords": [{
+        "keyword": "beast",
+        "weight": 0.01
+    }],
+    "description": "Animals",
+    "properties": [{
+        "@dataType": [
+            "string"
+        ],
+        "description": "Name of the Animal",
+        "name": "name",
+        "keywords": [{
+            "keyword": "identifier",
+            "weight": 0.01
+        }]
+    },{
+        "@dataType": [
+            "string"
+        ],
+        "description": "Species of the Animal",
+        "name": "species",
+        "keywords": [{
+            "keyword": "family",
+            "weight": 0.01
+        }]
+    }]
+}'
+```
+
+Next, we can extend the `Zoo` class to include many animals. Note the `cardinality` which is set to `many`.
+
+```bash
+$ curl -X POST http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H "Content-Type: application/json" -d '{
+  "@dataType": [
+    "Animal"
+  ],
+  "cardinality": "many",
+  "description": "Animals that live in this zoo",
+  "name": "hasAnimals",
+  "keywords": []
+}'
+```
+
+We will add two `Animals`, the elephants Alphonso and Bert and we are going to store their UUID's
+
+```bash
+$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+    "thing": {
+        "@class": "Animal",
+        "@context": "http://myzoo.org",
+        "schema": {
+            "name": "Alphonso",
+            "species": "elephant"
+        }
+    }
+}'
+```
+
+```bash
+$ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
+    "thing": {
+        "@class": "Animal",
+        "@context": "http://myzoo.org",
+        "schema": {
+            "name": "Bert",
+            "species": "elephant"
+        }
+    }
+}'
+```
+
+The UUID's that are returned are;
+
+- **Alphonso**: `ac19c17b-63df-4d6f-9015-9086bb3466c4`
+- **Bert**: `82f91e01-37b4-431c-98d1-43ebb48bca0f`
+
+We can now add Alphonso and Bert to the Amsterdam `Zoo`.
+
+```bash
+$ curl -X POST http://localhost:8080/weaviate/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/properties/hasAnimals -H "Content-Type: application/json" -d '{
+  "$cref": "weaviate://localhost/things/ac19c17b-63df-4d6f-9015-9086bb3466c4", # UUID of Alphonso
+  "locationUrl": "localhost",
+  "type": "Thing"
+}'
+```
+
+```bash
+$ curl -X POST http://localhost:8080/weaviate/v1/things/3c6ac167-d7e5-4479-a726-8341b9113e40/properties/hasAnimals -H "Content-Type: application/json" -d '{
+  "$cref": "weaviate://localhost/things/82f91e01-37b4-431c-98d1-43ebb48bca0f", # UUID of Bert
+  "locationUrl": "localhost",
+  "type": "Thing"
+}'
+```
+
 ## Crawling the Knowledge Graph with GraphQL
 
 One of the features of Weaviate is the use of GraphQL to query the graph. The docker-compose setup comes with the Weaviate Playground which we will use to crawl the graph.
