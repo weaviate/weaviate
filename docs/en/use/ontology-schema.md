@@ -1,14 +1,14 @@
 # Weaviate Ontologies
 
-> Documentation about designing and creating Weaviate ontologies.
+> Designing and creating Weaviate ontologies.
 
 Every Weaviate instance has an ontology which is used to describe what type of data you are adding and relies heavily on the contextionary. The ontology also helps other Weaviates in the P2P network to understand in which context your data is being held.
 
 ## Things and Actions
 
-Weaviate makes a conceptual distinction between things and actions. A thing is described as a noun. For example, car, city, book, chair, etcetera are all valid classes for things. Actions are verb-based, for example, move, bring, build, etcetera are all valid classes for actions.
+Weaviate makes a conceptual distinction between things and actions. A thing is described by a noun. For example, car, city, book, chair, etcetera are all valid classes for things. Actions are verb-based, for example, move, bring, build, etcetera are all valid classes for actions.
 
-Within Weaviate you will define ontologies for both things and actions. When starting a new weaviate instance, you define the ontology first. An endeavor you can compare to defining columns and tables in a traditional database.
+Within Weaviate you will define ontologies for both things and actions. When starting a new Weaviate instance, you define the ontology first. A process you can compare with defining columns and tables in a traditional database.
 
 ## Defining Classes
 
@@ -39,7 +39,7 @@ Legend:
 
 ## Defining Properties
 
-Every class has properties, properties are used to describe something inside the class. The thing with the class _Animal_ can have a property _color_ for example. And the action _move_ can have the property _agent_ to describe who or what is moving. Properties are always written with a lowercase first character. For example: `name`. If you want to chain words, you can do this by using (CamelCase)[#CamelCase]. For example: `inZoo` will be seen as a _in_ and _zoo_.
+Every class has properties, properties are used to describe something inside the class. The thing with the class _Animal_ can have a property _color_ for example. And the action _move_ can have the property _agent_ to describe who or what is moving. Properties are always written with a lowercase first character. For example: `name`. If you want to chain words, you can do this by using (CamelCase)[#CamelCase]. For example: `inZoo` will be seen as _in_ and _zoo_.
 
 When defining a property, you also define what type the property has. It can be a string or a number, but it can also contain a reference to another class or even multiple classes. For example, if you have a class `Animal`, you might create a property that is called `inCage`.
 
@@ -106,7 +106,7 @@ For example, the class `Animal` might have the property `livesIn` which can be a
 
 ## Keywords
 
-Keywords give context to a class or property. They help a Weaviate instance to interpret what words which are written in the same way means (so-called homographs). A good example of this is the words `seal`. Do you refer to a `stamp` or the `sea animal`? You can define this by setting keywords. The weights determine how important the keyword is. Often setting low values is already enough to determine the context of a thing or action.
+Keywords give context to a class or property. They help a Weaviate instance to interpret differnt words that are spelled the same way mean (so-called homographs). A good example of this is the word `seal`. Do you mean a `stamp` or the `sea animal`? You can define this by setting keywords. The weights determine how important the keyword is. Setting low values is often already enough to determine the context of a thing or action.
 
 Example:
 
@@ -133,7 +133,7 @@ If you create properties with multiple words (for example `inCountry`) make sure
 
 ## Property Data Types
 
-Below an overview of available data types:
+An overview of available data types:
 
 | Weaviate Type | Exact Data Type | Formatting | Misc |
 | ---------|--------|-----------| --- |
