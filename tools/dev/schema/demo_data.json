@@ -6,6 +6,10 @@
 		"coordinates": "N52, E004",
 		"population": "1800000",
 		"isCapital": true,
+    "geolocation": {
+      "latitude": 52.366667,
+      "longitude": 4.9
+    },
 		"inCountry": [{
 			"class": "Country",
 			"uuid": "005",
@@ -37,6 +41,32 @@
 			"uuid": "006",
 			"name": "Germany",
 			"population": "83000000"
+			}]
+	}, {
+		"class": "City",
+		"uuid": "021",
+		"name": "Countryless",
+		"coordinates": "N48, E005",
+		"population": "800000",
+		"isCapital": false,
+		"inCountry": []
+	}, {
+		"class": "City",
+		"uuid": "022",
+		"name": "CantDecideWhichCountryItBelongsToo",
+		"coordinates": "N48, E005",
+		"population": "600000",
+		"isCapital": false,
+		"inCountry": [{
+			"class": "Country",
+			"uuid": "006",
+			"name": "Germany",
+			"population": "83000000"
+			}, {
+			"class": "Country",
+			"uuid": "005",
+			"name": "Netherlands",
+			"population": "17000000"
 			}]
 	}, {
 		"class": "City",

@@ -187,7 +187,7 @@ Just like querying a local Weaviate, meta data about instances in the Network ca
             place {
               type
               count
-              topOccurrences(first:2) {
+              topOccurrences(limit:2) {
                 value
                 occurs
               }

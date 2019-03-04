@@ -19,6 +19,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 )
@@ -139,19 +140,30 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 }
 
 func extractMetaProperties(selections *ast.SelectionSet) ([]MetaProperty, error) {
-	properties := make([]MetaProperty, len(selections.Selections), len(selections.Selections))
+	var properties []MetaProperty
 
-	for i, selection := range selections.Selections {
+	for _, selection := range selections.Selections {
 		field := selection.(*ast.Field)
 		name := field.Name.Value
+		if name == "__typename" {
+			continue
+		}
+
 		property := MetaProperty{Name: schema.PropertyName(name)}
 		analysesProps, err := extractPropertyAnalyses(field.SelectionSet)
 		if err != nil {
 			return nil, err
 		}
 
+		if len(analysesProps) == 0 {
+			// this could be the case if the user only asked for __typename, but
+			// nothing else, we then don't want to include this property and forwared
+			// to the db connector.
+			continue
+		}
+
 		property.StatisticalAnalyses = analysesProps
-		properties[i] = property
+		properties = append(properties, property)
 	}
 
 	return properties, nil
@@ -160,8 +172,16 @@ func extractMetaProperties(selections *ast.SelectionSet) ([]MetaProperty, error)
 func extractPropertyAnalyses(selections *ast.SelectionSet) ([]StatisticalAnalysis, error) {
 	analyses := []StatisticalAnalysis{}
 	for _, selection := range selections.Selections {
+		spew.Dump(selection)
 		field := selection.(*ast.Field)
 		name := field.Name.Value
+
+		if name == "__typename" {
+			// skip, we want to let graphql serve this internatl meta field, not pass
+			// this on to the resolve
+			continue
+		}
+
 		property, err := parseAnalysisProp(name)
 		if err != nil {
 			return nil, err

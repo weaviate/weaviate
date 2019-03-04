@@ -46,7 +46,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.50"
+    "version": "0.12.64"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -2579,6 +2579,20 @@ func init() {
               }
             }
           }
+        }
+      }
+    },
+    "GeoCoordinates": {
+      "properties": {
+        "latitude": {
+          "description": "The latitude of the point on earth in decimal form",
+          "type": "number",
+          "format": "float"
+        },
+        "longitude": {
+          "description": "The longitude of the point on earth in decimal form",
+          "type": "number",
+          "format": "float"
         }
       }
     },
@@ -3236,7 +3250,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.50"
+    "version": "0.12.64"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -5785,6 +5799,20 @@ func init() {
               }
             }
           }
+        }
+      }
+    },
+    "GeoCoordinates": {
+      "properties": {
+        "latitude": {
+          "description": "The latitude of the point on earth in decimal form",
+          "type": "number",
+          "format": "float"
+        },
+        "longitude": {
+          "description": "The longitude of the point on earth in decimal form",
+          "type": "number",
+          "format": "float"
         }
       }
     },

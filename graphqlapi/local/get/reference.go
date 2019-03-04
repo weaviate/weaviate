@@ -130,6 +130,10 @@ func makeResolveClassUnionType(knownClasses *map[string]*graphql.Object,
 
 func makeResolveRefField(peers peers.Peers) graphql.FieldResolveFn {
 	return func(p graphql.ResolveParams) (interface{}, error) {
+		if p.Source.(map[string]interface{})[p.Info.FieldName] == nil {
+			return nil, nil
+		}
+
 		items := p.Source.(map[string]interface{})[p.Info.FieldName].([]interface{})
 		results := make([]interface{}, len(items), len(items))
 		for i, item := range items {

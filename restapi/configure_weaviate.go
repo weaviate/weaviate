@@ -652,7 +652,7 @@ func configureServer(s *http.Server, scheme, addr string) {
 	ctx := context.Background()
 	// The timeout is arbitrary we have to adjust it as we go along, if we
 	// realize it is to big/small
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	// Create message service
@@ -820,9 +820,11 @@ func setupMiddlewares(handler http.Handler) http.Handler {
 
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
+// Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
 func setupGlobalMiddleware(handler http.Handler) http.Handler {
 	handleCORS := cors.New(cors.Options{
 		OptionsPassthrough: true,
+		AllowedHeaders:     []string{"*"},
 	}).Handler
 	handler = handleCORS(handler)
 
@@ -852,6 +854,7 @@ func addPreflight(next http.Handler) http.Handler {
 		if r.Method == "OPTIONS" {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "*")
+			w.Header().Set("Access-Control-Allow-Headers", "*")
 			return
 		}
 

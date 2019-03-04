@@ -18,6 +18,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/connectors/janusgraph/state"
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	cf "github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
+	"github.com/creativesoftwarefdn/weaviate/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,12 +34,12 @@ func Test_SingleProperties(t *testing.T) {
 	t.Run("with propertyType Int", func(t *testing.T) {
 		t.Run("with various operators and valid values", func(t *testing.T) {
 			tests := testCases{
-				{"'City.population == 10000'", cf.OperatorEqual, `.has("population", eq(10000))`},
-				{"'City.population != 10000'", cf.OperatorNotEqual, `.has("population", neq(10000))`},
-				{"'City.population < 10000'", cf.OperatorLessThan, `.has("population", lt(10000))`},
-				{"'City.population <= 10000'", cf.OperatorLessThanEqual, `.has("population", lte(10000))`},
-				{"'City.population > 10000'", cf.OperatorGreaterThan, `.has("population", gt(10000))`},
-				{"'City.population >= 10000'", cf.OperatorGreaterThanEqual, `.has("population", gte(10000))`},
+				{"'City.population == 10000'", cf.OperatorEqual, `.union(has("population", eq(10000)))`},
+				{"'City.population != 10000'", cf.OperatorNotEqual, `.union(has("population", neq(10000)))`},
+				{"'City.population < 10000'", cf.OperatorLessThan, `.union(has("population", lt(10000)))`},
+				{"'City.population <= 10000'", cf.OperatorLessThanEqual, `.union(has("population", lte(10000)))`},
+				{"'City.population > 10000'", cf.OperatorGreaterThan, `.union(has("population", gt(10000)))`},
+				{"'City.population >= 10000'", cf.OperatorGreaterThanEqual, `.union(has("population", gte(10000)))`},
 			}
 
 			tests.AssertFilter(t, "population", int(10000), schema.DataTypeInt)
@@ -55,12 +56,12 @@ func Test_SingleProperties(t *testing.T) {
 	t.Run("with propertyType Number (float)", func(t *testing.T) {
 		t.Run("with various operators and valid values", func(t *testing.T) {
 			tests := testCases{
-				{"'City.energyConsumption == 953.280000'", cf.OperatorEqual, `.has("energyConsumption", eq(953.280000))`},
-				{"'City.energyConsumption != 953.280000'", cf.OperatorNotEqual, `.has("energyConsumption", neq(953.280000))`},
-				{"'City.energyConsumption < 953.280000'", cf.OperatorLessThan, `.has("energyConsumption", lt(953.280000))`},
-				{"'City.energyConsumption <= 953.280000'", cf.OperatorLessThanEqual, `.has("energyConsumption", lte(953.280000))`},
-				{"'City.energyConsumption > 953.280000'", cf.OperatorGreaterThan, `.has("energyConsumption", gt(953.280000))`},
-				{"'City.energyConsumption >= 953.280000'", cf.OperatorGreaterThanEqual, `.has("energyConsumption", gte(953.280000))`},
+				{"'City.energyConsumption == 953.280000'", cf.OperatorEqual, `.union(has("energyConsumption", eq(953.280000)))`},
+				{"'City.energyConsumption != 953.280000'", cf.OperatorNotEqual, `.union(has("energyConsumption", neq(953.280000)))`},
+				{"'City.energyConsumption < 953.280000'", cf.OperatorLessThan, `.union(has("energyConsumption", lt(953.280000)))`},
+				{"'City.energyConsumption <= 953.280000'", cf.OperatorLessThanEqual, `.union(has("energyConsumption", lte(953.280000)))`},
+				{"'City.energyConsumption > 953.280000'", cf.OperatorGreaterThan, `.union(has("energyConsumption", gt(953.280000)))`},
+				{"'City.energyConsumption >= 953.280000'", cf.OperatorGreaterThanEqual, `.union(has("energyConsumption", gte(953.280000)))`},
 			}
 
 			tests.AssertFilter(t, "energyConsumption", float64(953.28), schema.DataTypeNumber)
@@ -82,17 +83,17 @@ func Test_SingleProperties(t *testing.T) {
 
 			tests := testCases{
 				{`City.foundedWhen == "2017-08-17T12:47:00+02:00"`, cf.OperatorEqual,
-					`.has("foundedWhen", eq("2017-08-17T12:47:00+02:00"))`},
+					`.union(has("foundedWhen", eq("2017-08-17T12:47:00+02:00")))`},
 				{`City.foundedWhen != "2017-08-17T12:47:00+02:00"`, cf.OperatorNotEqual,
-					`.has("foundedWhen", neq("2017-08-17T12:47:00+02:00"))`},
+					`.union(has("foundedWhen", neq("2017-08-17T12:47:00+02:00")))`},
 				{`City.foundedWhen < "2017-08-17T12:47:00+02:00"`, cf.OperatorLessThan,
-					`.has("foundedWhen", lt("2017-08-17T12:47:00+02:00"))`},
+					`.union(has("foundedWhen", lt("2017-08-17T12:47:00+02:00")))`},
 				{`City.foundedWhen <= "2017-08-17T12:47:00+02:00"`, cf.OperatorLessThanEqual,
-					`.has("foundedWhen", lte("2017-08-17T12:47:00+02:00"))`},
+					`.union(has("foundedWhen", lte("2017-08-17T12:47:00+02:00")))`},
 				{`City.foundedWhen > "2017-08-17T12:47:00+02:00"`, cf.OperatorGreaterThan,
-					`.has("foundedWhen", gt("2017-08-17T12:47:00+02:00"))`},
+					`.union(has("foundedWhen", gt("2017-08-17T12:47:00+02:00")))`},
 				{`City.foundedWhen >= "2017-08-17T12:47:00+02:00"`, cf.OperatorGreaterThanEqual,
-					`.has("foundedWhen", gte("2017-08-17T12:47:00+02:00"))`},
+					`.union(has("foundedWhen", gte("2017-08-17T12:47:00+02:00")))`},
 			}
 
 			tests.AssertFilter(t, "foundedWhen", dateTime, schema.DataTypeDate)
@@ -109,8 +110,8 @@ func Test_SingleProperties(t *testing.T) {
 	t.Run("with propertyType string", func(t *testing.T) {
 		t.Run("with various operators and valid values", func(t *testing.T) {
 			tests := testCases{
-				{`'City.name == "Berlin"'`, cf.OperatorEqual, `.has("name", eq("Berlin"))`},
-				{`'City.name != "Berlin"'`, cf.OperatorNotEqual, `.has("name", neq("Berlin"))`},
+				{`'City.name == "Berlin"'`, cf.OperatorEqual, `.union(has("name", eq("Berlin")))`},
+				{`'City.name != "Berlin"'`, cf.OperatorNotEqual, `.union(has("name", neq("Berlin")))`},
 			}
 
 			tests.AssertFilter(t, "name", "Berlin", schema.DataTypeString)
@@ -138,8 +139,8 @@ func Test_SingleProperties(t *testing.T) {
 	t.Run("with propertyType bool", func(t *testing.T) {
 		t.Run("with various operators and valid values", func(t *testing.T) {
 			tests := testCases{
-				{`'City.isCapital == true'`, cf.OperatorEqual, `.has("isCapital", eq(true))`},
-				{`'City.isCapital != true'`, cf.OperatorNotEqual, `.has("isCapital", neq(true))`},
+				{`'City.isCapital == true'`, cf.OperatorEqual, `.union(has("isCapital", eq(true)))`},
+				{`'City.isCapital != true'`, cf.OperatorNotEqual, `.union(has("isCapital", neq(true)))`},
 			}
 
 			tests.AssertFilter(t, "isCapital", true, schema.DataTypeBoolean)
@@ -163,16 +164,62 @@ func Test_SingleProperties(t *testing.T) {
 			tests.AssertFilterErrors(t, "isCapital", int(200), schema.DataTypeBoolean)
 		})
 	})
+
+	t.Run("with propertyType valueGeoRange", func(t *testing.T) {
+		t.Run("with various operators and valid values", func(t *testing.T) {
+			tests := testCases{
+				{`'City.location within range'`, cf.OperatorWithinGeoRange,
+					`.union(has("location", geoWithin(Geoshape.circle(51.200001, 6.700000, 190.000000))))`},
+			}
+
+			expectedValue := cf.GeoRange{
+				GeoCoordinates: &models.GeoCoordinates{
+					Latitude:  51.2,
+					Longitude: 6.7,
+				},
+				Distance: 190,
+			}
+			tests.AssertFilter(t, "location", expectedValue, schema.DataTypeGeoCoordinates)
+		})
+
+		t.Run("with an operator that does not make sense for this type", func(t *testing.T) {
+			tests := testCases{
+				{`less than`, cf.OperatorLessThan, ""},
+				{`less than equal`, cf.OperatorLessThanEqual, ""},
+				{`greater than`, cf.OperatorGreaterThan, ""},
+				{`greater than equal`, cf.OperatorGreaterThanEqual, ""},
+				{`equal`, cf.OperatorEqual, ""},
+				{`not equal`, cf.OperatorNotEqual, ""},
+			}
+
+			expectedValue := cf.GeoRange{
+				GeoCoordinates: &models.GeoCoordinates{
+					Latitude:  51.2,
+					Longitude: 6.7,
+				},
+				Distance: 190,
+			}
+
+			tests.AssertFilterErrors(t, "location", expectedValue, schema.DataTypeGeoCoordinates)
+		})
+
+		t.Run("an invalid value", func(t *testing.T) {
+			tests := testCases{{"should fail with wrong type", cf.OperatorWithinGeoRange, ""}}
+
+			// Note the mismatch between the specified type (arg4) and the actual type (arg3)
+			tests.AssertFilterErrors(t, "location", int(200), schema.DataTypeGeoCoordinates)
+		})
+	})
 }
 
 func Test_SinglePropertiesWithMappedNames(t *testing.T) {
 	tests := testCases{
-		{"'City.population == 10000'", cf.OperatorEqual, `.has("prop_20", eq(10000))`},
-		{"'City.population != 10000'", cf.OperatorNotEqual, `.has("prop_20", neq(10000))`},
-		{"'City.population < 10000'", cf.OperatorLessThan, `.has("prop_20", lt(10000))`},
-		{"'City.population <= 10000'", cf.OperatorLessThanEqual, `.has("prop_20", lte(10000))`},
-		{"'City.population > 10000'", cf.OperatorGreaterThan, `.has("prop_20", gt(10000))`},
-		{"'City.population >= 10000'", cf.OperatorGreaterThanEqual, `.has("prop_20", gte(10000))`},
+		{"'City.population == 10000'", cf.OperatorEqual, `.union(has("prop_20", eq(10000)))`},
+		{"'City.population != 10000'", cf.OperatorNotEqual, `.union(has("prop_20", neq(10000)))`},
+		{"'City.population < 10000'", cf.OperatorLessThan, `.union(has("prop_20", lt(10000)))`},
+		{"'City.population <= 10000'", cf.OperatorLessThanEqual, `.union(has("prop_20", lte(10000)))`},
+		{"'City.population > 10000'", cf.OperatorGreaterThan, `.union(has("prop_20", gt(10000)))`},
+		{"'City.population >= 10000'", cf.OperatorGreaterThanEqual, `.union(has("prop_20", gte(10000)))`},
 	}
 
 	tests.AssertFilterWithNameSource(t, "population", int(10000), schema.DataTypeInt, &fakeNameSource{})
@@ -221,7 +268,7 @@ func Test_MultipleConditions(t *testing.T) {
 
 	t.Run("with operator and", func(t *testing.T) {
 		filter := buildOperandFilter(cf.OperatorAnd)
-		expectedResult := `.and(has("population", gt(70000)), has("name", neq("Rotterdam")))`
+		expectedResult := `.union(and(has("population", gt(70000)), has("name", neq("Rotterdam"))))`
 
 		result, err := New(filter, nil).String()
 
@@ -231,7 +278,7 @@ func Test_MultipleConditions(t *testing.T) {
 
 	t.Run("with operator or", func(t *testing.T) {
 		filter := buildOperandFilter(cf.OperatorOr)
-		expectedResult := `.or(has("population", gt(70000)), has("name", neq("Rotterdam")))`
+		expectedResult := `.union(or(has("population", gt(70000)), has("name", neq("Rotterdam"))))`
 
 		result, err := New(filter, nil).String()
 
@@ -290,7 +337,7 @@ func Test_MultipleNestedConditions(t *testing.T) {
 	}
 
 	filter := buildOperandFilter(cf.OperatorAnd)
-	expectedResult := `.and(has("population", gt(70000)), or(has("name", eq("Rotterdam")), has("name", eq("Berlin"))))`
+	expectedResult := `.union(and(has("population", gt(70000)), or(has("name", eq("Rotterdam")), has("name", eq("Berlin")))))`
 
 	result, err := New(filter, nil).String()
 
@@ -322,7 +369,7 @@ func Test_FiltersOnRefProps(t *testing.T) {
 		}
 
 		filter := buildOperandFilter()
-		expectedResult := `.where(outE("inCountry").inV().has("classId", "Country").has("name", eq("Germany")))`
+		expectedResult := `.union(where(outE("inCountry").inV().has("classId", "Country").has("name", eq("Germany"))))`
 
 		result, err := New(filter, nil).String()
 
@@ -357,8 +404,8 @@ func Test_FiltersOnRefProps(t *testing.T) {
 		}
 
 		filter := buildOperandFilter()
-		expectedResult := `.where(outE("inCity").inV().has("classId", "City")` +
-			`.outE("inCountry").inV().has("classId", "Country").has("name", eq("Germany")))`
+		expectedResult := `.union(where(outE("inCity").inV().has("classId", "City")` +
+			`.outE("inCountry").inV().has("classId", "Country").has("name", eq("Germany"))))`
 
 		result, err := New(filter, nil).String()
 
@@ -388,7 +435,7 @@ func Test_FiltersOnRefProps(t *testing.T) {
 		}
 
 		filter := buildOperandFilter()
-		expectedResult := `.where(outE("prop_15").inV().has("classId", "class_18").has("prop_20", eq("Germany")))`
+		expectedResult := `.union(where(outE("prop_15").inV().has("classId", "class_18").has("prop_20", eq("Germany"))))`
 
 		result, err := New(filter, &fakeNameSource{}).String()
 

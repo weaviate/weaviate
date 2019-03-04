@@ -161,7 +161,7 @@ The query below returns metadata of the nodes in the class `City`.
           name {
             type
             count
-            topOccurrences(first:2) {
+            topOccurrences(limit:2) {
               value
               occurs
             }
@@ -213,7 +213,7 @@ The same filters as the converted fetch can be used to filter the data. The foll
           name {
             type
             count
-            topOccurrences(first:2) {
+            topOccurrences(limit:2) {
               value
               occurs
             }
@@ -226,16 +226,14 @@ The same filters as the converted fetch can be used to filter the data. The foll
 ```
 
 ##### Pagination
-Pagination allows to request a certain amount of `Things` or `Actions` at one query. The arguments `first` and `after` can be combined in the query for classes of `Things` and `Actions`, where
-- `first` is an integer with the maximum amount of returned nodes.
-- `after` is an integer representing how many nodes should be skipped in the returned data.
+Pagination allows to request a certain amount of `Things` or `Actions` at one query. The argument `limit` can be used in the query for classes of `Things` and `Actions`, where `limit` is an integer with the maximum amount of returned nodes.
 
 ``` graphql
 {
   Local {
     Get {
       Things {
-        City(first:10, after:2) {
+        City(limit:10) {
           name
           population
           coordinates

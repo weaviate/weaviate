@@ -1,431 +1,216 @@
 {
-
     "@context": "",
-
     "version": "0.0.1",
-
     "type": "thing",
-
     "name": "weaviate demo things schema",
-
     "maintainer": "yourfriends@weaviate.com",
-
     "classes": [
-
         {
-
             "class": "Municipality",
-
             "description": "a city or town that has corporate status and local government",
-
             "properties": [
-
                 {
-
                     "name": "name",
-
                     "@dataType": [
-
                         "string"
-
                     ],
-
                     "description": "Official name of the municipality.",
-
                     "keywords": [
-
                         {
-
                             "keyword": "name",
-
-                            "weight": 1.0
-
+                            "weight": 1
                         },
-
                         {
-
                             "keyword": "official",
-
                             "weight": 0.25
-
                         },
-
                         {
-
                             "keyword": "name",
-
                             "weight": 0.25
-
                         },
-
                         {
-
                             "keyword": "municipality",
-
                             "weight": 0.25
-
                         }
-
                     ]
-
                 },
-
                 {
-
                     "name": "coordinates",
-
                     "@dataType": [
-
                         "string"
-
                     ],
-
                     "description": "The city's longitude and latitude",
-
                     "keywords": [
-
                         {
-
                             "keyword": "coordinates",
-
-                            "weight": 1.0
-
+                            "weight": 1
                         },
-
                         {
-
                             "keyword": "city",
-
                             "weight": 0.25
-
                         },
-
                         {
-
                             "keyword": "longitude",
-
                             "weight": 0.25
-
                         },
-
                         {
-
                             "keyword": "latitude",
-
                             "weight": 0.25
-
                         }
-
                     ]
-
                 },
-
                 {
-
                     "name": "inhabitants",
-
                     "@dataType": [
-
                         "int"
-
                     ],
-
                     "description": "Number of inhabitants of the municipality",
-
                     "keywords": [
-
                         {
-
                             "keyword": "population",
-
-                            "weight": 1.0
-
+                            "weight": 1
                         },
-
                         {
-
                             "keyword": "number",
-
                             "weight": 0.25
-
                         },
-
                         {
-
                             "keyword": "inhabitants",
-
                             "weight": 0.25
-
                         },
-
                         {
-
                             "keyword": "municipality",
-
                             "weight": 0.25
-
                         }
-
                     ]
-
                 },
-
                 {
-
                     "name": "isCapital",
-
                     "@dataType": [
-
                         "boolean"
-
                     ],
-
                     "description": "True if the city is a capital",
-
                     "keywords": [
-
                         {
-
                             "keyword": "is",
-
-                            "weight": 1.0
-
+                            "weight": 1
                         },
-
                         {
-
                             "keyword": "capital",
-
-                            "weight": 1.0
-
+                            "weight": 1
                         },
-
                         {
-
                             "keyword": "city",
-
                             "weight": 0.25
-
                         },
-
                         {
-
                             "keyword": "capital",
-
                             "weight": 0.25
-
                         }
-
                     ]
-
                 }
-
             ],
-
             "keywords": [
-
                 {
-
                     "keyword": "municipality",
-
-                    "weight": 1.0
-
+                    "weight": 1
                 },
-
                 {
-
                     "keyword": "city",
-
                     "weight": 0.25
-
                 },
-
                 {
-
                     "keyword": "town",
-
                     "weight": 0.25
-
                 },
-
                 {
-
                     "keyword": "government",
-
                     "weight": 0.25
-
                 },
-
                 {
-
                     "keyword": "local",
-
                     "weight": 0.25
-
                 }
-
             ]
-
         },
-
         {
-
             "class": "Human",
-
             "description": "Human being",
-
             "properties": [
-
                 {
-
                     "name": "lives",
-
                     "@dataType": [
-
                         "Municipality"
-
                     ],
-
                     "description": "The municipality where the human lives in.",
-
                     "keywords": [
-
                         {
-
                             "keyword": "lives",
-
-                            "weight": 1.0
-
+                            "weight": 1
                         },
-
                         {
-
                             "keyword": "municipality",
-
                             "weight": 0.5
-
                         },
-
                         {
-
                             "keyword": "municipality",
-
                             "weight": 0.25
-
                         },
-
                         {
-
                             "keyword": "human",
-
                             "weight": 0.25
-
                         }
-
                     ]
-
                 },
-
                 {
-
                     "name": "birthday",
-
                     "@dataType": [
-
                         "date"
-
                     ],
-
                     "description": "Birthday of the person",
-
                     "keywords": [
-
                         {
-
                             "keyword": "birthday",
-
-                            "weight": 1.0
-
+                            "weight": 1
                         },
-
                         {
-
                             "keyword": "birthday",
-
                             "weight": 0.25
-
                         },
-
                         {
-
                             "keyword": "person",
-
                             "weight": 0.25
-
                         }
-
                     ]
-
                 },
-
                 {
-
                     "name": "name",
-
                     "@dataType": [
-
                         "string"
-
                     ],
-
                     "description": "Name of the person",
-
                     "keywords": [
-
                         {
-
                             "keyword": "name",
-
-                            "weight": 1.0
-
+                            "weight": 1
                         },
-
                         {
-
                             "keyword": "person",
-
                             "weight": 0.25
-
                         }
-
                     ]
-
                 }
-
             ],
-
             "keywords": [
-
                 {
-
                     "keyword": "human",
-
-                    "weight": 1.0
-
+                    "weight": 1
                 },
-
                 {
-
                     "keyword": "human",
-
                     "weight": 0.25
-
                 }
-
             ]
-
         }
-
     ]
-
 }
