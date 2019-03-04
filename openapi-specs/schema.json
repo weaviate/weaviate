@@ -835,8 +835,7 @@
         "description": "Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.",
         "operationId": "weaviate.actions.list",
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ],
         "parameters": [
           {
@@ -946,8 +945,7 @@
         "description": "Validate an Action's schema and meta-data. It has to be based on a schema, which is related to the given Action to be accepted by this validation.",
         "operationId": "weaviate.actions.validate",
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ],
         "parameters": [
           {
@@ -1038,8 +1036,7 @@
         "description": "Lists Actions.",
         "operationId": "weaviate.actions.get",
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ],
         "parameters": [
           {
@@ -1226,8 +1223,7 @@
         "description": "Returns a particular Action history.",
         "operationId": "weaviate.action.history.get",
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ],
         "parameters": [
           {
@@ -1757,8 +1753,7 @@
         "description": "Gives meta information about the server and can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
         "operationId": "weaviate.meta.get",
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ],
         "produces": [
           "application/json"
@@ -1859,8 +1854,7 @@
         "summary": "Dump the current the database schema.",
         "operationId": "weaviate.schema.dump",
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ],
         "tags": [
           "schema"
@@ -2493,8 +2487,7 @@
         "description": "Lists all Things in reverse order of creation, owned by the user that belongs to the used token.",
         "operationId": "weaviate.things.list",
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ],
         "parameters": [
           {
@@ -2604,8 +2597,7 @@
         "description": "Validate a Thing's schema and meta-data. It has to be based on a schema, which is related to the given Thing to be accepted by this validation.",
         "operationId": "weaviate.things.validate",
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ],
         "parameters": [
           {
@@ -2696,8 +2688,7 @@
         "description": "Returns a particular Thing data.",
         "operationId": "weaviate.things.get",
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ],
         "parameters": [
           {
@@ -2884,8 +2875,7 @@
         "description": "Returns a particular Thing's history.",
         "operationId": "weaviate.thing.history.get",
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ],
         "parameters": [
           {
