@@ -1,6 +1,6 @@
 # Running Weaviate
 
-> Documentation on how to run Weaviate with Docker-compose, Docker or stand-alone.
+> How to run Weaviate with Docker-compose, Docker or stand-alone.
 
 > Note: Weaviate is currently only available as an unstable release. We hope to release a first stable version in the coming months.
 
@@ -10,7 +10,7 @@ This document describes how to run Weaviate for users. If you want to run a deve
 
 ## Run full stack with Docker-compose
 
-A complete Weaviate stack based on Janusgraph (with; Elasticsearch and Cassandra) can be directly run with the Docker compose files available in this repo. This setup will also include the Weaviate Playground.
+A complete Weaviate stack based on Janusgraph (with Elasticsearch and Cassandra) can be directly run with the Docker compose files available in this repo. This setup will also include the Weaviate Playground.
 
 #### Running the latest stable version
 
@@ -26,9 +26,9 @@ $ docker-compose up
 
 - Releases can be found [here](https://github.com/creativesoftwarefdn/weaviate/releases).
 - Based on `tree/master` on Github
-- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
-- Weaviate becomes available as HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
-- The Weaviate Playground becomes available as HTTP service on port 80 on `://{IP}`.
+- Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
+- Weaviate becomes available as an HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
+- The Weaviate Playground becomes available as an HTTP service on port 80 on `://{IP}`.
 
 #### Running the latest unstable version
 
@@ -40,7 +40,7 @@ $ docker-compose up
 ```
 
 - Based on `tree/develop` on Github
-- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
+- Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as HTTP service on port 8080.
 - Weaviate becomes available as HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
 - The Weaviate Playground becomes available as HTTP service on port 80 on `://{IP}`.
@@ -53,16 +53,16 @@ $ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/do
   wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-stable/janusgraph.properties
 ```
 
-Open docker-compose.yml and replace `stable` in the image (`image: creativesoftwarefdn/weaviate:stable`) with the prefered version number.
+Open docker-compose.yml and replace `stable` in the image (`image: creativesoftwarefdn/weaviate:stable`) with the preferred version number.
 
 ```sh
 $ docker-compose up
 ```
 
-- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
+- Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
 
-## Run Weaviate stand alone with Docker
+## Run Weaviate stand-alone with Docker
 
 Weaviate can also be run stand-alone.
 
@@ -75,7 +75,7 @@ $ docker run creativesoftwarefdn/weaviate:stable
 ```
 
 - Based on `tree/master` on Github
-- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
+- Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
 
 #### Specific Stable version
@@ -85,8 +85,8 @@ $ docker run creativesoftwarefdn/weaviate:$VERSION
 ```
 
 - Releases can be found [here](https://github.com/creativesoftwarefdn/weaviate/releases).
-- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
-- Weaviate becomes available as HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
+- Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
+- Weaviate becomes available as an HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
 
 #### Unstable
 
@@ -95,12 +95,12 @@ $ docker run creativesoftwarefdn/weaviate:unstable
 ```
 
 - Based on `tree/develop` on Github
-- Runs with the latest open source Contextionary. More indepth information about the contextionary can be found [here](../contribute/contextionary.md).
+- Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
 
 ## Running with Custom Contextionary
 
-The contextionary files are build into the Docker image. To use a custom contextionary, you will need to build a custom Docker image. This can be done easily using the build argument `CONTEXTIONARY_LOC`. This argument can point either to a local folder or a URL. This location must contain the following three files:
+The contextionary files are built into the Docker image. To use a custom contextionary, you will need to build a custom Docker image. This can be done easily using the build argument `CONTEXTIONARY_LOC`. This argument can point either to a local folder or to a URL. This location must contain the following three files:
 
 * contextionary.vocab
 * contextionary.knn
@@ -113,14 +113,14 @@ $ export CONTEXTIONARY_LOC=https://example.com/my_contextionary_location/
 $ docker build -t my-weaviate-image --build-arg CONTEXTIONARY_LOC .
 ```
 
-OR
+Or
 
 ```sh
 $ export CONTEXTIONARY_LOC=/home/user/custom-contextionary/
 $ docker build -t my-weaviate-image --build-arg CONTEXTIONARY_LOC .
 ```
 
-## Running with custom server configuration
+## Running with a custom server configuration
 
 If you want to run Weaviate with a specific configuration (for example over SSL or a different port) you can take the following steps.
 
