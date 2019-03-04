@@ -12,8 +12,11 @@
 
 // g.V().has("kind", "thing").has("prop_f1", "Amsterdam").valueMap()
 
-g.V()
-.has("prop_17", geoWithin(Geoshape.circle(51.225555, 6.782778, 200))).range(0, 100)
-.path().by(valueMap())
+// g.V()
+// .has("prop_17", geoWithin(Geoshape.circle(51.225555, 6.782778, 200))).range(0, 100)
+// .path().by(valueMap())
 
+g.V().has("kind", "thing").has("classId", "class_3").union(
+or(has("prop_15", eq("Amsterdam")), has("prop_15", eq("Berlin"))).union(union(has("prop_15").count().as("count").project("count").by(select("count"))).as("name").project("name").by(select("name")))
+)
 

@@ -78,7 +78,7 @@ func Test_QueryBuilder(t *testing.T) {
 			},
 			expectedQuery: `
 			g.V().has("kind", "thing").hasLabel("class_18")
-			  .has("prop_1", eq("Amsterdam"))
+			  .union(has("prop_1", eq("Amsterdam")))
 				.range(0, 33).path().by(valueMap())
 			`,
 		},
