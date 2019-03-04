@@ -145,7 +145,10 @@ func (r *actionsRequest) validateAction(wg *sync.WaitGroup, actionCreate *models
 		r.Network, r.ServerConfig)
 
 	if err == nil {
-		r.log.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAdd))
+		// Register the request
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAdd))
+		}()
 	}
 
 	*resultsC <- batchmodels.Action{

@@ -346,7 +346,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// Generate a goroutine for each separate request
 		for requestIndex, unbatchedRequest := range params.Body {
 			wg.Add(1)
-			go handleUnbatchedGraphQLRequest(wg, context.Background(), unbatchedRequest, requestIndex, &requestResults)
+			go handleUnbatchedGraphQLRequest(wg, context.Background(), unbatchedRequest, requestIndex, &requestResults, requestsLog)
 		}
 
 		wg.Wait()
@@ -383,7 +383,7 @@ func setupBatchHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Requ
 }
 
 // Handle a single unbatched GraphQL request, return a tuple containing the index of the request in the batch and either the response or an error
-func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan rest_api_utils.UnbatchedRequestResponse) {
+func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unbatchedRequest *models.GraphQLQuery, requestIndex int, requestResults *chan rest_api_utils.UnbatchedRequestResponse, log *telemetry.RequestsLog) {
 	defer wg.Done()
 
 	// Get all input from the body of the request
@@ -450,6 +450,11 @@ func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unba
 				}
 			} else {
 
+				// Register the request
+				go func() {
+					requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeGQL, telemetry.LocalAdd))
+				}()
+
 				// Return the GraphQL response
 				*requestResults <- rest_api_utils.UnbatchedRequestResponse{
 					requestIndex,
@@ -458,7 +463,6 @@ func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unba
 			}
 		}
 	}
-
 }
 
 func handleBatchedActionsCreateRequest(wg *sync.WaitGroup, ctx context.Context, batchedRequest *models.ActionCreate, requestIndex int, requestResults *chan rest_api_utils.BatchedActionsCreateRequestResponse, async bool, requestLocks *rest_api_utils.RequestLocks, fieldsToKeep map[string]int) {
