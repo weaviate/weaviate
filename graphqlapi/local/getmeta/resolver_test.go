@@ -112,8 +112,8 @@ func Test_Resolve(t *testing.T) {
 
 		testCase{
 			name: "all props on a bool field",
-			query: `{ GetMeta { Things { Car { stillInProduction { 
-					count, totalTrue, totalFalse, percentageTrue, percentageFalse 
+			query: `{ GetMeta { Things { Car { stillInProduction {
+					count, totalTrue, totalFalse, percentageTrue, percentageFalse
 				} } } } }`,
 			expectedProps: []MetaProperty{
 				{
@@ -240,6 +240,19 @@ func Test_Resolve(t *testing.T) {
 				pathToField:   []string{"GetMeta", "Things", "Car", "meta", "count"},
 				expectedValue: 4,
 			}},
+		},
+
+		testCase{
+			name:           "single prop: __typename",
+			query:          "{ GetMeta { Things { Car { __typename } } } }",
+			expectedProps:  nil,
+			resolverReturn: nil,
+		},
+		testCase{
+			name:           "single prop: __typename",
+			query:          "{ GetMeta { Things { Car { modelName { __typename } } } } }",
+			expectedProps:  nil,
+			resolverReturn: nil,
 		},
 	}
 
