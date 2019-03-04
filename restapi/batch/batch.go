@@ -13,13 +13,15 @@
 import "github.com/creativesoftwarefdn/weaviate/restapi/state"
 
 // New creates all REST api handlers for batching things and actions
-func New(appState *state.State) *Batch {
+func New(appState *state.State, requestsLog *telemetry.RequestsLog) *Batch {
 	return &Batch{
-		appState: appState,
+		appState:    appState,
+		requestsLog: requestsLog,
 	}
 }
 
 // Batch provides various Handlers around batching things and actions
 type Batch struct {
-	appState *state.State
+	appState   *state.State
+	requestLog *telemetry.RequestsLog
 }
