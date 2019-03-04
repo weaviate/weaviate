@@ -31,10 +31,10 @@ $ docker-compose --version
 
 If you do not have Docker installed, you can read [here](https://docs.docker.com/install/) how to do this on a multitude of operating systems.
 
-You are now ready to get started! If you run into issues, please use the;
+You are now ready to get started! If you run into issues, please use the:
 1. [Knowledge base of old issues](https://github.com/creativesoftwarefdn/weaviate/issues?utf8=%E2%9C%93&q=label%3Abug). Or,
-2. Regarding questions: [Stackoverflow](https://stackoverflow.com/questions/tagged/weaviate) . Or,
-3. Regarding issues: [Github](//github.com/creativesoftwarefdn/weaviate/issues).
+2. For questions: [Stackoverflow](https://stackoverflow.com/questions/tagged/weaviate) . Or,
+3. For issues: [Github](//github.com/creativesoftwarefdn/weaviate/issues).
 
 ## Running Weaviate with Docker-compose
 
@@ -74,7 +74,7 @@ You are now ready to start using Weaviate!
 
 ## Creating an Ontology
 
-The ontology describes how the knowledge graph is structured and based on which semantic elements, you can read more in-depth what the Weaviate ontology entails [here](ontology-schema.md).
+The ontology describes how the knowledge graph is structured on which semantic elements it is based, you can read more in-depth what the Weaviate ontology entails [here](ontology-schema.md).
 
 In this example, we are going to create a [knowledge graph of a zoo](https://github.com/creativesoftwarefdn/weaviate-demo-zoo). Although you can [automate the import of an ontology](#adding-a-full-blown-zoo-with-weaviate-cli) we will do it manually now to get an understanding of how the ontology is structured.
 
@@ -131,7 +131,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
 }'
 ```
 
-Now we have two classes but nowhere we have defined where the point to, this is because you can't create a cross-reference to a nonexisting class.
+Now we have two classes but we have not yet defined where the point to, this is because you can't create a cross-reference to a nonexisting class.
 
 Let's update both classes to include cross-references.
 
@@ -259,7 +259,7 @@ which results in:
 }
 ```
 
-Now, we are going to add the Zoos, note how we are defining the cross-reference.
+Now, we are going to add the Zoos, note how we are defining the cross-reference:
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
@@ -295,7 +295,7 @@ Which results in:
 
 Note how we are using the UUID of the city Amsterdam (which we created above) to point to the correct thing in the graph.
 
-We will do the same for the Berlin zoo.
+We will do the same for the Berlin zoo:
 
 ```bash
 $ curl -X POST http://localhost:8080/weaviate/v1/things -H "Content-Type: application/json" -d '{
@@ -329,7 +329,7 @@ Which results in:
 }
 ```
 
-We now have created a mini-graph of 4 nodes. Let's now explore the graph!
+We now have created a mini-graph of 4 nodes. Let's explore the graph now!
 
 #### Many References
 
@@ -444,7 +444,7 @@ One of the features of Weaviate is the use of GraphQL to query the graph. The do
 
 You can learn more about all functionalities [here](index.md).
 
-Getting an overview of all Zoo's would look like this:
+Getting an overview of all Zoos would look like this:
 
 ```graphql
 {
@@ -460,7 +460,7 @@ Getting an overview of all Zoo's would look like this:
 }
 ```
 
-We have added the Zoo to a city, get to the name of the City, we have to use the `InCity{}` reference and define that we want to get the results based on a city. But before we can do this, we need to know what the available classes of `InCity{}` are. We can get these insights by clicking `InCity` and inspecting the type (`[ZooInCityObj]`). Because there is only one possible type (`City`) we now know that `InCity{}` ingests the class: `City`.
+We have added the Zoo to a city, to get the name of the City, we have to use the `InCity{}` reference and define that we want to get the results based on a city. But before we can do this, we need to know what the available classes of `InCity{}` are. We can get these insights by clicking `InCity` and inspecting the type (`[ZooInCityObj]`). Because there is only one possible type (`City`) we now know that `InCity{}` ingests the class: `City`.
 
 ```graphql
 {
