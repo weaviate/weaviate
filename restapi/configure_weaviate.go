@@ -375,8 +375,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	return setupGlobalMiddleware(api.Serve(setupMiddlewares))
 }
 
-func setupBatchHandlers(api *operations.WeaviateAPI) {
-	batchAPI := batch.New(appState)
+func setupBatchHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.RequestsLog) {
+	batchAPI := batch.New(appState, requestsLog)
 
 	api.WeaviateBatchingThingsCreateHandler = operations.WeaviateBatchingThingsCreateHandlerFunc(batchAPI.ThingsCreate)
 	api.WeaviateBatchingActionsCreateHandler = operations.WeaviateBatchingActionsCreateHandlerFunc(batchAPI.ActionsCreate)
