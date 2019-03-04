@@ -36,6 +36,7 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 					"GreaterThanEqual": &graphql.EnumValueConfig{},
 					"LessThan":         &graphql.EnumValueConfig{},
 					"LessThanEqual":    &graphql.EnumValueConfig{},
+					"WithinGeoRange":   &graphql.EnumValueConfig{},
 				},
 				Description: descriptions.WhereOperatorEnum,
 			}),
@@ -69,6 +70,10 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 			Type:        graphql.String,
 			Description: descriptions.WhereValueString,
 		},
+		"valueGeoRange": &graphql.InputObjectFieldConfig{
+			Type:        newGeoRangeInputObject(path),
+			Description: descriptions.WhereValueRange,
+		},
 	}
 
 	// Recurse into the same time.
@@ -86,4 +91,48 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 	}
 
 	return commonFilters
+}
+
+func newGeoRangeInputObject(path string) *graphql.InputObject {
+	return graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: fmt.Sprintf("%sWhereGeoRangeInpObj", path),
+		Fields: graphql.InputObjectConfigFieldMap{
+			"geoCoordinates": &graphql.InputObjectFieldConfig{
+				Type:        graphql.NewNonNull(newGeoRangeGeoCoordinatesInputObject(path)),
+				Description: descriptions.WhereValueRangeGeoCoordinates,
+			},
+			"distance": &graphql.InputObjectFieldConfig{
+				Type:        graphql.NewNonNull(newGeoRangeDistanceInputObject(path)),
+				Description: descriptions.WhereValueRangeDistance,
+			},
+		},
+	})
+}
+
+func newGeoRangeGeoCoordinatesInputObject(path string) *graphql.InputObject {
+	return graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: fmt.Sprintf("%sWhereGeoRangeGeoCoordinatesInpObj", path),
+		Fields: graphql.InputObjectConfigFieldMap{
+			"latitude": &graphql.InputObjectFieldConfig{
+				Type:        graphql.NewNonNull(graphql.Float),
+				Description: descriptions.WhereValueRangeGeoCoordinatesLatitude,
+			},
+			"longitude": &graphql.InputObjectFieldConfig{
+				Type:        graphql.NewNonNull(graphql.Float),
+				Description: descriptions.WhereValueRangeGeoCoordinatesLongitude,
+			},
+		},
+	})
+}
+
+func newGeoRangeDistanceInputObject(path string) *graphql.InputObject {
+	return graphql.NewInputObject(graphql.InputObjectConfig{
+		Name: fmt.Sprintf("%sWhereGeoRangeDistanceInpObj", path),
+		Fields: graphql.InputObjectConfigFieldMap{
+			"max": &graphql.InputObjectFieldConfig{
+				Type:        graphql.NewNonNull(graphql.Float),
+				Description: descriptions.WhereValueRangeDistanceMax,
+			},
+		},
+	})
 }

@@ -13,6 +13,8 @@ package gremlin
 
 import (
 	"fmt"
+
+	"github.com/creativesoftwarefdn/weaviate/models"
 )
 
 type Property struct {
@@ -36,6 +38,50 @@ func (p *PropertyValue) AssertString() string {
 	} else {
 		panic(fmt.Sprintf("Expected a string, but got %#v", p.Value))
 	}
+}
+
+func (p *PropertyValue) GeoCoordinates() (*models.GeoCoordinates, error) {
+	if p.Value == nil {
+		return nil, nil
+	}
+	// value will look like
+	// {"type":"Point", "coordinates":[]interface {}{4.9, 52.366669}
+
+	pointMap, ok := p.Value.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("point property is not a map, but %T", p)
+	}
+
+	if t := pointMap["type"].(string); t != "Point" {
+		return nil, fmt.Errorf("property.type needs to be point, but is %s", t)
+	}
+
+	c9s, ok := pointMap["coordinates"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("property.coordinates is not set, got %#v", pointMap)
+	}
+
+	if l := len(c9s); l != 2 {
+		return nil, fmt.Errorf("property.coordinates[] must have len 2, but got %#v with len %d", c9s, l)
+	}
+
+	// WARNING: Although all create queries in Janusgraph
+	// always take the coordinates in the form of latitude,
+	// longitude, they are actually stored (and therefore
+	// returned) in the oppposite order! So this array is
+	// longitude, latitude!
+	return &models.GeoCoordinates{
+		Latitude:  float32(c9s[1].(float64)),
+		Longitude: float32(c9s[0].(float64)),
+	}, nil
+}
+
+func (p *PropertyValue) AssertGeoCoordinates() *models.GeoCoordinates {
+	val, err := p.GeoCoordinates()
+	if err == nil {
+		return val
+	}
+	panic(fmt.Sprintf("Expected a geoCoordinates, but got %#v with error: %s", p.Value, err))
 }
 
 func (p *PropertyValue) Float() (float64, bool) {

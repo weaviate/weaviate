@@ -118,6 +118,31 @@ func Test_GraphQLNetworkBuild(t *testing.T) {
 		},
 
 		testCase{
+			name: "one peer with a thing schema with a geoCoordinates property, but no actions",
+			peers: peers.Peers{
+				peers.Peer{
+					Name: "SomePeer",
+					Schema: schema.Schema{
+						Things: &models.SemanticSchema{
+							Classes: []*models.SemanticSchemaClass{
+								&models.SemanticSchemaClass{
+									Class: "BestClass",
+									Properties: []*models.SemanticSchemaClassProperty{
+										&models.SemanticSchemaClassProperty{
+											Name:       "location",
+											AtDataType: []string{"geoCoordinates"},
+										},
+									},
+								},
+							},
+						},
+						Actions: &models.SemanticSchema{},
+					},
+				},
+			},
+		},
+
+		testCase{
 			name: "one peer with a both a thing and an action class",
 			peers: peers.Peers{
 				peers.Peer{

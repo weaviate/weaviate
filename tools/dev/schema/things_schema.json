@@ -34,6 +34,16 @@
                     ]
                 },
                 {
+                    "name": "geolocation",
+                    "@dataType": [
+                        "geoCoordinates"
+                    ],
+                    "description": "The city's longitude and latitude",
+                    "keywords": [
+                      { "keyword": "location", "weight": 1.0 }
+                    ]
+                },
+                {
                     "name": "inCountry",
                     "@dataType": [
                         "Country"
