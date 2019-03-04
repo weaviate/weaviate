@@ -46,7 +46,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.64"
+    "version": "0.12.65"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -92,8 +92,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -205,8 +204,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -254,8 +252,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -488,8 +485,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
@@ -1003,8 +999,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -1107,8 +1102,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -1750,8 +1744,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -1863,8 +1856,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -1912,8 +1904,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -2146,8 +2137,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
@@ -3250,7 +3240,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.64"
+    "version": "0.12.65"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -3304,8 +3294,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -3417,8 +3406,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -3466,8 +3454,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -3700,8 +3687,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
@@ -4215,8 +4201,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -4319,8 +4304,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -4970,8 +4954,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "post": {
@@ -5083,8 +5066,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query.meta",
-          "weaviate.network.query.meta"
+          "weaviate.local.query.meta"
         ]
       }
     },
@@ -5132,8 +5114,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       },
       "put": {
@@ -5366,8 +5347,7 @@ func init() {
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
         "x-serviceIds": [
-          "weaviate.local.query",
-          "weaviate.network.query"
+          "weaviate.local.query"
         ]
       }
     },
