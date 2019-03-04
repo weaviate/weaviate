@@ -145,7 +145,10 @@ func (r *thingsRequest) validateThing(wg *sync.WaitGroup, thingCreate *models.Th
 		r.Network, r.ServerConfig)
 
 	if err == nil {
-		r.log.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAdd))
+		// Register the request
+		go func() {
+			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAdd))
+		}()
 	}
 
 	*resultsC <- batchmodels.Thing{
