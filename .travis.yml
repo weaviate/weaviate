@@ -27,6 +27,7 @@ branches:
   only: 
     - master
     - develop
+    - feature/janus_v0.3.1
 dist: xenial
 go: 
   - "1.11.5"
