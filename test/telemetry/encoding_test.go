@@ -13,19 +13,9 @@ func TestCborEncode(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	var minimizedLog []map[string]interface{}
-
-	record := make(map[string]interface{})
-	record["n"] = "upbeat-aquatic-pen"
-	record["t"] = "REST"
-	record["i"] = "weaviate.something.or.other"
-	record["a"] = int(1)
-	record["w"] = int64(1550745544)
-
-	minimizedLog = append(minimizedLog, record)
+	minimizedLog := `[{"n": "upbeat-aquatic-pen", "t": "REST", "i": "weaviate.something.or.other", "a": 1, "w": 1550745544}]`
 
 	outputTransformer := telemetry.NewOutputTransformer()
-	outputTransformer.Canonical = true
 
 	actual, err := outputTransformer.EncodeAsCBOR(&minimizedLog)
 

@@ -23,6 +23,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
 	"github.com/creativesoftwarefdn/weaviate/messages"
 	"github.com/creativesoftwarefdn/weaviate/network/common/peers"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 	"github.com/graphql-go/graphql"
 )
 
@@ -36,6 +37,7 @@ type graphQL struct {
 	schema           graphql.Schema
 	resolverProvider ResolverProvider
 	networkPeers     peers.Peers
+	requestsLog      *telemetry.RequestsLog
 }
 
 // Construct a GraphQL API from the database schema, and resolver interface.

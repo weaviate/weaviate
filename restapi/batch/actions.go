@@ -43,7 +43,7 @@ type actionsRequest struct {
 func (b *Batch) ActionsCreate(params operations.WeaviateBatchingActionsCreateParams) middleware.Responder {
 	defer b.appState.Messaging.TimeTrack(time.Now())
 
-	r := newActionsRequest(params.HTTPRequest, b.appState, b.requestLog)
+	r := newActionsRequest(params.HTTPRequest, b.appState, b.requestsLog)
 	if errResponder := r.lock(); errResponder != nil {
 		return errResponder
 	}
@@ -147,7 +147,7 @@ func (r *actionsRequest) validateAction(wg *sync.WaitGroup, actionCreate *models
 	if err == nil {
 		// Register the request
 		go func() {
-			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAdd))
+			r.log.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAdd))
 		}()
 	}
 

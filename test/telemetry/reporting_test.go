@@ -14,10 +14,10 @@ func TestLoop(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
+	peerName := "soggy-whale-bread"
+	log := telemetry.NewLog(telemetryEnabled, &peerName)
 
-	log := telemetry.NewLog(telemetryEnabled)
-
-	loggedRequest := telemetry.NewRequestTypeLog("soggy-whale-bread", "REST", "weaviate.something.or.other", 1)
+	loggedRequest := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 	loggedRequest.When = int64(1550745544)
 
 	log.Register(loggedRequest)
@@ -36,23 +36,23 @@ func TestLoop(t *testing.T) {
 	assert.Equal(t, 0, len(*logsAfterReporting))
 }
 
-// Register a single request and call the minimization function, then assert whether all fields have been minimized correctly
-func TestMinimization(t *testing.T) {
+// Register a single request and call the JSON minimization function, then assert whether all fields have been minimized correctly
+func TestConvertToMinimizedJSON(t *testing.T) {
 	t.Parallel()
 
 	// setup
 	telemetryEnabled := true
+	peerName := "tiny-grey-chainsword"
+	log := telemetry.NewLog(telemetryEnabled, &peerName)
 
-	log := telemetry.NewLog(telemetryEnabled)
-
-	loggedRequest := telemetry.NewRequestTypeLog("tiny-grey-chainsword", "REST", "weaviate.something.or.other", 1)
+	loggedRequest := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 	loggedRequest.When = int64(1550745544)
 
 	log.Register(loggedRequest)
 
 	transformer := telemetry.NewOutputTransformer()
 
-	minimizedLogs := transformer.MinimizeFormat(&log.Log)
+	minimizedLogs := transformer.ConvertToMinimizedJSON(&log.Log)
 
 	var miniLog map[string]interface{}
 
@@ -77,8 +77,8 @@ func TestAddTimestamps(t *testing.T) {
 	// setup
 	requestsLog := make(map[string]*telemetry.RequestLog)
 
-	loggedRequest1 := telemetry.NewRequestTypeLog("fancy-extraterrestrial-balloon", "REST", "weaviate.something.or.other1", 1)
-	loggedRequest2 := telemetry.NewRequestTypeLog("common-terrestrial-balloon", "REST", "weaviate.something.or.other2", 1)
+	loggedRequest1 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other1")
+	loggedRequest2 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other2")
 
 	requestsLog["weaviate.something.or.other1"] = loggedRequest1
 	requestsLog["weaviate.something.or.other2"] = loggedRequest2

@@ -63,7 +63,7 @@ func (b *Batch) ThingsCreate(params operations.WeaviateBatchingThingsCreateParam
 		WithPayload(batchThings.Response())
 }
 
-func newThingsRequest(r *http.Request, deps *state.State, requestsLog *telemetry.RequestLog) *thingsRequest {
+func newThingsRequest(r *http.Request, deps *state.State, requestsLog *telemetry.RequestsLog) *thingsRequest {
 	return &thingsRequest{
 		Request: r,
 		State:   deps,
@@ -147,7 +147,7 @@ func (r *thingsRequest) validateThing(wg *sync.WaitGroup, thingCreate *models.Th
 	if err == nil {
 		// Register the request
 		go func() {
-			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAdd))
+			r.log.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAdd))
 		}()
 	}
 

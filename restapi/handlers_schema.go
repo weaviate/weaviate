@@ -39,7 +39,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 			// Register the function call
 			go func() {
-				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAddMeta))
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAddMeta))
 			}()
 
 			return schema.NewWeaviateSchemaActionsCreateOK()
@@ -64,7 +64,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 			// Register the function call
 			go func() {
-				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
 			}()
 			return schema.NewWeaviateSchemaActionsDeleteOK()
 		} else {
@@ -87,7 +87,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		if err == nil {
 			// Register the function call
 			go func() {
-				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
 			}()
 
 			return schema.NewWeaviateSchemaActionsPropertiesAddOK()
@@ -110,7 +110,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// Register the function call
 		go func() {
-			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
+			requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
 		}()
 
 		return schema.NewWeaviateSchemaActionsPropertiesDeleteOK()
@@ -142,7 +142,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		if err == nil {
 			// Register the function call
 			go func() {
-				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
 			}()
 
 			return schema.NewWeaviateSchemaActionsPropertiesUpdateOK()
@@ -178,7 +178,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		if err == nil {
 			// Register the function call
 			go func() {
-				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
 			}()
 			return schema.NewWeaviateSchemaActionsUpdateOK()
 		} else {
@@ -203,7 +203,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		// TODO: validate this serviceID
 		// Register the function call
 		go func() {
-			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
+			requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
 		}()
 		return schema.NewWeaviateSchemaDumpOK().WithPayload(payload)
 	})
@@ -222,7 +222,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		if err == nil {
 			// Register the function call
 			go func() {
-				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAddMeta))
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAddMeta))
 			}()
 			return schema.NewWeaviateSchemaThingsCreateOK()
 		} else {
@@ -245,7 +245,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		if err == nil {
 			// Register the function call
 			go func() {
-				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
 			}()
 			return schema.NewWeaviateSchemaThingsDeleteOK()
 		} else {
@@ -268,7 +268,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		if err == nil {
 			// Register the function call
 			go func() {
-				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
 			}()
 			return schema.NewWeaviateSchemaThingsPropertiesAddOK()
 		} else {
@@ -290,7 +290,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 
 		// Register the function call
 		go func() {
-			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
+			requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
 		}()
 		return schema.NewWeaviateSchemaThingsPropertiesDeleteOK()
 	})
@@ -321,7 +321,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		if err == nil {
 			// Register the function call
 			go func() {
-				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
 			}()
 			return schema.NewWeaviateSchemaThingsPropertiesUpdateOK()
 		} else {
@@ -356,7 +356,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, requestsLog *telemetry.Req
 		if err == nil {
 			// Register the function call
 			go func() {
-				requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalManipulateMeta))
 			}()
 			return schema.NewWeaviateSchemaThingsUpdateOK()
 		} else {

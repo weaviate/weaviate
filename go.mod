@@ -1,6 +1,7 @@
 module github.com/creativesoftwarefdn/weaviate
 
 require (
+	github.com/2tvenom/cbor v0.0.0-20171016170723-384e799bd841
 	github.com/PuerkitoBio/purell v1.1.0 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
 	github.com/TylerBrock/colorjson v0.0.0-20180527164720-95ec53f28296

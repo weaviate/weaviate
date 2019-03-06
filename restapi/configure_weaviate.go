@@ -108,6 +108,7 @@ type graphQLRoot struct {
 	database.Database
 	libnetwork.Network
 	contextionary *schemaContextionary.Contextionary
+	log           *telemetry.RequestsLog
 }
 
 func (r graphQLRoot) GetNetworkResolver() graphqlnetwork.Resolver {
@@ -116,6 +117,10 @@ func (r graphQLRoot) GetNetworkResolver() graphqlnetwork.Resolver {
 
 func (r graphQLRoot) GetContextionary() fetch.Contextionary {
 	return r.contextionary
+}
+
+func (r graphQLRoot) GetRequestsLog() *telemetry.RequestsLog {
+	return r.log
 }
 
 type keyTokenHeader struct {
@@ -208,14 +213,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	interval := telemutils.GetInterval()
 	url := telemutils.GetURL()
 
-	requestsLog = telemetry.NewLog(enabled, &appState.Environment.Network.PeerName)
+	requestsLog = telemetry.NewLog(enabled, &appState.ServerConfig.Environment.Network.PeerName)
 
 	reporter = telemetry.NewReporter(requestsLog, interval, url, enabled)
 
 	setupSchemaHandlers(api, requestsLog)
 	setupThingsHandlers(api, requestsLog)
 	setupActionsHandlers(api, requestsLog)
-	setupBatchHandlers(api)
+	setupBatchHandlers(api, requestsLog)
 
 	api.MetaWeaviateMetaGetHandler = meta.WeaviateMetaGetHandlerFunc(func(params meta.WeaviateMetaGetParams) middleware.Responder {
 		dbLock, err := db.ConnectorLock()
@@ -231,6 +236,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		metaResponse.Hostname = serverConfig.GetHostAddress()
 		metaResponse.ActionsSchema = databaseSchema.ActionSchema.Schema
 		metaResponse.ThingsSchema = databaseSchema.ThingSchema.Schema
+
+		// Register the request
+		go func() {
+			requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypePOST, telemetry.LocalQueryMeta))
+		}()
 
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
 	})
@@ -252,12 +262,22 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		err := network.UpdatePeers(newPeers)
 
 		if err == nil {
+			// Register the request
+			go func() {
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypePOST, telemetry.NetworkQueryMeta))
+			}()
+
 			return p2_p.NewWeaviateP2pGenesisUpdateOK()
 		}
 		return p2_p.NewWeaviateP2pGenesisUpdateInternalServerError()
 	})
 
 	api.P2PWeaviateP2pHealthHandler = p2_p.WeaviateP2pHealthHandlerFunc(func(params p2_p.WeaviateP2pHealthParams) middleware.Responder {
+
+		// Register the request // added as comment to ensure registration inclusion when this function is implemented
+		//		go func() {
+		//			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypePOST, telemetry.NetworkQueryMeta))
+		//		}()
 		// For now, always just return success.
 		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
 	})
@@ -321,6 +341,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
 		}
 
+		// Register the request
+		go func() {
+			requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeGQL, telemetry.LocalAdd))
+		}()
+
 		// Return the response
 		return graphql.NewWeaviateGraphqlPostOK().WithPayload(graphQLResponse)
 	})
@@ -332,6 +357,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	api.GraphqlWeaviateGraphqlBatchHandler = graphql.WeaviateGraphqlBatchHandlerFunc(func(params graphql.WeaviateGraphqlBatchParams) middleware.Responder {
 		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL batch resolving")
+
+		if graphQL == nil {
+			errorResponse.Error = []*models.ErrorResponseErrorItems0{
+				&models.ErrorResponseErrorItems0{
+					Message: "no graphql provider present, " +
+						"this is most likely because no schema is present. Import a schema first!",
+				}}
+			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
+		}
 
 		amountOfBatchedRequests := len(params.Body)
 		errorResponse := &models.ErrorResponse{}
@@ -411,9 +445,6 @@ func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unba
 			variables = unbatchedRequest.Variables.(map[string]interface{})
 		}
 
-		if graphQL == nil {
-			panic("graphql is nil!")
-		}
 		result := graphQL.Resolve(query, operationName, variables, ctx)
 
 		// Marshal the JSON
@@ -452,7 +483,7 @@ func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unba
 
 				// Register the request
 				go func() {
-					requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypeGQL, telemetry.LocalAdd))
+					requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeGQL, telemetry.LocalAdd))
 				}()
 
 				// Return the GraphQL response
@@ -741,7 +772,7 @@ func updateSchemaCallback(updatedSchema schema.Schema) {
 	// Note that this is thread safe; we're running in a single go-routine, because the event
 	// handlers are called when the SchemaLock is still held.
 	rebuildContextionary(updatedSchema)
-	rebuildGraphQL(updatedSchema)
+	rebuildGraphQL(updatedSchema, requestsLog)
 }
 
 func rebuildContextionary(updatedSchema schema.Schema) {
@@ -764,7 +795,7 @@ func rebuildContextionary(updatedSchema schema.Schema) {
 	contextionary = libcontextionary.Contextionary(combined)
 }
 
-func rebuildGraphQL(updatedSchema schema.Schema) {
+func rebuildGraphQL(updatedSchema schema.Schema, requestsLog *telemetry.RequestsLog) {
 	peers, err := network.ListPeers()
 	if err != nil {
 		graphQL = nil
@@ -773,7 +804,7 @@ func rebuildGraphQL(updatedSchema schema.Schema) {
 	}
 
 	c11y := schemaContextionary.New(contextionary)
-	root := graphQLRoot{Database: db, Network: network, contextionary: c11y}
+	root := graphQLRoot{Database: db, Network: network, contextionary: c11y, log: requestsLog}
 	updatedGraphQL, err := graphqlapi.Build(&updatedSchema, peers, root, messaging)
 	if err != nil {
 		// TODO: turn on safe mode gh-520
