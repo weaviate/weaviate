@@ -42,11 +42,12 @@ To see the latest version, run on of the following [jq](https://stedolan.github.
 | Get current `tree/develop` version | `$ curl -sS https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/openapi-specs/schema.json \| jq -r ".info.version"` |
 | Get current `tree/master` |  version `$ curl -sS https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/openapi-specs/schema.json \| jq -r '.info.version' ` |
 
-### Gitflow
+### Using Git
 
-Weaviate uses [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow) which means that the master branch is stable.
-
-_Important: The versioning of `tree/master` and `tree/develop` are based on the version number that can be found in the [API specs](../../../openapi-specs/schema.json) under: `.info.version`._
+Weaviate uses the following Git rules;
+- The version will be taken from the schema.json file.
+- For releasing, tag a release following the semver rules.
+- Travis-ci will publish a release: `weaviate:x.y.z` and a pre-release: `weaviate:x.y.z-gitHash`
 
 ## API's
 
