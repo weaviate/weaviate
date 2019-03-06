@@ -1,32 +1,46 @@
 addons:
   hosts:
     - db
+# after_success is only used for Dockerhub and should run last.
 after_success:
-  # Login to dockerhub
-  - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+  - WEAVIATE_VERSION=$(cat openapi-specs/schema.json| jq -r '.info.version')
   - |
-    # Build & Push docker images on dev and master
-    if [ $TRAVIS_PULL_REQUEST = "false" ]; then
-      if [ $TRAVIS_BRANCH = "master" ]; then
-        # collect the latest version
-        LATESTVERSION=$(git show --oneline HEAD:$WEAVIATESCHEMAFILE | jq -r ".info.version")
-        # Build master
-        DOCKERTARGET=weaviate_base     
-      elif [ $TRAVIS_BRANCH = "develop" ]; then
-        # collect the latest version
-        LATESTVERSION=unstable
-        # Build master
-        DOCKERTARGET=development
-      fi
-      # Build & Push
-      travis_wait 30 docker build -f "Dockerfile-prod" -t creativesoftwarefdn/weaviate:$LATESTVERSION --target $DOCKERTARGET .
-      travis_wait 30 docker push creativesoftwarefdn/weaviate:unstable
+    # only push to Dockerhub if master and not a PR
+    if [ "$TRAVIS_PULL_REQUEST" = "false" ]; then
+        # Login to dockerhub
+        echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+        # prepare release id's
+        DOCKER_ID="creativesoftwarefdn/weaviate:"
+        # releasing a prerelease
+        if [ "$TRAVIS_BRANCH" = "master" ]; then
+            TAG=$DOCKER_ID$WEAVIATE_VERSION-$(echo $TRAVIS_COMMIT | cut -c1-7)
+            DOCKERTARGET=janus # <=== using JanusGraph by default now
+            echo "preparing pre-release: " $TAG " for target: " $DOCKERTARGET
+            # execute the Docker build
+            travis_wait 30 docker build -f "Dockerfile-prod" -t $TAG --target $DOCKERTARGET .
+        # do a release
+        elif [ -n "$TRAVIS_TAG" ]; then
+            TAG=$DOCKER_ID$TRAVIS_TAG
+            DOCKERTARGET=janus # <=== using JanusGraph by default now
+            echo "preparing release: " $TAG " for target: " $DOCKERTARGET
+            # validate if the tag is equal to the Weaviate version
+            if [ "$TRAVIS_TAG" = "$WEAVIATE_VERSION" ]; then
+                # execute the Docker build
+                travis_wait 30 docker build -f "Dockerfile-prod" -t $TAG --target $DOCKERTARGET .
+            # something is wrong with the tags!
+            else
+                echo "The release tag ($TRAVIS_TAG) and Weaviate version ($WEAVIATE_VERSION) are not equal! Can't release."
+                travis_terminate 1
+            fi
+        # nothing for Docker hub
+        else
+            echo "nothing for Dockerhub"
+            travis_terminate 0
+        fi
+        # push the release
+        travis_wait 30 docker push $TAG
     fi
 before_script: ~
-branches: 
-  only: 
-    - master
-    - develop
 dist: xenial
 go: 
   - "1.11.5"
@@ -55,16 +69,13 @@ before_script:
   - sudo apt-get -qq -y update
   - sudo apt-get -qq -y install jq coreutils python3
   - |
-    if [ "$TRAVIS_BRANCH" = "develop" ] && [ "$TRAVIS_PULL_REQUEST" = "false" ]; then
-      # PREVIOUSSEMVER = comparison of the current HEAD of WEAVIATESCHEMAFILE with the previous commit. More info: https://github.com/fsaintjacques/semver-tool/blob/master/README.md
-      PREVIOUSSEMVER=$(./semver compare $(git show --oneline HEAD:$WEAVIATESCHEMAFILE | jq -r ".info.version") $(git show --oneline HEAD~1:$WEAVIATESCHEMAFILE | jq -r ".info.version"))
-      # Determine if the version should be bumped
-      if [ "$PREVIOUSSEMVER" -eq 0 ]; then
-        # Bump the version + pipe to WEAVIATESCHEMAFILE.tmp + rm and mv WEAVIATESCHEMAFILE.
-        echo $(jq -r '.info.version = $NEWVERSION' --arg NEWVERSION "$(./semver bump $SEMVERBUMPTYPE $(git show --oneline HEAD:$WEAVIATESCHEMAFILE | jq -r ".info.version"))" $WEAVIATESCHEMAFILE) | jq . > $WEAVIATESCHEMAFILE.tmp && rm $WEAVIATESCHEMAFILE && mv $WEAVIATESCHEMAFILE.tmp $WEAVIATESCHEMAFILE
-        # build with new version
-        ./tools/gen-code-from-swagger.sh
-        # push back to Git
+    if [ "$TRAVIS_BRANCH" = "master" ]; then
+      # build the build tools
+      ./tools/gen-code-from-swagger.sh
+      # check if anything is different
+      CHANGED=$(git diff-index --name-only HEAD --)
+      # push back to Git if changed
+      if [ -n "$CHANGED" ]; then
         git config credential.helper "store --file=.git/credentials"
         echo "https://${GH_TOKEN}:@github.com" > .git/credentials
         git add -A
@@ -72,9 +83,6 @@ before_script:
         git push origin HEAD:${TRAVIS_PULL_REQUEST_BRANCH:-$TRAVIS_BRANCH}
         # exit 0 will trigger a new build
         travis_terminate 0
-      elif [ "$PREVIOUSSEMVER" -eq -1 ]; then
-        echo "Semver is behind the latest commit. This issue should be resolved and the version should be set to at least $(./semver bump patch $(git show --oneline HEAD~1:$SCHEMAFILE | jq -r ".info.version"))"
-        travis_terminate 1
       fi
     fi
   # Verify that the code is properly formatted.
