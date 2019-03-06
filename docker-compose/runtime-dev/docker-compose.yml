@@ -2,20 +2,8 @@ version: '3.4'
 services:
   weaviate-playground:
     image: creativesoftwarefdn/weaviate-playground:unstable
-    depends_on:
-      - weaviate
     ports:
      - "80:80"
-  weaviate:
-    image: creativesoftwarefdn/weaviate:unstable
-    command: ["--host", "0.0.0.0", "--port", "8080", "--scheme", "http", "--config", "dockercompose"]
-    depends_on:
-      - janus
-    restart: on-failure:0
-    ports:
-     - "8080:8080"
-    volumes:
-     - ./config.json:/weaviate.conf.json
   janus:
     image: creativesoftwarefdn/janusgraph-docker:0.2.0
     depends_on:
