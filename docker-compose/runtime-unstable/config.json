@@ -1,7 +1,7 @@
 {
   "environments": [
     {
-      "name": "demo",
+      "name": "dockercompose",
       "database": {
         "name": "janusgraph",
         "database_config": {
