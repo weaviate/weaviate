@@ -1,9 +1,11 @@
 package telemetry
 
 import (
+	"bytes"
+	"encoding/json"
 	"time"
 
-	"github.com/ugorji/go/codec"
+	"github.com/2tvenom/cbor"
 )
 
 const Name string = "n"
@@ -38,9 +40,6 @@ func (r *Reporter) Start() {
 			r.AddTimeStamps(extractedLog)
 			/*transformedLog, err := */ r.TransformToOutputFormat(extractedLog)
 
-			//		if err != nil {
-			//			// TODO: pending answer by Bob
-			//		}
 		}
 	}
 }
@@ -59,7 +58,7 @@ func (r *Reporter) AddTimeStamps(extractedLog *map[string]*RequestLog) {
 func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) ([]uint8, error) {
 	transformer := NewOutputTransformer()
 
-	minimizedLogs := transformer.MinimizeFormat(logs)
+	minimizedLogs := transformer.ConvertToMinimizedJSON(logs)
 
 	cborLogs, err := transformer.EncodeAsCBOR(minimizedLogs)
 	if err != nil {
@@ -75,18 +74,15 @@ func (r *Reporter) TransformToOutputFormat(logs *map[string]*RequestLog) ([]uint
 	return cborLogs, nil
 }
 
-func NewOutputTransformer() *outputTransformer {
-	return &outputTransformer{
-		Canonical: false,
-	}
-}
-
 type outputTransformer struct {
-	Canonical bool // only set to true by running unit tests, this ensures map elements are encoded in the same order when encoding to CBOR
 }
 
-// Convert the request logs to a minimized format
-func (o *outputTransformer) MinimizeFormat(logs *map[string]*RequestLog) *[]map[string]interface{} {
+func NewOutputTransformer() *outputTransformer {
+	return &outputTransformer{}
+}
+
+// Convert the request logs to minimized JSON
+func (o *outputTransformer) ConvertToMinimizedJSON(logs *map[string]*RequestLog) *string {
 	minimizedLogs := make([]map[string]interface{}, len(*logs))
 
 	iterations := 0
@@ -102,23 +98,23 @@ func (o *outputTransformer) MinimizeFormat(logs *map[string]*RequestLog) *[]map[
 		minimizedLogs[iterations] = miniLog
 		iterations++
 	}
-	return &minimizedLogs
+
+	rawMinimizedJSON, _ := json.Marshal(minimizedLogs)
+	minimizedJSON := string(rawMinimizedJSON)
+	return &minimizedJSON
 }
 
 // Encode the logs in CBOR format
-func (o *outputTransformer) EncodeAsCBOR(minimizedLogs *[]map[string]interface{}) ([]uint8, error) {
-	encoded := make([]byte, 0, 64)
+func (o *outputTransformer) EncodeAsCBOR(minimizedJSON *string) ([]uint8, error) {
+	var buffer bytes.Buffer
+	encoder := cbor.NewEncoder(&buffer)
+	ok, err := encoder.Marshal(minimizedJSON)
 
-	cborHandle := new(codec.CborHandle)
-	cborHandle.Canonical = o.Canonical
+	encoded := buffer.Bytes()
 
-	encoder := codec.NewEncoderBytes(&encoded, cborHandle)
-
-	err := encoder.Encode(*minimizedLogs)
-
-	if err != nil {
+	if !ok { // TODO: handle error, pending issue #737
 		return nil, err
+	} else {
+		return encoded, nil
 	}
-
-	return encoded, nil
 }

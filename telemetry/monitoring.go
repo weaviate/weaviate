@@ -14,7 +14,7 @@ type RequestsLog struct { // TODO: RENAME
 }
 
 // Create a new Requestslog
-func NewLog(enabled bool, peerName string) *RequestsLog {
+func NewLog(enabled bool, peerName *string) *RequestsLog {
 	return &RequestsLog{
 		Mutex:    &sync.Mutex{},
 		Log:      make(map[string]*RequestLog),

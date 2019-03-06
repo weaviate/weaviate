@@ -13,10 +13,10 @@ func TestEnabled(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
+	peerName := "unimpressed-rice-sofa"
+	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
-	calledFunctions := telemetry.NewLog(telemetryEnabled)
-
-	postRequestLog := telemetry.NewRequestTypeLog("unimpressed-rice-sofa", "REST", "weaviate.something.or.other", 1)
+	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 	postRequestLog.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog)
@@ -30,11 +30,11 @@ func TestDisabled(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	telemetryEnabled := false
+	telemetryEnabled := true
+	peerName := "aquatic-pineapple-home"
+	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
-	calledFunctions := telemetry.NewLog(telemetryEnabled)
-
-	postRequestLog := telemetry.NewRequestTypeLog("aquatic-pineapple-home", "REST", "weaviate.something.or.other", 1)
+	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 	postRequestLog.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog)

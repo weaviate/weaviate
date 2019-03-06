@@ -1,6 +1,7 @@
 package test
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 
@@ -14,10 +15,10 @@ func TestBasics(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
+	peerName := "ginormous-thunder-apple"
+	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
-	calledFunctions := telemetry.NewLog(telemetryEnabled)
-
-	postRequestLog := telemetry.NewRequestTypeLog("ginormous-thunder-apple", "REST", "weaviate.something.or.other", 1)
+	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 	postRequestLog.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog)
@@ -44,10 +45,10 @@ func TestRequestIncrementing(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
+	peerName := "awkward-handshake-guy"
+	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
-	calledFunctions := telemetry.NewLog(telemetryEnabled)
-
-	postRequestLog := telemetry.NewRequestTypeLog("grilled-cheese-sandwich", "REST", "weaviate.something.or.other", 1)
+	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 	postRequestLog.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog)
@@ -66,16 +67,16 @@ func TestMultipleRequestTypes(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
+	peerName := "awkward-handshake-guy"
+	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
-	calledFunctions := telemetry.NewLog(telemetryEnabled)
-
-	postRequestLog1 := telemetry.NewRequestTypeLog("awkward-handshake-guy", "GQL", "weaviate.something.or.other1", 1)
+	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other1")
 	postRequestLog1.When = int64(1550745544)
 
-	postRequestLog2 := telemetry.NewRequestTypeLog("apologetic-thermonuclear-blunderbuss", "REST", "weaviate.something.or.other2", 1)
+	postRequestLog2 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other2")
 	postRequestLog2.When = int64(1550745544)
 
-	postRequestLog3 := telemetry.NewRequestTypeLog("slumbering-mechanical-piglet", "REST", "weaviate.something.or.other3", 1)
+	postRequestLog3 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other3")
 	postRequestLog3.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog1)
@@ -102,17 +103,17 @@ func TestExtractLoggedRequests(t *testing.T) {
 	var wg sync.WaitGroup
 
 	telemetryEnabled := true
+	peerName := "apologetic-thermonuclear-blunderbuss"
+	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
-	calledFunctions := telemetry.NewLog(telemetryEnabled)
-
-	postRequestLog1 := telemetry.NewRequestTypeLog("fuzzy-levitating-mug", "GQL", "weaviate.something.or.other", 1)
+	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other")
 	postRequestLog1.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog1)
 
 	wg.Add(1)
-	//
-	requestResults := make(chan *map[string]*telemetry.RequestLog, 1)
+
+	requestResults := make(chan *map[string]*telemetry.RequestLog)
 
 	go performExtraction(calledFunctions, &wg, &requestResults)
 
@@ -120,19 +121,23 @@ func TestExtractLoggedRequests(t *testing.T) {
 
 	close(requestResults)
 
-	for loggedFunc := range requestResults {
-		loggedFunctions := len(*loggedFunc)
+	fmt.Println(len(requestResults))
 
-		// test
-		assert.Equal(t, 1, loggedFunctions)
-		assert.Equal(t, 0, len(*calledFunctions.ExtractLoggedRequests()))
+	for loggedFuncs := range requestResults {
+		for _, requestLog := range *loggedFuncs {
 
-		assert.Equal(t, "fuzzy-levitating-mug", loggedFunc.Name)
-		assert.Equal(t, "GQL", loggedFunc.Type)
-		assert.Equal(t, "weaviate.something.or.other", loggedFunc.Identifier)
-		assert.Equal(t, 1, loggedFunc.Amount)
-		assert.Equal(t, int64(1550745544), loggedFunc.When)
+			loggedFunctions := len(*loggedFuncs)
 
+			// test
+			assert.Equal(t, 1, loggedFunctions)
+			assert.Equal(t, 0, len(*calledFunctions.ExtractLoggedRequests()))
+
+			assert.Equal(t, "fuzzy-levitating-mug", requestLog.Name)
+			assert.Equal(t, "GQL", requestLog.Type)
+			assert.Equal(t, "weaviate.something.or.other", requestLog.Identifier)
+			assert.Equal(t, 1, requestLog.Amount)
+			assert.Equal(t, int64(1550745544), requestLog.When)
+		}
 	}
 }
 
@@ -150,13 +155,13 @@ func TestConcurrentRequests(t *testing.T) {
 	var wg sync.WaitGroup
 
 	telemetryEnabled := true
+	peerName := "forgetful-seal-cooker"
+	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
-	calledFunctions := telemetry.NewLog(telemetryEnabled)
-
-	postRequestLog1 := telemetry.NewRequestTypeLog("forgetful-seal-cooker", "GQL", "weaviate.something.or.other1", 1)
+	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other1")
 	postRequestLog1.When = int64(1550745544)
 
-	postRequestLog2 := telemetry.NewRequestTypeLog("brave-maple-leaf", "REST", "weaviate.something.or.other2", 1)
+	postRequestLog2 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other2")
 	postRequestLog2.When = int64(1550745544)
 
 	performOneThousandConcurrentRequests(calledFunctions, postRequestLog1, postRequestLog2, &wg)
