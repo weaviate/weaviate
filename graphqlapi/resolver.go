@@ -15,6 +15,7 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/fetch"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/network"
+	"github.com/creativesoftwarefdn/weaviate/telemetry"
 )
 
 // This type can resolve any GraphQL query.
@@ -36,6 +37,7 @@ type ResolverProvider interface {
 	DatabaseResolverProvider
 	NetworkResolverProvider
 	ContextionaryProvider
+	RequestsLogProvider
 }
 
 type DatabaseResolverProvider interface {
@@ -48,4 +50,8 @@ type NetworkResolverProvider interface {
 
 type ContextionaryProvider interface {
 	GetContextionary() fetch.Contextionary
+}
+
+type RequestsLogProvider interface {
+	GetRequestsLog() *telemetry.RequestsLog
 }

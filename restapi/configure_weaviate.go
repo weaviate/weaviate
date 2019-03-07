@@ -239,7 +239,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Register the request
 		go func() {
-			requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalQueryMeta))
+			requestsLog.Register(telemetry.TypeREST, telemetry.LocalQueryMeta)
 		}()
 
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
@@ -264,7 +264,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err == nil {
 			// Register the request
 			go func() {
-				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.NetworkQueryMeta))
+				requestsLog.Register(telemetry.TypeREST, telemetry.NetworkQueryMeta)
 			}()
 
 			return p2_p.NewWeaviateP2pGenesisUpdateOK()
@@ -276,7 +276,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Register the request // added as comment to ensure registration inclusion when this function is implemented
 		//		go func() {
-		//			requestslog.Register(telemetry.NewRequestTypeLog(telemetry.TypePOST, telemetry.NetworkQueryMeta))
+		//			requestslog.Register(telemetry.TypePOST, telemetry.NetworkQueryMeta)
 		//		}()
 		// For now, always just return success.
 		return middleware.NotImplemented("operation P2PWeaviateP2pHealth has not yet been implemented")
@@ -343,7 +343,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Register the request
 		go func() {
-			requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeGQL, telemetry.LocalAdd))
+			requestsLog.Register(telemetry.TypeGQL, telemetry.LocalAdd)
 		}()
 
 		// Return the response
@@ -484,7 +484,7 @@ func handleUnbatchedGraphQLRequest(wg *sync.WaitGroup, ctx context.Context, unba
 
 				// Register the request
 				go func() {
-					requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeGQL, telemetry.LocalAdd))
+					requestsLog.Register(telemetry.TypeGQL, telemetry.LocalAdd)
 				}()
 
 				// Return the GraphQL response

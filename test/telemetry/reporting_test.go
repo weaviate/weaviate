@@ -16,14 +16,9 @@ func TestLoop(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
-	peerName := "soggy-whale-bread"
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
-	calledFunctions.PeerName = peerName
-
-	loggedRequest := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
-	loggedRequest.When = int64(1550745544)
-
-	calledFunctions.Register(loggedRequest)
+	calledFunctions.PeerName = "soggy-whale-bread"
+	calledFunctions.Register("REST", "weaviate.something.or.other")
 
 	interval := 1
 	url := ""
@@ -35,6 +30,7 @@ func TestLoop(t *testing.T) {
 	time.Sleep(time.Duration(2) * time.Second)
 
 	logsAfterReporting := calledFunctions.ExtractLoggedRequests()
+
 	// test
 	assert.Equal(t, 0, len(*logsAfterReporting))
 }
@@ -45,15 +41,12 @@ func TestConvertToMinimizedJSON(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
-	peerName := "tiny-grey-chainsword"
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
-	calledFunctions.PeerName = peerName
+	calledFunctions.PeerName = "tiny-grey-chainsword"
+	calledFunctions.Register("REST", "weaviate.something.or.other")
 
-	loggedRequest := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
-	loggedRequest.Name = "tiny-grey-chainsword"
-	loggedRequest.When = int64(1550745544)
-
-	calledFunctions.Register(loggedRequest)
+	calledFunctions.Log["weaviate.something.or.other"].Name = "tiny-grey-chainsword"
+	calledFunctions.Log["weaviate.something.or.other"].When = int64(1550745544)
 
 	transformer := telemetry.NewOutputTransformer()
 
@@ -94,27 +87,25 @@ func TestAddTimestamps(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	requestsLog := make(map[string]*telemetry.RequestLog)
-
-	loggedRequest1 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other1")
-	loggedRequest2 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other2")
-
-	requestsLog["weaviate.something.or.other1"] = loggedRequest1
-	requestsLog["weaviate.something.or.other2"] = loggedRequest2
+	telemetryEnabled := true
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
+	calledFunctions.PeerName = "iridiscent-damp-bagel"
+	calledFunctions.Register("REST", "weaviate.something.or.other1")
+	calledFunctions.Register("REST", "weaviate.something.or.other2")
 
 	past := time.Now().Unix()
 
 	time.Sleep(time.Duration(1) * time.Second)
 
 	reporter := telemetry.NewReporter(nil, 0, "", true)
-	reporter.AddTimeStamps(&requestsLog)
+	reporter.AddTimeStamps(&calledFunctions.Log)
 
 	time.Sleep(time.Duration(1) * time.Second)
 
 	future := time.Now().Unix()
 
-	log1Timestamp := requestsLog["weaviate.something.or.other1"].When
-	log2Timestamp := requestsLog["weaviate.something.or.other2"].When
+	log1Timestamp := calledFunctions.Log["weaviate.something.or.other1"].When
+	log2Timestamp := calledFunctions.Log["weaviate.something.or.other2"].When
 
 	notZero := log1Timestamp != 0
 	notFromThePast := log1Timestamp > past
@@ -126,12 +117,3 @@ func TestAddTimestamps(t *testing.T) {
 	assert.Equal(t, true, notFromThePast)
 	assert.Equal(t, true, notFromTheFuture)
 }
-
-//func TestPostUsage(t *testing.T) {
-//	t.Parallel()
-//	// Is this a good idea? This test result would be dependant on an external factor (the monitoring endpoint)
-//
-//	// test the response received on sending a predetermined post
-//
-//  // maybe as an acceptance test?
-//}

@@ -70,6 +70,8 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 
 	contextionary := g.resolverProvider.GetContextionary()
 
+	requestsLog := g.resolverProvider.GetRequestsLog()
+
 	return graphql.Do(graphql.Params{
 		Schema: g.schema,
 		RootObject: map[string]interface{}{
@@ -77,6 +79,7 @@ func (g *graphQL) Resolve(query string, operationName string, variables map[stri
 			"NetworkResolver": networkResolver,
 			"NetworkPeers":    g.networkPeers,
 			"Contextionary":   contextionary,
+			"RequestsLog":     requestsLog,
 		},
 		RequestString:  query,
 		OperationName:  operationName,
