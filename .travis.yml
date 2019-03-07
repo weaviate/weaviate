@@ -71,7 +71,7 @@ before_script:
   - |
     if [ "$TRAVIS_BRANCH" = "master" ]; then
       # build the build tools
-      ./tools/gen-code-from-swagger.sh
+      ./tools/gen-code-from-swagger.sh || travis_terminate 1
       # check if anything is different
       CHANGED=$(git diff-index --name-only HEAD --)
       # push back to Git if changed
