@@ -19,7 +19,6 @@ import (
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
 	"github.com/creativesoftwarefdn/weaviate/database/schema/kind"
 	"github.com/creativesoftwarefdn/weaviate/graphqlapi/local/common_filters"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
 )
@@ -172,7 +171,6 @@ func extractMetaProperties(selections *ast.SelectionSet) ([]MetaProperty, error)
 func extractPropertyAnalyses(selections *ast.SelectionSet) ([]StatisticalAnalysis, error) {
 	analyses := []StatisticalAnalysis{}
 	for _, selection := range selections.Selections {
-		spew.Dump(selection)
 		field := selection.(*ast.Field)
 		name := field.Name.Value
 
