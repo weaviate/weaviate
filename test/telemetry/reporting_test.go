@@ -17,23 +17,24 @@ func TestLoop(t *testing.T) {
 	// setup
 	telemetryEnabled := true
 	peerName := "soggy-whale-bread"
-	log := telemetry.NewLog(telemetryEnabled, &peerName)
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
+	calledFunctions.PeerName = peerName
 
 	loggedRequest := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 	loggedRequest.When = int64(1550745544)
 
-	log.Register(loggedRequest)
+	calledFunctions.Register(loggedRequest)
 
 	interval := 1
 	url := ""
 
-	reporter := telemetry.NewReporter(log, interval, url, telemetryEnabled)
+	reporter := telemetry.NewReporter(calledFunctions, interval, url, telemetryEnabled)
 
 	go reporter.Start()
 
 	time.Sleep(time.Duration(2) * time.Second)
 
-	logsAfterReporting := log.ExtractLoggedRequests()
+	logsAfterReporting := calledFunctions.ExtractLoggedRequests()
 	// test
 	assert.Equal(t, 0, len(*logsAfterReporting))
 }
@@ -45,17 +46,18 @@ func TestConvertToMinimizedJSON(t *testing.T) {
 	// setup
 	telemetryEnabled := true
 	peerName := "tiny-grey-chainsword"
-	log := telemetry.NewLog(telemetryEnabled, &peerName)
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
+	calledFunctions.PeerName = peerName
 
 	loggedRequest := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 	loggedRequest.Name = "tiny-grey-chainsword"
 	loggedRequest.When = int64(1550745544)
 
-	log.Register(loggedRequest)
+	calledFunctions.Register(loggedRequest)
 
 	transformer := telemetry.NewOutputTransformer()
 
-	jsonLogs := transformer.ConvertToMinimizedJSON(&log.Log)
+	jsonLogs := transformer.ConvertToMinimizedJSON(&calledFunctions.Log)
 
 	var miniLog []interface{}
 
