@@ -147,7 +147,7 @@ func (r *thingsRequest) validateThing(wg *sync.WaitGroup, thingCreate *models.Th
 	if err == nil {
 		// Register the request
 		go func() {
-			r.log.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalAdd))
+			r.log.Register(telemetry.TypeREST, telemetry.LocalAdd)
 		}()
 	}
 

@@ -34,6 +34,12 @@ type Contextionary interface {
 	SchemaSearch(p contextionary.SearchParams) (contextionary.SearchResults, error)
 }
 
+// RequestsLog is a local abstraction on the RequestsLog that needs to be
+// provided to the graphQL API in order to log Local.Fetch queries.
+type RequestsLog interface {
+	Register(requestType string, identifier string)
+}
+
 // Params to describe the Local->GetMeta->Kind->Class query. Will be passed to
 // the individual connector methods responsible for resolving the GetMeta
 // query.
@@ -99,6 +105,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 		}
 
 		return func() (interface{}, error) {
+			resources.requestsLog.Register("GQL", "weaviate.local.query")
 			return resources.resolver.LocalFetchKindClass(params)
 		}, nil
 	}
@@ -107,6 +114,7 @@ func makeResolveClass(kind kind.Kind) graphql.FieldResolveFn {
 type resources struct {
 	resolver      Resolver
 	contextionary Contextionary
+	requestsLog   RequestsLog
 }
 
 func newResources(s interface{}) (*resources, error) {
@@ -125,9 +133,15 @@ func newResources(s interface{}) (*resources, error) {
 		return nil, fmt.Errorf("expected source to contain a usable Contextionary, but was %#v", source)
 	}
 
+	requestsLog, ok := source["RequestsLog"].(RequestsLog)
+	if !ok {
+		return nil, fmt.Errorf("expected source to contain a usable RequestsLog, but was %#v", source)
+	}
+
 	return &resources{
 		resolver:      resolver,
 		contextionary: contextionary,
+		requestsLog:   requestsLog,
 	}, nil
 }
 

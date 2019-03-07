@@ -24,14 +24,21 @@ func NewLog(enabled bool) *RequestsLog {
 
 // Register a performed Request. Either creates a new entry or updates an existing one,
 // depending on whether a request of that type has already been logged.
-func (r *RequestsLog) Register(request *RequestLog) {
+func (r *RequestsLog) Register(requestType string, identifier string) {
 	if r.Enabled {
+
+		requestLog := &RequestLog{
+			Type:       requestType,
+			Identifier: identifier,
+			Amount:     1,
+		}
+
 		r.Mutex.Lock()
 
-		if _, ok := r.Log[request.Identifier]; ok {
-			r.Log[request.Identifier].Amount++
+		if _, ok := r.Log[identifier]; ok {
+			r.Log[identifier].Amount++
 		} else {
-			r.Log[request.Identifier] = request
+			r.Log[identifier] = requestLog
 		}
 		r.Mutex.Unlock()
 	}
@@ -66,11 +73,11 @@ type RequestLog struct {
 	When       int64  // timestamp in epoch
 }
 
-// Note `Name` and `When` attributes are not set here; they are provided separately when logged requests are prepared to be posted
-func NewRequestTypeLog(requestType string, identifier string) *RequestLog {
-	return &RequestLog{
-		Type:       requestType,
-		Identifier: identifier,
-		Amount:     1,
-	}
-}
+// // Note `Name` and `When` attributes are not set here; they are provided separately when logged requests are prepared to be posted
+// func NewRequestTypeLog(requestType string, identifier string) *RequestLog {
+// 	return &RequestLog{
+// 		Type:       requestType,
+// 		Identifier: identifier,
+// 		Amount:     1,
+// 	}
+// }

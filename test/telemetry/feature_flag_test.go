@@ -13,14 +13,9 @@ func TestEnabled(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
-	peerName := "unimpressed-rice-sofa"
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
-	calledFunctions.PeerName = peerName
-
-	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
-	postRequestLog.When = int64(1550745544)
-
-	calledFunctions.Register(postRequestLog)
+	calledFunctions.PeerName = "unimpressed-rice-sofa"
+	calledFunctions.Register("REST", "weaviate.something.or.other")
 
 	// test
 	assert.Equal(t, 1, len(calledFunctions.Log))
@@ -32,14 +27,9 @@ func TestDisabled(t *testing.T) {
 
 	// setup
 	telemetryEnabled := false
-	peerName := "aquatic-pineapple-home"
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
-	calledFunctions.PeerName = peerName
-
-	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
-	postRequestLog.When = int64(1550745544)
-
-	calledFunctions.Register(postRequestLog)
+	calledFunctions.PeerName = "aquatic-pineapple-home"
+	calledFunctions.Register("REST", "weaviate.something.or.other")
 
 	// test
 	assert.Equal(t, 0, len(calledFunctions.Log))

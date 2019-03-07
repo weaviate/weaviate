@@ -14,15 +14,12 @@ func TestBasics(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
-	peerName := "ginormous-thunder-apple"
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
-	calledFunctions.PeerName = peerName
+	calledFunctions.PeerName = "ginormous-thunder-apple"
+	calledFunctions.Register("REST", "weaviate.something.or.other")
 
-	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
-	postRequestLog.Name = "ginormous-thunder-apple"
-	postRequestLog.When = int64(1550745544)
-
-	calledFunctions.Register(postRequestLog)
+	calledFunctions.Log["weaviate.something.or.other"].Name = "ginormous-thunder-apple"
+	calledFunctions.Log["weaviate.something.or.other"].When = int64(1550745544)
 
 	loggedFunc := calledFunctions.Log["weaviate.something.or.other"]
 
@@ -46,14 +43,10 @@ func TestRequestIncrementing(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
-	peerName := "awkward-handshake-guy"
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
-	calledFunctions.PeerName = peerName
-
-	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
-
-	calledFunctions.Register(postRequestLog)
-	calledFunctions.Register(postRequestLog)
+	calledFunctions.PeerName = "awkward-handshake-guy"
+	calledFunctions.Register("REST", "weaviate.something.or.other")
+	calledFunctions.Register("REST", "weaviate.something.or.other")
 
 	loggedFunctionType := calledFunctions.Log["weaviate.something.or.other"]
 
@@ -68,18 +61,12 @@ func TestMultipleRequestTypes(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
-	peerName := "awkward-handshake-guy"
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
-	calledFunctions.PeerName = peerName
-
-	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other1")
-	postRequestLog2 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other2")
-	postRequestLog3 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other3")
-
-	calledFunctions.Register(postRequestLog1)
-	calledFunctions.Register(postRequestLog2)
-	calledFunctions.Register(postRequestLog3)
-	calledFunctions.Register(postRequestLog3)
+	calledFunctions.PeerName = "insert-ridiculous-name"
+	calledFunctions.Register("GQL", "weaviate.something.or.other1")
+	calledFunctions.Register("REST", "weaviate.something.or.other2")
+	calledFunctions.Register("REST", "weaviate.something.or.other3")
+	calledFunctions.Register("REST", "weaviate.something.or.other3")
 
 	loggedFunctionType1 := calledFunctions.Log["weaviate.something.or.other1"]
 	loggedFunctionType2 := calledFunctions.Log["weaviate.something.or.other2"]
@@ -98,13 +85,9 @@ func TestExtractLoggedRequests(t *testing.T) {
 
 	// setup
 	telemetryEnabled := true
-	peerName := "apologetic-thermonuclear-blunderbuss"
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
-	calledFunctions.PeerName = peerName
-
-	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other")
-
-	calledFunctions.Register(postRequestLog1)
+	calledFunctions.PeerName = "apologetic-thermonuclear-blunderbuss"
+	calledFunctions.Register("GQL", "weaviate.something.or.other")
 
 	requestResults := make(chan *map[string]*telemetry.RequestLog)
 
@@ -137,14 +120,15 @@ func TestConcurrentRequests(t *testing.T) {
 	var wg sync.WaitGroup
 
 	telemetryEnabled := true
-	peerName := "forgetful-seal-cooker"
 	calledFunctions := telemetry.NewLog(telemetryEnabled)
-	calledFunctions.PeerName = peerName
+	calledFunctions.PeerName = "forgetful-seal-cooker"
 
-	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other1")
-	postRequestLog2 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other2")
+	type1 := "GQL"
+	type2 := "REST"
+	id1 := "weaviate.something.or.other1"
+	id2 := "weaviate.something.or.other2"
 
-	performOneThousandConcurrentRequests(calledFunctions, postRequestLog1, postRequestLog2, &wg)
+	performOneThousandConcurrentRequests(calledFunctions, type1, id1, type2, id2, &wg)
 
 	wg.Wait()
 
@@ -156,22 +140,22 @@ func TestConcurrentRequests(t *testing.T) {
 	}
 }
 
-func performOneThousandConcurrentRequests(calledFunctions *telemetry.RequestsLog, postRequestLog1 *telemetry.RequestLog, postRequestLog2 *telemetry.RequestLog, wg *sync.WaitGroup) {
+func performOneThousandConcurrentRequests(calledFunctions *telemetry.RequestsLog, type1 string, type2 string, id1 string, id2 string, wg *sync.WaitGroup) {
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 
 		if i < 5 {
-			go performOneHundredRequests(calledFunctions, postRequestLog1, wg)
+			go performOneHundredRequests(calledFunctions, type1, id1, wg)
 		} else {
-			go performOneHundredRequests(calledFunctions, postRequestLog2, wg)
+			go performOneHundredRequests(calledFunctions, type2, id2, wg)
 		}
 	}
 }
 
-func performOneHundredRequests(calledFunctions *telemetry.RequestsLog, calledFunction *telemetry.RequestLog, wg *sync.WaitGroup) {
+func performOneHundredRequests(calledFunctions *telemetry.RequestsLog, funcType string, id string, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for i := 0; i < 100; i++ {
-		calledFunctions.Register(calledFunction)
+		calledFunctions.Register(funcType, id)
 	}
 }
