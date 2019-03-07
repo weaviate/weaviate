@@ -14,7 +14,8 @@ func TestEnabled(t *testing.T) {
 	// setup
 	telemetryEnabled := true
 	peerName := "unimpressed-rice-sofa"
-	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
+	calledFunctions.PeerName = peerName
 
 	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 	postRequestLog.When = int64(1550745544)
@@ -32,7 +33,8 @@ func TestDisabled(t *testing.T) {
 	// setup
 	telemetryEnabled := false
 	peerName := "aquatic-pineapple-home"
-	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
+	calledFunctions.PeerName = peerName
 
 	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 	postRequestLog.When = int64(1550745544)

@@ -9,17 +9,16 @@ import (
 type RequestsLog struct { // TODO: RENAME
 	Mutex    *sync.Mutex
 	Log      map[string]*RequestLog
-	PeerName *string
+	PeerName string
 	Enabled  bool
 }
 
 // Create a new Requestslog
-func NewLog(enabled bool, peerName *string) *RequestsLog {
+func NewLog(enabled bool) *RequestsLog {
 	return &RequestsLog{
-		Mutex:    &sync.Mutex{},
-		Log:      make(map[string]*RequestLog),
-		PeerName: peerName,
-		Enabled:  enabled,
+		Mutex:   &sync.Mutex{},
+		Log:     make(map[string]*RequestLog),
+		Enabled: enabled,
 	}
 }
 

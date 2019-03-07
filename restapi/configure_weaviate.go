@@ -213,7 +213,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	interval := telemutils.GetInterval()
 	url := telemutils.GetURL()
 
-	requestsLog = telemetry.NewLog(enabled, &appState.ServerConfig.Environment.Network.PeerName)
+	requestsLog = telemetry.NewLog(enabled)
 
 	reporter = telemetry.NewReporter(requestsLog, interval, url, enabled)
 
@@ -239,7 +239,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// Register the request
 		go func() {
-			requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypePOST, telemetry.LocalQueryMeta))
+			requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.LocalQueryMeta))
 		}()
 
 		return meta.NewWeaviateMetaGetOK().WithPayload(metaResponse)
@@ -264,7 +264,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		if err == nil {
 			// Register the request
 			go func() {
-				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypePOST, telemetry.NetworkQueryMeta))
+				requestsLog.Register(telemetry.NewRequestTypeLog(telemetry.TypeREST, telemetry.NetworkQueryMeta))
 			}()
 
 			return p2_p.NewWeaviateP2pGenesisUpdateOK()
@@ -358,17 +358,18 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		defer messaging.TimeTrack(time.Now())
 		messaging.DebugMessage("Starting GraphQL batch resolving")
 
+		errorResponse := &models.ErrorResponse{}
+
 		if graphQL == nil {
 			errorResponse.Error = []*models.ErrorResponseErrorItems0{
 				&models.ErrorResponseErrorItems0{
 					Message: "no graphql provider present, " +
 						"this is most likely because no schema is present. Import a schema first!",
 				}}
-			return graphql.NewWeaviateGraphqlPostUnprocessableEntity().WithPayload(errorResponse)
+			return graphql.NewWeaviateGraphqlBatchUnprocessableEntity().WithPayload(errorResponse)
 		}
 
 		amountOfBatchedRequests := len(params.Body)
-		errorResponse := &models.ErrorResponse{}
 
 		if amountOfBatchedRequests == 0 {
 			return graphql.NewWeaviateGraphqlBatchUnprocessableEntity().WithPayload(errorResponse)
@@ -694,6 +695,9 @@ func configureServer(s *http.Server, scheme, addr string) {
 	serverConfig = &config.WeaviateConfig{}
 	appState.ServerConfig = serverConfig
 	err := serverConfig.LoadConfig(connectorOptionGroup, messaging)
+
+	// Propagate the peer name (if any) to the requestsLog
+	requestsLog.PeerName = appState.ServerConfig.Environment.Network.PeerName
 
 	// Add properties to the config
 	serverConfig.Hostname = addr

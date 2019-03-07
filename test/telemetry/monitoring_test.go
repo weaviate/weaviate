@@ -15,7 +15,8 @@ func TestBasics(t *testing.T) {
 	// setup
 	telemetryEnabled := true
 	peerName := "ginormous-thunder-apple"
-	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
+	calledFunctions.PeerName = peerName
 
 	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 	postRequestLog.Name = "ginormous-thunder-apple"
@@ -46,7 +47,8 @@ func TestRequestIncrementing(t *testing.T) {
 	// setup
 	telemetryEnabled := true
 	peerName := "awkward-handshake-guy"
-	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
+	calledFunctions.PeerName = peerName
 
 	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
 
@@ -67,7 +69,8 @@ func TestMultipleRequestTypes(t *testing.T) {
 	// setup
 	telemetryEnabled := true
 	peerName := "awkward-handshake-guy"
-	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
+	calledFunctions.PeerName = peerName
 
 	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other1")
 	postRequestLog2 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other2")
@@ -96,7 +99,8 @@ func TestExtractLoggedRequests(t *testing.T) {
 	// setup
 	telemetryEnabled := true
 	peerName := "apologetic-thermonuclear-blunderbuss"
-	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
+	calledFunctions.PeerName = peerName
 
 	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other")
 
@@ -134,7 +138,8 @@ func TestConcurrentRequests(t *testing.T) {
 
 	telemetryEnabled := true
 	peerName := "forgetful-seal-cooker"
-	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
+	calledFunctions := telemetry.NewLog(telemetryEnabled)
+	calledFunctions.PeerName = peerName
 
 	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other1")
 	postRequestLog2 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other2")
