@@ -772,7 +772,7 @@ func updateSchemaCallback(updatedSchema schema.Schema) {
 	// Note that this is thread safe; we're running in a single go-routine, because the event
 	// handlers are called when the SchemaLock is still held.
 	rebuildContextionary(updatedSchema)
-	rebuildGraphQL(updatedSchema, requestsLog)
+	rebuildGraphQL(updatedSchema)
 }
 
 func rebuildContextionary(updatedSchema schema.Schema) {
@@ -795,7 +795,7 @@ func rebuildContextionary(updatedSchema schema.Schema) {
 	contextionary = libcontextionary.Contextionary(combined)
 }
 
-func rebuildGraphQL(updatedSchema schema.Schema, requestsLog *telemetry.RequestsLog) {
+func rebuildGraphQL(updatedSchema schema.Schema) {
 	peers, err := network.ListPeers()
 	if err != nil {
 		graphQL = nil

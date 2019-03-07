@@ -23,7 +23,8 @@ func NewLog(enabled bool, peerName *string) *RequestsLog {
 	}
 }
 
-// Register a performed Request. Either creates a new entry or updates an existing one.
+// Register a performed Request. Either creates a new entry or updates an existing one,
+// depending on whether a request of that type has already been logged.
 func (r *RequestsLog) Register(request *RequestLog) {
 	if r.Enabled {
 		r.Mutex.Lock()
@@ -41,15 +42,15 @@ func (r *RequestsLog) Register(request *RequestLog) {
 func (r *RequestsLog) ExtractLoggedRequests() *map[string]*RequestLog {
 	if r.Enabled {
 		r.Mutex.Lock()
-
 		logState := make(map[string]*RequestLog)
+
 		for key, value := range r.Log {
 			logState[key] = value
 		}
 
 		r.Log = make(map[string]*RequestLog)
-
 		r.Mutex.Unlock()
+
 		return &logState
 
 	}

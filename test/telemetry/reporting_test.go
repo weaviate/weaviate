@@ -1,6 +1,8 @@
 package test
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -46,27 +48,42 @@ func TestConvertToMinimizedJSON(t *testing.T) {
 	log := telemetry.NewLog(telemetryEnabled, &peerName)
 
 	loggedRequest := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
+	loggedRequest.Name = "tiny-grey-chainsword"
 	loggedRequest.When = int64(1550745544)
 
 	log.Register(loggedRequest)
 
 	transformer := telemetry.NewOutputTransformer()
 
-	minimizedLogs := transformer.ConvertToMinimizedJSON(&log.Log)
+	jsonLogs := transformer.ConvertToMinimizedJSON(&log.Log)
 
-	var miniLog map[string]interface{}
+	var miniLog []interface{}
 
-	for _, item := range *minimizedLogs {
-		miniLog = item
+	err := json.Unmarshal([]byte(*jsonLogs), &miniLog)
+
+	if err != nil {
+		fmt.Println("error:", err)
 	}
 
 	// test
-	assert.Equal(t, 1, len(*minimizedLogs))
-	assert.Equal(t, "tiny-grey-chainsword", miniLog["n"].(string))
-	assert.Equal(t, "REST", miniLog["t"].(string))
-	assert.Equal(t, "weaviate.something.or.other", miniLog["i"].(string))
-	assert.Equal(t, 1, miniLog["a"].(int))
-	assert.Equal(t, int64(1550745544), miniLog["w"].(int64))
+	assert.Equal(t, 1, len(miniLog))
+
+	for _, log := range miniLog {
+		mapLog := log.(map[string]interface{})
+
+		name := mapLog["n"].(string)
+		logType := mapLog["t"].(string)
+		identifier := mapLog["i"].(string)
+		amount := mapLog["a"].(float64)
+		when := mapLog["w"].(float64)
+
+		assert.Equal(t, "tiny-grey-chainsword", name)
+		assert.Equal(t, "REST", logType)
+		assert.Equal(t, "weaviate.something.or.other", identifier)
+		assert.Equal(t, 1, int(amount))
+		assert.Equal(t, int64(1550745544), int64(when))
+
+	}
 }
 
 // Create a log containing two logged function types and call the AddTimeStamps function,
