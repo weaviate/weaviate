@@ -1,3 +1,4 @@
+
 addons:
   hosts:
     - db
@@ -73,10 +74,10 @@ before_script:
       # build the build tools
       ./tools/gen-code-from-swagger.sh || travis_terminate 1
       # check if anything is different
-      CHANGED=$(git diff-index --name-only HEAD --)
+      CHANGED=$(git status -s | wc -l)
       echo "CHANGED is '$CHANGED'"
       # push back to Git if changed
-      if [ -n "$CHANGED" ]; then
+      if [ "$CHANGED" -gt 0 ]; then
         echo "There are changes, we need to do something"
         git config credential.helper "store --file=.git/credentials"
         echo "https://${GH_TOKEN}:@github.com" > .git/credentials
