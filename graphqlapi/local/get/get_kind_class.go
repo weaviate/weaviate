@@ -14,6 +14,7 @@ package get
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/creativesoftwarefdn/weaviate/database/schema"
@@ -217,7 +218,7 @@ func makeResolveGetClass(k kind.Kind, className string) graphql.FieldResolveFn {
 		}
 
 		selectionsOfClass := p.Info.FieldASTs[0].SelectionSet
-		properties, err := extractProperties(selectionsOfClass)
+		properties, err := extractProperties(selectionsOfClass, p.Info.Fragments)
 		if err != nil {
 			return nil, err
 		}
@@ -261,7 +262,7 @@ func isPrimitive(selectionSet *ast.SelectionSet) bool {
 	return false
 }
 
-func extractProperties(selections *ast.SelectionSet) ([]SelectProperty, error) {
+func extractProperties(selections *ast.SelectionSet, fragments map[string]ast.Definition) ([]SelectProperty, error) {
 	var properties []SelectProperty
 
 	for _, selection := range selections.Selections {
@@ -273,45 +274,36 @@ func extractProperties(selections *ast.SelectionSet) ([]SelectProperty, error) {
 		if !property.IsPrimitive {
 			// We can interpret this property in different ways
 			for _, subSelection := range field.SelectionSet.Selections {
-				// Is it a field with the name __typename?
-				subsectionField, ok := subSelection.(*ast.Field)
-				if ok {
-					if subsectionField.Name.Value == "__typename" {
+
+				switch s := subSelection.(type) {
+				case *ast.Field:
+					// Is it a field with the name __typename?
+					if s.Name.Value == "__typename" {
 						property.IncludeTypeName = true
 						continue
 					} else {
-						return nil, fmt.Errorf("Expected a InlineFragment, not a '%s' field ", subsectionField.Name.Value)
+						return nil, fmt.Errorf("Expected a InlineFragment, not a '%s' field ", s.Name.Value)
 					}
-				}
 
-				// Otherwise these _must_ be inline fragments
-				fragment, ok := subSelection.(*ast.InlineFragment)
-				if !ok {
-					return nil, fmt.Errorf("Expected a InlineFragment; you need to specify as which type you want to retrieve a reference %#v", subSelection)
-				}
-
-				var className schema.ClassName
-				var err error
-				if strings.Contains(fragment.TypeCondition.Name.Value, "__") {
-					// is a helper type for a network ref
-					// don't validate anything as of now
-					className = schema.ClassName(fragment.TypeCondition.Name.Value)
-				} else {
-					err, className = schema.ValidateClassName(fragment.TypeCondition.Name.Value)
+				case *ast.FragmentSpread:
+					ref, err := extractFragmentSpread(s, fragments)
 					if err != nil {
-						return nil, fmt.Errorf("the inline fragment type name '%s' is not a valid class name", fragment.TypeCondition.Name.Value)
+						return nil, err
 					}
-				}
 
-				subProperties, err := extractProperties(fragment.SelectionSet)
-				if err != nil {
-					return nil, err
-				}
+					property.Refs = append(property.Refs, ref)
 
-				property.Refs = append(property.Refs, SelectClass{
-					ClassName:     string(className),
-					RefProperties: subProperties,
-				})
+				case *ast.InlineFragment:
+					ref, err := extractInlineFragment(s, fragments)
+					if err != nil {
+						return nil, err
+					}
+
+					property.Refs = append(property.Refs, ref)
+
+				default:
+					return nil, fmt.Errorf("unrecoginzed type in subs-selection: %T", subSelection)
+				}
 			}
 		}
 
@@ -319,4 +311,68 @@ func extractProperties(selections *ast.SelectionSet) ([]SelectProperty, error) {
 	}
 
 	return properties, nil
+}
+
+func extractInlineFragment(fragment *ast.InlineFragment, fragments map[string]ast.Definition) (SelectClass, error) {
+	var className schema.ClassName
+	var err error
+	var result SelectClass
+
+	if strings.Contains(fragment.TypeCondition.Name.Value, "__") {
+		// is a helper type for a network ref
+		// don't validate anything as of now
+		className = schema.ClassName(fragment.TypeCondition.Name.Value)
+	} else {
+		err, className = schema.ValidateClassName(fragment.TypeCondition.Name.Value)
+		if err != nil {
+			return result, fmt.Errorf("the inline fragment type name '%s' is not a valid class name", fragment.TypeCondition.Name.Value)
+		}
+	}
+
+	subProperties, err := extractProperties(fragment.SelectionSet, fragments)
+	if err != nil {
+		return result, err
+	}
+
+	result.ClassName = string(className)
+	result.RefProperties = subProperties
+	return result, nil
+}
+
+func extractFragmentSpread(spread *ast.FragmentSpread, fragments map[string]ast.Definition) (SelectClass, error) {
+	var result SelectClass
+	name := spread.Name.Value
+
+	def, ok := fragments[name]
+	if !ok {
+		return result, fmt.Errorf("spread fragment '%s' refers to unknown fragment", name)
+	}
+
+	className, err := hackyWorkaroundToExtractClassName(def, name)
+	if err != nil {
+		return result, err
+	}
+
+	subProperties, err := extractProperties(def.GetSelectionSet(), fragments)
+	if err != nil {
+		return result, err
+	}
+
+	result.ClassName = string(className)
+	result.RefProperties = subProperties
+	return result, nil
+}
+
+// It seems there's no proper way to extract this info unfortunately:
+// https://github.com/graphql-go/graphql/issues/455
+func hackyWorkaroundToExtractClassName(def ast.Definition, name string) (string, error) {
+	loc := def.GetLoc()
+	raw := loc.Source.Body[loc.Start:loc.End]
+	r := regexp.MustCompile(fmt.Sprintf(`fragment\s*%s\s*on\s*(\w*)\s*{`, name))
+	matches := r.FindSubmatch(raw)
+	if len(matches) < 2 {
+		return "", fmt.Errorf("could not extract a className from fragment")
+	}
+
+	return string(matches[1]), nil
 }
