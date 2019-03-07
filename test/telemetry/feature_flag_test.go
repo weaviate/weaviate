@@ -30,7 +30,7 @@ func TestDisabled(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	telemetryEnabled := true
+	telemetryEnabled := false
 	peerName := "aquatic-pineapple-home"
 	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 

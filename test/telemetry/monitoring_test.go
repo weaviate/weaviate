@@ -1,7 +1,6 @@
 package test
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 
@@ -19,6 +18,7 @@ func TestBasics(t *testing.T) {
 	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
 	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
+	postRequestLog.Name = "ginormous-thunder-apple"
 	postRequestLog.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog)
@@ -49,7 +49,6 @@ func TestRequestIncrementing(t *testing.T) {
 	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
 	postRequestLog := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other")
-	postRequestLog.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog)
 	calledFunctions.Register(postRequestLog)
@@ -71,13 +70,8 @@ func TestMultipleRequestTypes(t *testing.T) {
 	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
 	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other1")
-	postRequestLog1.When = int64(1550745544)
-
 	postRequestLog2 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other2")
-	postRequestLog2.When = int64(1550745544)
-
 	postRequestLog3 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other3")
-	postRequestLog3.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog1)
 	calledFunctions.Register(postRequestLog2)
@@ -100,28 +94,20 @@ func TestExtractLoggedRequests(t *testing.T) {
 	t.Parallel()
 
 	// setup
-	var wg sync.WaitGroup
-
 	telemetryEnabled := true
 	peerName := "apologetic-thermonuclear-blunderbuss"
 	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
 	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other")
-	postRequestLog1.When = int64(1550745544)
 
 	calledFunctions.Register(postRequestLog1)
 
-	wg.Add(1)
-
 	requestResults := make(chan *map[string]*telemetry.RequestLog)
 
-	go performExtraction(calledFunctions, &wg, &requestResults)
-
-	wg.Wait()
-
-	close(requestResults)
-
-	fmt.Println(len(requestResults))
+	go func() {
+		requestResults <- calledFunctions.ExtractLoggedRequests()
+		close(requestResults)
+	}()
 
 	for loggedFuncs := range requestResults {
 		for _, requestLog := range *loggedFuncs {
@@ -132,19 +118,11 @@ func TestExtractLoggedRequests(t *testing.T) {
 			assert.Equal(t, 1, loggedFunctions)
 			assert.Equal(t, 0, len(*calledFunctions.ExtractLoggedRequests()))
 
-			assert.Equal(t, "fuzzy-levitating-mug", requestLog.Name)
 			assert.Equal(t, "GQL", requestLog.Type)
 			assert.Equal(t, "weaviate.something.or.other", requestLog.Identifier)
 			assert.Equal(t, 1, requestLog.Amount)
-			assert.Equal(t, int64(1550745544), requestLog.When)
 		}
 	}
-}
-
-// Use a waitgroup + channel to avoid race conditions in the test case. This isn't necessary in production as processes there aren't dependent on eachother's states.
-func performExtraction(calledFunctions *telemetry.RequestsLog, wg *sync.WaitGroup, requestResults *chan *map[string]*telemetry.RequestLog) {
-	defer wg.Done()
-	*requestResults <- calledFunctions.ExtractLoggedRequests()
 }
 
 // Spawn 10 goroutines that each register 100 function calls, then assert whether we end up with 1000 records in the log
@@ -159,10 +137,7 @@ func TestConcurrentRequests(t *testing.T) {
 	calledFunctions := telemetry.NewLog(telemetryEnabled, &peerName)
 
 	postRequestLog1 := telemetry.NewRequestTypeLog("GQL", "weaviate.something.or.other1")
-	postRequestLog1.When = int64(1550745544)
-
 	postRequestLog2 := telemetry.NewRequestTypeLog("REST", "weaviate.something.or.other2")
-	postRequestLog2.When = int64(1550745544)
 
 	performOneThousandConcurrentRequests(calledFunctions, postRequestLog1, postRequestLog2, &wg)
 
