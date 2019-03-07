@@ -74,8 +74,10 @@ before_script:
       ./tools/gen-code-from-swagger.sh || travis_terminate 1
       # check if anything is different
       CHANGED=$(git diff-index --name-only HEAD --)
+      echo "CHANGED is '$CHANGED'"
       # push back to Git if changed
       if [ -n "$CHANGED" ]; then
+        echo "There are changes, we need to do something"
         git config credential.helper "store --file=.git/credentials"
         echo "https://${GH_TOKEN}:@github.com" > .git/credentials
         git add -A
