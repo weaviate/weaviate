@@ -5,8 +5,8 @@
 If you want to create, manipulate or inspect individual nodes in Weaviate or if you want to create an ontology, you can use the RESTful API. The getting started manual outlines a few examples and the OpenAPI specs can be found here. For traversing the knowledge graph, it is best to use the [GraphQL interface](graphql_introduction.md).
 
 **Useful Links:**<br>
-- [SwaggerHub publication](https://app.swaggerhub.com/apis/bobvanluijt/weaviate/)
-- [Original OpenAPI specs](https://github.com/creativesoftwarefdn/weaviate/blob/master/openapi-specs/schema.json)
+- <a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/" target="_blank">SwaggerHub publication</a>
+- <a href="https://github.com/creativesoftwarefdn/weaviate/blob/master/openapi-specs/schema.json" target="_blank">Original OpenAPI specs</a>
 
 ## Overview
 
@@ -20,7 +20,7 @@ If you want to create, manipulate or inspect individual nodes in Weaviate or if 
 
 Before you can add thing and action nodes to Weaviate you need to create an ontology schema first, you can learn more about the ontology and what it does [here](ontology-schema.md).
 
-#### Dump the ontology schema
+### Dump the ontology schema
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.dump" target="_blank">Definition on Swaggerhub</a>)
 
@@ -46,7 +46,7 @@ Example result:
 }
 ```
 
-#### Define a _thing_ in the ontology schema
+### Define a _thing_ in the ontology schema
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.create" target="_blank">Definition on Swaggerhub</a>)
 
@@ -80,7 +80,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/things -H "Content-Type:
 }'
 ```
 
-#### Update a _thing_'s keywords
+### Update a _thing_'s keywords
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.update" target="_blank">Definition on Swaggerhub</a>)
 
@@ -98,7 +98,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/things/Zoo -H "Content-Ty
 }'
 ```
 
-#### Delete a _thing_ from the ontology schema
+### Delete a _thing_ from the ontology schema
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.delete" target="_blank">Definition on Swaggerhub</a>)
 
@@ -108,7 +108,7 @@ Example request:
 $ curl -X DELETE http://localhost:8080/weaviate/v1/schema/things/Zoo
 ```
 
-#### Add a _thing_ property to the ontology schema
+### Add a _thing_ property to the ontology schema
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.properties.add" target="_blank">Definition on Swaggerhub</a>)
 
@@ -128,7 +128,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/things/Zoo/properties -H 
 }'
 ```
 
-#### Delete a _thing_'s property from the ontology schema
+### Delete a _thing_'s property from the ontology schema
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.properties.delete" target="_blank">Definition on Swaggerhub</a>)
 
@@ -168,7 +168,7 @@ $ curl -X POST http://localhost:8080/weaviate/v1/schema/actions -H "Content-Type
 }'
 ```
 
-#### Update an _action_'s keywords
+### Update an _action_'s keywords
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.actions.update" target="_blank">Definition on Swaggerhub</a>)
 
@@ -186,7 +186,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction -H "Con
 }'
 ```
 
-#### Delete an _action_ from the ontology schema
+### Delete an _action_ from the ontology schema
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.actions.delete" target="_blank">Definition on Swaggerhub</a>)
 
@@ -196,7 +196,7 @@ Example request:
 $ curl -X DELETE http://localhost:8080/weaviate/v1/schema/things/BuyAction
 ```
 
-#### Add an _action_ property to the ontology schema
+### Add an _action_ property to the ontology schema
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.actions.properties.add" target="_blank">Definition on Swaggerhub</a>)
 
@@ -216,7 +216,7 @@ $ curl -X PUT http://localhost:8080/weaviate/v1/schema/actions/BuyAction/propert
 }'
 ```
 
-#### Delete an _action_'s property from the ontology schema
+### Delete an _action_'s property from the ontology schema
 
 (<a href="https://app.swaggerhub.com/apis/bobvanluijt/weaviate/0.12.65#/schema/weaviate.schema.things.properties.delete" target="_blank">Definition on Swaggerhub</a>)
 
