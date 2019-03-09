@@ -94,7 +94,7 @@ func (o *WeaviateGraphqlPostUnauthorized) WriteResponse(rw http.ResponseWriter, 
 // WeaviateGraphqlPostForbiddenCode is the HTTP code returned for type WeaviateGraphqlPostForbidden
 const WeaviateGraphqlPostForbiddenCode int = 403
 
-/*WeaviateGraphqlPostForbidden The used API-key has insufficient permissions.
+/*WeaviateGraphqlPostForbidden Insufficient permissions.
 
 swagger:response weaviateGraphqlPostForbidden
 */

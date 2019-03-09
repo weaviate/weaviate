@@ -203,7 +203,7 @@ func NewWeaviateThingsPatchForbidden() *WeaviateThingsPatchForbidden {
 
 /*WeaviateThingsPatchForbidden handles this case with default header values.
 
-The used API-key has insufficient permissions.
+Insufficient permissions.
 */
 type WeaviateThingsPatchForbidden struct {
 }
