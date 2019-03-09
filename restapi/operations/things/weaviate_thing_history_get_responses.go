@@ -94,7 +94,7 @@ func (o *WeaviateThingHistoryGetUnauthorized) WriteResponse(rw http.ResponseWrit
 // WeaviateThingHistoryGetForbiddenCode is the HTTP code returned for type WeaviateThingHistoryGetForbidden
 const WeaviateThingHistoryGetForbiddenCode int = 403
 
-/*WeaviateThingHistoryGetForbidden The used API-key has insufficient permissions.
+/*WeaviateThingHistoryGetForbidden Insufficient permissions.
 
 swagger:response weaviateThingHistoryGetForbidden
 */
