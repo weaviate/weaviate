@@ -41,7 +41,7 @@ func NewWeaviateActionHistoryGet(ctx *middleware.Context, handler WeaviateAction
 
 /*WeaviateActionHistoryGet swagger:route GET /actions/{actionId}/history actions weaviateActionHistoryGet
 
-Get an Action's history based on its UUID related to this key.
+Get an Action's history based on its UUID.
 
 Returns a particular Action history.
 

@@ -124,7 +124,7 @@ func NewWeaviateThingsDeleteForbidden() *WeaviateThingsDeleteForbidden {
 
 /*WeaviateThingsDeleteForbidden handles this case with default header values.
 
-The used API-key has insufficient permissions.
+Insufficient permissions.
 */
 type WeaviateThingsDeleteForbidden struct {
 }

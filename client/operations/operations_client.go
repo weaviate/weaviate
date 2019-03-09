@@ -35,7 +35,7 @@ type Client struct {
 }
 
 /*
-WeaviateBatchingActionsCreate creates new actions based on an action template related to this key as a batch
+WeaviateBatchingActionsCreate creates new actions based on an action template as a batch
 
 Register new Actions in bulk. Given meta-data and schema values are validated.
 */
@@ -71,7 +71,7 @@ func (a *Client) WeaviateBatchingActionsCreate(params *WeaviateBatchingActionsCr
 }
 
 /*
-WeaviateBatchingThingsCreate creates new things based on a thing template related to this key as a batch
+WeaviateBatchingThingsCreate creates new things based on a thing template as a batch
 
 Register new Things in bulk. Provided meta-data and schema values are validated.
 */
