@@ -35,6 +35,36 @@ type Client struct {
 }
 
 /*
+WeaviateThingHistoryGet gets a thing s history based on its UUID
+
+Returns a particular Thing's history.
+*/
+func (a *Client) WeaviateThingHistoryGet(params *WeaviateThingHistoryGetParams) (*WeaviateThingHistoryGetOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewWeaviateThingHistoryGetParams()
+	}
+
+	result, err := a.transport.Submit(&runtime.ClientOperation{
+		ID:                 "weaviate.thing.history.get",
+		Method:             "GET",
+		PathPattern:        "/things/{thingId}/history",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &WeaviateThingHistoryGetReader{formats: a.formats},
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*WeaviateThingHistoryGetOK), nil
+
+}
+
+/*
 WeaviateThingsCreate creates a new thing based on a thing template
 
 Registers a new Thing. Given meta-data and schema values are validated.

@@ -46,7 +46,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.66"
+    "version": "0.12.67"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -2087,6 +2087,57 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.manipulate"
+        ]
+      }
+    },
+    "/things/{thingId}/history": {
+      "get": {
+        "description": "Returns a particular Thing's history.",
+        "tags": [
+          "things"
+        ],
+        "summary": "Get a Thing's history based on its UUID.",
+        "operationId": "weaviate.thing.history.get",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Thing.",
+            "name": "thingId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetHistoryResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query"
         ]
       }
     },
@@ -3189,7 +3240,7 @@ func init() {
       "url": "https://github.com/creativesoftwarefdn",
       "email": "hello@creativesoftwarefdn.org"
     },
-    "version": "0.12.66"
+    "version": "0.12.67"
   },
   "basePath": "/weaviate/v1",
   "paths": {
@@ -5246,6 +5297,57 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.manipulate"
+        ]
+      }
+    },
+    "/things/{thingId}/history": {
+      "get": {
+        "description": "Returns a particular Thing's history.",
+        "tags": [
+          "things"
+        ],
+        "summary": "Get a Thing's history based on its UUID.",
+        "operationId": "weaviate.thing.history.get",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique ID of the Thing.",
+            "name": "thingId",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetHistoryResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false,
+        "x-serviceIds": [
+          "weaviate.local.query"
         ]
       }
     },
