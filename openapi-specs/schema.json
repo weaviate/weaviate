@@ -809,7 +809,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.12.65"
+    "version": "0.12.66"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
@@ -856,7 +856,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -868,7 +868,7 @@
             }
           }
         },
-        "summary": "Get a list of Actions related to this key.",
+        "summary": "Get a list of Actions.",
         "tags": [
           "actions"
         ],
@@ -917,7 +917,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -965,7 +965,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1013,7 +1013,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1025,7 +1025,7 @@
             }
           }
         },
-        "summary": "Delete an Action based on its UUID related to this key.",
+        "summary": "Delete an Action based on its UUID.",
         "tags": [
           "actions"
         ],
@@ -1059,7 +1059,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1071,7 +1071,7 @@
             }
           }
         },
-        "summary": "Get a specific Action based on its UUID and a Thing UUID related to this key. Also available as Websocket bus.",
+        "summary": "Get a specific Action based on its UUID and a Thing UUID. Also available as Websocket bus.",
         "tags": [
           "actions"
         ],
@@ -1132,7 +1132,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1150,7 +1150,7 @@
             }
           }
         },
-        "summary": "Update an Action based on its UUID (using patch semantics) related to this key.",
+        "summary": "Update an Action based on its UUID (using patch semantics).",
         "tags": [
           "actions"
         ],
@@ -1192,7 +1192,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1210,7 +1210,7 @@
             }
           }
         },
-        "summary": "Update an Action based on its UUID related to this key.",
+        "summary": "Update an Action based on its UUID.",
         "tags": [
           "actions"
         ],
@@ -1246,7 +1246,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -1261,7 +1261,7 @@
             "description": "Not (yet) implemented."
           }
         },
-        "summary": "Get an Action's history based on its UUID related to this key.",
+        "summary": "Get an Action's history based on its UUID.",
         "tags": [
           "actions"
         ],
@@ -1309,7 +1309,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -1370,7 +1370,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -1431,7 +1431,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -1522,7 +1522,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1537,7 +1537,7 @@
             }
           }
         },
-        "summary": "Creates new Things based on a Thing template related to this key as a batch.",
+        "summary": "Creates new Things based on a Thing template as a batch.",
         "tags": [
           "batching",
           "things"
@@ -1614,7 +1614,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1629,7 +1629,7 @@
             }
           }
         },
-        "summary": "Creates new Actions based on an Action template related to this key as a batch.",
+        "summary": "Creates new Actions based on an Action template as a batch.",
         "tags": [
           "batching",
           "actions"
@@ -1670,7 +1670,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1725,7 +1725,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -2508,7 +2508,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2520,7 +2520,7 @@
             }
           }
         },
-        "summary": "Get a list of Things related to this key.",
+        "summary": "Get a list of Things.",
         "tags": [
           "things"
         ],
@@ -2569,7 +2569,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -2584,7 +2584,7 @@
             }
           }
         },
-        "summary": "Create a new Thing based on a Thing template related to this key.",
+        "summary": "Create a new Thing based on a Thing template.",
         "tags": [
           "things"
         ],
@@ -2617,7 +2617,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -2665,7 +2665,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2677,7 +2677,7 @@
             }
           }
         },
-        "summary": "Delete a Thing based on its UUID related to this key.",
+        "summary": "Delete a Thing based on its UUID.",
         "tags": [
           "things"
         ],
@@ -2711,7 +2711,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2723,7 +2723,7 @@
             }
           }
         },
-        "summary": "Get a Thing based on its UUID related to this key.",
+        "summary": "Get a Thing based on its UUID.",
         "tags": [
           "things"
         ],
@@ -2784,7 +2784,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2802,7 +2802,7 @@
             }
           }
         },
-        "summary": "Update a Thing based on its UUID (using patch semantics) related to this key.",
+        "summary": "Update a Thing based on its UUID (using patch semantics).",
         "tags": [
           "things"
         ],
@@ -2844,7 +2844,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."
@@ -2862,58 +2862,7 @@
             }
           }
         },
-        "summary": "Update a Thing based on its UUID related to this key.",
-        "tags": [
-          "things"
-        ],
-        "x-available-in-mqtt": false,
-        "x-available-in-websocket": false
-      }
-    },
-    "/things/{thingId}/history": {
-      "get": {
-        "description": "Returns a particular Thing's history.",
-        "operationId": "weaviate.thing.history.get",
-        "x-serviceIds": [
-          "weaviate.local.query"
-        ],
-        "parameters": [
-          {
-            "description": "Unique ID of the Thing.",
-            "format": "uuid",
-            "in": "path",
-            "name": "thingId",
-            "required": true,
-            "type": "string"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful response.",
-            "schema": {
-              "$ref": "#/definitions/ThingGetHistoryResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized or invalid credentials."
-          },
-          "403": {
-            "description": "The used API-key has insufficient permissions."
-          },
-          "404": {
-            "description": "Successful query result but no resource was found."
-          },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "Not (yet) implemented."
-          }
-        },
-        "summary": "Get a Thing's history based on its UUID related to this key.",
+        "summary": "Update a Thing based on its UUID.",
         "tags": [
           "things"
         ],
@@ -2961,7 +2910,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -3022,7 +2971,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the property exists or that it is a class?",
@@ -3083,7 +3032,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found.",
@@ -3134,7 +3083,7 @@
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "The used API-key has insufficient permissions."
+            "description": "Insufficient permissions."
           },
           "404": {
             "description": "Successful query result but no resource was found."

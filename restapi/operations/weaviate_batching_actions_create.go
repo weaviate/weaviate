@@ -49,7 +49,7 @@ func NewWeaviateBatchingActionsCreate(ctx *middleware.Context, handler WeaviateB
 
 /*WeaviateBatchingActionsCreate swagger:route POST /batching/actions batching actions weaviateBatchingActionsCreate
 
-Creates new Actions based on an Action template related to this key as a batch.
+Creates new Actions based on an Action template as a batch.
 
 Register new Actions in bulk. Given meta-data and schema values are validated.
 

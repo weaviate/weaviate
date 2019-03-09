@@ -41,7 +41,7 @@ func NewWeaviateActionUpdate(ctx *middleware.Context, handler WeaviateActionUpda
 
 /*WeaviateActionUpdate swagger:route PUT /actions/{actionId} actions weaviateActionUpdate
 
-Update an Action based on its UUID related to this key.
+Update an Action based on its UUID.
 
 Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 
