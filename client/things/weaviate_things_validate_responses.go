@@ -124,7 +124,7 @@ func NewWeaviateThingsValidateForbidden() *WeaviateThingsValidateForbidden {
 
 /*WeaviateThingsValidateForbidden handles this case with default header values.
 
-The used API-key has insufficient permissions.
+Insufficient permissions.
 */
 type WeaviateThingsValidateForbidden struct {
 }

@@ -46,7 +46,7 @@ func NewWeaviateThingsCreate(ctx *middleware.Context, handler WeaviateThingsCrea
 
 /*WeaviateThingsCreate swagger:route POST /things things weaviateThingsCreate
 
-Create a new Thing based on a Thing template related to this key.
+Create a new Thing based on a Thing template.
 
 Registers a new Thing. Given meta-data and schema values are validated.
 

@@ -41,7 +41,7 @@ func NewWeaviateThingHistoryGet(ctx *middleware.Context, handler WeaviateThingHi
 
 /*WeaviateThingHistoryGet swagger:route GET /things/{thingId}/history things weaviateThingHistoryGet
 
-Get a Thing's history based on its UUID related to this key.
+Get a Thing's history based on its UUID.
 
 Returns a particular Thing's history.
 
