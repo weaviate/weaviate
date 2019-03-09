@@ -97,7 +97,7 @@ func (o *WeaviateGraphqlBatchUnauthorized) WriteResponse(rw http.ResponseWriter,
 // WeaviateGraphqlBatchForbiddenCode is the HTTP code returned for type WeaviateGraphqlBatchForbidden
 const WeaviateGraphqlBatchForbiddenCode int = 403
 
-/*WeaviateGraphqlBatchForbidden The used API-key has insufficient permissions.
+/*WeaviateGraphqlBatchForbidden Insufficient permissions.
 
 swagger:response weaviateGraphqlBatchForbidden
 */

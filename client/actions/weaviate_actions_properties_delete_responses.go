@@ -124,7 +124,7 @@ func NewWeaviateActionsPropertiesDeleteForbidden() *WeaviateActionsPropertiesDel
 
 /*WeaviateActionsPropertiesDeleteForbidden handles this case with default header values.
 
-The used API-key has insufficient permissions.
+Insufficient permissions.
 */
 type WeaviateActionsPropertiesDeleteForbidden struct {
 }

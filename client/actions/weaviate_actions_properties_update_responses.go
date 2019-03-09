@@ -124,7 +124,7 @@ func NewWeaviateActionsPropertiesUpdateForbidden() *WeaviateActionsPropertiesUpd
 
 /*WeaviateActionsPropertiesUpdateForbidden handles this case with default header values.
 
-The used API-key has insufficient permissions.
+Insufficient permissions.
 */
 type WeaviateActionsPropertiesUpdateForbidden struct {
 }

@@ -94,7 +94,7 @@ func (o *WeaviateToolsMapUnauthorized) WriteResponse(rw http.ResponseWriter, pro
 // WeaviateToolsMapForbiddenCode is the HTTP code returned for type WeaviateToolsMapForbidden
 const WeaviateToolsMapForbiddenCode int = 403
 
-/*WeaviateToolsMapForbidden The used API-key has insufficient permissions.
+/*WeaviateToolsMapForbidden Insufficient permissions.
 
 swagger:response weaviateToolsMapForbidden
 */

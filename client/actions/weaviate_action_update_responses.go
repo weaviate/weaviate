@@ -139,7 +139,7 @@ func NewWeaviateActionUpdateForbidden() *WeaviateActionUpdateForbidden {
 
 /*WeaviateActionUpdateForbidden handles this case with default header values.
 
-The used API-key has insufficient permissions.
+Insufficient permissions.
 */
 type WeaviateActionUpdateForbidden struct {
 }

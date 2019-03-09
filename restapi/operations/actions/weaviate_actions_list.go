@@ -41,7 +41,7 @@ func NewWeaviateActionsList(ctx *middleware.Context, handler WeaviateActionsList
 
 /*WeaviateActionsList swagger:route GET /actions actions weaviateActionsList
 
-Get a list of Actions related to this key.
+Get a list of Actions.
 
 Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.
 
