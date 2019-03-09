@@ -2,58 +2,39 @@
 
 > How to run Weaviate with Docker-compose, Docker or stand-alone.
 
-> Note: Weaviate is currently only available as an unstable release. We hope to release a first stable version in the coming months.
-
 > Note for developers: the whole Weaviate stack needs quite some power, but it should run on a decent laptop for dev purposes.
 
 This document describes how to run Weaviate for users. If you want to run a development version of Weaviate for contributors, click [here](../contribute/running-weaviate.md). Encountering issues? See the [overview of known issues](https://github.com/creativesoftwarefdn/weaviate/issues?utf8=%E2%9C%93&q=label%3Adocker+label%3Abug+) or ask [here](https://github.com/creativesoftwarefdn/weaviate#questions).
 
 ## Run full stack with Docker-compose
 
-A complete Weaviate stack based on Janusgraph (with Elasticsearch and Cassandra) can be directly run with the Docker compose files available in this repo. This setup will also include the Weaviate Playground.
+A complete Weaviate stack based on Janusgraph (with Elasticsearch and Cassandra) can be directly run with the Docker compose files available in this repo. This setup will also include the Weaviate Playground and ideal for development purposes.
 
-#### Running the latest stable version
-
-> NOTE: We currently only have unstable versions ready for testing!
+#### Running the latest version
 
 ```sh
-# The stable version in not available yet, use the unstable version below!
-$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-stable/docker-compose.yml && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-stable/config.json && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime-stable/janusgraph.properties
+$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/docker-compose.yml && \
+  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/config.json && \
+  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/janusgraph.properties
 $ docker-compose up
 ```
 
 - Releases can be found [here](https://github.com/creativesoftwarefdn/weaviate/releases).
+- Docker tags can be found [here](https://hub.docker.com/r/creativesoftwarefdn/weaviate/tags).
 - Based on `tree/master` on Github
 - Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as an HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
 - The Weaviate Playground becomes available as an HTTP service on port 80 on `://{IP}`.
 
-#### Running the latest unstable version
-
-```sh
-$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-unstable/docker-compose.yml && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-unstable/config.json && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-unstable/janusgraph.properties
-$ docker-compose up
-```
-
-- Based on `tree/develop` on Github
-- Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
-- Weaviate becomes available as HTTP service on port 8080.
-- Weaviate becomes available as HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
-- The Weaviate Playground becomes available as HTTP service on port 80 on `://{IP}`.
-
 #### Running a specific version
 
 ```sh
-$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-stable/docker-compose.yml && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-stable/config.json && \
-  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/develop/docker-compose/runtime-stable/janusgraph.properties
+$ wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/docker-compose.yml && \
+  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/config.json && \
+  wget https://raw.githubusercontent.com/creativesoftwarefdn/weaviate/master/docker-compose/runtime/janusgraph.properties
 ```
 
-Open docker-compose.yml and replace `stable` in the image (`image: creativesoftwarefdn/weaviate:stable`) with the preferred version number.
+Open docker-compose.yml and replace `latest` in the image (`image: creativesoftwarefdn/weaviate:latest`) with the preferred version number. An overview can be found on [Dockerhub](https://hub.docker.com/r/creativesoftwarefdn/weaviate/tags).
 
 ```sh
 $ docker-compose up
@@ -66,19 +47,7 @@ $ docker-compose up
 
 Weaviate can also be run stand-alone.
 
-#### Stable
-
-> NOTE: We currently only have unstable versions ready for testing!
-
-```sh
-$ docker run creativesoftwarefdn/weaviate:stable
-```
-
-- Based on `tree/master` on Github
-- Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
-- Weaviate becomes available as HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
-
-#### Specific Stable version
+#### Specific version
 
 ```sh
 $ docker run creativesoftwarefdn/weaviate:$VERSION
@@ -87,16 +56,6 @@ $ docker run creativesoftwarefdn/weaviate:$VERSION
 - Releases can be found [here](https://github.com/creativesoftwarefdn/weaviate/releases).
 - Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
 - Weaviate becomes available as an HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
-
-#### Unstable
-
-```sh
-$ docker run creativesoftwarefdn/weaviate:unstable
-```
-
-- Based on `tree/develop` on Github
-- Runs with the latest open source Contextionary. More in-depth information about the contextionary can be found [here](../contribute/contextionary.md).
-- Weaviate becomes available as HTTP service on port 8080 on `://{IP}/weaviate/v1/{COMMAND}`.
 
 ## Running with Custom Contextionary
 
@@ -132,3 +91,7 @@ $ git clone https://github.com/creativesoftwarefdn/weaviate
 
 - You can set the environment variable `SCHEME` to override the default (`http`) E.g. `SCHEME=https docker-compose up -d`
 - You can set the environment variables `HOST` and `PORT` to override the defaults. E.g. `HOST=0.0.0.0 PORT=1337 docker-compose up -d`	
+
+## Running Kubernetes Setup
+
+_Soon online_
