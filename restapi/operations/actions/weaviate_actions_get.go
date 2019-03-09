@@ -41,7 +41,7 @@ func NewWeaviateActionsGet(ctx *middleware.Context, handler WeaviateActionsGetHa
 
 /*WeaviateActionsGet swagger:route GET /actions/{actionId} actions weaviateActionsGet
 
-Get a specific Action based on its UUID and a Thing UUID related to this key. Also available as Websocket bus.
+Get a specific Action based on its UUID and a Thing UUID. Also available as Websocket bus.
 
 Lists Actions.
 

@@ -35,37 +35,7 @@ type Client struct {
 }
 
 /*
-WeaviateThingHistoryGet gets a thing s history based on its UUID related to this key
-
-Returns a particular Thing's history.
-*/
-func (a *Client) WeaviateThingHistoryGet(params *WeaviateThingHistoryGetParams) (*WeaviateThingHistoryGetOK, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewWeaviateThingHistoryGetParams()
-	}
-
-	result, err := a.transport.Submit(&runtime.ClientOperation{
-		ID:                 "weaviate.thing.history.get",
-		Method:             "GET",
-		PathPattern:        "/things/{thingId}/history",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &WeaviateThingHistoryGetReader{formats: a.formats},
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return result.(*WeaviateThingHistoryGetOK), nil
-
-}
-
-/*
-WeaviateThingsCreate creates a new thing based on a thing template related to this key
+WeaviateThingsCreate creates a new thing based on a thing template
 
 Registers a new Thing. Given meta-data and schema values are validated.
 */
@@ -101,7 +71,7 @@ func (a *Client) WeaviateThingsCreate(params *WeaviateThingsCreateParams) (*Weav
 }
 
 /*
-WeaviateThingsDelete deletes a thing based on its UUID related to this key
+WeaviateThingsDelete deletes a thing based on its UUID
 
 Deletes a Thing from the system. All Actions pointing to this Thing, where the Thing is the object of the Action, are also being deleted.
 */
@@ -131,7 +101,7 @@ func (a *Client) WeaviateThingsDelete(params *WeaviateThingsDeleteParams) (*Weav
 }
 
 /*
-WeaviateThingsGet gets a thing based on its UUID related to this key
+WeaviateThingsGet gets a thing based on its UUID
 
 Returns a particular Thing data.
 */
@@ -161,7 +131,7 @@ func (a *Client) WeaviateThingsGet(params *WeaviateThingsGetParams) (*WeaviateTh
 }
 
 /*
-WeaviateThingsList gets a list of things related to this key
+WeaviateThingsList gets a list of things
 
 Lists all Things in reverse order of creation, owned by the user that belongs to the used token.
 */
@@ -191,7 +161,7 @@ func (a *Client) WeaviateThingsList(params *WeaviateThingsListParams) (*Weaviate
 }
 
 /*
-WeaviateThingsPatch updates a thing based on its UUID using patch semantics related to this key
+WeaviateThingsPatch updates a thing based on its UUID using patch semantics
 
 Updates a Thing's data. This method supports patch semantics. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
@@ -317,7 +287,7 @@ func (a *Client) WeaviateThingsPropertiesUpdate(params *WeaviateThingsProperties
 }
 
 /*
-WeaviateThingsUpdate updates a thing based on its UUID related to this key
+WeaviateThingsUpdate updates a thing based on its UUID
 
 Updates a Thing's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */

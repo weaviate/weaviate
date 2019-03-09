@@ -35,7 +35,7 @@ type Client struct {
 }
 
 /*
-WeaviateActionHistoryGet gets an action s history based on its UUID related to this key
+WeaviateActionHistoryGet gets an action s history based on its UUID
 
 Returns a particular Action history.
 */
@@ -65,7 +65,7 @@ func (a *Client) WeaviateActionHistoryGet(params *WeaviateActionHistoryGetParams
 }
 
 /*
-WeaviateActionUpdate updates an action based on its UUID related to this key
+WeaviateActionUpdate updates an action based on its UUID
 
 Updates an Action's data. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
@@ -131,7 +131,7 @@ func (a *Client) WeaviateActionsCreate(params *WeaviateActionsCreateParams) (*We
 }
 
 /*
-WeaviateActionsDelete deletes an action based on its UUID related to this key
+WeaviateActionsDelete deletes an action based on its UUID
 
 Deletes an Action from the system.
 */
@@ -161,7 +161,7 @@ func (a *Client) WeaviateActionsDelete(params *WeaviateActionsDeleteParams) (*We
 }
 
 /*
-WeaviateActionsGet gets a specific action based on its UUID and a thing UUID related to this key also available as websocket bus
+WeaviateActionsGet gets a specific action based on its UUID and a thing UUID also available as websocket bus
 
 Lists Actions.
 */
@@ -191,7 +191,7 @@ func (a *Client) WeaviateActionsGet(params *WeaviateActionsGetParams) (*Weaviate
 }
 
 /*
-WeaviateActionsList gets a list of actions related to this key
+WeaviateActionsList gets a list of actions
 
 Lists all Actions in reverse order of creation, owned by the user that belongs to the used token.
 */
@@ -221,7 +221,7 @@ func (a *Client) WeaviateActionsList(params *WeaviateActionsListParams) (*Weavia
 }
 
 /*
-WeaviateActionsPatch updates an action based on its UUID using patch semantics related to this key
+WeaviateActionsPatch updates an action based on its UUID using patch semantics
 
 Updates an Action. This method supports patch semantics. Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
 */
