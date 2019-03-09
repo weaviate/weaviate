@@ -809,7 +809,7 @@
     },
     "description": "Decentralised Knowledge Graph",
     "title": "Weaviate - Decentralised Knowledge Graph",
-    "version": "0.12.66"
+    "version": "0.12.67"
   },
   "parameters": {
     "CommonMaxResultsParameterQuery": {
@@ -2863,6 +2863,57 @@
           }
         },
         "summary": "Update a Thing based on its UUID.",
+        "tags": [
+          "things"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      }
+    },
+    "/things/{thingId}/history": {
+      "get": {
+        "description": "Returns a particular Thing's history.",
+        "operationId": "weaviate.thing.history.get",
+        "x-serviceIds": [
+          "weaviate.local.query"
+        ],
+        "parameters": [
+          {
+            "description": "Unique ID of the Thing.",
+            "format": "uuid",
+            "in": "path",
+            "name": "thingId",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/ThingGetHistoryResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Insufficient permissions."
+          },
+          "404": {
+            "description": "Successful query result but no resource was found."
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Not (yet) implemented."
+          }
+        },
+        "summary": "Get a Thing's history based on its UUID.",
         "tags": [
           "things"
         ],
